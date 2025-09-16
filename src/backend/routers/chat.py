@@ -298,7 +298,6 @@ _KNOWN_SERIES = {
     "Media",
     "Other",
     "PaLM",
-    "Less",
 }
 
 
@@ -338,7 +337,7 @@ def _classify_series(item: dict[str, Any]) -> list[str]:
             candidates.add("Gemini")
         if "grok" in lowered:
             candidates.add("Grok")
-        if "palm" in lowered:
+        if any(keyword in lowered for keyword in ("palm", "bison", "codey")):
             candidates.add("PaLM")
         if "nova" in lowered:
             candidates.add("Nova")
@@ -358,6 +357,8 @@ def _classify_series(item: dict[str, Any]) -> list[str]:
             candidates.add("DeepSeek")
         if "qwen 3" in lowered_name or "qwen3" in lowered_name:
             candidates.add("Qwen3")
+        if any(keyword in lowered_name for keyword in ("palm", "bison", "codey")):
+            candidates.add("PaLM")
 
     if not candidates and prefix:
         # Provide a capitalized fallback for unknown providers

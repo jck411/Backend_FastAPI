@@ -119,6 +119,24 @@ def test_models_endpoint_supports_search_query() -> None:
     assert ids == ["model-b"]
 
 
+def test_models_endpoint_classifies_palm_series() -> None:
+    payload = {
+        "data": [
+            {"id": "google/text-bison@001", "name": "Text Bison"},
+            {"id": "google/codey-codechat-bison", "name": "Codey for Bison"},
+        ]
+    }
+
+    client = make_client(payload)
+    response = client.get("/api/models")
+
+    assert response.status_code == 200
+    body = response.json()
+    series_map = {item["id"]: item.get("series", []) for item in body["data"]}
+    assert "PaLM" in series_map["google/text-bison@001"]
+    assert "PaLM" in series_map["google/codey-codechat-bison"]
+
+
 def test_models_endpoint_applies_advanced_filters() -> None:
     payload = {
         "data": [

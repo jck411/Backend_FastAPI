@@ -195,6 +195,11 @@ button:hover:not(:disabled) {
   padding: 0.85rem;
 }
 
+/* Make supported parameters card wider to accommodate 3 columns */
+.filter-card[data-filter="supported-parameters"] {
+  grid-column: span 2;
+}
+
 .filter-card h2 {
   margin: 0;
   font-size: 1rem;
@@ -205,6 +210,21 @@ button:hover:not(:disabled) {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   gap: 0.5rem;
+}
+
+/* Special styling for supported parameters to auto-fit content */
+.filter-card[data-filter="supported-parameters"] .option-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(10, auto);
+  grid-auto-flow: column;
+  gap: 0.5rem;
+  align-items: start;
+}
+
+.filter-card[data-filter="supported-parameters"] .filter-option {
+  white-space: nowrap;
+  text-align: center;
 }
 
 .option-row {

@@ -51,7 +51,9 @@ class OpenRouterClient:
             "Accept": "text/event-stream",
         }
         if self._settings.openrouter_app_url:
-            headers["HTTP-Referer"] = str(self._settings.openrouter_app_url)
+            referer = str(self._settings.openrouter_app_url)
+            headers["HTTP-Referer"] = referer
+            headers["Referer"] = referer
         if self._settings.openrouter_app_name:
             headers["X-Title"] = self._settings.openrouter_app_name
         return headers

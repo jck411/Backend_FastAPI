@@ -30,6 +30,7 @@ class Settings(BaseSettings):
             "OPENROUTER_APP_URL",
             "HTTP_REFERER",
             "http_referer",
+            "REFERER",
         ),
     )
     openrouter_app_name: Optional[str] = Field(

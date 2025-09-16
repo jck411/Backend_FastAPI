@@ -49,7 +49,6 @@ const SERIES_OPTIONS = [
   'Media',
   'Other',
   'PaLM',
-  'Less',
 ];
 
 const SUPPORTED_PARAMETER_OPTIONS = [

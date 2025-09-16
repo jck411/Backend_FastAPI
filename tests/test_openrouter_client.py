@@ -1,3 +1,5 @@
+import pytest
+
 from backend.config import Settings
 from backend.openrouter import OpenRouterClient
 
@@ -10,8 +12,14 @@ def make_client() -> OpenRouterClient:
     return OpenRouterClient(settings)
 
 
-def test_parse_event_supports_multiple_data_lines() -> None:
+def test_parse_event_supports_multiple_data_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REFERER", "https://app.example.com")
+
     client = make_client()
+
+    headers = client._headers  # type: ignore[attr-defined]
+    assert headers["HTTP-Referer"].rstrip("/") == "https://app.example.com"
+    assert headers["Referer"].rstrip("/") == "https://app.example.com"
 
     event = client._parse_event(  # type: ignore[attr-defined]
         [

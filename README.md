@@ -1,0 +1,95 @@
+# OpenRouter Chat Backend
+
+FastAPI backend that proxies streaming chat completions from OpenRouter and exposes a Model Context Protocol (MCP) server. All chat responses are streamed over Server-Sent Events (SSE), making it simple to drive a reactive frontend.
+
+## Prerequisites
+
+- Python 3.13+
+- [`uv`](https://github.com/astral-sh/uv) for dependency and task management
+- `.env` file populated with at least `OPENROUTER_API_KEY` (see `.env` in the repository root for an example)
+
+## Install dependencies
+
+```bash
+uv sync
+```
+
+`uv` will create and reuse a virtual environment under `.venv`.
+
+## Run the FastAPI server
+
+Recommended (reload, dev):
+
+```bash
+uv run uvicorn backend.app:app --reload --app-dir src
+```
+
+Alternate (without reload):
+
+```bash
+uv run python -m uvicorn backend.app:app --app-dir src
+```
+
+If you prefer the FastAPI CLI, ensure `fastapi[standard]` is installed (included in this project) and run:
+
+```bash
+uv run fastapi dev backend.app:app --app-dir src
+```
+
+You can also use the CLI entrypoint:
+
+```bash
+uv run backend
+```
+
+Then open `http://localhost:8000/` for the lightweight web UI:
+
+- Pick any model exposed by OpenRouter (including `openrouter/auto`).
+- Send messages and watch the assistant respond in real-time via SSE.
+
+The API also remains available directly for other clients:
+
+- `GET /health` — quick readiness probe that also reports the configured default model.
+- `POST /api/chat/stream` — accepts an OpenRouter-compatible chat body and streams completions via SSE.
+- `GET /api/models` — returns the upstream OpenRouter model catalog so the frontend can offer a picker.
+
+### Streaming example
+
+```bash
+curl -N \
+  -H "Content-Type: application/json" \
+  -X POST \
+  -d '{
+        "model": "openrouter/auto",
+        "messages": [{"role": "user", "content": "Hello from FastAPI!"}]
+      }' \
+  http://localhost:8000/api/chat/stream
+```
+
+## Run the MCP server
+
+The MCP server exposes a `chat.completions` tool that mirrors the OpenRouter request schema and returns the final assistant message (including any streamed tool call arguments).
+
+```bash
+uv run python -m backend.mcp_server
+```
+
+Note: This repo uses a `src/` layout. When using uvicorn or the FastAPI CLI, pass `--app-dir src`. If you run Python directly, ensure `PYTHONPATH` includes `src` (uv/pytest already do):
+
+```bash
+PYTHONPATH=src uv run python -c "import backend, sys; print('ok')"
+```
+
+Factory-style alternative (optional):
+
+```bash
+uv run uvicorn backend.app:create_app --reload --factory --app-dir src
+```
+
+## Testing
+
+```bash
+uv run pytest
+```
+
+The test suite covers the SSE parser and MCP tool-call aggregation helpers.

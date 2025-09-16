@@ -1,6 +1,7 @@
 """Application configuration using environment variables."""
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr
@@ -50,6 +51,10 @@ class Settings(BaseSettings):
         default=120.0,
         validation_alias=AliasChoices("OPENROUTER_TIMEOUT", "timeout"),
         ge=1,
+    )
+    chat_database_path: Path = Field(
+        default_factory=lambda: Path("data/chat_sessions.db"),
+        validation_alias=AliasChoices("CHAT_DATABASE_PATH", "chat_db"),
     )
 
 

@@ -6,10 +6,11 @@ import asyncio
 import json
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sse_starlette.sse import EventSourceResponse
 
 from ..config import Settings, get_settings
+from ..chat import ChatOrchestrator
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..schemas.chat import ChatCompletionRequest
 
@@ -25,13 +26,15 @@ def get_openrouter_client(
 @router.post("/chat/stream", response_model=None, status_code=200)
 async def stream_chat_completions(
     payload: ChatCompletionRequest,
-    client: OpenRouterClient = Depends(get_openrouter_client),
+    request: Request,
 ) -> EventSourceResponse:
     """Stream chat completions from OpenRouter through Server-Sent Events."""
 
+    orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+
     async def event_publisher():
         try:
-            async for event in client.stream_chat(payload):
+            async for event in orchestrator.process_stream(payload):
                 yield event
         except OpenRouterError as exc:
             detail = (
@@ -46,6 +49,18 @@ async def stream_chat_completions(
             yield {"event": "message", "data": "[DONE]"}
 
     return EventSourceResponse(event_publisher())
+
+
+@router.delete("/chat/session/{session_id}", status_code=204)
+async def clear_chat_session(
+    session_id: str,
+    request: Request,
+) -> Response:
+    """Clear stored conversation state for a session."""
+
+    orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+    await orchestrator.clear_session(session_id)
+    return Response(status_code=204)
 
 
 @router.get("/chat/test-stream", response_model=None, status_code=200)
@@ -65,14 +80,680 @@ async def test_stream() -> EventSourceResponse:
 
 @router.get("/models", status_code=200)
 async def list_models(
+    tools_only: bool = Query(
+        False,
+        alias="tools_only",
+        description="Return only models that allow tool use.",
+    ),
+    search: str | None = Query(
+        None,
+        alias="search",
+        description="Case-insensitive substring search applied across all model fields.",
+    ),
+    filters: str | None = Query(
+        None,
+        alias="filters",
+        description=(
+            "JSON-encoded mapping of dotted property paths to filter criteria. "
+            "Example: {\"pricing.prompt\": {\"max\": 0.002}}"
+        ),
+    ),
     client: OpenRouterClient = Depends(get_openrouter_client),
 ) -> dict[str, Any]:
     """Expose the available OpenRouter models to the frontend."""
 
     try:
-        return await client.list_models()
+        payload = await client.list_models()
     except OpenRouterError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    annotated = _annotate_and_enrich_models(payload)
+
+    parsed_filters = _parse_filter_query(filters)
+
+    data = annotated.get("data")
+    if not isinstance(data, list):
+        return annotated
+
+    base_models = _apply_tools_filter(data, tools_only)
+    metadata = _build_model_metadata(base_models)
+    facets = _build_faceted_metadata(base_models)
+
+    filtered_models = _apply_search_and_filters(
+        base_models,
+        search=search,
+        filters=parsed_filters,
+    )
+
+    response_payload = dict(annotated)
+    response_payload["data"] = filtered_models
+    response_payload["metadata"] = {
+        "total": len(data),
+        "base_count": len(base_models),
+        "count": len(filtered_models),
+        "properties": metadata,
+        "facets": facets,
+    }
+    return response_payload
+
+
+def _annotate_and_enrich_models(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return payload
+
+    filtered_payload = dict(payload)
+    filtered_payload["data"] = []
+
+    for item in data:
+        if isinstance(item, dict):
+            annotated = _enrich_model(item)
+            filtered_payload["data"].append(annotated)
+        else:
+            filtered_payload["data"].append(item)
+
+    return filtered_payload
+
+
+def _filter_for_tools(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return payload
+
+    filtered_payload = dict(payload)
+    filtered_payload["data"] = [
+        item
+        for item in data
+        if not isinstance(item, dict) or item.get("supports_tools") is True
+    ]
+    return filtered_payload
+
+
+def _apply_tools_filter(models: list[Any], tools_only: bool) -> list[Any]:
+    if not tools_only:
+        return [dict(item) if isinstance(item, dict) else item for item in models]
+
+    filtered: list[Any] = []
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        if item.get("supports_tools") is True:
+            filtered.append(dict(item))
+    return filtered
+
+
+def _model_supports_tools(model: dict[str, Any]) -> bool:
+    capabilities = model.get("capabilities")
+    if isinstance(capabilities, dict):
+        for key in ("tools", "functions", "function_calling", "tool_choice", "tool_calls"):
+            if _is_truthy(capabilities.get(key)):
+                return True
+
+    for key in ("tools", "functions", "supports_tools", "supports_functions"):
+        if _is_truthy(model.get(key)):
+            return True
+
+    supported_parameters = model.get("supported_parameters")
+    if isinstance(supported_parameters, (list, tuple, set)):
+        normalized = {str(param).strip().lower() for param in supported_parameters}
+        for key in ("tools", "tool_choice", "parallel_tool_calls", "functions", "function_calling"):
+            if key in normalized:
+                return True
+
+    return False
+
+
+def _enrich_model(item: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(item)
+
+    supports_tools = _model_supports_tools(item)
+    enriched["supports_tools"] = supports_tools
+
+    architecture = item.get("architecture")
+    input_modalities = []
+    output_modalities = []
+    if isinstance(architecture, dict):
+        if isinstance(architecture.get("input_modalities"), list):
+            input_modalities = [str(mod).lower() for mod in architecture["input_modalities"] if mod]
+        if isinstance(architecture.get("output_modalities"), list):
+            output_modalities = [str(mod).lower() for mod in architecture["output_modalities"] if mod]
+
+    enriched["input_modalities"] = sorted({mod for mod in input_modalities})
+    enriched["output_modalities"] = sorted({mod for mod in output_modalities})
+
+    context_length = item.get("context_length")
+    if isinstance(context_length, (int, float)):
+        enriched["context_length"] = int(context_length)
+
+    prompt_price = _extract_price(item)
+    if prompt_price is not None:
+        enriched["prompt_price"] = prompt_price
+        enriched["prompt_price_per_million"] = prompt_price * 1_000_000
+
+    supported_parameters = item.get("supported_parameters")
+    if isinstance(supported_parameters, list):
+        normalized = [str(param).strip() for param in supported_parameters if str(param).strip()]
+        enriched["supported_parameters"] = normalized
+        enriched["supported_parameters_normalized"] = sorted({param.lower() for param in normalized})
+
+    enriched["series"] = _classify_series(item)
+    enriched["provider_prefix"] = _provider_prefix(item)
+
+    return enriched
+
+
+def _extract_price(item: dict[str, Any]) -> float | None:
+    pricing = item.get("pricing")
+    if not isinstance(pricing, dict):
+        return None
+    prompt_price = pricing.get("prompt")
+    return _to_number(prompt_price)
+
+
+def _provider_prefix(item: dict[str, Any]) -> str | None:
+    ident = item.get("id")
+    if not isinstance(ident, str):
+        return None
+    if "/" in ident:
+        return ident.split("/", 1)[0]
+    return ident
+
+
+_SERIES_MAP: dict[str, str] = {
+    "openai": "GPT",
+    "anthropic": "Claude",
+    "google": "Gemini",
+    "x-ai": "Grok",
+    "cohere": "Cohere",
+    "amazon": "Nova",
+    "perplexity": "Router",
+    "openrouter": "Router",
+    "mistralai": "Mistral",
+    "deepseek": "DeepSeek",
+    "yi": "Yi",
+    "01-ai": "Yi",
+    "meta-llama": "Llama",
+    "microsoft": "Other",
+    "nvidia": "Other",
+}
+
+_KNOWN_SERIES = {
+    "GPT",
+    "Claude",
+    "Gemini",
+    "Grok",
+    "Cohere",
+    "Nova",
+    "Qwen",
+    "Yi",
+    "DeepSeek",
+    "Mistral",
+    "Llama",
+    "Llama2",
+    "Llama3",
+    "Llama4",
+    "RWKV",
+    "Qwen3",
+    "Router",
+    "Media",
+    "Other",
+    "PaLM",
+    "Less",
+}
+
+
+def _classify_series(item: dict[str, Any]) -> list[str]:
+    ident = item.get("id")
+    name = item.get("name")
+    candidates: set[str] = set()
+    prefix = _provider_prefix(item)
+
+    if prefix:
+        mapped = _SERIES_MAP.get(prefix.lower())
+        if mapped is not None:
+            candidates.add(mapped)
+
+    if isinstance(ident, str):
+        lowered = ident.lower()
+        if "llama-4" in lowered:
+            candidates.add("Llama4")
+        elif "llama-3" in lowered:
+            candidates.add("Llama3")
+        elif "llama-2" in lowered or "llama2" in lowered:
+            candidates.add("Llama2")
+
+        if "qwen3" in lowered or "qwen-3" in lowered:
+            candidates.add("Qwen3")
+        if lowered.startswith("qwen"):
+            candidates.add("Qwen")
+        if lowered.startswith("deepseek"):
+            candidates.add("DeepSeek")
+        if lowered.startswith("yi") or "-yi" in lowered:
+            candidates.add("Yi")
+        if lowered.startswith("gpt") or "gpt" in lowered:
+            candidates.add("GPT")
+        if "claude" in lowered:
+            candidates.add("Claude")
+        if "gemini" in lowered:
+            candidates.add("Gemini")
+        if "grok" in lowered:
+            candidates.add("Grok")
+        if "palm" in lowered:
+            candidates.add("PaLM")
+        if "nova" in lowered:
+            candidates.add("Nova")
+        if "rwkv" in lowered:
+            candidates.add("RWKV")
+
+    if isinstance(name, str):
+        lowered_name = name.lower()
+        if "llama" in lowered_name:
+            if "4" in lowered_name:
+                candidates.add("Llama4")
+            elif "3" in lowered_name:
+                candidates.add("Llama3")
+            elif "2" in lowered_name:
+                candidates.add("Llama2")
+        if "deepseek" in lowered_name:
+            candidates.add("DeepSeek")
+        if "qwen 3" in lowered_name or "qwen3" in lowered_name:
+            candidates.add("Qwen3")
+
+    if not candidates and prefix:
+        # Provide a capitalized fallback for unknown providers
+        candidates.add(prefix.replace("-", " ").title())
+
+    if not candidates or not (candidates & _KNOWN_SERIES):
+        candidates.add("Other")
+
+    return sorted(candidates)
+
+
+def _is_truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        return lowered not in {"", "false", "0", "none", "null", "no", "disabled"}
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
+def _parse_filter_query(raw_filters: str | None) -> dict[str, Any]:
+    if raw_filters is None or raw_filters == "":
+        return {}
+
+    try:
+        parsed = json.loads(raw_filters)
+    except json.JSONDecodeError as exc:  # pragma: no cover - defensive
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid filters parameter: {exc.msg}",
+        ) from exc
+
+    if not isinstance(parsed, dict):  # pragma: no cover - defensive
+        raise HTTPException(
+            status_code=400,
+            detail="Filters parameter must be a JSON object.",
+        )
+
+    return parsed
+
+
+def _apply_search_and_filters(
+    models: list[Any],
+    *,
+    search: str | None,
+    filters: dict[str, Any],
+) -> list[Any]:
+    if not models:
+        return []
+
+    normalized_query = _normalize_search_query(search)
+    filtered: list[Any] = []
+
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+
+        if normalized_query and not _matches_search(item, normalized_query):
+            continue
+
+        if filters and not _matches_filters(item, filters):
+            continue
+
+        filtered.append(dict(item))
+
+    return filtered
+
+
+def _normalize_search_query(query: str | None) -> list[str]:
+    if not query:
+        return []
+    tokens = [token.lower() for token in query.split() if token.strip()]
+    return tokens
+
+
+def _matches_search(model: dict[str, Any], tokens: list[str]) -> bool:
+    if not tokens:
+        return True
+
+    haystack = list(_iterate_values(model))
+    if not haystack:
+        return False
+
+    for token in tokens:
+        token_found = any(token in value for value in haystack)
+        if not token_found:
+            return False
+    return True
+
+
+def _iterate_values(value: Any) -> list[str]:
+    results: list[str] = []
+
+    def _walk(node: Any) -> None:
+        if node is None:
+            return
+        if isinstance(node, dict):
+            for sub in node.values():
+                _walk(sub)
+            return
+        if isinstance(node, list):
+            for sub in node:
+                _walk(sub)
+            return
+        text = str(node).strip().lower()
+        if text:
+            results.append(text)
+
+    _walk(value)
+    return results
+
+
+def _matches_filters(model: dict[str, Any], filters: dict[str, Any]) -> bool:
+    for path, raw_criterion in filters.items():
+        path_parts = [part for part in str(path).split(".") if part]
+        values = _resolve_path(model, path_parts)
+        if not _match_values(values, raw_criterion):
+            return False
+    return True
+
+
+def _resolve_path(subject: Any, parts: list[str]) -> list[Any]:
+    if not parts:
+        if isinstance(subject, list):
+            return [item for item in subject]
+        return [subject]
+
+    head, *rest = parts
+    resolved: list[Any] = []
+
+    if isinstance(subject, dict):
+        if head in subject:
+            resolved.extend(_resolve_path(subject[head], rest))
+        return resolved
+
+    if isinstance(subject, list):
+        for element in subject:
+            resolved.extend(_resolve_path(element, parts))
+        return resolved
+
+    return []
+
+
+def _match_values(values: list[Any], criterion: Any) -> bool:
+    if not values:
+        values = []
+
+    if isinstance(criterion, dict):
+        return _match_mapping(values, criterion)
+
+    if isinstance(criterion, list):
+        allowed = {_normalize_value(item) for item in criterion}
+        return any(_normalize_value(value) in allowed for value in values)
+
+    expected = _normalize_value(criterion)
+    return any(_normalize_value(value) == expected for value in values)
+
+
+def _match_mapping(values: list[Any], mapping: dict[str, Any]) -> bool:
+    normalized_values = [_normalize_value(value) for value in values]
+    numeric_values = [_to_number(value) for value in values if _to_number(value) is not None]
+    text_values = [str(value).lower() for value in values if value is not None]
+
+    for key, expected in mapping.items():
+        if key in {"eq", "equals"}:
+            needle = _normalize_value(expected)
+            if not any(value == needle for value in normalized_values):
+                return False
+        elif key in {"neq", "not"}:
+            needle = _normalize_value(expected)
+            if any(value == needle for value in normalized_values):
+                return False
+        elif key in {"contains", "substring"}:
+            if expected is None:
+                return False
+            needle = str(expected).lower()
+            if not any(needle in value for value in text_values):
+                return False
+        elif key in {"in", "one_of"}:
+            if not isinstance(expected, list):
+                return False
+            allowed = {_normalize_value(item) for item in expected}
+            if not any(value in allowed for value in normalized_values):
+                return False
+        elif key in {"min", "gte"}:
+            threshold = _to_number(expected)
+            if threshold is None:
+                return False
+            if not numeric_values or not any(value is not None and value >= threshold for value in numeric_values):
+                return False
+        elif key in {"max", "lte"}:
+            threshold = _to_number(expected)
+            if threshold is None:
+                return False
+            if not numeric_values or not any(value is not None and value <= threshold for value in numeric_values):
+                return False
+        elif key == "exists":
+            flag = bool(expected)
+            if flag and not values:
+                return False
+            if not flag and values:
+                return False
+        else:
+            return False
+
+    return True
+
+
+def _normalize_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.strip().lower()
+    return value
+
+
+def _to_number(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _build_model_metadata(models: list[Any]) -> list[dict[str, Any]]:
+    accumulator: dict[str, dict[str, Any]] = {}
+
+    for item in models:
+        if isinstance(item, dict):
+            _collect_metadata(item, (), accumulator)
+
+    entries: list[dict[str, Any]] = []
+    for path, info in sorted(accumulator.items()):
+        entry: dict[str, Any] = {
+            "path": path,
+            "count": info["count"],
+            "types": sorted(info["types"], key=lambda value: str(value)),
+        }
+
+        examples = _sorted_examples(info["examples"])
+        if examples:
+            entry["examples"] = examples[:5]
+
+        boolean_values = sorted(info["boolean_values"])
+        if boolean_values:
+            entry["boolean_values"] = boolean_values
+
+        if info.get("min") is not None:
+            entry["min"] = info["min"]
+        if info.get("max") is not None:
+            entry["max"] = info["max"]
+
+        if info["item_types"]:
+            entry["item_types"] = sorted(info["item_types"], key=lambda value: str(value))
+
+        entries.append(entry)
+
+    return entries
+
+
+def _build_faceted_metadata(models: list[Any]) -> dict[str, Any]:
+    facets: dict[str, Any] = {
+        "input_modalities": set(),
+        "output_modalities": set(),
+        "supported_parameters": set(),
+        "series": set(),
+    }
+    min_context: int | None = None
+    max_context: int | None = None
+    min_price: float | None = None
+    max_price: float | None = None
+
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+
+        for value in item.get("input_modalities", []):
+            facets["input_modalities"].add(str(value))
+        for value in item.get("output_modalities", []):
+            facets["output_modalities"].add(str(value))
+        for value in item.get("supported_parameters_normalized", []):
+            facets["supported_parameters"].add(str(value))
+        for value in item.get("series", []):
+            facets["series"].add(str(value))
+
+        context_length = item.get("context_length")
+        if isinstance(context_length, int):
+            min_context = context_length if min_context is None else min(min_context, context_length)
+            max_context = context_length if max_context is None else max(max_context, context_length)
+
+        price = item.get("prompt_price_per_million")
+        if isinstance(price, (int, float)):
+            min_price = price if min_price is None else min(min_price, price)
+            max_price = price if max_price is None else max(max_price, price)
+
+    return {
+        "input_modalities": sorted(facets["input_modalities"]),
+        "output_modalities": sorted(facets["output_modalities"]),
+        "supported_parameters": sorted(facets["supported_parameters"]),
+        "series": sorted(facets["series"]),
+        "context_length": {
+            "min": min_context,
+            "max": max_context,
+        },
+        "prompt_price_per_million": {
+            "min": min_price,
+            "max": max_price,
+        },
+    }
+
+
+def _collect_metadata(
+    value: Any,
+    path: tuple[str, ...],
+    accumulator: dict[str, dict[str, Any]],
+) -> None:
+    if not path:
+        if isinstance(value, dict):
+            for key, sub_value in value.items():
+                _collect_metadata(sub_value, (str(key),), accumulator)
+        return
+
+    key = ".".join(path)
+    entry = accumulator.setdefault(
+        key,
+        {
+            "count": 0,
+            "types": set(),
+            "examples": set(),
+            "boolean_values": set(),
+            "min": None,
+            "max": None,
+            "item_types": set(),
+        },
+    )
+
+    entry["count"] += 1
+    kind = _value_kind(value)
+    entry["types"].add(kind)
+
+    if kind == "boolean":
+        entry["boolean_values"].add(bool(value))
+    elif kind == "number":
+        number = float(value)
+        entry["examples"].add(number)
+        entry["min"] = number if entry["min"] is None else min(entry["min"], number)
+        entry["max"] = number if entry["max"] is None else max(entry["max"], number)
+    elif kind == "string":
+        entry["examples"].add(str(value))
+    elif kind == "array":
+        entry["item_types"].update(_value_kind(item) for item in value)
+    elif kind == "object":
+        entry["examples"].add(json.dumps(value, sort_keys=True))
+
+    if isinstance(value, dict):
+        for key_name, sub_value in value.items():
+            _collect_metadata(sub_value, (*path, str(key_name)), accumulator)
+    elif isinstance(value, list):
+        for sub_value in value:
+            _collect_metadata(sub_value, path, accumulator)
+
+
+def _sorted_examples(examples: set[Any]) -> list[Any]:
+    def _key(value: Any) -> tuple[int, str]:
+        if isinstance(value, (int, float)):
+            return (0, f"{float(value):.12g}")
+        if isinstance(value, bool):
+            return (1, str(value).lower())
+        return (2, str(value))
+
+    return sorted(examples, key=_key)
+
+
+def _value_kind(value: Any) -> str:
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if value is None:
+        return "null"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return "string"
 
 
 __all__ = ["router"]

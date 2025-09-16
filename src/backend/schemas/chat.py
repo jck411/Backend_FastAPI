@@ -22,6 +22,7 @@ class ChatCompletionRequest(BaseModel):
     """Incoming chat completion request payload."""
 
     model: Optional[str] = None
+    session_id: Optional[str] = Field(default=None, alias="session_id")
     messages: List[ChatMessage]
     temperature: Optional[float] = None
     top_p: Optional[float] = None
@@ -43,7 +44,7 @@ class ChatCompletionRequest(BaseModel):
     def to_openrouter_payload(self, default_model: str) -> Dict[str, Any]:
         """Serialize the request for OpenRouter, enforcing defaults."""
 
-        payload = self.model_dump(by_alias=True, exclude_none=True)
+        payload = self.model_dump(by_alias=True, exclude_none=True, exclude={"session_id"})
         payload.setdefault("model", default_model)
         payload["stream"] = True
         return payload

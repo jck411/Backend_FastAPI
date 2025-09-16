@@ -68,6 +68,14 @@ class OpenRouterClient:
         """Stream chat completions back as SSE payload dictionaries."""
 
         payload = request.to_openrouter_payload(self._settings.default_model)
+        async for event in self.stream_chat_raw(payload):
+            yield event
+
+    async def stream_chat_raw(
+        self, payload: Dict[str, Any]
+    ) -> AsyncGenerator[Dict[str, Optional[str]], None]:
+        """Low-level streaming helper accepting a prebuilt payload."""
+
         url = f"{self._base_url}/chat/completions"
 
         async with httpx.AsyncClient(timeout=self._settings.request_timeout) as client:

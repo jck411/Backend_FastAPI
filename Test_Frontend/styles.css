@@ -19,6 +19,22 @@ header {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
 }
 
+.toolbar {
+  margin-top: 0.75rem;
+  display: flex;
+  gap: 1rem;
+}
+
+.toolbar a {
+  color: #93c5fd;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.toolbar a:hover {
+  text-decoration: underline;
+}
+
 h1 {
   margin: 0;
   font-size: 1.75rem;
@@ -40,14 +56,75 @@ main {
   margin: 0 auto;
 }
 
+.settings-page main {
+  max-width: 1200px;
+}
+
 .controls {
   display: flex;
   gap: 0.75rem;
   align-items: center;
+  position: relative;
+  z-index: 1000;
+  /* ensure above any content panes */
+  pointer-events: auto;
+}
+
+/* Ensure interactive elements inside controls can receive events even if an ancestor accidentally disables them */
+.controls * {
+  pointer-events: auto;
+}
+
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: #d1d5db;
+  cursor: pointer;
+  user-select: none;
+}
+
+.filter-toggle.is-disabled {
+  color: #6b7280;
+}
+
+/* Show not-allowed cursor only when the checkbox itself is disabled */
+.filter-toggle:has(input:disabled) {
+  cursor: not-allowed;
+}
+
+.filter-toggle input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.filter-toggle.is-disabled input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
+.filter-toggle span {
+  color: inherit;
+}
+
+.filter-toggle input[type="checkbox"]:disabled+span {
+  color: #6b7280;
+  cursor: not-allowed;
 }
 
 #model-select {
   flex: 1;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid #374151;
+  background: #111827;
+  color: inherit;
+}
+
+/* Match styling for the filter select */
+#model-filter {
   padding: 0.5rem;
   border-radius: 0.5rem;
   border: 1px solid #374151;
@@ -76,6 +153,308 @@ button:hover:not(:disabled) {
   background: #1d4ed8;
 }
 
+.discovery-intro,
+.filters,
+.results {
+  background: #0b1120;
+  border: 1px solid #1f2937;
+  border-radius: 1rem;
+  padding: 1.25rem;
+  display: grid;
+  gap: 1rem;
+}
+
+.field-label {
+  font-size: 0.9rem;
+  color: #9ca3af;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.75rem;
+  border-radius: 0.75rem;
+  border: 1px solid #374151;
+  background: #111827;
+  color: inherit;
+  font-size: 1rem;
+}
+
+.filters {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.filter-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: #111827;
+  border: 1px solid #1f2937;
+  border-radius: 0.75rem;
+  padding: 0.85rem;
+}
+
+.filter-card h2 {
+  margin: 0;
+  font-size: 1rem;
+  color: #bfdbfe;
+}
+
+.option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 0.5rem;
+}
+
+.option-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.filter-option {
+  border: 1px solid #1f2937;
+  background: rgba(37, 99, 235, 0.1);
+  color: #dbeafe;
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border 0.2s ease;
+}
+
+.filter-option:hover {
+  background: rgba(59, 130, 246, 0.35);
+}
+
+.filter-option.is-active {
+  background: #2563eb;
+  border-color: #3b82f6;
+  color: #f8fafc;
+}
+
+.section-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.section-header h2 {
+  margin: 0;
+}
+
+.result-summary {
+  margin: 0.25rem 0 0;
+  color: #9ca3af;
+}
+
+.ghost-button {
+  border: 1px solid #1f2937;
+  background: transparent;
+  color: #bfdbfe;
+  padding: 0.5rem 0.9rem;
+  border-radius: 0.75rem;
+  cursor: pointer;
+}
+
+.ghost-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+}
+
+.model-card {
+  background: #111827;
+  border: 1px solid #1f2937;
+  border-radius: 0.9rem;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.model-card h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #f9fafb;
+}
+
+.model-id {
+  margin: 0.25rem 0 0;
+  color: #9ca3af;
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+
+.model-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.model-meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.model-meta dt {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  text-transform: uppercase;
+}
+
+.model-meta dd {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.model-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.tag {
+  background: rgba(37, 99, 235, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: 999px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+  color: #cbd5f5;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  color: #9ca3af;
+  margin: 1rem 0;
+}
+
+/* Range slider styling to match OpenRouter exactly */
+.range-control {
+  display: grid;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.range-row {
+  display: grid;
+  grid-template-columns: 1fr max-content;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.range-output {
+  color: #d1d5db;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.875rem;
+  font-weight: 500;
+  min-width: 80px;
+  text-align: right;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: #374151;
+  border-radius: 3px;
+  outline: none;
+  border: none;
+  position: relative;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f8fafc;
+  border: 2px solid #2563eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #f8fafc;
+  border: 2px solid #2563eb;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  border: none;
+}
+
+input[type="range"]:focus-visible::-webkit-slider-thumb,
+input[type="range"]:hover::-webkit-slider-thumb {
+  border-color: #3b82f6;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+input[type="range"]::-moz-range-track {
+  background: transparent;
+  border: none;
+  height: 6px;
+}
+
+/* Slider tick marks and labels - OpenRouter style */
+.range-ticks {
+  position: relative;
+  height: 1.5rem;
+  margin-top: 0.25rem;
+  padding: 0 8px;
+  /* Account for thumb radius */
+}
+
+.range-tick {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  width: 0;
+  height: 100%;
+}
+
+.range-tick::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1px;
+  height: 8px;
+  background: #6b7280;
+  top: 0;
+}
+
+.range-tick-label {
+  position: absolute;
+  top: 10px;
+  transform: translateX(-50%);
+  font-size: 0.75rem;
+  color: #9ca3af;
+  white-space: nowrap;
+  font-weight: 500;
+  letter-spacing: 0.025em;
+}
+
+.range-presets {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+
 #chat-log {
   flex: 1;
   display: flex;
@@ -102,11 +481,20 @@ button:hover:not(:disabled) {
   border-color: rgba(16, 185, 129, 0.3);
 }
 
+.message.tool {
+  background: rgba(245, 158, 11, 0.12);
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
 .message .meta {
   font-size: 0.85rem;
   color: #9ca3af;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.message.tool .meta {
+  color: #f59e0b;
 }
 
 .message .content {
@@ -166,11 +554,23 @@ textarea:focus {
     align-items: stretch;
   }
 
+  .filter-toggle {
+    order: 3;
+  }
+
   #model-select {
     flex: 1 1 100%;
   }
 
   #chat-log {
     max-height: 50vh;
+  }
+
+  .filter-row {
+    align-items: stretch;
+  }
+
+  .filters {
+    grid-template-columns: 1fr;
   }
 }

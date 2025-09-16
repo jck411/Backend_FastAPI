@@ -1,49 +1,55 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OpenRouter Chat</title>
-    <link rel="stylesheet" href="/static/styles.css" />
-  </head>
-  <body>
-    <header>
-      <h1>OpenRouter Chat</h1>
-      <p class="subtitle">Streamed completions from any OpenRouter model.</p>
-    </header>
 
-    <main>
-      <section class="controls">
-        <label for="model-select">Model</label>
-        <select id="model-select" autocomplete="off">
-          <option value="openrouter/auto">Loading models…</option>
-        </select>
-        <button id="clear-chat" type="button">Clear chat</button>
-      </section>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenRouter Chat</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
 
-      <section id="chat-log" aria-live="polite"></section>
+<body>
+  <header>
+    <h1>OpenRouter Chat</h1>
+    <p class="subtitle">Streamed completions from any OpenRouter model.</p>
+    <nav class="toolbar" aria-label="Global">
+      <a href="/settings">Model explorer</a>
+    </nav>
+  </header>
 
-      <form id="chat-form">
-        <label class="visually-hidden" for="message-input">Message</label>
-        <textarea
-          id="message-input"
-          placeholder="Send a message to the selected model…"
-          rows="3"
-          required
-        ></textarea>
-        <div class="actions">
-          <button id="send-button" type="submit">Send</button>
-        </div>
-      </form>
-    </main>
+  <main>
+    <section class="controls">
+      <label for="model-select">Model</label>
+      <select id="model-select" autocomplete="off">
+        <option value="openrouter/auto">Loading models…</option>
+      </select>
+      <label for="model-filter">Filter</label>
+      <select id="model-filter" autocomplete="off">
+        <option value="all" selected>All models</option>
+        <option value="tools">Tool support only</option>
+      </select>
+      <button id="clear-chat" type="button">Clear chat</button>
+    </section>
 
-    <template id="message-template">
-      <article class="message">
-        <div class="meta"></div>
-        <div class="content"></div>
-      </article>
-    </template>
+    <section id="chat-log" aria-live="polite"></section>
 
-    <script src="/static/main.js" type="module"></script>
-  </body>
+    <form id="chat-form">
+      <label class="visually-hidden" for="message-input">Message</label>
+      <textarea id="message-input" placeholder="Send a message to the selected model…" rows="3" required></textarea>
+      <div class="actions">
+        <button id="send-button" type="submit">Send</button>
+      </div>
+    </form>
+  </main>
+
+  <template id="message-template">
+    <article class="message">
+      <div class="meta"></div>
+      <div class="content"></div>
+    </article>
+  </template>
+
+  <script src="/static/main.js" type="module"></script>
+</body>
+
 </html>

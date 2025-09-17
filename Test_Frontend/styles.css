@@ -212,6 +212,12 @@ main {
   overflow-y: auto;
 }
 
+.modal__dialog > .metadata-card {
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
 .modal__body {
   display: grid;
   gap: 1.5rem;
@@ -259,6 +265,51 @@ main {
 
 body.modal-open {
   overflow: hidden;
+}
+
+.metadata-card {
+  gap: 1rem;
+}
+
+.metadata-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.metadata-section-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #d1d5db;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.metadata-section-title:first-child {
+  margin-top: 0;
+}
+
+.metadata-row {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) 1fr;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+
+.metadata-row__label {
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9ca3af;
+}
+
+.metadata-row__value {
+  font-size: 0.95rem;
+  color: #f3f4f6;
+  word-break: break-word;
+}
+
+.metadata-empty {
+  font-size: 0.9rem;
+  color: #9ca3af;
 }
 
 .controls {
@@ -733,8 +784,14 @@ input[type="range"]::-moz-range-track {
 }
 
 .message .meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.85rem;
   color: #9ca3af;
+}
+
+.message .meta__label {
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -743,9 +800,33 @@ input[type="range"]::-moz-range-track {
   color: #f59e0b;
 }
 
+.message.tool .meta__label {
+  color: #f59e0b;
+}
+
 .message .content {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.metadata-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 0.75rem;
+  color: #93c5fd;
+  cursor: pointer;
+  text-transform: none;
+}
+
+.metadata-button:hover,
+.metadata-button:focus {
+  text-decoration: underline;
+}
+
+.metadata-button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
 }
 
 #chat-form {

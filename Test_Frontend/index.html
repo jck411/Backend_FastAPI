@@ -188,10 +188,35 @@
 
   <template id="message-template">
     <article class="message">
-      <div class="meta"></div>
+      <div class="meta">
+        <span class="meta__label"></span>
+        <button type="button" class="metadata-button" hidden>View metadata</button>
+      </div>
       <div class="content"></div>
     </article>
   </template>
+
+  <div id="message-metadata-modal" class="modal" aria-hidden="true">
+    <div class="modal__backdrop" id="message-metadata-backdrop" data-close-metadata></div>
+    <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="message-metadata-title">
+      <div class="settings-card metadata-card">
+        <header class="section-header modal__header">
+          <div>
+            <h2 id="message-metadata-title">Response Metadata</h2>
+            <p class="section-subtitle">Routing details, usage, and finish reason for the last reply.</p>
+          </div>
+          <div class="modal__header-actions">
+            <button type="button" id="close-message-metadata" class="icon-button" aria-label="Close metadata details" data-close-metadata>
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+        </header>
+        <div class="modal__body">
+          <div id="message-metadata-content" class="metadata-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script src="/static/main.js" type="module"></script>
 </body>

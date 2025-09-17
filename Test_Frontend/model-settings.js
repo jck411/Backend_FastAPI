@@ -101,7 +101,7 @@ export function createModelSettingsController({
         throw new Error(text || `Request failed (${response.status})`);
       }
       const data = await response.json();
-      populateForm(data);
+      await populateForm(data);
       setModalStatus('', null);
     } catch (error) {
       console.error('Unable to load model settings', error);
@@ -132,7 +132,7 @@ export function createModelSettingsController({
       }
 
       const data = await response.json();
-      populateForm(data);
+      await populateForm(data);
       setModalStatus('Saved', 'success');
 
       const activeModel = typeof data?.model === 'string' ? data.model : null;
@@ -163,7 +163,7 @@ export function createModelSettingsController({
     }
   }
 
-  function populateForm(settings) {
+  async function populateForm(settings) {
     if (!controls.form) {
       return;
     }
@@ -339,7 +339,53 @@ export function createModelSettingsController({
     }
   }
 
-  function initialize() {
+  function formatSortLabel(value) {
+    switch (value) {
+      case 'price':
+        return 'Sorted by price';
+      case 'throughput':
+        return 'Sorted by throughput';
+      case 'latency':
+        return 'Sorted by latency';
+      default:
+        return '';
+    }
+  }
+
+  async function applyProviderSortStrategy(sortStrategy) {
+    try {
+      setModalStatus('Applying provider sort strategy...', 'pending');
+
+      // Build and save the payload with the new sort strategy
+      const payload = buildPayload();
+
+      const response = await fetch('/api/settings/model', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Request failed (${response.status})`);
+      }
+
+      const data = await response.json();
+      await populateForm(data);
+
+      // Show success message briefly
+      setModalStatus(`Applied ${formatSortLabel(sortStrategy)} sorting`, 'success');
+      setTimeout(() => {
+        setModalStatus('', null);
+      }, 2000);
+
+    } catch (error) {
+      console.error('Failed to apply provider sort strategy:', error);
+      setModalStatus(`Failed to apply sorting: ${error.message}`, 'error');
+      // Revert the UI if there was an error
+      await loadModalSettings();
+    }
+  } function initialize() {
     if (state.initialized || !controls.form) {
       return;
     }
@@ -361,11 +407,32 @@ export function createModelSettingsController({
     });
 
     controls.form.addEventListener('submit', handleSubmit);
+
+    const providerControls = [
+      controls.providerSort,
+      controls.providerDataCollection,
+      controls.providerAllowFallbacks,
+      controls.providerRequireParameters,
+    ];
+    providerControls.forEach((control) => {
+      control?.addEventListener('change', async () => {
+        try {
+          // If the sort strategy changed, automatically determine and apply the best provider
+          if (control === controls.providerSort && control.value) {
+            await applyProviderSortStrategy(control.value);
+          }
+        } catch (error) {
+          console.error('Failed to update provider routing:', error);
+        }
+      });
+    });
   }
 
   return {
     initialize,
-    syncActiveModelDisplay: updateActiveModelDisplay,
+    syncActiveModelDisplay: () => {
+      updateActiveModelDisplay();
+    },
   };
 }
 

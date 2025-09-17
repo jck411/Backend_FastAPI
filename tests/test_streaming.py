@@ -1,8 +1,16 @@
 """Tests for streaming handler functionality."""
 
+import json
 from typing import Any
 
-from src.backend.chat.streaming import _AssistantAccumulator, _merge_tool_calls
+import pytest
+
+from src.backend.chat.streaming import (
+    StreamingHandler,
+    _AssistantAccumulator,
+    _merge_tool_calls,
+)
+from src.backend.schemas.chat import ChatCompletionRequest, ChatMessage
 
 
 class TestAssistantAccumulator:
@@ -165,3 +173,186 @@ class TestMergeToolCalls:
         assert (
             accumulator[0]["function"]["name"] == "calculator_evaluate"
         )
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    """Limit AnyIO backend to asyncio for these tests."""
+    return "asyncio"
+
+
+class DummyOpenRouterClient:
+    def __init__(self) -> None:
+        self.payloads: list[dict[str, Any]] = []
+
+    async def stream_chat_raw(self, payload: dict[str, Any]):
+        self.payloads.append(payload)
+        yield {
+            "data": json.dumps(
+                {"choices": [{"delta": {"content": "Hello"}, "finish_reason": "stop"}]}
+            )
+        }
+        yield {"data": "[DONE]"}
+
+
+class DummyOpenRouterClientWithMetadata(DummyOpenRouterClient):
+    async def stream_chat_raw(self, payload: dict[str, Any]):
+        self.payloads.append(payload)
+        yield {
+            "event": "openrouter_headers",
+            "data": json.dumps({"OpenRouter-Provider": "test/provider"}),
+        }
+        yield {
+            "data": json.dumps(
+                {
+                    "model": "test/model",
+                    "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
+                    "choices": [
+                        {
+                            "delta": {"content": "Hello"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                }
+            )
+        }
+        yield {"data": "[DONE]"}
+
+
+class DummyRepository:
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, str, Any, dict[str, Any] | None]] = []
+
+    async def add_message(
+        self,
+        session_id: str,
+        *,
+        role: str,
+        content: Any,
+        tool_call_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        self.messages.append((session_id, role, content, metadata))
+
+
+class DummyToolClient:
+    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:  # pragma: no cover
+        raise AssertionError("call_tool should not be invoked in these tests")
+
+    def format_tool_result(self, result: Any) -> str:  # pragma: no cover
+        return ""
+
+
+class DummyModelSettings:
+    def __init__(self, model: str, overrides: dict[str, Any]) -> None:
+        self._model = model
+        self._overrides = overrides
+
+    async def get_openrouter_overrides(self) -> tuple[str, dict[str, Any]]:
+        return self._model, self._overrides
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_applies_provider_sort_from_settings() -> None:
+    client = DummyOpenRouterClient()
+    handler = StreamingHandler(
+        client,
+        DummyRepository(),
+        DummyToolClient(),
+        default_model="openrouter/auto",
+        model_settings=DummyModelSettings(
+            "test/model",
+            {"provider": {"sort": "price"}},
+        ),
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Ping")],
+    )
+    conversation = [{"role": "user", "content": "Ping"}]
+
+    events = []
+    async for event in handler.stream_conversation(
+        "session-1",
+        request,
+        conversation,
+        [],
+    ):
+        events.append(event)
+
+    assert events[-1]["data"] == "[DONE]"
+    assert client.payloads, "Expected payload to be sent to OpenRouter"
+
+    payload = client.payloads[0]
+    assert payload["model"] == "test/model"
+    assert payload["provider"]["sort"] == "price"
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_merges_request_provider_preferences() -> None:
+    client = DummyOpenRouterClient()
+    handler = StreamingHandler(
+        client,
+        DummyRepository(),
+        DummyToolClient(),
+        default_model="openrouter/auto",
+        model_settings=DummyModelSettings(
+            "test/model",
+            {"provider": {"sort": "latency", "allow_fallbacks": True}},
+        ),
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Ping")],
+        provider={"allow_fallbacks": False},
+    )
+    conversation = [{"role": "user", "content": "Ping"}]
+
+    async for _ in handler.stream_conversation(
+        "session-2",
+        request,
+        conversation,
+        [],
+    ):
+        pass
+
+    payload = client.payloads[0]
+    assert payload["provider"]["sort"] == "latency"
+    assert payload["provider"]["allow_fallbacks"] is False
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_emits_metadata_event() -> None:
+    repo = DummyRepository()
+    client = DummyOpenRouterClientWithMetadata()
+    handler = StreamingHandler(
+        client,
+        repo,
+        DummyToolClient(),
+        default_model="openrouter/auto",
+        model_settings=None,
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Ping")],
+    )
+    conversation = [{"role": "user", "content": "Ping"}]
+
+    events = []
+    async for event in handler.stream_conversation("session-meta", request, conversation, []):
+        events.append(event)
+
+    metadata_events = [event for event in events if event.get("event") == "metadata"]
+    assert metadata_events, "Expected metadata event in stream"
+
+    payload = json.loads(metadata_events[0]["data"])
+    assert payload["model"] == "test/model"
+    assert payload["usage"]["total_tokens"] == 12
+    assert payload["routing"]["OpenRouter-Provider"] == "test/provider"
+
+    assert repo.messages, "Expected message persisted"
+    _, role, _, metadata = repo.messages[-1]
+    assert role == "assistant"
+    assert metadata is not None
+    assert metadata["usage"]["prompt_tokens"] == 5
+    assert metadata["routing"]["OpenRouter-Provider"] == "test/provider"

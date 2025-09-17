@@ -12,14 +12,21 @@ const openSettingsButton = document.querySelector('#open-settings');
 const settingsModal = document.querySelector('#model-settings-modal');
 const settingsBackdrop = document.querySelector('#model-settings-backdrop');
 const closeSettingsButton = document.querySelector('#close-settings');
+const metadataModal = document.querySelector('#message-metadata-modal');
+const closeMetadataButton = document.querySelector('#close-message-metadata');
+const metadataContent = document.querySelector('#message-metadata-content');
 
 const conversation = [];
 let sessionId = null;
 let isStreaming = false;
 let availableModels = [];
+let metadataModalVisible = false;
 const MODEL_FILTER_LS_KEY = 'model-explorer.filters.v1';
 const SELECTED_MODEL_LS_KEY = 'chat.selectedModel.v1';
 const CHAT_STORAGE_KEY = 'chat.conversation.v1';
+const metadataNumberFormatter = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 2,
+});
 
 const modelSettingsController = createModelSettingsController({
   modelSelect,
@@ -49,6 +56,7 @@ async function initialize() {
     });
   });
 
+  initializeMetadataModal();
   modelSettingsController.initialize();
 }
 
@@ -66,21 +74,59 @@ function addMessage(role, content, options = {}) {
   if (options.variant) {
     article.classList.add(options.variant);
   }
-  const meta = fragment.querySelector('.meta');
-  if (options.meta) {
-    meta.textContent = options.meta;
-  } else {
-    meta.textContent = role === 'user' ? 'You' : 'Assistant';
+  const metaContainer = fragment.querySelector('.meta');
+  const metaLabel = metaContainer?.querySelector('.meta__label') || metaContainer;
+  if (metaLabel) {
+    metaLabel.textContent = options.meta || (role === 'user' ? 'You' : 'Assistant');
   }
+
+  const metadataButton = metaContainer?.querySelector('.metadata-button');
+  if (metadataButton) {
+    metadataButton.hidden = true;
+    metadataButton.disabled = true;
+    metadataButton.type = 'button';
+    metadataButton.setAttribute('aria-label', 'View response metadata');
+    metadataButton.addEventListener('click', () => {
+      if (article.__metadata) {
+        openMetadataModal(article.__metadata);
+      }
+    });
+  }
+
   const contentNode = fragment.querySelector('.content');
   contentNode.textContent = content;
   chatLog.appendChild(fragment);
   chatLog.scrollTop = chatLog.scrollHeight;
+
+  const setMetadata = (metadata) => {
+    if (!metadataButton) {
+      return null;
+    }
+    const sanitized = sanitizeMetadata(metadata);
+    if (sanitized) {
+      article.__metadata = sanitized;
+      metadataButton.hidden = false;
+      metadataButton.disabled = false;
+    } else {
+      article.__metadata = undefined;
+      metadataButton.hidden = true;
+      metadataButton.disabled = true;
+    }
+    return sanitized;
+  };
+
+  if (options.metadata) {
+    setMetadata(options.metadata);
+  } else if (metadataButton) {
+    metadataButton.hidden = true;
+    metadataButton.disabled = true;
+  }
+
   return {
     element: article, setContent: (value) => {
       contentNode.textContent = value;
       chatLog.scrollTop = chatLog.scrollHeight;
-    }
+    }, setMetadata,
   };
 }
 
@@ -108,6 +154,141 @@ async function handleSubmit(event) {
   }
 }
 
+function initializeMetadataModal() {
+  if (!metadataModal) {
+    return;
+  }
+
+  const closeTargets = metadataModal.querySelectorAll('[data-close-metadata]');
+  closeTargets.forEach((element) => {
+    element.addEventListener('click', () => {
+      closeMetadataModal();
+    });
+  });
+}
+
+function openMetadataModal(metadata) {
+  if (!metadataModal) {
+    return;
+  }
+
+  const sanitized = sanitizeMetadata(metadata);
+  renderMetadataModalContent(sanitized);
+
+  if (!metadataModalVisible) {
+    metadataModal.classList.add('is-visible');
+    metadataModal.setAttribute('aria-hidden', 'false');
+    metadataModalVisible = true;
+    updateBodyModalClass();
+    document.addEventListener('keydown', handleMetadataModalKeydown);
+
+    if (closeMetadataButton) {
+      window.setTimeout(() => {
+        closeMetadataButton.focus();
+      }, 0);
+    }
+  }
+}
+
+function closeMetadataModal() {
+  if (!metadataModal || !metadataModalVisible) {
+    return;
+  }
+
+  metadataModal.classList.remove('is-visible');
+  metadataModal.setAttribute('aria-hidden', 'true');
+  metadataModalVisible = false;
+  document.removeEventListener('keydown', handleMetadataModalKeydown);
+  updateBodyModalClass();
+}
+
+function handleMetadataModalKeydown(event) {
+  if (event.key === 'Escape') {
+    closeMetadataModal();
+  }
+}
+
+function renderMetadataModalContent(metadata) {
+  if (!metadataContent) {
+    return;
+  }
+
+  metadataContent.innerHTML = '';
+
+  if (!isPlainObject(metadata) || Object.keys(metadata).length === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'metadata-empty';
+    empty.textContent = 'No metadata available for this reply.';
+    metadataContent.appendChild(empty);
+    return;
+  }
+
+  const overviewEntries = [];
+  if (typeof metadata.model === 'string' && metadata.model.trim()) {
+    overviewEntries.push(['Model', metadata.model]);
+  }
+  if (metadata.finish_reason) {
+    overviewEntries.push(['Finish reason', formatMetadataValue(metadata.finish_reason)]);
+  }
+  if (overviewEntries.length) {
+    appendMetadataSection('Overview', overviewEntries);
+  }
+
+  if (isPlainObject(metadata.usage)) {
+    const usageEntries = [];
+    for (const [key, value] of Object.entries(metadata.usage)) {
+      usageEntries.push([formatMetadataLabel(key), formatMetadataValue(value)]);
+    }
+    if (usageEntries.length) {
+      appendMetadataSection('Usage', usageEntries);
+    }
+  }
+
+  if (isPlainObject(metadata.routing)) {
+    const routingEntries = [];
+    for (const [key, value] of Object.entries(metadata.routing)) {
+      routingEntries.push([key, formatMetadataValue(value)]);
+    }
+    if (routingEntries.length) {
+      appendMetadataSection('Routing', routingEntries);
+    }
+  }
+
+  if (!metadataContent.children.length) {
+    const empty = document.createElement('p');
+    empty.className = 'metadata-empty';
+    empty.textContent = 'No metadata available for this reply.';
+    metadataContent.appendChild(empty);
+  }
+}
+
+function appendMetadataSection(title, entries) {
+  if (!metadataContent || !entries.length) {
+    return;
+  }
+
+  const heading = document.createElement('h3');
+  heading.className = 'metadata-section-title';
+  heading.textContent = title;
+  metadataContent.appendChild(heading);
+
+  for (const [label, value] of entries) {
+    const row = document.createElement('div');
+    row.className = 'metadata-row';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'metadata-row__label';
+    labelEl.textContent = label;
+
+    const valueEl = document.createElement('span');
+    valueEl.className = 'metadata-row__value';
+    valueEl.textContent = value;
+
+    row.append(labelEl, valueEl);
+    metadataContent.appendChild(row);
+  }
+}
+
 async function requestStream(latestUserMessage) {
   isStreaming = true;
   sendButton.disabled = true;
@@ -115,6 +296,7 @@ async function requestStream(latestUserMessage) {
   modelSelect.disabled = true;
 
   let assistantText = '';
+  let pendingMetadata = null;
   const assistantMessage = addMessage('assistant', '');
 
   try {
@@ -188,6 +370,19 @@ async function requestStream(latestUserMessage) {
           continue;
         }
 
+        if (event.event === 'metadata') {
+          try {
+            const metadataPayload = JSON.parse(event.data);
+            const sanitized = typeof assistantMessage?.setMetadata === 'function'
+              ? assistantMessage.setMetadata(metadataPayload)
+              : sanitizeMetadata(metadataPayload);
+            pendingMetadata = sanitized;
+          } catch (error) {
+            console.warn('Failed to parse metadata payload', error);
+          }
+          continue;
+        }
+
         if (event.data.trim() === '[DONE]') {
           break outer;
         }
@@ -237,7 +432,11 @@ async function requestStream(latestUserMessage) {
     }
 
     if (assistantText.trim()) {
-      conversation.push({ role: 'assistant', content: assistantText });
+      const entry = { role: 'assistant', content: assistantText };
+      if (pendingMetadata) {
+        entry.metadata = pendingMetadata;
+      }
+      conversation.push(entry);
       persistConversationState();
     }
   } catch (error) {
@@ -574,6 +773,7 @@ function renderConversationFromState() {
     const options = {};
     if (entry.meta) options.meta = entry.meta;
     if (entry.variant) options.variant = entry.variant;
+    if (entry.metadata) options.metadata = entry.metadata;
     addMessage(entry.role, entry.content, options);
   }
 }
@@ -614,6 +814,10 @@ function readStoredConversation() {
       const record = { role, content };
       if (meta) record.meta = meta;
       if (variant) record.variant = variant;
+      const metadata = sanitizeMetadata(entry.metadata);
+      if (metadata) {
+        record.metadata = metadata;
+      }
       sanitized.push(record);
     }
 
@@ -641,6 +845,9 @@ function persistConversationState() {
         const record = { role: entry.role, content: entry.content };
         if (entry.meta) record.meta = entry.meta;
         if (entry.variant) record.variant = entry.variant;
+        if (entry.metadata && typeof entry.metadata === 'object') {
+          record.metadata = entry.metadata;
+        }
         return record;
       }),
     };
@@ -737,4 +944,74 @@ function isTruthy(value) {
     return Object.keys(value).length > 0;
   }
   return true;
+}
+
+function updateBodyModalClass() {
+  if (typeof document === 'undefined') {
+    return;
+  }
+  const visibleModals = document.querySelectorAll('.modal.is-visible');
+  if (visibleModals.length) {
+    document.body.classList.add('modal-open');
+  } else {
+    document.body.classList.remove('modal-open');
+  }
+}
+
+function isPlainObject(value) {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sanitizeMetadata(value) {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+
+  try {
+    if (typeof structuredClone === 'function') {
+      return structuredClone(value);
+    }
+  } catch (_) {
+    // structuredClone not supported; fall back to JSON clone
+  }
+
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_) {
+    return null;
+  }
+}
+
+function formatMetadataLabel(raw) {
+  if (typeof raw !== 'string') {
+    return 'Value';
+  }
+  return raw
+    .replace(/[_\-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/(^|\s)\w/g, (match) => match.toUpperCase());
+}
+
+function formatMetadataValue(value) {
+  if (value == null) {
+    return '—';
+  }
+  if (typeof value === 'number') {
+    return metadataNumberFormatter.format(value);
+  }
+  if (typeof value === 'boolean') {
+    return value ? 'Yes' : 'No';
+  }
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch (_) {
+      return String(value);
+    }
+  }
+  return String(value);
 }

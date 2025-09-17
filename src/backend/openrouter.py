@@ -93,6 +93,13 @@ class OpenRouterClient:
                         detail = self._extract_error_detail(body)
                         raise OpenRouterError(response.status_code, detail)
 
+                    routing_headers = self._extract_routing_headers(response.headers)
+                    if routing_headers:
+                        yield {
+                            "event": "openrouter_headers",
+                            "data": json.dumps(routing_headers),
+                        }
+
                     async for event in self._iter_events(response):
                         yield event.asdict()
             except httpx.HTTPError as exc:
@@ -117,7 +124,56 @@ class OpenRouterClient:
 
         return response.json()
 
-    async def _iter_events(self, response: httpx.Response) -> AsyncGenerator[ServerSentEvent, None]:
+    async def list_providers(self) -> Dict[str, Any]:
+        """Return the raw payload from OpenRouter's `/providers` endpoint."""
+
+        url = f"{self._base_url}/providers"
+        headers = dict(self._headers)
+        headers["Accept"] = "application/json"
+
+        async with httpx.AsyncClient(timeout=self._settings.request_timeout) as client:
+            try:
+                response = await client.get(url, headers=headers)
+            except httpx.HTTPError as exc:
+                raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+        if response.status_code >= 400:
+            detail = self._extract_error_detail(response.content)
+            raise OpenRouterError(response.status_code, detail)
+
+        return response.json()
+
+    async def list_model_endpoints(
+        self, model_id: str, *, filters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Return the raw payload from OpenRouter's model endpoints endpoint."""
+
+        # Parse model_id to extract author and slug
+        if "/" not in model_id:
+            raise ValueError(
+                f"Invalid model_id format: {model_id}. Expected 'author/slug'."
+            )
+
+        author, slug = model_id.split("/", 1)
+        url = f"{self._base_url}/models/{author}/{slug}/endpoints"
+        headers = dict(self._headers)
+        headers["Accept"] = "application/json"
+
+        async with httpx.AsyncClient(timeout=self._settings.request_timeout) as client:
+            try:
+                response = await client.get(url, headers=headers, params=filters)
+            except httpx.HTTPError as exc:
+                raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+        if response.status_code >= 400:
+            detail = self._extract_error_detail(response.content)
+            raise OpenRouterError(response.status_code, detail)
+
+        return response.json()
+
+    async def _iter_events(
+        self, response: httpx.Response
+    ) -> AsyncGenerator[ServerSentEvent, None]:
         buffer: List[str] = []
         async for line in response.aiter_lines():
             if not line:
@@ -147,7 +203,22 @@ class OpenRouterClient:
                 event_id = value or None
 
         data = "\n".join(data_lines)
-        return ServerSentEvent(data=data, event=event_name or "message", event_id=event_id)
+        return ServerSentEvent(
+            data=data, event=event_name or "message", event_id=event_id
+        )
+
+    def _extract_routing_headers(self, headers: httpx.Headers) -> Dict[str, str]:
+        """Return OpenRouter-specific routing headers for debugging/UI metadata."""
+
+        interesting: Dict[str, str] = {}
+        for key, value in headers.items():
+            normalized = key.lower()
+            if normalized.startswith("openrouter-") or normalized in {
+                "x-request-id",
+                "via",
+            }:
+                interesting[key] = value
+        return interesting
 
     @staticmethod
     def _extract_error_detail(raw: bytes) -> Any:

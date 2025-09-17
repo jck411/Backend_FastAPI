@@ -23,6 +23,8 @@ class AssistantTurn:
     content: str | None
     tool_calls: list[dict[str, Any]]
     finish_reason: str | None
+    model: str | None
+    usage: dict[str, Any] | None
 
     def to_message_dict(self) -> dict[str, Any]:
         message: dict[str, Any] = {
@@ -68,6 +70,7 @@ class StreamingHandler:
         conversation_state = list(conversation)
 
         while True:
+            routing_headers: dict[str, Any] | None = None
             active_model = self._default_model
             overrides: dict[str, Any] = {}
             if self._model_settings is not None:
@@ -81,8 +84,15 @@ class StreamingHandler:
 
             if overrides:
                 provider_overrides = overrides.get("provider")
-                if provider_overrides and "provider" not in payload:
-                    payload["provider"] = provider_overrides
+                if isinstance(provider_overrides, dict):
+                    existing_provider = payload.get("provider")
+                    if isinstance(existing_provider, dict):
+                        # Persisted provider preferences act as defaults.
+                        merged_provider = dict(provider_overrides)
+                        merged_provider.update(existing_provider)
+                        payload["provider"] = merged_provider
+                    else:
+                        payload["provider"] = dict(provider_overrides)
                 for key, value in overrides.items():
                     if key == "provider":
                         continue
@@ -97,6 +107,22 @@ class StreamingHandler:
                 data = event.get("data")
                 if not data:
                     continue
+                event_name = event.get("event") or "message"
+
+                if event_name == "openrouter_headers":
+                    try:
+                        parsed_headers = json.loads(data)
+                    except json.JSONDecodeError:
+                        logger.debug("Skipping invalid routing metadata payload: %s", data)
+                    else:
+                        if isinstance(parsed_headers, dict):
+                            routing_headers = parsed_headers
+                    continue
+
+                if event_name != "message":
+                    yield event
+                    continue
+
                 if data == "[DONE]":
                     break
                 try:
@@ -114,6 +140,12 @@ class StreamingHandler:
                 metadata["finish_reason"] = assistant_turn.finish_reason
             if assistant_turn.tool_calls:
                 metadata["tool_calls"] = assistant_turn.tool_calls
+            if assistant_turn.model is not None:
+                metadata["model"] = assistant_turn.model
+            if assistant_turn.usage is not None:
+                metadata["usage"] = assistant_turn.usage
+            if routing_headers:
+                metadata["routing"] = routing_headers
 
             await self._repo.add_message(
                 session_id,
@@ -122,6 +154,19 @@ class StreamingHandler:
                 metadata=metadata or None,
             )
             conversation_state.append(assistant_turn.to_message_dict())
+
+            metadata_event_payload = {
+                "role": "assistant",
+                "finish_reason": assistant_turn.finish_reason,
+                "model": assistant_turn.model,
+                "usage": assistant_turn.usage,
+                "routing": routing_headers,
+            }
+            yield {
+                "event": "metadata",
+                "data": json.dumps(metadata_event_payload),
+            }
+            routing_headers = None
 
             if not assistant_turn.tool_calls:
                 break
@@ -259,6 +304,8 @@ class _AssistantAccumulator:
         self._content_fragments: list[str] = []
         self._tool_calls: list[dict[str, Any]] = []
         self._finish_reason: str | None = None
+        self._model: str | None = None
+        self._usage: dict[str, Any] | None = None
 
     def consume(self, payload: dict[str, Any]) -> None:
         choices = payload.get("choices") or []
@@ -278,6 +325,14 @@ class _AssistantAccumulator:
             finish_reason = choice.get("finish_reason")
             if finish_reason:
                 self._finish_reason = finish_reason
+
+        model = payload.get("model")
+        if isinstance(model, str):
+            self._model = model
+
+        usage = payload.get("usage")
+        if isinstance(usage, dict):
+            self._usage = usage
 
     def build(self) -> AssistantTurn:
         content = "".join(self._content_fragments)
@@ -299,6 +354,8 @@ class _AssistantAccumulator:
             content=content if content else None,
             tool_calls=tool_calls,
             finish_reason=self._finish_reason,
+            model=self._model,
+            usage=self._usage,
         )
 
 

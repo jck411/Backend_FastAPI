@@ -254,6 +254,13 @@ function renderMetadataModalContent(metadata) {
     }
   }
 
+  if (isPlainObject(metadata.meta)) {
+    const metaEntries = flattenMetadataObject(metadata.meta);
+    if (metaEntries.length) {
+      appendMetadataSection('Meta', metaEntries);
+    }
+  }
+
   if (!metadataContent.children.length) {
     const empty = document.createElement('p');
     empty.className = 'metadata-empty';
@@ -1007,6 +1014,9 @@ function formatMetadataValue(value) {
     return value.toISOString();
   }
   if (typeof value === 'object') {
+    if (Array.isArray(value)) {
+      return value.map((item) => formatMetadataValue(item)).join(', ');
+    }
     try {
       return JSON.stringify(value);
     } catch (_) {
@@ -1014,4 +1024,34 @@ function formatMetadataValue(value) {
     }
   }
   return String(value);
+}
+
+function flattenMetadataObject(value, prefix = '') {
+  if (!isPlainObject(value)) {
+    return [];
+  }
+
+  const entries = [];
+  for (const [key, raw] of Object.entries(value)) {
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (isPlainObject(raw)) {
+      entries.push(...flattenMetadataObject(raw, path));
+    } else if (Array.isArray(raw)) {
+      if (raw.every((item) => !isPlainObject(item))) {
+        entries.push([formatMetadataLabel(path), formatMetadataValue(raw)]);
+      } else {
+        raw.forEach((item, index) => {
+          const arrayPath = `${path}[${index}]`;
+          if (isPlainObject(item)) {
+            entries.push(...flattenMetadataObject(item, arrayPath));
+          } else {
+            entries.push([formatMetadataLabel(arrayPath), formatMetadataValue(item)]);
+          }
+        });
+      }
+    } else {
+      entries.push([formatMetadataLabel(path), formatMetadataValue(raw)]);
+    }
+  }
+  return entries;
 }

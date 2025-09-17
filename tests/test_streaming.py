@@ -207,6 +207,13 @@ class DummyOpenRouterClientWithMetadata(DummyOpenRouterClient):
                 {
                     "model": "test/model",
                     "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
+                    "meta": {
+                        "provider": {
+                            "id": "meta-test",
+                            "name": "Meta Test Provider",
+                            "endpoint": "test-endpoint",
+                        }
+                    },
                     "choices": [
                         {
                             "delta": {"content": "Hello"},
@@ -349,6 +356,7 @@ async def test_streaming_emits_metadata_event() -> None:
     assert payload["model"] == "test/model"
     assert payload["usage"]["total_tokens"] == 12
     assert payload["routing"]["OpenRouter-Provider"] == "test/provider"
+    assert payload["meta"]["provider"]["endpoint"] == "test-endpoint"
 
     assert repo.messages, "Expected message persisted"
     _, role, _, metadata = repo.messages[-1]
@@ -356,3 +364,4 @@ async def test_streaming_emits_metadata_event() -> None:
     assert metadata is not None
     assert metadata["usage"]["prompt_tokens"] == 5
     assert metadata["routing"]["OpenRouter-Provider"] == "test/provider"
+    assert metadata["meta"]["provider"]["name"] == "Meta Test Provider"

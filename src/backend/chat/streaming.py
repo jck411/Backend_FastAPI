@@ -25,6 +25,7 @@ class AssistantTurn:
     finish_reason: str | None
     model: str | None
     usage: dict[str, Any] | None
+    meta: dict[str, Any] | None
 
     def to_message_dict(self) -> dict[str, Any]:
         message: dict[str, Any] = {
@@ -144,6 +145,8 @@ class StreamingHandler:
                 metadata["model"] = assistant_turn.model
             if assistant_turn.usage is not None:
                 metadata["usage"] = assistant_turn.usage
+            if assistant_turn.meta is not None:
+                metadata["meta"] = assistant_turn.meta
             if routing_headers:
                 metadata["routing"] = routing_headers
 
@@ -161,6 +164,7 @@ class StreamingHandler:
                 "model": assistant_turn.model,
                 "usage": assistant_turn.usage,
                 "routing": routing_headers,
+                "meta": assistant_turn.meta,
             }
             yield {
                 "event": "metadata",
@@ -306,6 +310,7 @@ class _AssistantAccumulator:
         self._finish_reason: str | None = None
         self._model: str | None = None
         self._usage: dict[str, Any] | None = None
+        self._meta: dict[str, Any] | None = None
 
     def consume(self, payload: dict[str, Any]) -> None:
         choices = payload.get("choices") or []
@@ -334,6 +339,10 @@ class _AssistantAccumulator:
         if isinstance(usage, dict):
             self._usage = usage
 
+        meta = payload.get("meta")
+        if isinstance(meta, dict):
+            self._meta = meta
+
     def build(self) -> AssistantTurn:
         content = "".join(self._content_fragments)
         tool_calls: list[dict[str, Any]] = []
@@ -356,6 +365,7 @@ class _AssistantAccumulator:
             finish_reason=self._finish_reason,
             model=self._model,
             usage=self._usage,
+            meta=self._meta,
         )
 
 

@@ -1,3 +1,5 @@
+import { createModelSettingsController } from './model-settings.js';
+
 const chatLog = document.querySelector('#chat-log');
 const messageTemplate = document.querySelector('#message-template');
 const modelSelect = document.querySelector('#model-select');
@@ -6,6 +8,11 @@ const messageInput = document.querySelector('#message-input');
 const clearButton = document.querySelector('#clear-chat');
 const sendButton = document.querySelector('#send-button');
 
+const openSettingsButton = document.querySelector('#open-settings');
+const settingsModal = document.querySelector('#model-settings-modal');
+const settingsBackdrop = document.querySelector('#model-settings-backdrop');
+const closeSettingsButton = document.querySelector('#close-settings');
+
 const conversation = [];
 let sessionId = null;
 let isStreaming = false;
@@ -13,6 +20,17 @@ let availableModels = [];
 const MODEL_FILTER_LS_KEY = 'model-explorer.filters.v1';
 const SELECTED_MODEL_LS_KEY = 'chat.selectedModel.v1';
 const CHAT_STORAGE_KEY = 'chat.conversation.v1';
+
+const modelSettingsController = createModelSettingsController({
+  modelSelect,
+  openSettingsButton,
+  settingsModal,
+  settingsBackdrop,
+  closeSettingsButton,
+  loadModels,
+  persistSelectedModel: (value) => persistSelectedModel(value),
+  getAvailableModels: () => availableModels,
+});
 
 async function initialize() {
   restoreConversationFromStorage();
@@ -30,6 +48,8 @@ async function initialize() {
       console.error('Reset failed', error);
     });
   });
+
+  modelSettingsController.initialize();
 }
 
 if (document.readyState === 'loading') {
@@ -371,6 +391,7 @@ function updateModelSelect(models) {
 
   modelSelect.value = nextValue;
   persistSelectedModel(nextValue);
+  modelSettingsController.syncActiveModelDisplay();
 }
 
 function buildModelFetchUrl() {
@@ -472,6 +493,7 @@ function handleModelFilterChange(event) {
 
 function handleModelSelectChange() {
   persistSelectedModel(modelSelect.value);
+  modelSettingsController.syncActiveModelDisplay();
 }
 
 function persistSelectedModel(modelId) {

@@ -24,6 +24,7 @@
         <option value="openrouter/auto">Loading models…</option>
       </select>
       <button id="clear-chat" type="button">Clear chat</button>
+      <button id="open-settings" type="button" class="ghost-button">Model settings</button>
     </section>
 
     <section id="chat-log" aria-live="polite"></section>
@@ -36,6 +37,154 @@
       </div>
     </form>
   </main>
+
+
+  <div id="model-settings-modal" class="modal" aria-hidden="true">
+    <div class="modal__backdrop" id="model-settings-backdrop" data-close-settings></div>
+    <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="model-settings-title">
+      <form id="model-settings-form" class="settings-card model-settings-form">
+        <header class="section-header modal__header">
+          <div>
+            <h2 id="model-settings-title">Active Model Settings</h2>
+            <p class="section-subtitle">Control the default model, routing strategy, and hyperparameters.</p>
+          </div>
+          <div class="modal__header-actions">
+            <p id="settings-updated-at" class="settings-meta" hidden></p>
+            <button type="button" id="close-settings" class="icon-button" aria-label="Close model settings" data-close-settings>
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+        </header>
+
+        <div class="modal__body">
+          <div class="form-group">
+            <span class="field-label">Active model</span>
+            <p id="active-model-display" class="field-display"></p>
+            <p class="field-hint">Settings apply to the model currently selected in chat.</p>
+          </div>
+
+          <fieldset class="form-fieldset">
+            <legend>Provider Routing</legend>
+            <div class="form-grid two-column">
+              <label class="field-group">
+                <span class="field-label" for="provider-sort">Sort strategy</span>
+                <select id="provider-sort">
+                  <option value="">Auto (balanced)</option>
+                  <option value="price">Price</option>
+                  <option value="throughput">Throughput</option>
+                  <option value="latency">Latency</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="provider-data-collection">Data collection</span>
+                <select id="provider-data-collection">
+                  <option value="">Allow (default)</option>
+                  <option value="deny">Deny</option>
+                </select>
+                <p class="field-hint">Require zero data retention providers when set to deny.</p>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="provider-allow-fallbacks">Allow fallbacks</span>
+                <select id="provider-allow-fallbacks">
+                  <option value="">Use provider default</option>
+                  <option value="true">Allow fallback providers</option>
+                  <option value="false">Disallow fallbacks</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="provider-require-parameters">Require parameters</span>
+                <select id="provider-require-parameters">
+                  <option value="">Use provider default</option>
+                  <option value="true">Only providers supporting all parameters</option>
+                  <option value="false">Best effort</option>
+                </select>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-fieldset">
+            <legend>Hyperparameters</legend>
+            <div class="form-grid three-column">
+              <label class="field-group">
+                <span class="field-label" for="param-temperature">Temperature</span>
+                <input id="param-temperature" type="number" step="0.01" min="0" max="2" inputmode="decimal" />
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-top-p">Top P</span>
+                <input id="param-top-p" type="number" step="0.01" min="0" max="1" inputmode="decimal" />
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-top-k">Top K</span>
+                <input id="param-top-k" type="number" step="1" min="0" inputmode="numeric" />
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-min-p">Min P</span>
+                <input id="param-min-p" type="number" step="0.01" min="0" max="1" inputmode="decimal" />
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-top-a">Top A</span>
+                <input id="param-top-a" type="number" step="0.01" min="0" inputmode="decimal" />
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-max-tokens">Max tokens</span>
+                <input id="param-max-tokens" type="number" step="1" min="1" inputmode="numeric" />
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-frequency-penalty">Frequency penalty</span>
+                <input id="param-frequency-penalty" type="number" step="0.01" min="-2" max="2" inputmode="decimal" />
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-presence-penalty">Presence penalty</span>
+                <input id="param-presence-penalty" type="number" step="0.01" min="-2" max="2" inputmode="decimal" />
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-repetition-penalty">Repetition penalty</span>
+                <input id="param-repetition-penalty" type="number" step="0.01" min="0" inputmode="decimal" />
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-seed">Seed</span>
+                <input id="param-seed" type="number" step="1" inputmode="numeric" />
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-parallel-tool-calls">Parallel tool calls</span>
+                <select id="param-parallel-tool-calls">
+                  <option value="">Use provider default</option>
+                  <option value="true">Enable</option>
+                  <option value="false">Disable</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-safe-prompt">Safe prompt</span>
+                <select id="param-safe-prompt">
+                  <option value="">Use provider default</option>
+                  <option value="true">Enable</option>
+                  <option value="false">Disable</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-raw-mode">Raw mode</span>
+                <select id="param-raw-mode">
+                  <option value="">Use provider default</option>
+                  <option value="true">Enable</option>
+                  <option value="false">Disable</option>
+                </select>
+              </label>
+            </div>
+            <label class="field-group full-span">
+              <span class="field-label" for="param-stop">Stop sequences</span>
+              <textarea id="param-stop" rows="3" placeholder="One sequence per line or comma-separated"></textarea>
+            </label>
+          </fieldset>
+        </div>
+
+        <footer class="form-actions modal__footer">
+          <button type="submit" id="settings-submit">Save settings</button>
+          <span id="settings-status" class="settings-status" role="status" aria-live="polite"></span>
+        </footer>
+      </form>
+    </div>
+  </div>
+
 
   <template id="message-template">
     <article class="message">

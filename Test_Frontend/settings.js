@@ -4,6 +4,40 @@ const modelGrid = document.querySelector('#model-grid');
 const resultSummary = document.querySelector('#result-summary');
 const SELECTED_MODEL_LS_KEY = 'chat.selectedModel.v1';
 
+const settingsForm = document.querySelector('#model-settings-form');
+const settingsControls = {
+  modelSelect: document.querySelector('#active-model'),
+  providerSort: document.querySelector('#provider-sort'),
+  providerDataCollection: document.querySelector('#provider-data-collection'),
+  providerAllowFallbacks: document.querySelector('#provider-allow-fallbacks'),
+  providerRequireParameters: document.querySelector('#provider-require-parameters'),
+  temperature: document.querySelector('#param-temperature'),
+  topP: document.querySelector('#param-top-p'),
+  topK: document.querySelector('#param-top-k'),
+  minP: document.querySelector('#param-min-p'),
+  topA: document.querySelector('#param-top-a'),
+  maxTokens: document.querySelector('#param-max-tokens'),
+  frequencyPenalty: document.querySelector('#param-frequency-penalty'),
+  presencePenalty: document.querySelector('#param-presence-penalty'),
+  repetitionPenalty: document.querySelector('#param-repetition-penalty'),
+  seed: document.querySelector('#param-seed'),
+  stop: document.querySelector('#param-stop'),
+  parallelToolCalls: document.querySelector('#param-parallel-tool-calls'),
+  safePrompt: document.querySelector('#param-safe-prompt'),
+  rawMode: document.querySelector('#param-raw-mode'),
+  submitButton: document.querySelector('#settings-submit'),
+  status: document.querySelector('#settings-status'),
+  updatedAt: document.querySelector('#settings-updated-at'),
+};
+
+const settingsState = {
+  availableModels: [],
+  selectedModel: null,
+  saving: false,
+  initialized: false,
+  current: null,
+};
+
 const containers = {
   inputModalities: document.querySelector('#input-modalities-options'),
   outputModalities: document.querySelector('#output-modalities-options'),
@@ -98,7 +132,7 @@ const state = {
 let requestCounter = 0;
 let debounceTimer = null;
 
-function initialize() {
+async function initialize() {
   // Load saved preferences so initial UI reflects prior choices
   loadPreferences();
   if (searchInput) {
@@ -123,7 +157,18 @@ function initialize() {
   clearButton.addEventListener('click', clearAllFilters);
 
   savePreferences();
-  refreshResults().catch((error) => console.error('Failed to load initial models', error));
+
+  try {
+    await refreshResults();
+  } catch (error) {
+    console.error('Failed to load initial models', error);
+  }
+
+  try {
+    await initializeModelSettings();
+  } catch (error) {
+    console.error('Failed to initialize model settings panel', error);
+  }
 }
 
 function renderMultiSelect(container, options, targetSet) {
@@ -411,6 +456,7 @@ function buildFilterPayload() {
 
 function renderResults(payload) {
   const models = Array.isArray(payload?.data) ? payload.data : [];
+  updateActiveModelOptions(models);
   const meta = payload?.metadata ?? {};
   const total = typeof meta.total === 'number' ? meta.total : models.length;
   const baseCount = typeof meta.base_count === 'number' ? meta.base_count : models.length;
@@ -786,8 +832,365 @@ function loadPreferences() {
   }
 }
 
+async function initializeModelSettings() {
+  if (!settingsForm) return;
+  if (!settingsState.initialized) {
+    settingsState.initialized = true;
+    if (settingsControls.modelSelect) {
+      settingsControls.modelSelect.addEventListener('change', () => {
+        settingsState.selectedModel = settingsControls.modelSelect.value || null;
+      });
+    }
+    settingsForm.addEventListener('submit', handleModelSettingsSubmit);
+  }
+  await loadModelSettings();
+}
+
+async function loadModelSettings() {
+  if (!settingsForm) return;
+  try {
+    const response = await fetch('/api/settings/model');
+    if (!response.ok) {
+      throw new Error(`Request failed (${response.status})`);
+    }
+    const data = await response.json();
+    populateModelSettingsForm(data);
+  } catch (error) {
+    console.error('Unable to load model settings', error);
+    setSettingsStatus('Unable to load settings', { variant: 'error' });
+  }
+}
+
+async function handleModelSettingsSubmit(event) {
+  event.preventDefault();
+  if (settingsState.saving) return;
+
+  setSavingState(true);
+  setSettingsStatus('Saving…', { variant: 'pending' });
+
+  try {
+    const payload = buildModelSettingsPayload();
+    const response = await fetch('/api/settings/model', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `Request failed (${response.status})`);
+    }
+    const data = await response.json();
+    populateModelSettingsForm(data);
+    setSettingsStatus('Saved', { variant: 'success' });
+  } catch (error) {
+    console.error('Failed to save model settings', error);
+    setSettingsStatus(error.message || 'Save failed', { variant: 'error' });
+  } finally {
+    setSavingState(false);
+  }
+}
+
+function populateModelSettingsForm(settings) {
+  if (!settingsForm) return;
+  settingsState.current = settings || null;
+  settingsState.selectedModel = settings?.model || null;
+  applySelectedModel();
+
+  const provider = settings?.provider || {};
+  const params = settings?.parameters || {};
+
+  if (settingsControls.providerSort) {
+    settingsControls.providerSort.value = provider.sort || '';
+  }
+  if (settingsControls.providerDataCollection) {
+    settingsControls.providerDataCollection.value = provider.data_collection || '';
+  }
+  setBooleanSelect(settingsControls.providerAllowFallbacks, provider.allow_fallbacks);
+  setBooleanSelect(settingsControls.providerRequireParameters, provider.require_parameters);
+
+
+
+  setNumberInput(settingsControls.temperature, params.temperature);
+  setNumberInput(settingsControls.topP, params.top_p);
+  setIntegerInput(settingsControls.topK, params.top_k);
+  setNumberInput(settingsControls.minP, params.min_p);
+  setNumberInput(settingsControls.topA, params.top_a);
+  setIntegerInput(settingsControls.maxTokens, params.max_tokens);
+  setNumberInput(settingsControls.frequencyPenalty, params.frequency_penalty);
+  setNumberInput(settingsControls.presencePenalty, params.presence_penalty);
+  setNumberInput(settingsControls.repetitionPenalty, params.repetition_penalty);
+  setIntegerInput(settingsControls.seed, params.seed);
+
+  if (settingsControls.stop) {
+    if (Array.isArray(params.stop)) {
+      settingsControls.stop.value = params.stop.join('\n');
+    } else if (typeof params.stop === 'string') {
+      settingsControls.stop.value = params.stop;
+    } else {
+      settingsControls.stop.value = '';
+    }
+  }
+
+  setBooleanSelect(settingsControls.parallelToolCalls, params.parallel_tool_calls);
+  setBooleanSelect(settingsControls.safePrompt, params.safe_prompt);
+  setBooleanSelect(settingsControls.rawMode, params.raw_mode);
+
+  updateUpdatedAtDisplay(settings?.updated_at);
+  syncStoredSelectedModel(settingsState.selectedModel);
+  setSettingsStatus('', { variant: '' });
+}
+
+function applySelectedModel() {
+  const select = settingsControls.modelSelect;
+  if (!select) return;
+  const target = settingsState.selectedModel;
+  if (target) {
+    const exists = Array.from(select.options).some((option) => option.value === target);
+    if (exists) {
+      select.value = target;
+      return;
+    }
+  }
+  if (select.options.length) {
+    select.selectedIndex = 0;
+    settingsState.selectedModel = select.value || null;
+  } else {
+    settingsState.selectedModel = null;
+  }
+}
+
+function updateActiveModelOptions(models = []) {
+  if (!settingsForm || !settingsControls.modelSelect) return;
+  settingsState.availableModels = Array.isArray(models) ? models : [];
+  const select = settingsControls.modelSelect;
+  const previous = select.value;
+  select.innerHTML = '';
+
+  const fragment = document.createDocumentFragment();
+  const seen = new Set();
+  for (const model of models) {
+    if (!model || typeof model !== 'object') continue;
+    const id = typeof model.id === 'string' ? model.id.trim() : '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const option = document.createElement('option');
+    option.value = id;
+    option.textContent = formatModelLabel(model);
+    fragment.appendChild(option);
+  }
+
+  if (!seen.size && settingsState.current?.model) {
+    const fallback = document.createElement('option');
+    fallback.value = settingsState.current.model;
+    fallback.textContent = settingsState.current.model;
+    fragment.appendChild(fallback);
+    seen.add(settingsState.current.model);
+  }
+
+  select.appendChild(fragment);
+
+  if (settingsState.selectedModel && seen.has(settingsState.selectedModel)) {
+    select.value = settingsState.selectedModel;
+  } else if (previous && seen.has(previous)) {
+    select.value = previous;
+    settingsState.selectedModel = previous;
+  } else if (select.options.length) {
+    select.selectedIndex = 0;
+    settingsState.selectedModel = select.value || null;
+  } else {
+    settingsState.selectedModel = null;
+  }
+}
+
+function buildModelSettingsPayload() {
+  const model = settingsControls.modelSelect?.value || settingsState.selectedModel || 'openrouter/auto';
+  const payload = { model };
+
+  const provider = {};
+  const params = {};
+
+  const sort = settingsControls.providerSort?.value?.trim();
+  if (sort) provider.sort = sort;
+
+  const dataCollection = settingsControls.providerDataCollection?.value?.trim();
+  if (dataCollection) provider.data_collection = dataCollection;
+
+  const allowFallbacks = parseBooleanSelect(settingsControls.providerAllowFallbacks);
+  if (allowFallbacks !== null) provider.allow_fallbacks = allowFallbacks;
+
+  const requireParameters = parseBooleanSelect(settingsControls.providerRequireParameters);
+  if (requireParameters !== null) provider.require_parameters = requireParameters;
+
+  if (Object.keys(provider).length) {
+    payload.provider = provider;
+  }
+
+  const temperature = parseNumberField(settingsControls.temperature);
+  if (temperature !== null) params.temperature = temperature;
+
+  const topP = parseNumberField(settingsControls.topP);
+  if (topP !== null) params.top_p = topP;
+
+  const topK = parseIntegerField(settingsControls.topK);
+  if (topK !== null) params.top_k = topK;
+
+  const minP = parseNumberField(settingsControls.minP);
+  if (minP !== null) params.min_p = minP;
+
+  const topA = parseNumberField(settingsControls.topA);
+  if (topA !== null) params.top_a = topA;
+
+  const maxTokens = parseIntegerField(settingsControls.maxTokens);
+  if (maxTokens !== null) params.max_tokens = maxTokens;
+
+  const frequencyPenalty = parseNumberField(settingsControls.frequencyPenalty);
+  if (frequencyPenalty !== null) params.frequency_penalty = frequencyPenalty;
+
+  const presencePenalty = parseNumberField(settingsControls.presencePenalty);
+  if (presencePenalty !== null) params.presence_penalty = presencePenalty;
+
+  const repetitionPenalty = parseNumberField(settingsControls.repetitionPenalty);
+  if (repetitionPenalty !== null) params.repetition_penalty = repetitionPenalty;
+
+  const seed = parseIntegerField(settingsControls.seed);
+  if (seed !== null) params.seed = seed;
+
+  const stopSequences = parseStopField(settingsControls.stop);
+  if (stopSequences) {
+    params.stop = stopSequences.length === 1 ? stopSequences[0] : stopSequences;
+  }
+
+  const parallelToolCalls = parseBooleanSelect(settingsControls.parallelToolCalls);
+  if (parallelToolCalls !== null) params.parallel_tool_calls = parallelToolCalls;
+
+  const safePrompt = parseBooleanSelect(settingsControls.safePrompt);
+  if (safePrompt !== null) params.safe_prompt = safePrompt;
+
+  const rawMode = parseBooleanSelect(settingsControls.rawMode);
+  if (rawMode !== null) params.raw_mode = rawMode;
+
+  if (Object.keys(params).length) {
+    payload.parameters = params;
+  }
+
+  return payload;
+}
+
+function parseNumberField(control) {
+  if (!control) return null;
+  const raw = control.value?.trim();
+  if (!raw) return null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+function parseIntegerField(control) {
+  const value = parseNumberField(control);
+  if (value === null) return null;
+  const intValue = Math.trunc(value);
+  return Number.isFinite(intValue) ? intValue : null;
+}
+
+function parseBooleanSelect(control) {
+  if (!control) return null;
+  const value = control.value;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return null;
+}
+
+function parseStopField(control) {
+  if (!control) return null;
+  const raw = control.value || '';
+  const entries = raw
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return entries.length ? entries : null;
+}
+
+function setNumberInput(control, value) {
+  if (!control) return;
+  if (value === undefined || value === null || value === '') {
+    control.value = '';
+  } else {
+    control.value = String(value);
+  }
+}
+
+function setIntegerInput(control, value) {
+  setNumberInput(control, value);
+}
+
+function setBooleanSelect(control, value) {
+  if (!control) return;
+  if (value === true) {
+    control.value = 'true';
+  } else if (value === false) {
+    control.value = 'false';
+  } else {
+    control.value = '';
+  }
+}
+
+function setSavingState(isSaving) {
+  settingsState.saving = !!isSaving;
+  if (settingsControls.submitButton) {
+    settingsControls.submitButton.disabled = !!isSaving;
+  }
+}
+
+function setSettingsStatus(message, { variant } = {}) {
+  const node = settingsControls.status;
+  if (!node) return;
+  node.textContent = message || '';
+  if (variant) {
+    node.dataset.variant = variant;
+  } else {
+    delete node.dataset.variant;
+  }
+}
+
+function updateUpdatedAtDisplay(value) {
+  const node = settingsControls.updatedAt;
+  if (!node) return;
+  const text = formatTimestamp(value);
+  node.textContent = text;
+  node.hidden = !text;
+}
+
+function syncStoredSelectedModel(modelId) {
+  if (!modelId || typeof persistSelectedModel !== 'function') return;
+  const match = settingsState.availableModels.find((entry) => entry && entry.id === modelId);
+  if (match) {
+    persistSelectedModel(match);
+  } else {
+    persistSelectedModel({ id: modelId, name: modelId });
+  }
+}
+
+function formatTimestamp(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return `Updated ${date.toLocaleString()}`;
+}
+
+function formatModelLabel(model) {
+  const id = typeof model?.id === 'string' ? model.id : '';
+  const name = typeof model?.name === 'string' ? model.name : '';
+  if (!id) return name || 'Unknown model';
+  if (name && name !== id) {
+    return `${name} (${id})`;
+  }
+  return id;
+}
+
 function clamp(v, min, max) {
   return Math.min(Math.max(v, min), max);
 }
 
-initialize();
+initialize().catch((error) => console.error('Settings init failed', error));
+

@@ -10,8 +10,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .chat import ChatOrchestrator
+from .services.model_settings import ModelSettingsService
 from .config import get_settings
 from .routers.chat import router as chat_router
+from .routers.settings import router as settings_router
 
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "Test_Frontend"
 
@@ -25,7 +27,17 @@ def create_app() -> FastAPI:
         description="Streaming chat backend powered by OpenRouter and MCP.",
     )
 
-    orchestrator = ChatOrchestrator(settings)
+    project_root = Path(__file__).resolve().parent.parent.parent
+    model_settings_path = settings.model_settings_path
+    if not model_settings_path.is_absolute():
+        model_settings_path = project_root / model_settings_path
+
+    model_settings_service = ModelSettingsService(
+        model_settings_path, settings.default_model
+    )
+    app.state.model_settings_service = model_settings_service
+
+    orchestrator = ChatOrchestrator(settings, model_settings_service)
     app.state.chat_orchestrator = orchestrator
 
     app.add_middleware(
@@ -45,6 +57,7 @@ def create_app() -> FastAPI:
         await orchestrator.shutdown()
 
     app.include_router(chat_router)
+    app.include_router(settings_router)
 
     if FRONTEND_DIR.exists():
         app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
@@ -58,8 +71,9 @@ def create_app() -> FastAPI:
             return FileResponse(FRONTEND_DIR / "settings.html")
 
     @app.get("/health", tags=["health"])
-    async def healthcheck() -> dict[str, str]:
-        return {"status": "ok", "default_model": settings.default_model}
+    async def healthcheck() -> dict[str, str | None]:
+        active_model, _ = await model_settings_service.get_openrouter_overrides()
+        return {"status": "ok", "default_model": settings.default_model, "active_model": active_model}
 
     return app
 

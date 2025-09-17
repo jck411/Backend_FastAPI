@@ -9,6 +9,7 @@ from typing import Any, AsyncGenerator
 
 from ..openrouter import OpenRouterClient
 from ..repository import ChatRepository
+from ..services.model_settings import ModelSettingsService
 from ..schemas.chat import ChatCompletionRequest
 from .mcp_client import MCPToolClient
 
@@ -45,12 +46,14 @@ class StreamingHandler:
         *,
         default_model: str,
         tool_hop_limit: int = 3,
+        model_settings: ModelSettingsService | None = None,
     ) -> None:
         self._client = client
         self._repo = repository
         self._tool_client = tool_client
         self._default_model = default_model
         self._tool_hop_limit = tool_hop_limit
+        self._model_settings = model_settings
 
     async def stream_conversation(
         self,
@@ -65,8 +68,26 @@ class StreamingHandler:
         conversation_state = list(conversation)
 
         while True:
-            payload = request.to_openrouter_payload(self._default_model)
+            active_model = self._default_model
+            overrides: dict[str, Any] = {}
+            if self._model_settings is not None:
+                model_override, overrides = await self._model_settings.get_openrouter_overrides()
+                if model_override:
+                    active_model = model_override
+                overrides = dict(overrides) if overrides else {}
+
+            payload = request.to_openrouter_payload(active_model)
             payload["messages"] = conversation_state
+
+            if overrides:
+                provider_overrides = overrides.get("provider")
+                if provider_overrides and "provider" not in payload:
+                    payload["provider"] = provider_overrides
+                for key, value in overrides.items():
+                    if key == "provider":
+                        continue
+                    payload.setdefault(key, value)
+
             if tools_payload:
                 payload["tools"] = tools_payload
                 payload.setdefault("tool_choice", request.tool_choice or "auto")

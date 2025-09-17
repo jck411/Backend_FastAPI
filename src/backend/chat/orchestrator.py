@@ -12,6 +12,7 @@ from typing import Any, AsyncGenerator
 
 from ..config import Settings
 from ..openrouter import OpenRouterClient
+from ..services.model_settings import ModelSettingsService
 from ..repository import ChatRepository
 from ..schemas.chat import ChatCompletionRequest
 from .mcp_client import MCPToolClient
@@ -23,7 +24,7 @@ logger = logging.getLogger(__name__)
 class ChatOrchestrator:
     """High-level coordination for chat sessions."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, model_settings: ModelSettingsService):
         src_dir = Path(__file__).resolve().parents[2]
         project_root = src_dir.parent
 
@@ -44,11 +45,13 @@ class ChatOrchestrator:
             cwd=project_root,
             env=env,
         )
+        self._model_settings = model_settings
         self._streaming = StreamingHandler(
             self._client,
             self._repo,
             self._mcp_client,
             default_model=settings.default_model,
+            model_settings=model_settings,
         )
         self._settings = settings
         self._init_lock = asyncio.Lock()

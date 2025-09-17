@@ -31,6 +31,15 @@ const metadataCreditFormatter = new Intl.NumberFormat(undefined, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 6,
 });
+const generationDetailsCache = new Map();
+let activeMetadataRecord = null;
+let metadataMoreInfoState = {
+  generationId: null,
+  expanded: false,
+  loading: false,
+  data: null,
+  error: null,
+};
 
 const modelSettingsController = createModelSettingsController({
   modelSelect,
@@ -107,7 +116,10 @@ function addMessage(role, content, options = {}) {
       return null;
     }
     const sanitized = sanitizeMetadata(metadata);
-    if (sanitized && isPlainObject(sanitized.usage)) {
+    const hasUsage = sanitized && isPlainObject(sanitized.usage);
+    const hasGenerationId =
+      sanitized && typeof sanitized.generation_id === 'string' && sanitized.generation_id.trim();
+    if (sanitized && (hasUsage || hasGenerationId)) {
       article.__metadata = sanitized;
       metadataButton.hidden = false;
       metadataButton.disabled = false;
@@ -177,7 +189,9 @@ function openMetadataModal(metadata) {
   }
 
   const sanitized = sanitizeMetadata(metadata);
-  renderMetadataModalContent(sanitized);
+  activeMetadataRecord = sanitized;
+  metadataMoreInfoState = createMoreInfoState(sanitized);
+  renderMetadataModalContent(activeMetadataRecord);
 
   if (!metadataModalVisible) {
     metadataModal.classList.add('is-visible');
@@ -204,6 +218,14 @@ function closeMetadataModal() {
   metadataModalVisible = false;
   document.removeEventListener('keydown', handleMetadataModalKeydown);
   updateBodyModalClass();
+  activeMetadataRecord = null;
+  metadataMoreInfoState = {
+    generationId: null,
+    expanded: false,
+    loading: false,
+    data: null,
+    error: null,
+  };
 }
 
 function handleMetadataModalKeydown(event) {
@@ -219,12 +241,11 @@ function renderMetadataModalContent(metadata) {
 
   metadataContent.innerHTML = '';
 
-  if (!isPlainObject(metadata) || !isPlainObject(metadata.usage)) {
-    appendEmptyUsageState();
+  if (!isPlainObject(metadata) || Object.keys(metadata).length === 0) {
+    appendUsageUnavailableMessage();
+    renderMoreInfoSection(null);
     return;
   }
-
-  const usage = metadata.usage;
 
   const summaryEntries = [];
   if (typeof metadata.model === 'string' && metadata.model.trim()) {
@@ -237,75 +258,87 @@ function renderMetadataModalContent(metadata) {
     appendMetadataSection('Completion Summary', summaryEntries);
   }
 
-  const usageEntries = [];
-  if (typeof usage.prompt_tokens === 'number') {
-    usageEntries.push(['Prompt tokens', formatMetadataValue(usage.prompt_tokens)]);
-  }
-  if (typeof usage.completion_tokens === 'number') {
-    usageEntries.push(['Completion tokens', formatMetadataValue(usage.completion_tokens)]);
-  }
-  if (typeof usage.total_tokens === 'number') {
-    usageEntries.push(['Total tokens', formatMetadataValue(usage.total_tokens)]);
-  }
-  if (typeof usage.cost === 'number') {
-    const formattedCost = formatUsageCost(usage.cost);
-    if (formattedCost != null) {
-      usageEntries.push(['Cost (credits)', formattedCost]);
-    }
-  }
-  if (usageEntries.length) {
-    appendMetadataSection('Usage', usageEntries);
-  }
+  let hasUsageSections = false;
+  if (isPlainObject(metadata.usage)) {
+    const usage = metadata.usage;
 
-  const breakdownEntries = [];
-  const promptDetails = isPlainObject(usage.prompt_tokens_details)
-    ? usage.prompt_tokens_details
-    : null;
-  if (promptDetails) {
-    for (const [key, value] of Object.entries(promptDetails)) {
-      if (typeof value === 'number') {
-        breakdownEntries.push([
-          `Prompt ${formatMetadataLabel(key)}`,
-          formatMetadataValue(value),
-        ]);
+    const usageEntries = [];
+    if (typeof usage.prompt_tokens === 'number') {
+      usageEntries.push(['Prompt tokens', formatMetadataValue(usage.prompt_tokens)]);
+    }
+    if (typeof usage.completion_tokens === 'number') {
+      usageEntries.push(['Completion tokens', formatMetadataValue(usage.completion_tokens)]);
+    }
+    if (typeof usage.total_tokens === 'number') {
+      usageEntries.push(['Total tokens', formatMetadataValue(usage.total_tokens)]);
+    }
+    if (typeof usage.cost === 'number') {
+      const formattedCost = formatUsageCost(usage.cost);
+      if (formattedCost != null) {
+        usageEntries.push(['Cost (credits)', formattedCost]);
       }
     }
-  }
-
-  const completionDetails = isPlainObject(usage.completion_tokens_details)
-    ? usage.completion_tokens_details
-    : null;
-  if (completionDetails) {
-    for (const [key, value] of Object.entries(completionDetails)) {
-      if (typeof value === 'number') {
-        breakdownEntries.push([
-          `Completion ${formatMetadataLabel(key)}`,
-          formatMetadataValue(value),
-        ]);
-      }
+    if (usageEntries.length) {
+      appendMetadataSection('Usage', usageEntries);
+      hasUsageSections = true;
     }
-  }
 
-  if (breakdownEntries.length) {
-    appendMetadataSection('Usage Breakdown', breakdownEntries);
-  }
-
-  const costDetails = isPlainObject(usage.cost_details) ? usage.cost_details : null;
-  if (costDetails) {
-    const costEntries = [];
-    for (const [key, value] of Object.entries(costDetails)) {
-      if (typeof value === 'number') {
-        const formatted = formatUsageCost(value);
-        if (formatted != null) {
-          costEntries.push([formatMetadataLabel(key), formatted]);
-          continue;
+    const breakdownEntries = [];
+    const promptDetails = isPlainObject(usage.prompt_tokens_details)
+      ? usage.prompt_tokens_details
+      : null;
+    if (promptDetails) {
+      for (const [key, value] of Object.entries(promptDetails)) {
+        if (typeof value === 'number') {
+          breakdownEntries.push([
+            `Prompt ${formatMetadataLabel(key)}`,
+            formatMetadataValue(value),
+          ]);
         }
       }
-      costEntries.push([formatMetadataLabel(key), formatMetadataValue(value)]);
     }
-    if (costEntries.length) {
-      appendMetadataSection('Cost Details', costEntries);
+
+    const completionDetails = isPlainObject(usage.completion_tokens_details)
+      ? usage.completion_tokens_details
+      : null;
+    if (completionDetails) {
+      for (const [key, value] of Object.entries(completionDetails)) {
+        if (typeof value === 'number') {
+          breakdownEntries.push([
+            `Completion ${formatMetadataLabel(key)}`,
+            formatMetadataValue(value),
+          ]);
+        }
+      }
     }
+
+    if (breakdownEntries.length) {
+      appendMetadataSection('Usage Breakdown', breakdownEntries);
+      hasUsageSections = true;
+    }
+
+    const costDetails = isPlainObject(usage.cost_details) ? usage.cost_details : null;
+    if (costDetails) {
+      const costEntries = [];
+      for (const [key, value] of Object.entries(costDetails)) {
+        if (typeof value === 'number') {
+          const formatted = formatUsageCost(value);
+          if (formatted != null) {
+            costEntries.push([formatMetadataLabel(key), formatted]);
+            continue;
+          }
+        }
+        costEntries.push([formatMetadataLabel(key), formatMetadataValue(value)]);
+      }
+      if (costEntries.length) {
+        appendMetadataSection('Cost Details', costEntries);
+        hasUsageSections = true;
+      }
+    }
+  }
+
+  if (!hasUsageSections) {
+    appendUsageUnavailableMessage();
   }
 
   if (isPlainObject(metadata.routing)) {
@@ -325,27 +358,19 @@ function renderMetadataModalContent(metadata) {
     }
   }
 
-  if (!metadataContent.children.length) {
-    appendEmptyUsageState();
-  }
-
-  function appendEmptyUsageState() {
-    const empty = document.createElement('p');
-    empty.className = 'metadata-empty';
-    empty.textContent = 'Usage details are not available for this reply.';
-    metadataContent.appendChild(empty);
-  }
+  renderMoreInfoSection(metadata);
 }
 
-function appendMetadataSection(title, entries) {
-  if (!metadataContent || !entries.length) {
+function appendMetadataSection(title, entries, target = metadataContent) {
+  const root = target;
+  if (!root || !entries.length) {
     return;
   }
 
   const heading = document.createElement('h3');
   heading.className = 'metadata-section-title';
   heading.textContent = title;
-  metadataContent.appendChild(heading);
+  root.appendChild(heading);
 
   for (const [label, value] of entries) {
     const row = document.createElement('div');
@@ -360,8 +385,242 @@ function appendMetadataSection(title, entries) {
     valueEl.textContent = value;
 
     row.append(labelEl, valueEl);
-    metadataContent.appendChild(row);
+    root.appendChild(row);
   }
+}
+
+function renderMoreInfoSection(metadata) {
+  if (!metadataContent) {
+    return;
+  }
+
+  const container = document.createElement('div');
+  container.className = 'metadata-more-info';
+  metadataContent.appendChild(container);
+
+  const generationId = metadataMoreInfoState.generationId;
+  if (!generationId) {
+    const note = document.createElement('p');
+    note.className = 'metadata-empty';
+    note.textContent = 'Additional generation details are unavailable.';
+    container.appendChild(note);
+    return;
+  }
+
+  const actions = document.createElement('div');
+  actions.className = 'metadata-more-info__actions';
+
+  const toggleButton = document.createElement('button');
+  toggleButton.type = 'button';
+  toggleButton.className = 'metadata-more-info__button';
+  toggleButton.textContent = metadataMoreInfoState.expanded ? 'Hide more info' : 'More info';
+  toggleButton.addEventListener('click', handleMetadataMoreInfoToggle);
+  actions.appendChild(toggleButton);
+
+  container.appendChild(actions);
+
+  if (!metadataMoreInfoState.expanded) {
+    return;
+  }
+
+  if (metadataMoreInfoState.loading) {
+    const status = document.createElement('p');
+    status.className = 'metadata-more-info__status';
+    status.textContent = 'Loading more details…';
+    container.appendChild(status);
+    return;
+  }
+
+  if (metadataMoreInfoState.error) {
+    const error = document.createElement('p');
+    error.className = 'metadata-more-info__error';
+    error.textContent = metadataMoreInfoState.error;
+    container.appendChild(error);
+    return;
+  }
+
+  const detailEntries = buildGenerationDetailEntries(metadataMoreInfoState.data);
+  if (detailEntries.length) {
+    appendMetadataSection('Generation Details', detailEntries, container);
+  } else {
+    const empty = document.createElement('p');
+    empty.className = 'metadata-empty';
+    empty.textContent = 'No additional generation data available.';
+    container.appendChild(empty);
+  }
+}
+
+function appendUsageUnavailableMessage(target = metadataContent) {
+  if (!target) {
+    return;
+  }
+  const empty = document.createElement('p');
+  empty.className = 'metadata-empty';
+  empty.textContent = 'Usage details are not available for this reply.';
+  target.appendChild(empty);
+}
+
+async function handleMetadataMoreInfoToggle(event) {
+  if (event) {
+    event.preventDefault();
+  }
+
+  const generationId = metadataMoreInfoState.generationId;
+  if (!generationId) {
+    return;
+  }
+
+  const shouldExpand = !metadataMoreInfoState.expanded;
+  metadataMoreInfoState.expanded = shouldExpand;
+  metadataMoreInfoState.error = null;
+
+  if (!shouldExpand) {
+    renderMetadataModalContent(activeMetadataRecord);
+    return;
+  }
+
+  const cached = generationDetailsCache.get(generationId);
+  if (cached) {
+    metadataMoreInfoState.data = cached;
+    metadataMoreInfoState.loading = false;
+    renderMetadataModalContent(activeMetadataRecord);
+    return;
+  }
+
+  metadataMoreInfoState.loading = true;
+  metadataMoreInfoState.data = null;
+  renderMetadataModalContent(activeMetadataRecord);
+
+  try {
+    const payload = await fetchGenerationDetails(generationId);
+    metadataMoreInfoState.data = payload;
+    generationDetailsCache.set(generationId, payload);
+  } catch (error) {
+    metadataMoreInfoState.error =
+      error instanceof Error ? error.message : 'Failed to load generation details.';
+  } finally {
+    metadataMoreInfoState.loading = false;
+    renderMetadataModalContent(activeMetadataRecord);
+  }
+}
+
+function createMoreInfoState(metadata) {
+  const generationId =
+    metadata && typeof metadata.generation_id === 'string'
+      ? metadata.generation_id.trim()
+      : '';
+  const normalizedId = generationId || null;
+  const cached = normalizedId ? generationDetailsCache.get(normalizedId) ?? null : null;
+
+  return {
+    generationId: normalizedId,
+    expanded: false,
+    loading: false,
+    data: cached,
+    error: null,
+  };
+}
+
+async function fetchGenerationDetails(generationId) {
+  const response = await fetch(`/api/chat/generation/${encodeURIComponent(generationId)}`, {
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    let message = `Failed to load generation details (${response.status})`;
+    try {
+      const body = await response.json();
+      if (body) {
+        if (typeof body.detail === 'string') {
+          message = body.detail;
+        } else if (typeof body.error === 'string') {
+          message = body.error;
+        }
+      }
+    } catch (_) {
+      // ignore parsing errors, fall back to default message
+    }
+    throw new Error(message);
+  }
+
+  try {
+    return await response.json();
+  } catch (error) {
+    throw new Error('Received an invalid response when loading generation details.');
+  }
+}
+
+function buildGenerationDetailEntries(payload) {
+  const data = normalizeGenerationData(payload);
+  if (!isPlainObject(data)) {
+    return [];
+  }
+
+  const orderedKeys = [
+    'id',
+    'model',
+    'provider_name',
+    'origin',
+    'created_at',
+    'finish_reason',
+    'native_finish_reason',
+    'streamed',
+    'cancelled',
+    'latency',
+    'moderation_latency',
+    'generation_time',
+    'total_cost',
+    'upstream_inference_cost',
+    'cache_discount',
+    'usage',
+    'tokens_prompt',
+    'tokens_completion',
+    'native_tokens_prompt',
+    'native_tokens_completion',
+    'native_tokens_reasoning',
+    'num_media_prompt',
+    'num_media_completion',
+    'num_search_results',
+    'app_id',
+    'upstream_id',
+    'is_byok',
+  ];
+
+  const costKeys = new Set(['total_cost', 'cache_discount', 'upstream_inference_cost']);
+
+  const entries = [];
+  for (const key of orderedKeys) {
+    if (!(key in data)) {
+      continue;
+    }
+    const value = data[key];
+    if (value == null || value === '') {
+      continue;
+    }
+
+    let formatted;
+    if (typeof value === 'number' && costKeys.has(key)) {
+      formatted = formatUsageCost(value) ?? formatMetadataValue(value);
+    } else {
+      formatted = formatMetadataValue(value);
+    }
+
+    entries.push([formatMetadataLabel(key), formatted]);
+  }
+
+  return entries;
+}
+
+function normalizeGenerationData(payload) {
+  if (isPlainObject(payload?.data)) {
+    return payload.data;
+  }
+  if (isPlainObject(payload)) {
+    return payload;
+  }
+  return null;
 }
 
 async function requestStream(latestUserMessage) {

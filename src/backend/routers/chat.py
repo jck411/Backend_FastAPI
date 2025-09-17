@@ -79,6 +79,19 @@ async def test_stream() -> EventSourceResponse:
     return EventSourceResponse(generator())
 
 
+@router.get("/chat/generation/{generation_id}", status_code=200)
+async def get_generation_details(
+    generation_id: str,
+    client: OpenRouterClient = Depends(get_openrouter_client),
+) -> dict[str, Any]:
+    """Return detailed usage and cost information for a generation."""
+
+    try:
+        return await client.get_generation(generation_id)
+    except OpenRouterError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+
 @router.get("/models", status_code=200)
 async def list_models(
     tools_only: bool = Query(
@@ -300,13 +313,15 @@ def _classify_series(item: dict[str, Any]) -> list[str]:
         tokens = _tokenize_series_string(name)
         candidates.update(tokens)
 
+    candidates.add("Other")
+
     return sorted({value for value in candidates if value})
 
 
 _PROVIDER_SERIES_ALIASES: dict[str, set[str]] = {
     "openai": {"gpt"},
     "anthropic": {"claude"},
-    "google": {"gemini"},
+    "google": {"gemini", "PaLM", "pam"},
     "x-ai": {"grok"},
     "cohere": {"cohere"},
     "amazon": {"nova"},

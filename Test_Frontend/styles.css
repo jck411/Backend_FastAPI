@@ -312,6 +312,50 @@ body.modal-open {
   color: #9ca3af;
 }
 
+.metadata-more-info {
+  border-top: 1px solid #1f2937;
+  padding-top: 0.75rem;
+  margin-top: 0.5rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.metadata-more-info__actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.metadata-more-info__button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.95rem;
+  color: #38bdf8;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.metadata-more-info__button:hover,
+.metadata-more-info__button:focus {
+  color: #0ea5e9;
+}
+
+.metadata-more-info__button:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.metadata-more-info__status {
+  font-size: 0.9rem;
+  color: #9ca3af;
+}
+
+.metadata-more-info__error {
+  font-size: 0.9rem;
+  color: #f87171;
+}
+
 .controls {
   display: flex;
   gap: 0.75rem;

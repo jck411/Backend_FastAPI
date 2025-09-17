@@ -26,6 +26,7 @@ class AssistantTurn:
     model: str | None
     usage: dict[str, Any] | None
     meta: dict[str, Any] | None
+    generation_id: str | None
 
     def to_message_dict(self) -> dict[str, Any]:
         message: dict[str, Any] = {
@@ -109,6 +110,7 @@ class StreamingHandler:
             model_name: str | None = None
             usage_details: dict[str, Any] | None = None
             meta_details: dict[str, Any] | None = None
+            generation_id: str | None = None
             async for event in self._client.stream_chat_raw(payload):
                 data = event.get("data")
                 if not data:
@@ -164,6 +166,10 @@ class StreamingHandler:
                 if isinstance(meta_value, dict):
                     meta_details = meta_value
 
+                chunk_id = chunk.get("id")
+                if isinstance(chunk_id, str) and chunk_id:
+                    generation_id = chunk_id
+
                 yield event
 
             tool_calls = _finalize_tool_calls(streamed_tool_calls)
@@ -176,6 +182,7 @@ class StreamingHandler:
                 model=model_name,
                 usage=usage_details,
                 meta=meta_details,
+                generation_id=generation_id,
             )
             metadata: dict[str, Any] = {}
             if assistant_turn.finish_reason is not None:
@@ -188,6 +195,8 @@ class StreamingHandler:
                 metadata["usage"] = assistant_turn.usage
             if assistant_turn.meta is not None:
                 metadata["meta"] = assistant_turn.meta
+            if assistant_turn.generation_id is not None:
+                metadata["generation_id"] = assistant_turn.generation_id
             if routing_headers:
                 metadata["routing"] = routing_headers
 
@@ -206,6 +215,7 @@ class StreamingHandler:
                 "usage": assistant_turn.usage,
                 "routing": routing_headers,
                 "meta": assistant_turn.meta,
+                "generation_id": assistant_turn.generation_id,
             }
             yield {
                 "event": "metadata",

@@ -155,7 +155,12 @@ class DummyOpenRouterClient:
         self.payloads.append(payload)
         yield {
             "data": json.dumps(
-                {"choices": [{"delta": {"content": "Hello"}, "finish_reason": "stop"}]}
+                {
+                    "id": "gen-simple",
+                    "choices": [
+                        {"delta": {"content": "Hello"}, "finish_reason": "stop"}
+                    ],
+                }
             )
         }
         yield {"data": "[DONE]"}
@@ -171,6 +176,7 @@ class DummyOpenRouterClientWithMetadata(DummyOpenRouterClient):
         yield {
             "data": json.dumps(
                 {
+                    "id": "gen-abc123",
                     "model": "test/model",
                     "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
                     "meta": {
@@ -323,6 +329,7 @@ async def test_streaming_emits_metadata_event() -> None:
     assert payload["usage"]["total_tokens"] == 12
     assert payload["routing"]["OpenRouter-Provider"] == "test/provider"
     assert payload["meta"]["provider"]["endpoint"] == "test-endpoint"
+    assert payload["generation_id"] == "gen-abc123"
 
     assert repo.messages, "Expected message persisted"
     _, role, _, metadata = repo.messages[-1]
@@ -331,3 +338,4 @@ async def test_streaming_emits_metadata_event() -> None:
     assert metadata["usage"]["prompt_tokens"] == 5
     assert metadata["routing"]["OpenRouter-Provider"] == "test/provider"
     assert metadata["meta"]["provider"]["name"] == "Meta Test Provider"
+    assert metadata["generation_id"] == "gen-abc123"

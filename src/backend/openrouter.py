@@ -171,6 +171,30 @@ class OpenRouterClient:
 
         return response.json()
 
+    async def get_generation(self, generation_id: str) -> Dict[str, Any]:
+        """Fetch detailed information for a completed generation."""
+
+        if not generation_id:
+            raise ValueError("generation_id must be provided")
+
+        url = f"{self._base_url}/generation"
+        headers = dict(self._headers)
+        headers["Accept"] = "application/json"
+
+        params = {"id": generation_id}
+
+        async with httpx.AsyncClient(timeout=self._settings.request_timeout) as client:
+            try:
+                response = await client.get(url, headers=headers, params=params)
+            except httpx.HTTPError as exc:
+                raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+        if response.status_code >= 400:
+            detail = self._extract_error_detail(response.content)
+            raise OpenRouterError(response.status_code, detail)
+
+        return response.json()
+
     async def _iter_events(
         self, response: httpx.Response
     ) -> AsyncGenerator[ServerSentEvent, None]:

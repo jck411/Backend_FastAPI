@@ -2,6 +2,7 @@ const searchInput = document.querySelector('#model-search');
 const clearButton = document.querySelector('#clear-filters');
 const modelGrid = document.querySelector('#model-grid');
 const resultSummary = document.querySelector('#result-summary');
+const SELECTED_MODEL_LS_KEY = 'chat.selectedModel.v1';
 
 const containers = {
   inputModalities: document.querySelector('#input-modalities-options'),
@@ -100,6 +101,9 @@ let debounceTimer = null;
 function initialize() {
   // Load saved preferences so initial UI reflects prior choices
   loadPreferences();
+  if (searchInput) {
+    searchInput.value = state.search;
+  }
   renderMultiSelect(containers.inputModalities, INPUT_MODALITY_OPTIONS, state.inputModalities);
   renderMultiSelect(containers.outputModalities, OUTPUT_MODALITY_OPTIONS, state.outputModalities);
   renderContextSlider();
@@ -118,6 +122,7 @@ function initialize() {
   searchInput.addEventListener('input', handleSearchInput);
   clearButton.addEventListener('click', clearAllFilters);
 
+  savePreferences();
   refreshResults().catch((error) => console.error('Failed to load initial models', error));
 }
 
@@ -129,6 +134,9 @@ function renderMultiSelect(container, options, targetSet) {
     button.className = 'filter-option';
     button.textContent = option.label;
     button.dataset.value = option.value;
+    if (targetSet.has(option.value)) {
+      button.classList.add('is-active');
+    }
 
     button.addEventListener('click', async () => {
       if (targetSet.has(option.value)) {
@@ -138,6 +146,7 @@ function renderMultiSelect(container, options, targetSet) {
         targetSet.add(option.value);
         button.classList.add('is-active');
       }
+      savePreferences();
       await refreshResults();
     });
 
@@ -292,6 +301,7 @@ function renderPriceSlider() {
 
 function handleSearchInput(event) {
   state.search = event.target.value.trim();
+  savePreferences();
   if (debounceTimer) {
     clearTimeout(debounceTimer);
   }
@@ -441,6 +451,7 @@ function hasActiveFilters() {
 }
 
 function populateCard(fragment, model) {
+  const card = fragment.querySelector('.model-card');
   const name = fragment.querySelector('.model-name');
   name.textContent = model.name || model.id || 'Unknown model';
 
@@ -466,6 +477,34 @@ function populateCard(fragment, model) {
   series.slice(0, 3).forEach((entry) => tagContainer.appendChild(makeTag(entry)));
   const params = Array.isArray(model.supported_parameters) ? model.supported_parameters : [];
   params.slice(0, 4).forEach((entry) => tagContainer.appendChild(makeTag(entry)));
+
+  if (card && model && model.id) {
+    attachCardInteractions(card, model);
+  }
+}
+
+function attachCardInteractions(card, model) {
+  card.classList.add('is-clickable');
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+
+  const activate = () => {
+    persistSelectedModel(model);
+    window.location.href = '/';
+  };
+
+  card.addEventListener('click', (event) => {
+    event.preventDefault();
+    activate();
+  });
+
+  card.addEventListener('keydown', (event) => {
+    const key = event.key;
+    if (key === 'Enter' || key === ' ') {
+      event.preventDefault();
+      activate();
+    }
+  });
 }
 
 function formatContextLength(value) {
@@ -685,12 +724,38 @@ function updateFreeOnlyUi(active) {
   btn.classList.toggle('is-active', !!active);
 }
 
+function persistSelectedModel(model) {
+  if (!supportsLocalStorage() || !model || !model.id) {
+    return;
+  }
+
+  try {
+    const payload = {
+      id: model.id,
+      label: model.name || model.id,
+    };
+    window.localStorage.setItem(SELECTED_MODEL_LS_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to persist selected model', error);
+  }
+}
+
+function supportsLocalStorage() {
+  return typeof window !== 'undefined' && !!window.localStorage;
+}
+
 function savePreferences() {
   try {
     const data = {
+      search: state.search,
+      inputModalities: Array.from(state.inputModalities),
+      outputModalities: Array.from(state.outputModalities),
+      series: Array.from(state.series),
+      supportedParameters: Array.from(state.supportedParameters),
       contextValue: typeof state.contextValue === 'number' ? state.contextValue : null,
-      priceValue: typeof state.priceValue === 'number' ? state.priceValue : null,
+      priceValue: Number.isFinite(state.priceValue) ? state.priceValue : null,
       priceFreeOnly: !!state.priceFreeOnly,
+      filters: buildFilterPayload(),
     };
     localStorage.setItem(LS_KEY, JSON.stringify(data));
   } catch (_) {
@@ -706,8 +771,14 @@ function loadPreferences() {
     if (!raw) return;
     const data = JSON.parse(raw);
     if (data && typeof data === 'object') {
+      if (typeof data.search === 'string') state.search = data.search;
+      if (Array.isArray(data.inputModalities)) state.inputModalities = new Set(data.inputModalities);
+      if (Array.isArray(data.outputModalities)) state.outputModalities = new Set(data.outputModalities);
+      if (Array.isArray(data.series)) state.series = new Set(data.series);
+      if (Array.isArray(data.supportedParameters)) state.supportedParameters = new Set(data.supportedParameters);
       if (typeof data.contextValue === 'number') state.contextValue = data.contextValue;
       if (typeof data.priceValue === 'number') state.priceValue = data.priceValue;
+      else state.priceValue = null;
       if (typeof data.priceFreeOnly === 'boolean') state.priceFreeOnly = data.priceFreeOnly;
     }
   } catch (_) {

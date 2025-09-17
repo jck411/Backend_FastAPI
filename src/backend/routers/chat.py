@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -236,7 +237,11 @@ def _enrich_model(item: dict[str, Any]) -> dict[str, Any]:
         enriched["supported_parameters"] = normalized
         enriched["supported_parameters_normalized"] = sorted({param.lower() for param in normalized})
 
-    enriched["series"] = _classify_series(item)
+    series = _classify_series(item)
+    enriched["series"] = series
+    enriched["series_normalized"] = sorted(
+        {_canonicalize_token(label) for label in series if isinstance(label, str)}
+    )
     enriched["provider_prefix"] = _provider_prefix(item)
 
     return enriched
@@ -259,115 +264,72 @@ def _provider_prefix(item: dict[str, Any]) -> str | None:
     return ident
 
 
-_SERIES_MAP: dict[str, str] = {
-    "openai": "GPT",
-    "anthropic": "Claude",
-    "google": "Gemini",
-    "x-ai": "Grok",
-    "cohere": "Cohere",
-    "amazon": "Nova",
-    "perplexity": "Router",
-    "openrouter": "Router",
-    "mistralai": "Mistral",
-    "deepseek": "DeepSeek",
-    "yi": "Yi",
-    "01-ai": "Yi",
-    "meta-llama": "Llama",
-    "microsoft": "Other",
-    "nvidia": "Other",
-}
-
-_KNOWN_SERIES = {
-    "GPT",
-    "Claude",
-    "Gemini",
-    "Grok",
-    "Cohere",
-    "Nova",
-    "Qwen",
-    "Yi",
-    "DeepSeek",
-    "Mistral",
-    "Llama",
-    "Llama2",
-    "Llama3",
-    "Llama4",
-    "RWKV",
-    "Qwen3",
-    "Router",
-    "Media",
-    "Other",
-    "PaLM",
-}
+def _canonicalize_token(value: str) -> str:
+    return value.strip().lower()
 
 
 def _classify_series(item: dict[str, Any]) -> list[str]:
     ident = item.get("id")
     name = item.get("name")
-    candidates: set[str] = set()
-    prefix = _provider_prefix(item)
 
-    if prefix:
-        mapped = _SERIES_MAP.get(prefix.lower())
-        if mapped is not None:
-            candidates.add(mapped)
+    candidates: set[str] = set()
 
     if isinstance(ident, str):
-        lowered = ident.lower()
-        if "llama-4" in lowered:
-            candidates.add("Llama4")
-        elif "llama-3" in lowered:
-            candidates.add("Llama3")
-        elif "llama-2" in lowered or "llama2" in lowered:
-            candidates.add("Llama2")
+        ident = ident.strip()
+        if ident:
+            candidates.add(ident)
+            if "/" in ident:
+                prefix, suffix = ident.split("/", 1)
+                if prefix:
+                    candidates.add(prefix)
+                if suffix:
+                    candidates.add(suffix)
+            tokens = _tokenize_series_string(ident)
+            candidates.update(tokens)
 
-        if "qwen3" in lowered or "qwen-3" in lowered:
-            candidates.add("Qwen3")
-        if lowered.startswith("qwen"):
-            candidates.add("Qwen")
-        if lowered.startswith("deepseek"):
-            candidates.add("DeepSeek")
-        if lowered.startswith("yi") or "-yi" in lowered:
-            candidates.add("Yi")
-        if lowered.startswith("gpt") or "gpt" in lowered:
-            candidates.add("GPT")
-        if "claude" in lowered:
-            candidates.add("Claude")
-        if "gemini" in lowered:
-            candidates.add("Gemini")
-        if "grok" in lowered:
-            candidates.add("Grok")
-        if any(keyword in lowered for keyword in ("palm", "bison", "codey")):
-            candidates.add("PaLM")
-        if "nova" in lowered:
-            candidates.add("Nova")
-        if "rwkv" in lowered:
-            candidates.add("RWKV")
+    prefix = _provider_prefix(item)
+    if isinstance(prefix, str):
+        prefix = prefix.strip()
+    if prefix:
+        candidates.add(prefix)
+        aliases = _PROVIDER_SERIES_ALIASES.get(prefix.lower())
+        if aliases:
+            candidates.update(aliases)
 
     if isinstance(name, str):
-        lowered_name = name.lower()
-        if "llama" in lowered_name:
-            if "4" in lowered_name:
-                candidates.add("Llama4")
-            elif "3" in lowered_name:
-                candidates.add("Llama3")
-            elif "2" in lowered_name:
-                candidates.add("Llama2")
-        if "deepseek" in lowered_name:
-            candidates.add("DeepSeek")
-        if "qwen 3" in lowered_name or "qwen3" in lowered_name:
-            candidates.add("Qwen3")
-        if any(keyword in lowered_name for keyword in ("palm", "bison", "codey")):
-            candidates.add("PaLM")
+        tokens = _tokenize_series_string(name)
+        candidates.update(tokens)
 
-    if not candidates and prefix:
-        # Provide a capitalized fallback for unknown providers
-        candidates.add(prefix.replace("-", " ").title())
+    return sorted({value for value in candidates if value})
 
-    if not candidates or not (candidates & _KNOWN_SERIES):
-        candidates.add("Other")
 
-    return sorted(candidates)
+_PROVIDER_SERIES_ALIASES: dict[str, set[str]] = {
+    "openai": {"gpt"},
+    "anthropic": {"claude"},
+    "google": {"gemini"},
+    "x-ai": {"grok"},
+    "cohere": {"cohere"},
+    "amazon": {"nova"},
+    "perplexity": {"router"},
+    "openrouter": {"router"},
+    "mistralai": {"mistral"},
+    "deepseek": {"deepseek"},
+    "yi": {"yi"},
+    "01-ai": {"yi"},
+    "meta-llama": {"llama", "llama2", "llama3", "llama4"},
+    "meta": {"llama"},
+    "qwen": {"qwen"},
+    "microsoft": {"other"},
+    "nvidia": {"other"},
+}
+
+
+_SERIES_TOKEN_PATTERN = re.compile(r"[\s/_-]+")
+
+
+def _tokenize_series_string(value: str) -> set[str]:
+    chunks = {chunk.strip() for chunk in _SERIES_TOKEN_PATTERN.split(value) if chunk.strip()}
+    return chunks
 
 
 def _is_truthy(value: Any) -> bool:
@@ -436,8 +398,8 @@ def _apply_search_and_filters(
 def _normalize_search_query(query: str | None) -> list[str]:
     if not query:
         return []
-    tokens = [token.lower() for token in query.split() if token.strip()]
-    return tokens
+    tokens = [token for token in query.split() if token.strip()]
+    return [_canonicalize_token(token) for token in tokens]
 
 
 def _matches_search(model: dict[str, Any], tokens: list[str]) -> bool:
@@ -575,7 +537,7 @@ def _match_mapping(values: list[Any], mapping: dict[str, Any]) -> bool:
 
 def _normalize_value(value: Any) -> Any:
     if isinstance(value, str):
-        return value.strip().lower()
+        return _canonicalize_token(value)
     return value
 
 
@@ -634,6 +596,7 @@ def _build_faceted_metadata(models: list[Any]) -> dict[str, Any]:
         "output_modalities": set(),
         "supported_parameters": set(),
         "series": set(),
+        "series_normalized": set(),
     }
     min_context: int | None = None
     max_context: int | None = None
@@ -652,6 +615,8 @@ def _build_faceted_metadata(models: list[Any]) -> dict[str, Any]:
             facets["supported_parameters"].add(str(value))
         for value in item.get("series", []):
             facets["series"].add(str(value))
+        for value in item.get("series_normalized", []):
+            facets["series_normalized"].add(str(value))
 
         context_length = item.get("context_length")
         if isinstance(context_length, int):
@@ -668,6 +633,7 @@ def _build_faceted_metadata(models: list[Any]) -> dict[str, Any]:
         "output_modalities": sorted(facets["output_modalities"]),
         "supported_parameters": sorted(facets["supported_parameters"]),
         "series": sorted(facets["series"]),
+        "series_normalized": sorted(facets["series_normalized"]),
         "context_length": {
             "min": min_context,
             "max": max_context,

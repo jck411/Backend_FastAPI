@@ -119,6 +119,46 @@ def test_models_endpoint_supports_search_query() -> None:
     assert ids == ["model-b"]
 
 
+def test_models_endpoint_series_aliases_allow_search() -> None:
+    payload = {
+        "data": [
+            {"id": "google/text-bison@001", "name": "Text Bison"},
+            {"id": "openai/gpt-4o-mini", "name": "GPT-4o Mini"},
+        ]
+    }
+
+    client = make_client(payload)
+    response = client.get("/api/models", params={"search": "pam"})
+
+    assert response.status_code == 200
+    body = response.json()
+    ids = {item["id"] for item in body["data"]}
+    assert "google/text-bison@001" in ids
+    # Ensure normalized series are included on the enriched model.
+    item = next(model for model in body["data"] if model["id"] == "google/text-bison@001")
+    assert "palm" in item.get("series_normalized", [])
+
+
+def test_models_endpoint_series_aliases_allow_filtering() -> None:
+    payload = {
+        "data": [
+            {"id": "google/text-bison@001", "name": "Text Bison"},
+            {"id": "openai/gpt-4o-mini", "name": "GPT-4o Mini"},
+        ]
+    }
+
+    client = make_client(payload)
+    response = client.get(
+        "/api/models",
+        params={"filters": json.dumps({"series": ["pam"]})},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    ids = [item["id"] for item in body["data"]]
+    assert ids == ["google/text-bison@001"]
+
+
 def test_models_endpoint_classifies_palm_series() -> None:
     payload = {
         "data": [

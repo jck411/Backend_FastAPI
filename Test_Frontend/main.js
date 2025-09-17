@@ -1,7 +1,6 @@
 const chatLog = document.querySelector('#chat-log');
 const messageTemplate = document.querySelector('#message-template');
 const modelSelect = document.querySelector('#model-select');
-const modelFilter = document.querySelector('#model-filter');
 const form = document.querySelector('#chat-form');
 const messageInput = document.querySelector('#message-input');
 const clearButton = document.querySelector('#clear-chat');
@@ -11,13 +10,18 @@ const conversation = [];
 let sessionId = null;
 let isStreaming = false;
 let availableModels = [];
+const MODEL_FILTER_LS_KEY = 'model-explorer.filters.v1';
+const SELECTED_MODEL_LS_KEY = 'chat.selectedModel.v1';
+const CHAT_STORAGE_KEY = 'chat.conversation.v1';
 
 async function initialize() {
+  restoreConversationFromStorage();
   await loadModels();
-  if (modelFilter) {
-    modelFilter.addEventListener('change', async () => {
-      await loadModels(true);
-    });
+  if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+    window.addEventListener('storage', handleModelFilterChange);
+  }
+  if (modelSelect) {
+    modelSelect.addEventListener('change', handleModelSelectChange);
   }
   form.addEventListener('submit', handleSubmit);
   clearButton.addEventListener('click', (event) => {
@@ -72,6 +76,7 @@ async function handleSubmit(event) {
   }
 
   conversation.push({ role: 'user', content: text });
+  persistConversationState();
   addMessage('user', text);
   messageInput.value = '';
   messageInput.focus();
@@ -145,6 +150,7 @@ async function requestStream(latestUserMessage) {
             const info = JSON.parse(event.data);
             if (info && info.session_id) {
               sessionId = info.session_id;
+              persistConversationState();
             }
           } catch (error) {
             console.warn('Failed to parse session event', error);
@@ -212,6 +218,7 @@ async function requestStream(latestUserMessage) {
 
     if (assistantText.trim()) {
       conversation.push({ role: 'assistant', content: assistantText });
+      persistConversationState();
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -267,6 +274,8 @@ function announceToolEvent(details) {
     text += ` (${details.result})`;
   }
 
+  conversation.push({ role: 'assistant', content: text, meta: 'Tool', variant: 'tool' });
+  persistConversationState();
   addMessage('assistant', text, { meta: 'Tool', variant: 'tool' });
 }
 
@@ -285,21 +294,15 @@ async function resetConversation(notifyServer = true) {
 
   sessionId = null;
   conversation.length = 0;
-  chatLog.innerHTML = '';
-  addMessage('assistant', 'Conversation reset. Start with a message!');
+  clearStoredConversation();
+  renderConversationFromState();
 }
 
-resetConversation(false).catch(() => {
-  // ignore initial reset errors
-});
-
-async function loadModels(triggeredByChange = false) {
+async function loadModels() {
   try {
     modelSelect.disabled = true;
-    if (modelFilter) modelFilter.disabled = true;
 
-    const toolsOnly = modelFilter && modelFilter.value === 'tools';
-    const url = toolsOnly ? '/api/models?tools_only=true' : '/api/models';
+    const url = buildModelFetchUrl();
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error('Failed to load models');
@@ -315,7 +318,6 @@ async function loadModels(triggeredByChange = false) {
     setAvailableModels([{ id: 'openrouter/auto', name: 'openrouter/auto' }]);
   } finally {
     modelSelect.disabled = false;
-    if (modelFilter) modelFilter.disabled = false;
   }
 }
 
@@ -328,42 +330,19 @@ function setAvailableModels(models) {
   }
   console.debug('[models] normalized length', availableModels.length);
 
-  updateFilterState();
-  // availableModels already reflects current filter when server-side filtering in use
+  // Populate the selector with the latest normalized set
   updateModelSelect(availableModels);
-}
-
-function updateFilterState() {
-  if (!modelFilter) {
-    return;
-  }
-
-  const hasToolModels = availableModels.some((model) => model.supportsTools);
-  // Keep filter enabled even if no tool-capable models; selecting "tools" will show an empty message.
-  // Optionally normalize value if previously set to tools with none available.
-  if (!hasToolModels && modelFilter.value === 'tools') {
-    modelFilter.value = 'all';
-  }
-}
-
-function applyModelFilter() {
-  const filtered = modelFilter && modelFilter.value === 'tools'
-    ? availableModels.filter((model) => model.supportsTools)
-    : availableModels;
-  updateModelSelect(filtered);
 }
 
 function updateModelSelect(models) {
   const previous = modelSelect.value;
+  const stored = readStoredSelectedModel();
   modelSelect.innerHTML = '';
 
   if (!models.length) {
     const option = document.createElement('option');
     option.value = '';
-    const filteringForTools = modelFilter && modelFilter.value === 'tools';
-    option.textContent = filteringForTools
-      ? 'No tool-enabled models available'
-      : 'No models available (check server/API key)';
+    option.textContent = 'No models available (check server/API key)';
     option.disabled = true;
     option.selected = true;
     modelSelect.appendChild(option);
@@ -378,8 +357,290 @@ function updateModelSelect(models) {
     modelSelect.appendChild(option);
   }
 
+  const hasStored = stored && models.some((model) => model.id === stored.id);
   const hasPrevious = models.some((model) => model.id === previous);
-  modelSelect.value = hasPrevious ? previous : models[0].id;
+
+  let nextValue;
+  if (hasStored) {
+    nextValue = stored.id;
+  } else if (hasPrevious) {
+    nextValue = previous;
+  } else {
+    nextValue = models[0].id;
+  }
+
+  modelSelect.value = nextValue;
+  persistSelectedModel(nextValue);
+}
+
+function buildModelFetchUrl() {
+  const params = new URLSearchParams();
+  const stored = readStoredModelFilters();
+
+  if (stored.search) {
+    params.set('search', stored.search);
+  }
+
+  if (stored.filters && Object.keys(stored.filters).length) {
+    try {
+      params.set('filters', JSON.stringify(stored.filters));
+    } catch (error) {
+      console.warn('Failed to serialize stored filters', error);
+    }
+  }
+
+  const query = params.toString();
+  return query ? `/api/models?${query}` : '/api/models';
+}
+
+function readStoredModelFilters() {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return {};
+  }
+
+  try {
+    const raw = window.localStorage.getItem(MODEL_FILTER_LS_KEY);
+    if (!raw) {
+      return {};
+    }
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object') {
+      return {};
+    }
+
+    const search = typeof data.search === 'string' ? data.search : '';
+    let filters = null;
+    if (data.filters && typeof data.filters === 'object' && !Array.isArray(data.filters)) {
+      filters = data.filters;
+    } else {
+      filters = deriveFiltersFromLegacyData(data);
+    }
+
+    if (filters && Object.keys(filters).length === 0) {
+      filters = null;
+    }
+
+    return { search, filters };
+  } catch (error) {
+    console.warn('Failed to read stored model filters', error);
+    return {};
+  }
+}
+
+function deriveFiltersFromLegacyData(data) {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+
+  const filters = {};
+  if (Array.isArray(data.inputModalities) && data.inputModalities.length) {
+    filters.input_modalities = data.inputModalities;
+  }
+  if (Array.isArray(data.outputModalities) && data.outputModalities.length) {
+    filters.output_modalities = data.outputModalities;
+  }
+  if (Array.isArray(data.series) && data.series.length) {
+    filters.series = data.series;
+  }
+  if (Array.isArray(data.supportedParameters) && data.supportedParameters.length) {
+    filters.supported_parameters_normalized = data.supportedParameters;
+  }
+
+  const contextValue = typeof data.contextValue === 'number' ? data.contextValue : null;
+  if (typeof contextValue === 'number' && contextValue > 0) {
+    filters.context_length = { min: contextValue };
+  }
+
+  const priceFreeOnly = typeof data.priceFreeOnly === 'boolean' ? data.priceFreeOnly : false;
+  const priceValue = typeof data.priceValue === 'number' ? data.priceValue : null;
+  if (priceFreeOnly) {
+    filters.prompt_price_per_million = { min: 0, max: 0 };
+  } else if (typeof priceValue === 'number' && Number.isFinite(priceValue)) {
+    filters.prompt_price_per_million = { max: priceValue };
+  }
+
+  return filters;
+}
+
+function handleModelFilterChange(event) {
+  if (!event || event.key !== MODEL_FILTER_LS_KEY) {
+    return;
+  }
+
+  loadModels().catch((error) => console.error('Failed to refresh models after filter change', error));
+}
+
+function handleModelSelectChange() {
+  persistSelectedModel(modelSelect.value);
+}
+
+function persistSelectedModel(modelId) {
+  if (!supportsLocalStorage()) {
+    return;
+  }
+
+  try {
+    if (!modelId) {
+      window.localStorage.removeItem(SELECTED_MODEL_LS_KEY);
+      return;
+    }
+
+    const match = availableModels.find((model) => model.id === modelId);
+    const payload = {
+      id: modelId,
+      label: match?.label || modelId,
+    };
+    window.localStorage.setItem(SELECTED_MODEL_LS_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to persist selected model', error);
+  }
+}
+
+function readStoredSelectedModel() {
+  if (!supportsLocalStorage()) {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(SELECTED_MODEL_LS_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object') {
+      return null;
+    }
+
+    const id = typeof data.id === 'string' ? data.id.trim() : '';
+    if (!id) {
+      return null;
+    }
+
+    const label = typeof data.label === 'string' && data.label.trim() ? data.label : null;
+    return { id, label }; // label optional; we rebuild from available models when needed
+  } catch (error) {
+    console.warn('Failed to read stored selected model', error);
+    return null;
+  }
+}
+
+function restoreConversationFromStorage() {
+  const stored = readStoredConversation();
+
+  sessionId = stored.sessionId || null;
+  conversation.length = 0;
+  for (const message of stored.conversation) {
+    conversation.push({ ...message });
+  }
+
+  renderConversationFromState();
+}
+
+function renderConversationFromState() {
+  if (!chatLog) {
+    return;
+  }
+
+  chatLog.innerHTML = '';
+  if (!conversation.length) {
+    addMessage('assistant', 'Conversation reset. Start with a message!');
+    return;
+  }
+
+  for (const entry of conversation) {
+    const options = {};
+    if (entry.meta) options.meta = entry.meta;
+    if (entry.variant) options.variant = entry.variant;
+    addMessage(entry.role, entry.content, options);
+  }
+}
+
+function readStoredConversation() {
+  if (!supportsLocalStorage()) {
+    return { sessionId: null, conversation: [] };
+  }
+
+  try {
+    const raw = window.localStorage.getItem(CHAT_STORAGE_KEY);
+    if (!raw) {
+      return { sessionId: null, conversation: [] };
+    }
+
+    const data = JSON.parse(raw);
+    if (!data || typeof data !== 'object') {
+      return { sessionId: null, conversation: [] };
+    }
+
+    const session = typeof data.sessionId === 'string' && data.sessionId ? data.sessionId : null;
+    const messages = Array.isArray(data.conversation) ? data.conversation : [];
+
+    const sanitized = [];
+    for (const entry of messages) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+
+      const role = entry.role === 'assistant' ? 'assistant' : entry.role === 'user' ? 'user' : null;
+      const content = typeof entry.content === 'string' ? entry.content : null;
+      if (!role || content == null) {
+        continue;
+      }
+
+      const meta = typeof entry.meta === 'string' ? entry.meta : undefined;
+      const variant = typeof entry.variant === 'string' ? entry.variant : undefined;
+      const record = { role, content };
+      if (meta) record.meta = meta;
+      if (variant) record.variant = variant;
+      sanitized.push(record);
+    }
+
+    return { sessionId: session, conversation: sanitized };
+  } catch (error) {
+    console.warn('Failed to read stored conversation', error);
+    return { sessionId: null, conversation: [] };
+  }
+}
+
+function persistConversationState() {
+  if (!supportsLocalStorage()) {
+    return;
+  }
+
+  try {
+    if (!sessionId && conversation.length === 0) {
+      window.localStorage.removeItem(CHAT_STORAGE_KEY);
+      return;
+    }
+
+    const payload = {
+      sessionId,
+      conversation: conversation.map((entry) => {
+        const record = { role: entry.role, content: entry.content };
+        if (entry.meta) record.meta = entry.meta;
+        if (entry.variant) record.variant = entry.variant;
+        return record;
+      }),
+    };
+    window.localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.warn('Failed to persist conversation', error);
+  }
+}
+
+function clearStoredConversation() {
+  if (!supportsLocalStorage()) {
+    return;
+  }
+  try {
+    window.localStorage.removeItem(CHAT_STORAGE_KEY);
+  } catch (error) {
+    console.warn('Failed to clear stored conversation', error);
+  }
+}
+
+function supportsLocalStorage() {
+  return typeof window !== 'undefined' && !!window.localStorage;
 }
 
 function normalizeModels(models) {

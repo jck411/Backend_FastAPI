@@ -301,6 +301,24 @@ button:hover:not(:disabled) {
   gap: 0.75rem;
 }
 
+.model-card.is-clickable {
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.model-card.is-clickable * {
+  cursor: pointer;
+}
+
+.model-card.is-clickable:hover,
+.model-card.is-clickable:focus,
+.model-card.is-clickable:focus-visible {
+  border-color: #3b82f6;
+  box-shadow: 0 8px 20px rgba(59, 130, 246, 0.25);
+  transform: translateY(-2px);
+  outline: none;
+}
+
 .model-card h3 {
   margin: 0;
   font-size: 1.1rem;

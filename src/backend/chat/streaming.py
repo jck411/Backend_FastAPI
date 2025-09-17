@@ -103,7 +103,12 @@ class StreamingHandler:
                 payload["tools"] = tools_payload
                 payload.setdefault("tool_choice", request.tool_choice or "auto")
 
-            accumulator = _AssistantAccumulator()
+            content_fragments: list[str] = []
+            streamed_tool_calls: list[dict[str, Any]] = []
+            finish_reason: str | None = None
+            model_name: str | None = None
+            usage_details: dict[str, Any] | None = None
+            meta_details: dict[str, Any] | None = None
             async for event in self._client.stream_chat_raw(payload):
                 data = event.get("data")
                 if not data:
@@ -132,10 +137,46 @@ class StreamingHandler:
                     logger.debug("Skipping non-JSON SSE payload: %s", data)
                     continue
 
-                accumulator.consume(chunk)
+                choices = chunk.get("choices") or []
+                for choice in choices:
+                    delta = choice.get("delta") or {}
+
+                    text = delta.get("content")
+                    if isinstance(text, str):
+                        content_fragments.append(text)
+
+                    if tool_deltas := delta.get("tool_calls"):
+                        _merge_tool_calls(streamed_tool_calls, tool_deltas)
+
+                    choice_finish = choice.get("finish_reason")
+                    if choice_finish:
+                        finish_reason = choice_finish
+
+                model_value = chunk.get("model")
+                if isinstance(model_value, str):
+                    model_name = model_value
+
+                usage_value = chunk.get("usage")
+                if isinstance(usage_value, dict):
+                    usage_details = usage_value
+
+                meta_value = chunk.get("meta")
+                if isinstance(meta_value, dict):
+                    meta_details = meta_value
+
                 yield event
 
-            assistant_turn = accumulator.build()
+            tool_calls = _finalize_tool_calls(streamed_tool_calls)
+            content = "".join(content_fragments)
+
+            assistant_turn = AssistantTurn(
+                content=content if content else None,
+                tool_calls=tool_calls,
+                finish_reason=finish_reason,
+                model=model_name,
+                usage=usage_details,
+                meta=meta_details,
+            )
             metadata: dict[str, Any] = {}
             if assistant_turn.finish_reason is not None:
                 metadata["finish_reason"] = assistant_turn.finish_reason
@@ -302,73 +343,6 @@ class StreamingHandler:
         yield {"event": "message", "data": "[DONE]"}
 
 
-class _AssistantAccumulator:
-    def __init__(self) -> None:
-        self._role = "assistant"
-        self._content_fragments: list[str] = []
-        self._tool_calls: list[dict[str, Any]] = []
-        self._finish_reason: str | None = None
-        self._model: str | None = None
-        self._usage: dict[str, Any] | None = None
-        self._meta: dict[str, Any] | None = None
-
-    def consume(self, payload: dict[str, Any]) -> None:
-        choices = payload.get("choices") or []
-        for choice in choices:
-            delta = choice.get("delta") or {}
-            role = delta.get("role")
-            if role:
-                self._role = role
-
-            text = delta.get("content")
-            if isinstance(text, str):
-                self._content_fragments.append(text)
-
-            if tool_calls := delta.get("tool_calls"):
-                _merge_tool_calls(self._tool_calls, tool_calls)
-
-            finish_reason = choice.get("finish_reason")
-            if finish_reason:
-                self._finish_reason = finish_reason
-
-        model = payload.get("model")
-        if isinstance(model, str):
-            self._model = model
-
-        usage = payload.get("usage")
-        if isinstance(usage, dict):
-            self._usage = usage
-
-        meta = payload.get("meta")
-        if isinstance(meta, dict):
-            self._meta = meta
-
-    def build(self) -> AssistantTurn:
-        content = "".join(self._content_fragments)
-        tool_calls: list[dict[str, Any]] = []
-        for index, call in enumerate(self._tool_calls):
-            function = call.get("function") or {}
-            name = function.get("name")
-            arguments = function.get("arguments")
-            if not (name and arguments is not None and arguments.strip()):
-                continue
-
-            # Ensure each tool call has an identifier for downstream persistence.
-            if not call.get("id"):
-                call = dict(call)
-                call["id"] = f"call_{index}"
-            tool_calls.append(call)
-
-        return AssistantTurn(
-            content=content if content else None,
-            tool_calls=tool_calls,
-            finish_reason=self._finish_reason,
-            model=self._model,
-            usage=self._usage,
-            meta=self._meta,
-        )
-
-
 def _merge_tool_calls(
     accumulator: list[dict[str, Any]],
     deltas: Any,
@@ -412,6 +386,37 @@ def _merge_tool_calls(
         if (arguments_fragment := function_delta.get("arguments")):
             entry.setdefault("function", {"name": None, "arguments": ""})
             entry["function"]["arguments"] += arguments_fragment
+
+
+def _finalize_tool_calls(
+    tool_calls: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    finalized: list[dict[str, Any]] = []
+    for index, call in enumerate(tool_calls):
+        if not isinstance(call, dict):
+            continue
+
+        function = call.get("function") or {}
+        if not isinstance(function, dict):
+            function = {}
+
+        name = function.get("name")
+        arguments = function.get("arguments")
+        if not (isinstance(name, str) and name.strip()):
+            continue
+        if not (isinstance(arguments, str) and arguments.strip()):
+            continue
+
+        entry = dict(call)
+        entry_function = dict(function)
+        entry_function["name"] = name
+        entry_function["arguments"] = arguments
+        entry["function"] = entry_function
+        if not entry.get("id"):
+            entry["id"] = f"call_{index}"
+        finalized.append(entry)
+
+    return finalized
 
 
 __all__ = ["StreamingHandler", "SseEvent"]

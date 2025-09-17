@@ -38,6 +38,7 @@ class ChatCompletionRequest(BaseModel):
     stream_options: Optional[Dict[str, Any]] = None
     user: Optional[str] = None
     stop: Optional[Union[str, List[str]]] = None
+    usage: Optional[Dict[str, Any]] = None
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 
@@ -47,6 +48,7 @@ class ChatCompletionRequest(BaseModel):
         payload = self.model_dump(by_alias=True, exclude_none=True, exclude={"session_id"})
         payload.setdefault("model", default_model)
         payload["stream"] = True
+        payload.setdefault("usage", {"include": True})
         return payload
 
 

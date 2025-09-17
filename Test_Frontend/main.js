@@ -27,6 +27,10 @@ const CHAT_STORAGE_KEY = 'chat.conversation.v1';
 const metadataNumberFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 2,
 });
+const metadataCreditFormatter = new Intl.NumberFormat(undefined, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 6,
+});
 
 const modelSettingsController = createModelSettingsController({
   modelSelect,
@@ -85,7 +89,7 @@ function addMessage(role, content, options = {}) {
     metadataButton.hidden = true;
     metadataButton.disabled = true;
     metadataButton.type = 'button';
-    metadataButton.setAttribute('aria-label', 'View response metadata');
+    metadataButton.setAttribute('aria-label', 'View usage details');
     metadataButton.addEventListener('click', () => {
       if (article.__metadata) {
         openMetadataModal(article.__metadata);
@@ -103,7 +107,7 @@ function addMessage(role, content, options = {}) {
       return null;
     }
     const sanitized = sanitizeMetadata(metadata);
-    if (sanitized) {
+    if (sanitized && isPlainObject(sanitized.usage)) {
       article.__metadata = sanitized;
       metadataButton.hidden = false;
       metadataButton.disabled = false;
@@ -215,39 +219,99 @@ function renderMetadataModalContent(metadata) {
 
   metadataContent.innerHTML = '';
 
-  if (!isPlainObject(metadata) || Object.keys(metadata).length === 0) {
-    const empty = document.createElement('p');
-    empty.className = 'metadata-empty';
-    empty.textContent = 'No metadata available for this reply.';
-    metadataContent.appendChild(empty);
+  if (!isPlainObject(metadata) || !isPlainObject(metadata.usage)) {
+    appendEmptyUsageState();
     return;
   }
 
-  const overviewEntries = [];
+  const usage = metadata.usage;
+
+  const summaryEntries = [];
   if (typeof metadata.model === 'string' && metadata.model.trim()) {
-    overviewEntries.push(['Model', metadata.model]);
+    summaryEntries.push(['Model', metadata.model.trim()]);
   }
   if (metadata.finish_reason) {
-    overviewEntries.push(['Finish reason', formatMetadataValue(metadata.finish_reason)]);
+    summaryEntries.push(['Finish reason', formatMetadataValue(metadata.finish_reason)]);
   }
-  if (overviewEntries.length) {
-    appendMetadataSection('Overview', overviewEntries);
+  if (summaryEntries.length) {
+    appendMetadataSection('Completion Summary', summaryEntries);
   }
 
-  if (isPlainObject(metadata.usage)) {
-    const usageEntries = [];
-    for (const [key, value] of Object.entries(metadata.usage)) {
-      usageEntries.push([formatMetadataLabel(key), formatMetadataValue(value)]);
+  const usageEntries = [];
+  if (typeof usage.prompt_tokens === 'number') {
+    usageEntries.push(['Prompt tokens', formatMetadataValue(usage.prompt_tokens)]);
+  }
+  if (typeof usage.completion_tokens === 'number') {
+    usageEntries.push(['Completion tokens', formatMetadataValue(usage.completion_tokens)]);
+  }
+  if (typeof usage.total_tokens === 'number') {
+    usageEntries.push(['Total tokens', formatMetadataValue(usage.total_tokens)]);
+  }
+  if (typeof usage.cost === 'number') {
+    const formattedCost = formatUsageCost(usage.cost);
+    if (formattedCost != null) {
+      usageEntries.push(['Cost (credits)', formattedCost]);
     }
-    if (usageEntries.length) {
-      appendMetadataSection('Usage', usageEntries);
+  }
+  if (usageEntries.length) {
+    appendMetadataSection('Usage', usageEntries);
+  }
+
+  const breakdownEntries = [];
+  const promptDetails = isPlainObject(usage.prompt_tokens_details)
+    ? usage.prompt_tokens_details
+    : null;
+  if (promptDetails) {
+    for (const [key, value] of Object.entries(promptDetails)) {
+      if (typeof value === 'number') {
+        breakdownEntries.push([
+          `Prompt ${formatMetadataLabel(key)}`,
+          formatMetadataValue(value),
+        ]);
+      }
+    }
+  }
+
+  const completionDetails = isPlainObject(usage.completion_tokens_details)
+    ? usage.completion_tokens_details
+    : null;
+  if (completionDetails) {
+    for (const [key, value] of Object.entries(completionDetails)) {
+      if (typeof value === 'number') {
+        breakdownEntries.push([
+          `Completion ${formatMetadataLabel(key)}`,
+          formatMetadataValue(value),
+        ]);
+      }
+    }
+  }
+
+  if (breakdownEntries.length) {
+    appendMetadataSection('Usage Breakdown', breakdownEntries);
+  }
+
+  const costDetails = isPlainObject(usage.cost_details) ? usage.cost_details : null;
+  if (costDetails) {
+    const costEntries = [];
+    for (const [key, value] of Object.entries(costDetails)) {
+      if (typeof value === 'number') {
+        const formatted = formatUsageCost(value);
+        if (formatted != null) {
+          costEntries.push([formatMetadataLabel(key), formatted]);
+          continue;
+        }
+      }
+      costEntries.push([formatMetadataLabel(key), formatMetadataValue(value)]);
+    }
+    if (costEntries.length) {
+      appendMetadataSection('Cost Details', costEntries);
     }
   }
 
   if (isPlainObject(metadata.routing)) {
     const routingEntries = [];
     for (const [key, value] of Object.entries(metadata.routing)) {
-      routingEntries.push([key, formatMetadataValue(value)]);
+      routingEntries.push([formatMetadataLabel(key), formatMetadataValue(value)]);
     }
     if (routingEntries.length) {
       appendMetadataSection('Routing', routingEntries);
@@ -262,9 +326,13 @@ function renderMetadataModalContent(metadata) {
   }
 
   if (!metadataContent.children.length) {
+    appendEmptyUsageState();
+  }
+
+  function appendEmptyUsageState() {
     const empty = document.createElement('p');
     empty.className = 'metadata-empty';
-    empty.textContent = 'No metadata available for this reply.';
+    empty.textContent = 'Usage details are not available for this reply.';
     metadataContent.appendChild(empty);
   }
 }
@@ -1024,6 +1092,13 @@ function formatMetadataValue(value) {
     }
   }
   return String(value);
+}
+
+function formatUsageCost(value) {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    return null;
+  }
+  return `$${metadataCreditFormatter.format(value)}`;
 }
 
 function flattenMetadataObject(value, prefix = '') {

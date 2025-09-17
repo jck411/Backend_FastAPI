@@ -7,112 +7,78 @@ import pytest
 
 from src.backend.chat.streaming import (
     StreamingHandler,
-    _AssistantAccumulator,
+    _finalize_tool_calls,
     _merge_tool_calls,
 )
 from src.backend.schemas.chat import ChatCompletionRequest, ChatMessage
 
 
-class TestAssistantAccumulator:
-    """Test the streaming accumulator logic."""
+class TestFinalizeToolCalls:
+    """Ensure finalized tool calls are filtered and normalized."""
 
-    def test_build_filters_empty_arguments(self):
-        """Tool calls with empty arguments should be filtered out."""
-        accumulator = _AssistantAccumulator()
-
-        # Simulate streaming chunks with empty arguments
-        accumulator.consume(
+    def test_filters_empty_arguments(self):
+        """Tool calls with empty arguments should be dropped."""
+        calls = [
             {
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {
-                                    "id": "call_1",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "calculator_evaluate",
-                                        "arguments": "",
-                                    },
-                                }
-                            ]
-                        }
-                    }
-                ]
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "calculator_evaluate", "arguments": ""},
             }
-        )
+        ]
 
-        result = accumulator.build()
+        assert _finalize_tool_calls(calls) == []
 
-        # Tool call with empty arguments should be filtered out
-        assert result.tool_calls == []
-
-    def test_build_includes_valid_arguments(self):
-        """Tool calls with valid arguments should be included."""
-        accumulator = _AssistantAccumulator()
-
-        # Simulate streaming chunks with valid arguments
-        accumulator.consume(
+    def test_filters_whitespace_only_arguments(self):
+        """Whitespace arguments should be ignored."""
+        calls = [
             {
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {
-                                    "id": "call_1",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "calculator_evaluate",
-                                        "arguments": '{"operation": "add", "a": 2, "b": 3}',
-                                    },
-                                }
-                            ]
-                        }
-                    }
-                ]
+                "type": "function",
+                "function": {"name": "calculator_evaluate", "arguments": "   \n\t  "},
             }
-        )
+        ]
 
-        result = accumulator.build()
+        assert _finalize_tool_calls(calls) == []
 
-        # Tool call with valid arguments should be included
-        assert len(result.tool_calls) == 1
-        assert result.tool_calls[0]["function"]["name"] == "calculator_evaluate"
+    def test_includes_valid_arguments(self):
+        """Valid tool calls should be preserved and include IDs."""
+        calls = [
+            {
+                "type": "function",
+                "function": {
+                    "name": "calculator_evaluate",
+                    "arguments": '{"operation": "add", "a": 2, "b": 3}',
+                },
+            }
+        ]
+
+        result = _finalize_tool_calls(calls)
+
+        assert len(result) == 1
+        call = result[0]
+        assert call["function"]["name"] == "calculator_evaluate"
         assert (
-            result.tool_calls[0]["function"]["arguments"]
+            call["function"]["arguments"]
             == '{"operation": "add", "a": 2, "b": 3}'
         )
+        assert call["id"] == "call_0"
 
-    def test_build_filters_whitespace_only_arguments(self):
-        """Tool calls with whitespace-only arguments should be filtered out."""
-        accumulator = _AssistantAccumulator()
-
-        # Simulate streaming chunks with whitespace-only arguments
-        accumulator.consume(
+    def test_preserves_existing_ids(self):
+        """Existing call IDs should remain unchanged."""
+        calls = [
             {
-                "choices": [
-                    {
-                        "delta": {
-                            "tool_calls": [
-                                {
-                                    "id": "call_1",
-                                    "type": "function",
-                                    "function": {
-                                        "name": "calculator_evaluate",
-                                        "arguments": "   \n\t  ",
-                                    },
-                                }
-                            ]
-                        }
-                    }
-                ]
+                "id": "existing",
+                "type": "function",
+                "function": {
+                    "name": "calculator_evaluate",
+                    "arguments": '{"operation": "add", "a": 2, "b": 3}',
+                },
             }
-        )
+        ]
 
-        result = accumulator.build()
+        result = _finalize_tool_calls(calls)
 
-        # Tool call with whitespace-only arguments should be filtered out
-        assert result.tool_calls == []
+        assert len(result) == 1
+        assert result[0]["id"] == "existing"
 
 
 class TestMergeToolCalls:

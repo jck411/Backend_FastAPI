@@ -9,6 +9,11 @@ const searchInput = document.querySelector('#model-search');
 const clearButton = document.querySelector('#clear-filters');
 const modelGrid = document.querySelector('#model-grid');
 const resultSummary = document.querySelector('#result-summary');
+const sortButtons = {
+  newness: document.querySelector('#sort-newness'),
+  price: document.querySelector('#sort-price'),
+  context: document.querySelector('#sort-context'),
+};
 const SELECTED_MODEL_LS_KEY = 'chat.selectedModel.v1';
 
 const settingsForm = document.querySelector('#model-settings-form');
@@ -182,6 +187,8 @@ const state = {
     initialized: false,
   },
   prefsLoaded: false,
+  sortBy: 'newness',
+  sortDir: 'desc', // 'asc' | 'desc'
 };
 
 let requestCounter = 0;
@@ -210,6 +217,7 @@ async function initialize() {
 
   searchInput.addEventListener('input', handleSearchInput);
   clearButton.addEventListener('click', clearAllFilters);
+  wireSortButtons();
 
   savePreferences();
 
@@ -510,7 +518,8 @@ function buildFilterPayload() {
 }
 
 function renderResults(payload) {
-  const models = Array.isArray(payload?.data) ? payload.data : [];
+  const models = Array.isArray(payload?.data) ? payload.data.slice() : [];
+  applySort(models);
   updateActiveModelOptions(models);
   const meta = payload?.metadata ?? {};
   const total = typeof meta.total === 'number' ? meta.total : models.length;
@@ -535,6 +544,62 @@ function renderResults(payload) {
     populateCard(instance, model);
     modelGrid.appendChild(instance);
   }
+}
+
+function applySort(models) {
+  const by = state.sortBy || 'newness';
+  const dir = state.sortDir === 'asc' ? 1 : -1;
+  const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
+  const getLabel = (m) => (typeof m?.name === 'string' && m.name.trim()) || (typeof m?.id === 'string' && m.id.trim()) || '';
+  if (by === 'price') {
+    models.sort((a, b) => {
+      const av = typeof a?.prompt_price_per_million === 'number' ? a.prompt_price_per_million : Infinity;
+      const bv = typeof b?.prompt_price_per_million === 'number' ? b.prompt_price_per_million : Infinity;
+      return (av - bv) * dir;
+    });
+    return;
+  }
+  if (by === 'context') {
+    models.sort((a, b) => {
+      const av = typeof a?.context_length === 'number' ? a.context_length : -1;
+      const bv = typeof b?.context_length === 'number' ? b.context_length : -1;
+      return (bv - av) * (dir === 1 ? -1 : 1); // invert when asc
+    });
+    return;
+  }
+  if (by === 'newness') {
+    // Use OpenRouter-provided updated_at if available, else prefer known series recency by heuristic
+    models.sort((a, b) => {
+      const ad = pickNewestTimestampMs(a);
+      const bd = pickNewestTimestampMs(b);
+      return (bd - ad) * (dir === 1 ? -1 : 1); // desc = newest first
+    });
+    return;
+  }
+  // default fallback: name
+  models.sort((a, b) => collator.compare(getLabel(a), getLabel(b)) * dir);
+}
+
+function toDateMs(value) {
+  if (!value) return null;
+  const d = new Date(value);
+  const t = d.getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function pickNewestTimestampMs(model) {
+  const keys = [
+    'updated_at', 'updatedAt',
+    'release_date', 'releaseDate',
+    'created_at', 'createdAt',
+    'published_at', 'publishedAt',
+  ];
+  let best = 0;
+  for (const k of keys) {
+    const v = toDateMs(model?.[k]);
+    if (v && v > best) best = v;
+  }
+  return best;
 }
 
 function hasActiveFilters() {
@@ -856,6 +921,8 @@ function savePreferences() {
       contextValue: typeof state.contextValue === 'number' ? state.contextValue : null,
       priceValue: Number.isFinite(state.priceValue) ? state.priceValue : null,
       priceFreeOnly: !!state.priceFreeOnly,
+      sortBy: state.sortBy || 'newness',
+      sortDir: state.sortDir || 'desc',
       filters: buildFilterPayload(),
     };
     localStorage.setItem(LS_KEY, JSON.stringify(data));
@@ -886,10 +953,51 @@ function loadPreferences() {
       if (typeof data.priceValue === 'number') state.priceValue = data.priceValue;
       else state.priceValue = null;
       if (typeof data.priceFreeOnly === 'boolean') state.priceFreeOnly = data.priceFreeOnly;
+      if (typeof data.sortBy === 'string') state.sortBy = data.sortBy;
+      if (data.sortDir === 'asc' || data.sortDir === 'desc') state.sortDir = data.sortDir;
     }
   } catch (_) {
     // ignore
   }
+}
+
+function wireSortButtons() {
+  const setActive = (key) => {
+    for (const [k, btn] of Object.entries(sortButtons)) {
+      if (!btn) continue;
+      const isActive = k === key;
+      btn.classList.toggle('is-active', isActive);
+      btn.setAttribute('aria-pressed', String(isActive));
+      // Update arrow indicator
+      const label = btn.textContent.replace(/[\s▲▼]+$/, '');
+      if (isActive) {
+        const arrow = state.sortDir === 'asc' ? '▲' : '▼';
+        btn.textContent = `${label} ${arrow}`;
+      } else {
+        btn.textContent = label;
+      }
+    }
+  };
+
+  const onClick = (key) => async () => {
+    if (state.sortBy === key) {
+      state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      state.sortBy = key;
+      // default dir: newness desc (new→old), price asc (low→high), context desc (high→low)
+      state.sortDir = key === 'price' ? 'asc' : 'desc';
+    }
+    savePreferences();
+    setActive(state.sortBy);
+    await refreshResults();
+  };
+
+  if (sortButtons.newness) sortButtons.newness.addEventListener('click', onClick('newness'));
+  if (sortButtons.price) sortButtons.price.addEventListener('click', onClick('price'));
+  if (sortButtons.context) sortButtons.context.addEventListener('click', onClick('context'));
+
+  // Initialize active state
+  setActive(state.sortBy);
 }
 
 async function initializeModelSettings() {
@@ -1021,7 +1129,8 @@ function applySelectedModel() {
 
 function updateActiveModelOptions(models = []) {
   if (!settingsForm || !settingsControls.modelSelect) return;
-  settingsState.availableModels = Array.isArray(models) ? models : [];
+  // keep select ordered by current sort for consistency
+  settingsState.availableModels = Array.isArray(models) ? models.slice() : [];
   const select = settingsControls.modelSelect;
   const previous = select.value;
   select.innerHTML = '';

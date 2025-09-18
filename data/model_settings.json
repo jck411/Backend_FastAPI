@@ -1,8 +1,8 @@
 {
-  "model": "openai/gpt-4o-mini",
+  "model": "anthropic/claude-3-opus",
   "provider": {
     "allow_fallbacks": true,
     "require_parameters": false
   },
-  "updated_at": "2025-09-18T03:15:34.007155+00:00"
+  "updated_at": "2025-09-18T14:52:15.427635+00:00"
 }

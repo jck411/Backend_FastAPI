@@ -56,7 +56,14 @@
           <h2>Models</h2>
           <p id="result-summary" class="result-summary"></p>
         </div>
-        <button id="clear-filters" type="button" class="ghost-button">Clear filters</button>
+        <div class="section-actions">
+          <div class="button-group" role="group" aria-label="Sort and filter controls">
+            <button id="sort-newness" type="button" class="ghost-button" aria-pressed="false">Newness</button>
+            <button id="sort-price" type="button" class="ghost-button" aria-pressed="false">Price</button>
+            <button id="sort-context" type="button" class="ghost-button" aria-pressed="false">Context</button>
+            <button id="clear-filters" type="button" class="ghost-button">Clear filters</button>
+          </div>
+        </div>
       </header>
       <div id="model-grid" class="model-grid"></div>
     </section>

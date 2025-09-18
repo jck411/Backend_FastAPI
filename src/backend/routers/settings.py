@@ -51,7 +51,8 @@ async def get_active_provider_info(
     orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
 ) -> Dict[str, Any]:
     """Get information about the active provider for the current model."""
-    return await service.get_active_provider_info(orchestrator._client)
+    client = orchestrator.get_openrouter_client()
+    return await service.get_active_provider_info(client)
 
 
 __all__ = ["router"]

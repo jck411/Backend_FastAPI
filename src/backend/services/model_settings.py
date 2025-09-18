@@ -129,6 +129,29 @@ def _build_provider_details(provider_entry: Dict[str, Any]) -> Dict[str, Any]:
     return details
 
 
+def _provider_price_sort_key(provider_entry: Dict[str, Any]) -> float:
+    pricing = provider_entry.get("pricing")
+    if isinstance(pricing, dict):
+        value = _coerce_float(pricing.get("completion"))
+        if value is not None:
+            return value
+    return float("inf")
+
+
+def _provider_throughput_sort_key(provider_entry: Dict[str, Any]) -> float:
+    value = _coerce_float(provider_entry.get("throughput_tokens_per_second"))
+    if value is not None:
+        return value
+    return 0.0
+
+
+def _provider_latency_sort_key(provider_entry: Dict[str, Any]) -> float:
+    value = _coerce_float(provider_entry.get("latency_ms"))
+    if value is not None:
+        return value
+    return float("inf")
+
+
 class ModelSettingsService:
     """Manage the active model, provider routing, and hyperparameters."""
 
@@ -308,22 +331,20 @@ class ModelSettingsService:
                         # Sort by price (lowest first)
                         sorted_providers = sorted(
                             available_providers,
-                            key=lambda x: float(
-                                x.get("pricing", {}).get("completion", "999999")
-                            ),
+                            key=_provider_price_sort_key,
                         )
                     elif provider_prefs.sort == "throughput":
                         # Sort by throughput (highest first)
                         sorted_providers = sorted(
                             available_providers,
-                            key=lambda x: x.get("throughput_tokens_per_second", 0),
+                            key=_provider_throughput_sort_key,
                             reverse=True,
                         )
                     elif provider_prefs.sort == "latency":
                         # Sort by latency (lowest first)
                         sorted_providers = sorted(
                             available_providers,
-                            key=lambda x: x.get("latency_ms", 999999),
+                            key=_provider_latency_sort_key,
                         )
                     else:
                         sorted_providers = available_providers

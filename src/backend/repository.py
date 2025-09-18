@@ -10,6 +10,28 @@ import aiosqlite
 
 MessageRecord = dict[str, Any]
 
+_CONTENT_JSON_METADATA_KEY = "__structured_content__"
+
+
+def _encode_content(value: Any) -> tuple[str | None, bool]:
+    if value is None:
+        return None, False
+    if isinstance(value, str):
+        return value, False
+    serialized = json.dumps(value)
+    return serialized, True
+
+
+def _decode_content(value: str | None, is_structured: bool) -> Any:
+    if value is None:
+        return None
+    if is_structured:
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            return value
+    return value
+
 
 class ChatRepository:
     """Persist chat sessions, messages, and auxiliary events."""
@@ -100,7 +122,7 @@ class ChatRepository:
         self,
         session_id: str,
         role: str,
-        content: str | None,
+        content: Any,
         *,
         tool_call_id: str | None = None,
         metadata: dict[str, Any] | None = None,
@@ -108,13 +130,22 @@ class ChatRepository:
         """Persist a single chat message."""
 
         assert self._connection is not None
-        metadata_json = json.dumps(metadata) if metadata else None
+        serialized_content, structured = _encode_content(content)
+
+        stored_metadata: dict[str, Any] | None
+        if metadata:
+            stored_metadata = dict(metadata)
+        else:
+            stored_metadata = {}
+        if structured:
+            stored_metadata[_CONTENT_JSON_METADATA_KEY] = True
+        metadata_json = json.dumps(stored_metadata) if stored_metadata else None
         await self._connection.execute(
             """
             INSERT INTO messages(session_id, role, content, tool_call_id, metadata)
             VALUES (?, ?, ?, ?, ?)
             """,
-            (session_id, role, content, tool_call_id, metadata_json),
+            (session_id, role, serialized_content, tool_call_id, metadata_json),
         )
         await self._connection.commit()
 
@@ -137,11 +168,15 @@ class ChatRepository:
         messages: list[MessageRecord] = []
         for row in rows:
             metadata = json.loads(row["metadata"]) if row["metadata"] else None
+            is_structured = False
+            if metadata and metadata.pop(_CONTENT_JSON_METADATA_KEY, None):
+                is_structured = True
             message: MessageRecord = {
                 "role": row["role"],
             }
-            if row["content"] is not None:
-                message["content"] = row["content"]
+            content = _decode_content(row["content"], is_structured)
+            if content is not None:
+                message["content"] = content
             if row["tool_call_id"]:
                 message["tool_call_id"] = row["tool_call_id"]
             if metadata:

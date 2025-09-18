@@ -94,7 +94,7 @@ class ChatOrchestrator:
         await self._repo.ensure_session(session_id)
 
         for message in incoming_messages:
-            content = _serialize_content(message.content)
+            content = message.content
             metadata: dict[str, Any] = {}
             if message.name:
                 metadata["name"] = message.name
@@ -143,13 +143,9 @@ class ChatOrchestrator:
 
         await self._repo.clear_session(session_id)
 
+    def get_openrouter_client(self) -> OpenRouterClient:
+        """Expose the underlying OpenRouter client."""
 
-def _serialize_content(value: Any) -> str | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return value
-    return json.dumps(value)
-
+        return self._client
 
 __all__ = ["ChatOrchestrator"]

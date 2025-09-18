@@ -89,9 +89,21 @@ function addMessage(role, content, options = {}) {
   }
   const metaContainer = fragment.querySelector('.meta');
   const metaLabel = metaContainer?.querySelector('.meta__label') || metaContainer;
+  const defaultMetaLabel = options.meta || (role === 'user' ? 'You' : 'Assistant');
   if (metaLabel) {
-    metaLabel.textContent = options.meta || (role === 'user' ? 'You' : 'Assistant');
+    metaLabel.textContent = defaultMetaLabel;
   }
+
+  const applyMetaLabel = (metadataCandidate) => {
+    if (!metaLabel || options.meta) {
+      return;
+    }
+    const label =
+      metadataCandidate && typeof metadataCandidate.model === 'string'
+        ? metadataCandidate.model.trim()
+        : '';
+    metaLabel.textContent = label || defaultMetaLabel;
+  };
 
   const metadataButton = metaContainer?.querySelector('.metadata-button');
   if (metadataButton) {
@@ -112,10 +124,13 @@ function addMessage(role, content, options = {}) {
   chatLog.scrollTop = chatLog.scrollHeight;
 
   const setMetadata = (metadata) => {
-    if (!metadataButton) {
-      return null;
-    }
     const sanitized = sanitizeMetadata(metadata);
+    applyMetaLabel(sanitized);
+
+    if (!metadataButton) {
+      return sanitized;
+    }
+
     const hasUsage = sanitized && isPlainObject(sanitized.usage);
     const hasGenerationId =
       sanitized && typeof sanitized.generation_id === 'string' && sanitized.generation_id.trim();

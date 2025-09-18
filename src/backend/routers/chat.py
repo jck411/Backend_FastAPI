@@ -169,20 +169,6 @@ def _annotate_and_enrich_models(payload: dict[str, Any]) -> dict[str, Any]:
     return filtered_payload
 
 
-def _filter_for_tools(payload: dict[str, Any]) -> dict[str, Any]:
-    data = payload.get("data")
-    if not isinstance(data, list):
-        return payload
-
-    filtered_payload = dict(payload)
-    filtered_payload["data"] = [
-        item
-        for item in data
-        if not isinstance(item, dict) or item.get("supports_tools") is True
-    ]
-    return filtered_payload
-
-
 def _apply_tools_filter(models: list[Any], tools_only: bool) -> list[Any]:
     if not tools_only:
         return [dict(item) if isinstance(item, dict) else item for item in models]

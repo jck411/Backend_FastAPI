@@ -1,3 +1,10 @@
+import {
+  configureSlider,
+  isSliderControl,
+  parseSliderValue,
+  setSliderValue,
+} from './slider-fields.js';
+
 const searchInput = document.querySelector('#model-search');
 const clearButton = document.querySelector('#clear-filters');
 const modelGrid = document.querySelector('#model-grid');
@@ -29,6 +36,43 @@ const settingsControls = {
   status: document.querySelector('#settings-status'),
   updatedAt: document.querySelector('#settings-updated-at'),
 };
+
+const integerFormatter = new Intl.NumberFormat();
+const settingsSliderConfigurations = [
+  { control: settingsControls.temperature, defaultValue: 1, maximumFractionDigits: 2 },
+  { control: settingsControls.topP, defaultValue: 1, maximumFractionDigits: 2 },
+  { control: settingsControls.topK, defaultValue: 0, maximumFractionDigits: 0, format: (value) => (value <= 0 ? 'Auto' : integerFormatter.format(value)) },
+  { control: settingsControls.minP, defaultValue: 0, maximumFractionDigits: 2 },
+  { control: settingsControls.topA, defaultValue: 0, maximumFractionDigits: 2 },
+  {
+    control: settingsControls.maxTokens,
+    defaultValue: 0,
+    maximumFractionDigits: 0,
+    format: (value) => (value <= 0 ? 'Unset' : integerFormatter.format(value)),
+  },
+  { control: settingsControls.frequencyPenalty, defaultValue: 0, maximumFractionDigits: 2 },
+  { control: settingsControls.presencePenalty, defaultValue: 0, maximumFractionDigits: 2 },
+  { control: settingsControls.repetitionPenalty, defaultValue: 1, maximumFractionDigits: 2 },
+  { control: settingsControls.seed, defaultValue: 0, maximumFractionDigits: 0, format: (value) => integerFormatter.format(value) },
+];
+
+settingsSliderConfigurations.forEach(({ control, ...options }) => {
+  if (control) {
+    configureSlider(control, options);
+  }
+});
+
+const settingsSliderControls = settingsSliderConfigurations
+  .map(({ control }) => control)
+  .filter((control) => !!control);
+
+const resetHyperparametersButton = document.querySelector('#reset-hyperparameters');
+resetHyperparametersButton?.addEventListener('click', (event) => {
+  event.preventDefault();
+  settingsSliderControls.forEach((control) => {
+    setSliderValue(control, null);
+  });
+});
 
 const settingsState = {
   availableModels: [],
@@ -1078,6 +1122,9 @@ function buildModelSettingsPayload() {
 
 function parseNumberField(control) {
   if (!control) return null;
+  if (isSliderControl(control)) {
+    return parseSliderValue(control);
+  }
   const raw = control.value?.trim();
   if (!raw) return null;
   const value = Number(raw);
@@ -1085,6 +1132,10 @@ function parseNumberField(control) {
 }
 
 function parseIntegerField(control) {
+  if (!control) return null;
+  if (isSliderControl(control)) {
+    return parseSliderValue(control, { integer: true });
+  }
   const value = parseNumberField(control);
   if (value === null) return null;
   const intValue = Math.trunc(value);
@@ -1111,6 +1162,10 @@ function parseStopField(control) {
 
 function setNumberInput(control, value) {
   if (!control) return;
+  if (isSliderControl(control)) {
+    setSliderValue(control, value);
+    return;
+  }
   if (value === undefined || value === null || value === '') {
     control.value = '';
   } else {
@@ -1193,4 +1248,3 @@ function clamp(v, min, max) {
 }
 
 initialize().catch((error) => console.error('Settings init failed', error));
-

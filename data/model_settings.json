@@ -1,12 +1,8 @@
 {
-  "model": "cohere/command-r-plus-04-2024",
-  "parameters": {
-    "temperature": 1.5,
-    "top_p": 0.2
-  },
+  "model": "openai/gpt-4o-mini",
   "provider": {
     "allow_fallbacks": true,
     "require_parameters": false
   },
-  "updated_at": "2025-09-18T01:02:26.577329+00:00"
+  "updated_at": "2025-09-18T03:15:34.007155+00:00"
 }

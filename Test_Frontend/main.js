@@ -7,6 +7,7 @@ const form = document.querySelector('#chat-form');
 const messageInput = document.querySelector('#message-input');
 const clearButton = document.querySelector('#clear-chat');
 const sendButton = document.querySelector('#send-button');
+const stopButton = document.querySelector('#stop-button');
 
 const openSettingsButton = document.querySelector('#open-settings');
 const settingsModal = document.querySelector('#model-settings-modal');
@@ -40,6 +41,10 @@ let metadataMoreInfoState = {
   data: null,
   error: null,
 };
+let currentStreamAbortController = null;
+let stopRequested = false;
+let isChatLogPinnedToBottom = true;
+let pendingScrollAnimationFrame = null;
 
 const modelSettingsController = createModelSettingsController({
   modelSelect,
@@ -58,10 +63,17 @@ async function initialize() {
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('storage', handleModelFilterChange);
   }
+  if (chatLog) {
+    chatLog.addEventListener('scroll', handleChatLogScroll);
+    scheduleScrollToBottom(true);
+  }
   if (modelSelect) {
     modelSelect.addEventListener('change', handleModelSelectChange);
   }
   form.addEventListener('submit', handleSubmit);
+  if (stopButton) {
+    stopButton.addEventListener('click', handleStopClick);
+  }
   clearButton.addEventListener('click', (event) => {
     event.preventDefault();
     resetConversation(true).catch((error) => {
@@ -121,7 +133,7 @@ function addMessage(role, content, options = {}) {
   const contentNode = fragment.querySelector('.content');
   contentNode.textContent = content;
   chatLog.appendChild(fragment);
-  chatLog.scrollTop = chatLog.scrollHeight;
+  scheduleScrollToBottom(true);
 
   const setMetadata = (metadata) => {
     const sanitized = sanitizeMetadata(metadata);
@@ -156,7 +168,7 @@ function addMessage(role, content, options = {}) {
   return {
     element: article, setContent: (value) => {
       contentNode.textContent = value;
-      chatLog.scrollTop = chatLog.scrollHeight;
+      scheduleScrollToBottom();
     }, setMetadata,
   };
 }
@@ -183,6 +195,58 @@ async function handleSubmit(event) {
   } catch (error) {
     console.error(error);
   }
+}
+
+function handleStopClick(event) {
+  if (event) {
+    event.preventDefault();
+  }
+  if (!currentStreamAbortController || stopRequested) {
+    return;
+  }
+
+  stopRequested = true;
+
+  if (stopButton) {
+    stopButton.disabled = true;
+    stopButton.textContent = 'Stopping...';
+  }
+
+  try {
+    currentStreamAbortController.abort();
+  } catch (error) {
+    console.warn('Failed to cancel the active stream', error);
+  }
+}
+
+function handleChatLogScroll() {
+  if (!chatLog) {
+    return;
+  }
+
+  const distanceFromBottom = chatLog.scrollHeight - chatLog.scrollTop - chatLog.clientHeight;
+  isChatLogPinnedToBottom = distanceFromBottom <= 48;
+}
+
+function scheduleScrollToBottom(force = false) {
+  if (!chatLog) {
+    return;
+  }
+
+  if (force) {
+    isChatLogPinnedToBottom = true;
+  } else if (!isChatLogPinnedToBottom) {
+    return;
+  }
+
+  if (pendingScrollAnimationFrame != null) {
+    window.cancelAnimationFrame(pendingScrollAnimationFrame);
+  }
+
+  pendingScrollAnimationFrame = window.requestAnimationFrame(() => {
+    chatLog.scrollTop = chatLog.scrollHeight;
+    pendingScrollAnimationFrame = null;
+  });
 }
 
 function initializeMetadataModal() {
@@ -640,12 +704,23 @@ function normalizeGenerationData(payload) {
 
 async function requestStream(latestUserMessage) {
   isStreaming = true;
+  stopRequested = false;
   sendButton.disabled = true;
   messageInput.disabled = true;
   modelSelect.disabled = true;
 
+  if (stopButton) {
+    stopButton.hidden = false;
+    stopButton.disabled = false;
+    stopButton.textContent = 'Stop';
+  }
+
+  const controller = new AbortController();
+  currentStreamAbortController = controller;
+
   let assistantText = '';
   let pendingMetadata = null;
+  let assistantSaved = false;
   const assistantMessage = addMessage('assistant', '');
 
   try {
@@ -665,9 +740,10 @@ async function requestStream(latestUserMessage) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'text/event-stream',
+        Accept: 'text/event-stream',
       },
       body: JSON.stringify(payload),
+      signal: controller.signal,
     });
 
     if (!response.ok || !response.body) {
@@ -787,8 +863,28 @@ async function requestStream(latestUserMessage) {
       }
       conversation.push(entry);
       persistConversationState();
+      assistantSaved = true;
     }
   } catch (error) {
+    if (stopRequested || (error && error.name === 'AbortError')) {
+      if (!assistantText.trim()) {
+        assistantMessage.setContent('Generation stopped.');
+      } else {
+        assistantMessage.setContent(assistantText);
+      }
+
+      if (assistantText.trim() && !assistantSaved) {
+        const entry = { role: 'assistant', content: assistantText };
+        if (pendingMetadata) {
+          entry.metadata = pendingMetadata;
+        }
+        conversation.push(entry);
+        persistConversationState();
+        assistantSaved = true;
+      }
+      return;
+    }
+
     const message = error instanceof Error ? error.message : 'Unknown error';
     assistantMessage.setContent(`Error: ${message}`);
     assistantMessage.element.classList.add('error');
@@ -797,6 +893,13 @@ async function requestStream(latestUserMessage) {
     sendButton.disabled = false;
     messageInput.disabled = false;
     modelSelect.disabled = false;
+    if (stopButton) {
+      stopButton.hidden = true;
+      stopButton.disabled = false;
+      stopButton.textContent = 'Stop';
+    }
+    currentStreamAbortController = null;
+    stopRequested = false;
     isStreaming = false;
     messageInput.focus();
   }

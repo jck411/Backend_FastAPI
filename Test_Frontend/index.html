@@ -33,6 +33,7 @@
       <label class="visually-hidden" for="message-input">Message</label>
       <textarea id="message-input" placeholder="Send a message to the selected model…" rows="3" required></textarea>
       <div class="actions">
+        <button id="stop-button" type="button" class="ghost-button" hidden>Stop</button>
         <button id="send-button" type="submit">Send</button>
       </div>
     </form>
@@ -103,48 +104,101 @@
           </fieldset>
 
           <fieldset class="form-fieldset">
-            <legend>Hyperparameters</legend>
+            <legend>
+              <span>Hyperparameters</span>
+              <button type="button" id="reset-hyperparameters" class="legend-action">Use defaults</button>
+            </legend>
             <div class="form-grid three-column">
-              <label class="field-group">
-                <span class="field-label" for="param-temperature">Temperature</span>
-                <input id="param-temperature" type="number" step="0.01" min="0" max="2" inputmode="decimal" />
-              </label>
-              <label class="field-group">
-                <span class="field-label" for="param-top-p">Top P</span>
-                <input id="param-top-p" type="number" step="0.01" min="0" max="1" inputmode="decimal" />
-              </label>
-              <label class="field-group">
-                <span class="field-label" for="param-top-k">Top K</span>
-                <input id="param-top-k" type="number" step="1" min="0" inputmode="numeric" />
-              </label>
-              <label class="field-group">
-                <span class="field-label" for="param-min-p">Min P</span>
-                <input id="param-min-p" type="number" step="0.01" min="0" max="1" inputmode="decimal" />
-              </label>
-              <label class="field-group">
-                <span class="field-label" for="param-top-a">Top A</span>
-                <input id="param-top-a" type="number" step="0.01" min="0" inputmode="decimal" />
-              </label>
-              <label class="field-group">
-                <span class="field-label" for="param-max-tokens">Max tokens</span>
-                <input id="param-max-tokens" type="number" step="1" min="1" inputmode="numeric" />
-              </label>
-              <label class="field-group">
-                <span class="field-label" for="param-frequency-penalty">Frequency penalty</span>
-                <input id="param-frequency-penalty" type="number" step="0.01" min="-2" max="2" inputmode="decimal" />
-              </label>
-              <label class="field-group">
-                <span class="field-label" for="param-presence-penalty">Presence penalty</span>
-                <input id="param-presence-penalty" type="number" step="0.01" min="-2" max="2" inputmode="decimal" />
-              </label>
-              <label class="field-group">
-                <span class="field-label" for="param-repetition-penalty">Repetition penalty</span>
-                <input id="param-repetition-penalty" type="number" step="0.01" min="0" inputmode="decimal" />
-              </label>
-              <label class="field-group">
-                <span class="field-label" for="param-seed">Seed</span>
-                <input id="param-seed" type="number" step="1" inputmode="numeric" />
-              </label>
+              <div class="field-group slider-field" data-slider-field="param-temperature">
+                <label class="field-label" for="param-temperature">Temperature</label>
+                <div class="range-control">
+                  <div class="range-row">
+                    <input id="param-temperature" class="slider-input" type="range" min="0" max="2" step="0.01" data-default-value="1" />
+                    <output class="range-output" data-slider-value="param-temperature" aria-live="polite"></output>
+                  </div>
+                </div>
+              </div>
+              <div class="field-group slider-field" data-slider-field="param-top-p">
+                <label class="field-label" for="param-top-p">Top P</label>
+                <div class="range-control">
+                  <div class="range-row">
+                    <input id="param-top-p" class="slider-input" type="range" min="0" max="1" step="0.01" data-default-value="1" />
+                    <output class="range-output" data-slider-value="param-top-p" aria-live="polite"></output>
+                  </div>
+                </div>
+              </div>
+              <div class="field-group slider-field" data-slider-field="param-top-k">
+                <label class="field-label" for="param-top-k">Top K</label>
+                <div class="range-control">
+                  <div class="range-row">
+                    <input id="param-top-k" class="slider-input" type="range" min="0" max="400" step="1" data-default-value="0" />
+                    <output class="range-output" data-slider-value="param-top-k" aria-live="polite"></output>
+                  </div>
+                </div>
+              </div>
+              <div class="field-group slider-field" data-slider-field="param-min-p">
+                <label class="field-label" for="param-min-p">Min P</label>
+                <div class="range-control">
+                  <div class="range-row">
+                    <input id="param-min-p" class="slider-input" type="range" min="0" max="1" step="0.01" data-default-value="0" />
+                    <output class="range-output" data-slider-value="param-min-p" aria-live="polite"></output>
+                  </div>
+                </div>
+              </div>
+              <div class="field-group slider-field" data-slider-field="param-top-a">
+                <label class="field-label" for="param-top-a">Top A</label>
+                <div class="range-control">
+                  <div class="range-row">
+                    <input id="param-top-a" class="slider-input" type="range" min="0" max="1" step="0.01" data-default-value="0" />
+                    <output class="range-output" data-slider-value="param-top-a" aria-live="polite"></output>
+                  </div>
+                </div>
+              </div>
+              <div class="field-group slider-field" data-slider-field="param-max-tokens">
+                <label class="field-label" for="param-max-tokens">Max tokens</label>
+                <div class="range-control">
+                  <div class="range-row">
+                    <input id="param-max-tokens" class="slider-input" type="range" min="0" max="32000" step="1" data-default-value="0" />
+                    <output class="range-output" data-slider-value="param-max-tokens" aria-live="polite"></output>
+                  </div>
+                </div>
+              </div>
+              <div class="field-group slider-field" data-slider-field="param-frequency-penalty">
+                <label class="field-label" for="param-frequency-penalty">Frequency penalty</label>
+                <div class="range-control">
+                  <div class="range-row">
+                    <input id="param-frequency-penalty" class="slider-input" type="range" min="-2" max="2" step="0.01" data-default-value="0" />
+                    <output class="range-output" data-slider-value="param-frequency-penalty" aria-live="polite"></output>
+                  </div>
+                </div>
+              </div>
+              <div class="field-group slider-field" data-slider-field="param-presence-penalty">
+                <label class="field-label" for="param-presence-penalty">Presence penalty</label>
+                <div class="range-control">
+                  <div class="range-row">
+                    <input id="param-presence-penalty" class="slider-input" type="range" min="-2" max="2" step="0.01" data-default-value="0" />
+                    <output class="range-output" data-slider-value="param-presence-penalty" aria-live="polite"></output>
+                  </div>
+                </div>
+              </div>
+              <div class="field-group slider-field" data-slider-field="param-repetition-penalty">
+                <label class="field-label" for="param-repetition-penalty">Repetition penalty</label>
+                <div class="range-control">
+                  <div class="range-row">
+                    <input id="param-repetition-penalty" class="slider-input" type="range" min="0" max="2" step="0.01" data-default-value="1" />
+                    <output class="range-output" data-slider-value="param-repetition-penalty" aria-live="polite"></output>
+                  </div>
+                </div>
+              </div>
+              <div class="field-group slider-field" data-slider-field="param-seed">
+                <label class="field-label" for="param-seed">Seed</label>
+                <div class="range-control">
+                  <div class="range-row">
+                    <input id="param-seed" class="slider-input" type="range" min="0" max="1000000" step="1" data-default-value="0" />
+                    <output class="range-output" data-slider-value="param-seed" aria-live="polite"></output>
+                  </div>
+                </div>
+              </div>
               <label class="field-group">
                 <span class="field-label" for="param-parallel-tool-calls">Parallel tool calls</span>
                 <select id="param-parallel-tool-calls">

@@ -8,15 +8,18 @@
 
 body {
   margin: 0;
+  height: 100vh;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 header {
   padding: 1.5rem 2rem 1rem;
   background: linear-gradient(135deg, #1f2937, #0f172a);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  flex-shrink: 0;
 }
 
 .toolbar {
@@ -54,6 +57,7 @@ main {
   max-width: 900px;
   width: 100%;
   margin: 0 auto;
+  min-height: 0;
 }
 
 .settings-page main {
@@ -110,8 +114,28 @@ main {
 
 .form-fieldset legend {
   padding: 0 0.25rem;
+  margin-bottom: 0.5rem;
   font-weight: 600;
   color: #d1d5db;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.legend-action {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #93c5fd;
+  font-size: 0.85rem;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.legend-action:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
 }
 
 .form-grid {
@@ -140,6 +164,28 @@ main {
   background: #111827;
   color: inherit;
   font-size: 0.95rem;
+}
+
+.slider-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.slider-field .field-label {
+  display: block;
+}
+
+.slider-field[data-state="default"] .range-output {
+  color: #9ca3af;
+}
+
+.slider-field[data-state="custom"] .range-output {
+  color: #facc15;
+}
+
+.slider-field .slider-input {
+  width: 100%;
+  display: block;
 }
 
 .settings-card textarea {
@@ -364,6 +410,7 @@ body.modal-open {
   z-index: 1000;
   /* ensure above any content panes */
   pointer-events: auto;
+  flex-shrink: 0;
 }
 
 /* Ensure interactive elements inside controls can receive events even if an ancestor accidentally disables them */
@@ -806,6 +853,7 @@ input[type="range"]::-moz-range-track {
   background: #0b1120;
   overflow-y: auto;
   border: 1px solid #1f2937;
+  min-height: 0;
 }
 
 .message {
@@ -877,6 +925,7 @@ input[type="range"]::-moz-range-track {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  flex-shrink: 0;
 }
 
 textarea {
@@ -896,6 +945,7 @@ textarea:focus {
 .actions {
   display: flex;
   justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .visually-hidden {

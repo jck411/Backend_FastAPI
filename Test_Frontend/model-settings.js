@@ -1,3 +1,10 @@
+import {
+  configureSlider,
+  isSliderControl,
+  parseSliderValue,
+  setSliderValue,
+} from './slider-fields.js';
+
 export function createModelSettingsController({
   modelSelect,
   openSettingsButton,
@@ -33,6 +40,43 @@ export function createModelSettingsController({
     updatedAt: document.querySelector('#settings-updated-at'),
     submitButton: document.querySelector('#settings-submit'),
   };
+
+  const integerFormatter = new Intl.NumberFormat();
+  const sliderConfigurations = [
+    { control: controls.temperature, defaultValue: 1, maximumFractionDigits: 2 },
+    { control: controls.topP, defaultValue: 1, maximumFractionDigits: 2 },
+    { control: controls.topK, defaultValue: 0, maximumFractionDigits: 0, format: (value) => (value <= 0 ? 'Auto' : integerFormatter.format(value)) },
+    { control: controls.minP, defaultValue: 0, maximumFractionDigits: 2 },
+    { control: controls.topA, defaultValue: 0, maximumFractionDigits: 2 },
+    {
+      control: controls.maxTokens,
+      defaultValue: 0,
+      maximumFractionDigits: 0,
+      format: (value) => (value <= 0 ? 'Unset' : integerFormatter.format(value)),
+    },
+    { control: controls.frequencyPenalty, defaultValue: 0, maximumFractionDigits: 2 },
+    { control: controls.presencePenalty, defaultValue: 0, maximumFractionDigits: 2 },
+    { control: controls.repetitionPenalty, defaultValue: 1, maximumFractionDigits: 2 },
+    { control: controls.seed, defaultValue: 0, maximumFractionDigits: 0, format: (value) => integerFormatter.format(value) },
+  ];
+
+  sliderConfigurations.forEach(({ control, ...options }) => {
+    if (control) {
+      configureSlider(control, options);
+    }
+  });
+
+  const sliderControls = sliderConfigurations
+    .map(({ control }) => control)
+    .filter((control) => !!control);
+
+  const resetHyperparametersButton = document.querySelector('#reset-hyperparameters');
+  resetHyperparametersButton?.addEventListener('click', (event) => {
+    event.preventDefault();
+    sliderControls.forEach((control) => {
+      setSliderValue(control, null);
+    });
+  });
 
   const state = {
     visible: false,
@@ -438,6 +482,9 @@ export function createModelSettingsController({
 
 function parseNumberField(control) {
   if (!control) return null;
+  if (isSliderControl(control)) {
+    return parseSliderValue(control);
+  }
   const raw = control.value?.trim();
   if (!raw) return null;
   const value = Number(raw);
@@ -445,6 +492,10 @@ function parseNumberField(control) {
 }
 
 function parseIntegerField(control) {
+  if (!control) return null;
+  if (isSliderControl(control)) {
+    return parseSliderValue(control, { integer: true });
+  }
   const value = parseNumberField(control);
   if (value === null) return null;
   const intValue = Math.trunc(value);
@@ -471,6 +522,10 @@ function parseStopField(control) {
 
 function setNumberInput(control, value) {
   if (!control) return;
+  if (isSliderControl(control)) {
+    setSliderValue(control, value);
+    return;
+  }
   if (value === undefined || value === null || value === '') {
     control.value = '';
   } else {

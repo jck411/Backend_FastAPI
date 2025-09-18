@@ -1,4 +1,5 @@
 import { createModelSettingsController } from './model-settings.js';
+import { renderMarkdown } from './markdown.js';
 
 const chatLog = document.querySelector('#chat-log');
 const messageTemplate = document.querySelector('#message-template');
@@ -45,6 +46,94 @@ let currentStreamAbortController = null;
 let stopRequested = false;
 let isChatLogPinnedToBottom = true;
 let pendingScrollAnimationFrame = null;
+
+const COPY_BUTTON_RESET_DELAY = 2000;
+
+function renderMessageContent(target, value) {
+  if (!target) {
+    return;
+  }
+  try {
+    const html = renderMarkdown(value ?? '');
+    target.innerHTML = html;
+    enhanceCodeBlocks(target);
+  } catch (error) {
+    console.error('Markdown render failed', error);
+    target.textContent = value ?? '';
+  }
+}
+
+async function copyTextToClipboard(text) {
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  if (typeof document === 'undefined' || typeof document.execCommand !== 'function') {
+    throw new Error('Clipboard API unavailable');
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'absolute';
+  textarea.style.left = '-9999px';
+  textarea.style.opacity = '0';
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  const successful = document.execCommand('copy');
+  textarea.remove();
+  if (!successful) {
+    throw new Error('Clipboard command failed');
+  }
+}
+
+function enhanceCodeBlocks(container) {
+  if (!container) {
+    return;
+  }
+
+  const codeNodes = container.querySelectorAll('pre > code');
+  codeNodes.forEach((codeNode) => {
+    const preNode = codeNode.parentElement;
+    if (!preNode || preNode.parentElement?.classList.contains('code-block')) {
+      return;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'code-block';
+
+    preNode.replaceWith(wrapper);
+    wrapper.appendChild(preNode);
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'code-copy-button';
+    button.textContent = 'Copy';
+    button.setAttribute('aria-label', 'Copy code to clipboard');
+
+    button.addEventListener('click', async () => {
+      const codeText = codeNode.textContent || '';
+      try {
+        await copyTextToClipboard(codeText);
+        button.textContent = 'Copied!';
+        button.classList.add('code-copy-button--success');
+      } catch (error) {
+        console.warn('Copy failed', error);
+        button.textContent = 'Failed';
+        button.classList.add('code-copy-button--error');
+      } finally {
+        window.setTimeout(() => {
+          button.textContent = 'Copy';
+          button.classList.remove('code-copy-button--success', 'code-copy-button--error');
+        }, COPY_BUTTON_RESET_DELAY);
+      }
+    });
+
+    wrapper.insertBefore(button, preNode);
+  });
+}
 
 const modelSettingsController = createModelSettingsController({
   modelSelect,
@@ -137,7 +226,7 @@ function addMessage(role, content, options = {}) {
   }
 
   const contentNode = fragment.querySelector('.content');
-  contentNode.textContent = content;
+  renderMessageContent(contentNode, content);
   chatLog.appendChild(fragment);
   scheduleScrollToBottom(true);
 
@@ -172,10 +261,12 @@ function addMessage(role, content, options = {}) {
   }
 
   return {
-    element: article, setContent: (value) => {
-      contentNode.textContent = value;
+    element: article,
+    setContent: (value) => {
+      renderMessageContent(contentNode, value);
       scheduleScrollToBottom();
-    }, setMetadata,
+    },
+    setMetadata,
   };
 }
 

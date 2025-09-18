@@ -937,7 +937,17 @@ function announceToolEvent(details) {
   }
 
   const status = details.status || 'started';
-  let text = `[tool] ${details.name} ${status}`;
+  const friendlyMessage =
+    typeof details.message === 'string' && details.message.trim()
+      ? details.message.trim()
+      : null;
+
+  let text;
+  if (friendlyMessage) {
+    text = friendlyMessage;
+  } else {
+    text = `[tool] ${details.name} ${status}`;
+  }
   if (status === 'finished' && typeof details.result === 'string') {
     text += ` -> ${details.result}`;
   }

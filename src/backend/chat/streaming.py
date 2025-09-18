@@ -7,7 +7,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator
 
-from ..openrouter import OpenRouterClient
+from ..openrouter import OpenRouterClient, OpenRouterError
 from ..repository import ChatRepository
 from ..services.model_settings import ModelSettingsService
 from ..schemas.chat import ChatCompletionRequest
@@ -70,6 +70,12 @@ class StreamingHandler:
 
         hop_count = 0
         conversation_state = list(conversation)
+        tools_available = bool(tools_payload)
+        requested_tool_choice = (
+            request.tool_choice if isinstance(request.tool_choice, str) else None
+        )
+        tools_disabled = requested_tool_choice == "none" or not tools_available
+        can_retry_without_tools = requested_tool_choice in (None, "auto")
 
         while True:
             routing_headers: dict[str, Any] | None = None
@@ -100,9 +106,13 @@ class StreamingHandler:
                         continue
                     payload.setdefault(key, value)
 
-            if tools_payload:
+            allow_tools = tools_available and not tools_disabled
+            if allow_tools:
                 payload["tools"] = tools_payload
                 payload.setdefault("tool_choice", request.tool_choice or "auto")
+            else:
+                payload.pop("tools", None)
+                payload.pop("tool_choice", None)
 
             content_fragments: list[str] = []
             streamed_tool_calls: list[dict[str, Any]] = []
@@ -111,66 +121,90 @@ class StreamingHandler:
             usage_details: dict[str, Any] | None = None
             meta_details: dict[str, Any] | None = None
             generation_id: str | None = None
-            async for event in self._client.stream_chat_raw(payload):
-                data = event.get("data")
-                if not data:
-                    continue
-                event_name = event.get("event") or "message"
+            try:
+                async for event in self._client.stream_chat_raw(payload):
+                    data = event.get("data")
+                    if not data:
+                        continue
+                    event_name = event.get("event") or "message"
 
-                if event_name == "openrouter_headers":
+                    if event_name == "openrouter_headers":
+                        try:
+                            parsed_headers = json.loads(data)
+                        except json.JSONDecodeError:
+                            logger.debug(
+                                "Skipping invalid routing metadata payload: %s", data
+                            )
+                        else:
+                            if isinstance(parsed_headers, dict):
+                                routing_headers = parsed_headers
+                        continue
+
+                    if event_name != "message":
+                        yield event
+                        continue
+
+                    if data == "[DONE]":
+                        break
                     try:
-                        parsed_headers = json.loads(data)
+                        chunk = json.loads(data)
                     except json.JSONDecodeError:
-                        logger.debug("Skipping invalid routing metadata payload: %s", data)
-                    else:
-                        if isinstance(parsed_headers, dict):
-                            routing_headers = parsed_headers
-                    continue
+                        logger.debug("Skipping non-JSON SSE payload: %s", data)
+                        continue
 
-                if event_name != "message":
+                    choices = chunk.get("choices") or []
+                    for choice in choices:
+                        delta = choice.get("delta") or {}
+
+                        text = delta.get("content")
+                        if isinstance(text, str):
+                            content_fragments.append(text)
+
+                        if tool_deltas := delta.get("tool_calls"):
+                            _merge_tool_calls(streamed_tool_calls, tool_deltas)
+
+                        choice_finish = choice.get("finish_reason")
+                        if choice_finish:
+                            finish_reason = choice_finish
+
+                    model_value = chunk.get("model")
+                    if isinstance(model_value, str):
+                        model_name = model_value
+
+                    usage_value = chunk.get("usage")
+                    if isinstance(usage_value, dict):
+                        usage_details = usage_value
+
+                    meta_value = chunk.get("meta")
+                    if isinstance(meta_value, dict):
+                        meta_details = meta_value
+
+                    chunk_id = chunk.get("id")
+                    if isinstance(chunk_id, str) and chunk_id:
+                        generation_id = chunk_id
+
                     yield event
+            except OpenRouterError as exc:
+                if allow_tools and can_retry_without_tools and _is_tool_support_error(exc):
+                    logger.info(
+                        "Retrying without tools for session %s: %s", session_id, exc.detail
+                    )
+                    tools_disabled = True
+                    warning_text = (
+                        "Tools unavailable for this model; continuing without them."
+                    )
+                    yield {
+                        "event": "tool",
+                        "data": json.dumps(
+                            {
+                                "status": "notice",
+                                "name": "system",
+                                "message": warning_text,
+                            }
+                        ),
+                    }
                     continue
-
-                if data == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data)
-                except json.JSONDecodeError:
-                    logger.debug("Skipping non-JSON SSE payload: %s", data)
-                    continue
-
-                choices = chunk.get("choices") or []
-                for choice in choices:
-                    delta = choice.get("delta") or {}
-
-                    text = delta.get("content")
-                    if isinstance(text, str):
-                        content_fragments.append(text)
-
-                    if tool_deltas := delta.get("tool_calls"):
-                        _merge_tool_calls(streamed_tool_calls, tool_deltas)
-
-                    choice_finish = choice.get("finish_reason")
-                    if choice_finish:
-                        finish_reason = choice_finish
-
-                model_value = chunk.get("model")
-                if isinstance(model_value, str):
-                    model_name = model_value
-
-                usage_value = chunk.get("usage")
-                if isinstance(usage_value, dict):
-                    usage_details = usage_value
-
-                meta_value = chunk.get("meta")
-                if isinstance(meta_value, dict):
-                    meta_details = meta_value
-
-                chunk_id = chunk.get("id")
-                if isinstance(chunk_id, str) and chunk_id:
-                    generation_id = chunk_id
-
-                yield event
+                raise
 
             tool_calls = _finalize_tool_calls(streamed_tool_calls)
             content = "".join(content_fragments)
@@ -351,6 +385,23 @@ class StreamingHandler:
             hop_count += 1
 
         yield {"event": "message", "data": "[DONE]"}
+
+
+def _is_tool_support_error(error: OpenRouterError) -> bool:
+    detail = error.detail
+    message = ""
+    if isinstance(detail, dict):
+        message = " ".join(str(value) for value in detail.values() if isinstance(value, str))
+    elif detail is not None:
+        message = str(detail)
+
+    message = message.lower()
+    return (
+        error.status_code == 404
+        and "tool" in message
+        and "support" in message
+        and "tool use" in message
+    )
 
 
 def _merge_tool_calls(

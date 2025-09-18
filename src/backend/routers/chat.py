@@ -232,9 +232,20 @@ def _enrich_model(item: dict[str, Any]) -> dict[str, Any]:
 
     supported_parameters = item.get("supported_parameters")
     if isinstance(supported_parameters, list):
-        normalized = [str(param).strip() for param in supported_parameters if str(param).strip()]
-        enriched["supported_parameters"] = normalized
-        enriched["supported_parameters_normalized"] = sorted({param.lower() for param in normalized})
+        trimmed: list[str] = []
+        normalized_values: set[str] = set()
+        for param in supported_parameters:
+            if param is None:
+                continue
+            text = str(param).strip()
+            if not text:
+                continue
+            trimmed.append(text)
+            normalized_param = _normalize_supported_parameter(text)
+            if normalized_param:
+                normalized_values.add(normalized_param)
+        enriched["supported_parameters"] = trimmed
+        enriched["supported_parameters_normalized"] = sorted(normalized_values)
 
     series = _classify_series(item)
     enriched["series"] = series
@@ -326,6 +337,18 @@ _PROVIDER_SERIES_ALIASES: dict[str, set[str]] = {
 
 
 _SERIES_TOKEN_PATTERN = re.compile(r"[\s/_-]+")
+
+
+_SUPPORTED_PARAMETER_ALIASES: dict[str, str] = {
+    "include_reasoning": "reasoning_optionality",
+}
+
+
+def _normalize_supported_parameter(value: str) -> str | None:
+    token = _canonicalize_token(value)
+    if not token:
+        return None
+    return _SUPPORTED_PARAMETER_ALIASES.get(token, token)
 
 
 def _tokenize_series_string(value: str) -> set[str]:
@@ -538,7 +561,8 @@ def _match_mapping(values: list[Any], mapping: dict[str, Any]) -> bool:
 
 def _normalize_value(value: Any) -> Any:
     if isinstance(value, str):
-        return _canonicalize_token(value)
+        token = _canonicalize_token(value)
+        return _SUPPORTED_PARAMETER_ALIASES.get(token, token)
     return value
 
 

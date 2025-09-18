@@ -130,6 +130,17 @@ const SERIES_OPTIONS = [
   'PaLM',
 ];
 
+const SUPPORTED_PARAMETER_ALIAS_MAP = new Map([
+  ['include_reasoning', 'reasoning_optionality'],
+]);
+
+function normalizeSupportedParameterValue(value) {
+  if (typeof value !== 'string') return null;
+  const token = value.trim().toLowerCase();
+  if (!token) return null;
+  return SUPPORTED_PARAMETER_ALIAS_MAP.get(token) ?? token;
+}
+
 const SUPPORTED_PARAMETER_OPTIONS = [
   'tools',
   'temperature',
@@ -149,7 +160,7 @@ const SUPPORTED_PARAMETER_OPTIONS = [
   'structured_outputs',
   'stop',
   'parallel_tool_calls',
-  'include_reasoning',
+  'reasoning_optionality',
   'reasoning',
   'web_search_options',
   'verbosity',
@@ -865,7 +876,12 @@ function loadPreferences() {
       if (Array.isArray(data.inputModalities)) state.inputModalities = new Set(data.inputModalities);
       if (Array.isArray(data.outputModalities)) state.outputModalities = new Set(data.outputModalities);
       if (Array.isArray(data.series)) state.series = new Set(data.series);
-      if (Array.isArray(data.supportedParameters)) state.supportedParameters = new Set(data.supportedParameters);
+      if (Array.isArray(data.supportedParameters)) {
+        const normalizedParams = data.supportedParameters
+          .map(normalizeSupportedParameterValue)
+          .filter(Boolean);
+        state.supportedParameters = new Set(normalizedParams);
+      }
       if (typeof data.contextValue === 'number') state.contextValue = data.contextValue;
       if (typeof data.priceValue === 'number') state.priceValue = data.priceValue;
       else state.priceValue = null;

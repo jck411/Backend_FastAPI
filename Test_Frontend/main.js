@@ -53,6 +53,21 @@ let webSearchEnabled = false;
 
 const COPY_BUTTON_RESET_DELAY = 2000;
 
+const SUPPORTED_PARAMETER_ALIAS_MAP = new Map([
+  ['include_reasoning', 'reasoning_optionality'],
+]);
+
+function normalizeSupportedParameterValue(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const token = value.trim().toLowerCase();
+  if (!token) {
+    return null;
+  }
+  return SUPPORTED_PARAMETER_ALIAS_MAP.get(token) ?? token;
+}
+
 function renderMessageContent(target, value) {
   if (!target) {
     return;
@@ -1473,7 +1488,28 @@ function readStoredModelFilters() {
     const search = typeof data.search === 'string' ? data.search : '';
     let filters = null;
     if (data.filters && typeof data.filters === 'object' && !Array.isArray(data.filters)) {
-      filters = data.filters;
+      const candidate = data.filters;
+      const rawSupportedParameters = Array.isArray(candidate.supported_parameters_normalized)
+        ? candidate.supported_parameters_normalized
+        : typeof candidate.supported_parameters_normalized === 'string'
+          ? [candidate.supported_parameters_normalized]
+          : null;
+      if (rawSupportedParameters) {
+        const normalizedParams = rawSupportedParameters
+          .map(normalizeSupportedParameterValue)
+          .filter(Boolean);
+        if (normalizedParams.length) {
+          filters = {
+            ...candidate,
+            supported_parameters_normalized: normalizedParams,
+          };
+        } else {
+          const { supported_parameters_normalized: _, ...rest } = candidate;
+          filters = { ...rest };
+        }
+      } else {
+        filters = candidate;
+      }
     } else {
       filters = deriveFiltersFromLegacyData(data);
     }
@@ -1505,7 +1541,12 @@ function deriveFiltersFromLegacyData(data) {
     filters.series = data.series;
   }
   if (Array.isArray(data.supportedParameters) && data.supportedParameters.length) {
-    filters.supported_parameters_normalized = data.supportedParameters;
+    const normalizedParams = data.supportedParameters
+      .map(normalizeSupportedParameterValue)
+      .filter(Boolean);
+    if (normalizedParams.length) {
+      filters.supported_parameters_normalized = normalizedParams;
+    }
   }
 
   const contextValue = typeof data.contextValue === 'number' ? data.contextValue : null;

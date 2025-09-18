@@ -21,6 +21,9 @@
         <option value="openrouter/auto">Loading models…</option>
       </select>
       <button id="clear-chat" type="button">Clear chat</button>
+      <button id="toggle-web-search" type="button" class="ghost-button" aria-pressed="false">
+        Web search off
+      </button>
       <button id="open-settings" type="button" class="ghost-button">Model settings</button>
     </section>
 
@@ -255,6 +258,10 @@
         <span class="meta__label"></span>
         <button type="button" class="metadata-button" hidden>Usage</button>
       </div>
+      <details class="reasoning" hidden>
+        <summary class="reasoning__summary">Reasoning</summary>
+        <div class="reasoning__content"></div>
+      </details>
       <div class="content"></div>
     </article>
   </template>

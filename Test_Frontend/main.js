@@ -9,6 +9,7 @@ const messageInput = document.querySelector('#message-input');
 const clearButton = document.querySelector('#clear-chat');
 const stopButton = document.querySelector('#stop-button');
 const modelExplorerButton = document.querySelector('#model-explorer-button');
+const webSearchButton = document.querySelector('#toggle-web-search');
 
 const openSettingsButton = document.querySelector('#open-settings');
 const settingsModal = document.querySelector('#model-settings-modal');
@@ -26,6 +27,8 @@ let metadataModalVisible = false;
 const MODEL_FILTER_LS_KEY = 'model-explorer.filters.v1';
 const SELECTED_MODEL_LS_KEY = 'chat.selectedModel.v1';
 const CHAT_STORAGE_KEY = 'chat.conversation.v1';
+const WEB_SEARCH_PREF_KEY = 'chat.webSearchEnabled.v1';
+const DEFAULT_WEB_SEARCH_RESULTS = 3;
 const metadataNumberFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 2,
 });
@@ -46,6 +49,7 @@ let currentStreamAbortController = null;
 let stopRequested = false;
 let isChatLogPinnedToBottom = true;
 let pendingScrollAnimationFrame = null;
+let webSearchEnabled = false;
 
 const COPY_BUTTON_RESET_DELAY = 2000;
 
@@ -135,6 +139,120 @@ function enhanceCodeBlocks(container) {
   });
 }
 
+function normalizeReasoningSegments(value) {
+  if (value == null) {
+    return [];
+  }
+
+  const segments = [];
+
+  const append = (text, type) => {
+    if (text == null) {
+      return;
+    }
+    const normalizedText = String(text);
+    if (!normalizedText) {
+      return;
+    }
+    const normalizedType = typeof type === 'string' && type.trim() ? type.trim() : null;
+    segments.push(
+      normalizedType ? { text: normalizedText, type: normalizedType } : { text: normalizedText }
+    );
+  };
+
+  const visit = (payload, contextType = null) => {
+    if (payload == null) {
+      return;
+    }
+    if (typeof payload === 'string' || typeof payload === 'number' || typeof payload === 'boolean') {
+      append(payload, contextType);
+      return;
+    }
+    if (Array.isArray(payload)) {
+      payload.forEach((item) => visit(item, contextType));
+      return;
+    }
+    if (isPlainObject(payload)) {
+      const nextType =
+        typeof payload.type === 'string' && payload.type.trim()
+          ? payload.type.trim()
+          : contextType;
+
+      if (Object.prototype.hasOwnProperty.call(payload, 'text')) {
+        append(payload.text, nextType);
+      }
+
+      for (const key of ['content', 'output', 'reasoning', 'message', 'details', 'explanation']) {
+        if (Object.prototype.hasOwnProperty.call(payload, key)) {
+          visit(payload[key], nextType);
+        }
+      }
+      return;
+    }
+
+    append(payload, contextType);
+  };
+
+  visit(value, null);
+  return segments;
+}
+
+function combineReasoningText(segments) {
+  if (!Array.isArray(segments) || !segments.length) {
+    return '';
+  }
+
+  let buffer = '';
+  for (const segment of segments) {
+    if (!segment || typeof segment.text !== 'string') {
+      continue;
+    }
+    const fragment = segment.text;
+    if (!fragment) {
+      continue;
+    }
+
+    if (!buffer) {
+      buffer = fragment;
+      continue;
+    }
+
+    const needsSpace =
+      !buffer.endsWith(' ') &&
+      !buffer.endsWith('\n') &&
+      !/^[,.;:!?)]/.test(fragment) &&
+      !buffer.endsWith('(');
+
+    buffer += needsSpace ? ` ${fragment}` : fragment;
+  }
+
+  return buffer
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function renderReasoningSegments(container, segments) {
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = '';
+  if (!Array.isArray(segments) || !segments.length) {
+    return;
+  }
+
+  const combined = combineReasoningText(segments);
+  if (!combined) {
+    return;
+  }
+
+  const textNode = document.createElement('div');
+  textNode.className = 'reasoning__text';
+  textNode.textContent = combined;
+  container.appendChild(textNode);
+}
+
 const modelSettingsController = createModelSettingsController({
   modelSelect,
   openSettingsButton,
@@ -159,6 +277,13 @@ async function initialize() {
   if (modelSelect) {
     modelSelect.addEventListener('change', handleModelSelectChange);
   }
+
+  webSearchEnabled = readStoredWebSearchPreference();
+  updateWebSearchButton();
+  if (webSearchButton) {
+    webSearchButton.addEventListener('click', handleWebSearchToggle);
+  }
+
   form.addEventListener('submit', handleSubmit);
   if (messageInput) {
     messageInput.addEventListener('keydown', handleMessageInputKeyDown);
@@ -227,20 +352,80 @@ function addMessage(role, content, options = {}) {
 
   const contentNode = fragment.querySelector('.content');
   renderMessageContent(contentNode, content);
+
+  const reasoningDetails = fragment.querySelector('.reasoning');
+  const reasoningContent = fragment.querySelector('.reasoning__content');
+  const reasoningSummary = fragment.querySelector('.reasoning__summary');
+  if (reasoningDetails) {
+    reasoningDetails.hidden = true;
+    reasoningDetails.open = false;
+  }
+  if (reasoningSummary) {
+    reasoningSummary.textContent = 'Reasoning';
+  }
   chatLog.appendChild(fragment);
   scheduleScrollToBottom(true);
+
+  const setReasoning = (value, options = {}) => {
+    const normalized = normalizeReasoningSegments(value);
+    const combinedText = combineReasoningText(normalized);
+    const existing = typeof article.__reasoning === 'string' ? article.__reasoning : '';
+    if (!reasoningDetails || !reasoningContent) {
+      return combinedText || (options.preserveExisting ? existing : '');
+    }
+
+    if (!combinedText) {
+      if (options.preserveExisting && existing) {
+        return existing;
+      }
+      reasoningDetails.hidden = true;
+      reasoningDetails.open = false;
+      reasoningContent.innerHTML = '';
+      article.__reasoning = undefined;
+      if (reasoningSummary) {
+        reasoningSummary.textContent = 'Reasoning';
+      }
+      return '';
+    }
+
+    reasoningDetails.hidden = false;
+    if (reasoningSummary) {
+      reasoningSummary.textContent = 'Reasoning';
+    }
+    renderReasoningSegments(reasoningContent, normalized);
+    article.__reasoning = combinedText;
+    return combinedText;
+  };
 
   const setMetadata = (metadata) => {
     const sanitized = sanitizeMetadata(metadata);
     applyMetaLabel(sanitized);
 
     if (!metadataButton) {
+      if (sanitized && Object.prototype.hasOwnProperty.call(sanitized, 'reasoning')) {
+        const combined = setReasoning(sanitized.reasoning, { preserveExisting: true });
+        if (combined) {
+          sanitized.reasoning = combined;
+        } else {
+          delete sanitized.reasoning;
+        }
+      }
       return sanitized;
     }
 
     const hasUsage = sanitized && isPlainObject(sanitized.usage);
     const hasGenerationId =
       sanitized && typeof sanitized.generation_id === 'string' && sanitized.generation_id.trim();
+    let combinedReasoning = '';
+    if (sanitized && Object.prototype.hasOwnProperty.call(sanitized, 'reasoning')) {
+      combinedReasoning = setReasoning(sanitized.reasoning, { preserveExisting: true });
+      if (combinedReasoning) {
+        sanitized.reasoning = combinedReasoning;
+      } else {
+        delete sanitized.reasoning;
+      }
+    }
+
     if (sanitized && (hasUsage || hasGenerationId)) {
       article.__metadata = sanitized;
       metadataButton.hidden = false;
@@ -260,6 +445,13 @@ function addMessage(role, content, options = {}) {
     metadataButton.disabled = true;
   }
 
+  if (options.reasoning) {
+    const combined = setReasoning(options.reasoning);
+    if (options.metadata && typeof options.metadata === 'object') {
+      options.metadata.reasoning = combined;
+    }
+  }
+
   return {
     element: article,
     setContent: (value) => {
@@ -267,6 +459,7 @@ function addMessage(role, content, options = {}) {
       scheduleScrollToBottom();
     },
     setMetadata,
+    setReasoning,
   };
 }
 
@@ -842,10 +1035,54 @@ async function requestStream(latestUserMessage) {
   let assistantText = '';
   let pendingMetadata = null;
   let assistantSaved = false;
+  const reasoningSegments = [];
+  const reasoningSeen = new Set();
+  let reasoningUpdated = false;
+  let reasoningCombinedText = '';
   const assistantMessage = addMessage('assistant', '');
 
+  const applyStreamingReasoning = (value) => {
+    if (!assistantMessage || typeof assistantMessage.setReasoning !== 'function') {
+      return;
+    }
+    const normalized = normalizeReasoningSegments(value);
+    let changed = false;
+
+    for (const segment of normalized) {
+      if (!segment || typeof segment.text !== 'string') {
+        continue;
+      }
+      const text = segment.text.trim();
+      if (!text) {
+        continue;
+      }
+      const type = typeof segment.type === 'string' ? segment.type.trim() : '';
+      const key = `${type}::${text}`;
+      if (reasoningSeen.has(key)) {
+        continue;
+      }
+      reasoningSeen.add(key);
+      reasoningSegments.push(type ? { text, type } : { text });
+      changed = true;
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    reasoningUpdated = true;
+    const snapshot = reasoningSegments.map((segment) => ({ ...segment }));
+    const combined = assistantMessage.setReasoning(snapshot);
+    if (combined) {
+      reasoningCombinedText = combined;
+      if (pendingMetadata && isPlainObject(pendingMetadata)) {
+        pendingMetadata.reasoning = combined;
+      }
+    }
+  };
+
   try {
-    const model = modelSelect.value || 'openrouter/auto';
+    const model = resolveModelForRequest(modelSelect.value || 'openrouter/auto');
     const payload = {
       model,
       session_id: sessionId,
@@ -856,6 +1093,10 @@ async function requestStream(latestUserMessage) {
         },
       ],
     };
+
+    if (webSearchEnabled) {
+      payload.plugins = [buildWebSearchPluginPayload()];
+    }
 
     const response = await fetch('/api/chat/stream', {
       method: 'POST',
@@ -941,10 +1182,22 @@ async function requestStream(latestUserMessage) {
 
           for (const choice of parsed.choices) {
             const delta = choice.delta || {};
+            if (Object.prototype.hasOwnProperty.call(delta, 'reasoning')) {
+              applyStreamingReasoning(delta.reasoning);
+            }
             if (typeof delta.content === 'string') {
               assistantText += delta.content;
               assistantMessage.setContent(assistantText);
             }
+          }
+
+          if (Object.prototype.hasOwnProperty.call(parsed, 'reasoning')) {
+            applyStreamingReasoning(parsed.reasoning);
+          }
+
+          const messageReasoning = parsed.message && parsed.message.reasoning;
+          if (typeof messageReasoning !== 'undefined') {
+            applyStreamingReasoning(messageReasoning);
           }
         } catch (error) {
           console.warn('Failed to parse SSE payload', error);
@@ -962,6 +1215,9 @@ async function requestStream(latestUserMessage) {
               if (parsed && Array.isArray(parsed.choices)) {
                 for (const choice of parsed.choices) {
                   const delta = choice.delta || {};
+                  if (Object.prototype.hasOwnProperty.call(delta, 'reasoning')) {
+                    applyStreamingReasoning(delta.reasoning);
+                  }
                   if (typeof delta.content === 'string') {
                     assistantText += delta.content;
                     assistantMessage.setContent(assistantText);
@@ -981,6 +1237,10 @@ async function requestStream(latestUserMessage) {
       const entry = { role: 'assistant', content: assistantText };
       if (pendingMetadata) {
         entry.metadata = pendingMetadata;
+      } else if (reasoningUpdated && reasoningCombinedText) {
+        entry.metadata = {
+          reasoning: reasoningCombinedText,
+        };
       }
       conversation.push(entry);
       persistConversationState();
@@ -1272,9 +1532,73 @@ function handleModelFilterChange(event) {
   loadModels().catch((error) => console.error('Failed to refresh models after filter change', error));
 }
 
+function handleWebSearchToggle(event) {
+  if (event) {
+    event.preventDefault();
+  }
+  webSearchEnabled = !webSearchEnabled;
+  persistWebSearchPreference(webSearchEnabled);
+  updateWebSearchButton();
+}
+
+function updateWebSearchButton() {
+  if (!webSearchButton) {
+    return;
+  }
+  const enabled = Boolean(webSearchEnabled);
+  const label = enabled ? 'Web search on' : 'Web search off';
+  webSearchButton.textContent = label;
+  webSearchButton.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+  webSearchButton.classList.toggle('is-active', enabled);
+  webSearchButton.title = enabled
+    ? 'Web search enabled. Responses may include live citations.'
+    : 'Web search disabled. Responses use cached knowledge only.';
+}
+
+function buildWebSearchPluginPayload() {
+  const maxResults = Number.isFinite(DEFAULT_WEB_SEARCH_RESULTS)
+    ? DEFAULT_WEB_SEARCH_RESULTS
+    : 3;
+
+  return {
+    id: 'web',
+    max_results: maxResults,
+  };
+}
+
 function handleModelSelectChange() {
   persistSelectedModel(modelSelect.value);
   modelSettingsController.syncActiveModelDisplay();
+}
+
+function resolveModelForRequest(selectedModel) {
+  const fallback = 'openrouter/auto';
+  const baseModel = typeof selectedModel === 'string' && selectedModel.trim()
+    ? selectedModel.trim()
+    : fallback;
+
+  if (!webSearchEnabled) {
+    return baseModel;
+  }
+
+  if (baseModel.endsWith(':online')) {
+    return baseModel;
+  }
+
+  const directCandidate = `${baseModel}:online`;
+  if (availableModels.some((model) => model.id === directCandidate)) {
+    return directCandidate;
+  }
+
+  const [prefix] = baseModel.split(':');
+  if (prefix && prefix !== baseModel) {
+    const fallbackCandidate = `${prefix}:online`;
+    if (availableModels.some((model) => model.id === fallbackCandidate)) {
+      return fallbackCandidate;
+    }
+  }
+
+  return baseModel;
 }
 
 function persistSelectedModel(modelId) {
@@ -1296,6 +1620,18 @@ function persistSelectedModel(modelId) {
     window.localStorage.setItem(SELECTED_MODEL_LS_KEY, JSON.stringify(payload));
   } catch (error) {
     console.warn('Failed to persist selected model', error);
+  }
+}
+
+function persistWebSearchPreference(enabled) {
+  if (!supportsLocalStorage()) {
+    return;
+  }
+  try {
+    const value = enabled ? '1' : '0';
+    window.localStorage.setItem(WEB_SEARCH_PREF_KEY, value);
+  } catch (error) {
+    console.warn('Failed to persist web search preference', error);
   }
 }
 
@@ -1325,6 +1661,29 @@ function readStoredSelectedModel() {
   } catch (error) {
     console.warn('Failed to read stored selected model', error);
     return null;
+  }
+}
+
+function readStoredWebSearchPreference() {
+  if (!supportsLocalStorage()) {
+    return false;
+  }
+  try {
+    const raw = window.localStorage.getItem(WEB_SEARCH_PREF_KEY);
+    if (raw === '1') {
+      return true;
+    }
+    if (raw === '0') {
+      return false;
+    }
+    if (raw == null) {
+      return false;
+    }
+    const normalized = typeof raw === 'string' ? raw.trim().toLowerCase() : '';
+    return normalized === 'true';
+  } catch (error) {
+    console.warn('Failed to read web search preference', error);
+    return false;
   }
 }
 

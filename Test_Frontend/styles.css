@@ -634,6 +634,12 @@ button:hover:not(:disabled) {
   cursor: pointer;
 }
 
+.ghost-button.is-active {
+  background: #1f2937;
+  border-color: #3b82f6;
+  color: #f8fafc;
+}
+
 .ghost-button:disabled {
   opacity: 0.4;
   cursor: not-allowed;
@@ -906,6 +912,54 @@ input[type="range"]::-moz-range-track {
   overflow-wrap: anywhere;
   font-size: 0.95rem;
   line-height: 1.6;
+}
+
+.message .reasoning[hidden] {
+  display: none;
+}
+
+.message .reasoning {
+  margin-top: 0.25rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.message .reasoning__summary {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #93c5fd;
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.message .reasoning__summary:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+
+.message .reasoning[open] .reasoning__summary {
+  color: #bfdbfe;
+}
+
+.message .reasoning__content {
+  margin-top: 0.6rem;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.reasoning__text {
+  background: rgba(59, 130, 246, 0.08);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #e5e7eb;
+  white-space: pre-wrap;
 }
 
 .message .content > *:first-child {

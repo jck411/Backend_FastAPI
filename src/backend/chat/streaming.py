@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Iterable
 
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..repository import ChatRepository
@@ -27,6 +27,7 @@ class AssistantTurn:
     usage: dict[str, Any] | None
     meta: dict[str, Any] | None
     generation_id: str | None
+    reasoning: list[dict[str, Any]] | None
 
     def to_message_dict(self) -> dict[str, Any]:
         message: dict[str, Any] = {
@@ -121,6 +122,8 @@ class StreamingHandler:
             usage_details: dict[str, Any] | None = None
             meta_details: dict[str, Any] | None = None
             generation_id: str | None = None
+            reasoning_segments: list[dict[str, Any]] = []
+            seen_reasoning: set[tuple[str, str]] = set()
             try:
                 async for event in self._client.stream_chat_raw(payload):
                     data = event.get("data")
@@ -167,6 +170,12 @@ class StreamingHandler:
                         if choice_finish:
                             finish_reason = choice_finish
 
+                        if "reasoning" in delta:
+                            new_segments = _extract_reasoning_segments(delta["reasoning"])
+                            _extend_reasoning_segments(
+                                reasoning_segments, new_segments, seen_reasoning
+                            )
+
                     model_value = chunk.get("model")
                     if isinstance(model_value, str):
                         model_name = model_value
@@ -182,6 +191,20 @@ class StreamingHandler:
                     chunk_id = chunk.get("id")
                     if isinstance(chunk_id, str) and chunk_id:
                         generation_id = chunk_id
+
+                    for key in ("reasoning", "message"):
+                        if key not in chunk:
+                            continue
+                        payload_value = chunk[key]
+                        if key == "message" and isinstance(payload_value, dict):
+                            reasoning_value = payload_value.get("reasoning")
+                        else:
+                            reasoning_value = payload_value
+                        if reasoning_value is not None:
+                            new_segments = _extract_reasoning_segments(reasoning_value)
+                            _extend_reasoning_segments(
+                                reasoning_segments, new_segments, seen_reasoning
+                            )
 
                     yield event
             except OpenRouterError as exc:
@@ -217,6 +240,7 @@ class StreamingHandler:
                 usage=usage_details,
                 meta=meta_details,
                 generation_id=generation_id,
+                reasoning=reasoning_segments if reasoning_segments else None,
             )
             metadata: dict[str, Any] = {}
             if assistant_turn.finish_reason is not None:
@@ -231,6 +255,8 @@ class StreamingHandler:
                 metadata["meta"] = assistant_turn.meta
             if assistant_turn.generation_id is not None:
                 metadata["generation_id"] = assistant_turn.generation_id
+            if assistant_turn.reasoning is not None:
+                metadata["reasoning"] = assistant_turn.reasoning
             if routing_headers:
                 metadata["routing"] = routing_headers
 
@@ -250,6 +276,7 @@ class StreamingHandler:
                 "routing": routing_headers,
                 "meta": assistant_turn.meta,
                 "generation_id": assistant_turn.generation_id,
+                "reasoning": assistant_turn.reasoning,
             }
             yield {
                 "event": "metadata",
@@ -478,6 +505,110 @@ def _finalize_tool_calls(
         finalized.append(entry)
 
     return finalized
+
+
+def _extend_reasoning_segments(
+    accumulator: list[dict[str, Any]],
+    new_segments: Iterable[dict[str, Any]],
+    seen: set[tuple[str, str]],
+) -> None:
+    """Merge new reasoning segments into the accumulator without duplicates."""
+
+    for segment in new_segments:
+        if not isinstance(segment, dict):
+            continue
+        text = segment.get("text")
+        if not isinstance(text, str):
+            continue
+        normalized_text = text.strip()
+        if not normalized_text:
+            continue
+        segment_type = segment.get("type")
+        normalized_type = segment_type.strip() if isinstance(segment_type, str) else ""
+        key = (normalized_type, normalized_text)
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized_segment: dict[str, Any] = {"text": normalized_text}
+        if normalized_type:
+            normalized_segment["type"] = normalized_type
+        accumulator.append(normalized_segment)
+
+
+def _extract_reasoning_segments(payload: Any) -> list[dict[str, Any]]:
+    """Normalize varied reasoning payload formats into labeled text segments."""
+
+    segments: list[dict[str, Any]] = []
+
+    def _walk(node: Any, current_type: str | None = None) -> None:
+        if node is None:
+            return
+
+        if isinstance(node, str):
+            text = node.strip()
+            if text:
+                segment: dict[str, Any] = {"text": text}
+                if current_type:
+                    segment["type"] = current_type
+                segments.append(segment)
+            return
+
+        if isinstance(node, (int, float, bool)):
+            text = str(node)
+            segment: dict[str, Any] = {"text": text}
+            if current_type:
+                segment["type"] = current_type
+            segments.append(segment)
+            return
+
+        if isinstance(node, list):
+            for item in node:
+                _walk(item, current_type)
+            return
+
+        if isinstance(node, dict):
+            next_type = node.get("type")
+            if isinstance(next_type, str) and next_type.strip():
+                normalized_type = next_type.strip()
+            else:
+                normalized_type = current_type
+
+            extracted = False
+            for key in ("text", "output", "content", "reasoning", "message", "details", "explanation"):
+                if key not in node:
+                    continue
+                value = node[key]
+                if isinstance(value, (str, list, dict, int, float, bool)):
+                    _walk(value, normalized_type)
+                    extracted = True
+
+            if not extracted:
+                remaining = {
+                    key: value
+                    for key, value in node.items()
+                    if key not in {"type", "id", "index"}
+                }
+                if remaining:
+                    try:
+                        serialized = json.dumps(remaining, ensure_ascii=False)
+                    except TypeError:
+                        serialized = str(remaining)
+                    if serialized:
+                        segment: dict[str, Any] = {"text": serialized}
+                        if normalized_type:
+                            segment["type"] = normalized_type
+                        segments.append(segment)
+            return
+
+        # Fallback for other data types
+        text = str(node)
+        segment = {"text": text}
+        if current_type:
+            segment["type"] = current_type
+        segments.append(segment)
+
+    _walk(payload)
+    return segments
 
 
 __all__ = ["StreamingHandler", "SseEvent"]

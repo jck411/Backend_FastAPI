@@ -946,10 +946,21 @@ textarea:focus {
   outline: 2px solid #2563eb;
 }
 
-.actions {
+.chat-input {
+  position: relative;
   display: flex;
-  justify-content: flex-end;
-  gap: 0.5rem;
+  align-items: stretch;
+}
+
+.chat-input textarea {
+  padding-right: 4.25rem;
+}
+
+.chat-input #stop-button {
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  transform: translateY(-50%);
 }
 
 .visually-hidden {

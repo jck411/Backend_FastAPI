@@ -6,8 +6,8 @@ const modelSelect = document.querySelector('#model-select');
 const form = document.querySelector('#chat-form');
 const messageInput = document.querySelector('#message-input');
 const clearButton = document.querySelector('#clear-chat');
-const sendButton = document.querySelector('#send-button');
 const stopButton = document.querySelector('#stop-button');
+const modelExplorerButton = document.querySelector('#model-explorer-button');
 
 const openSettingsButton = document.querySelector('#open-settings');
 const settingsModal = document.querySelector('#model-settings-modal');
@@ -73,6 +73,9 @@ async function initialize() {
   form.addEventListener('submit', handleSubmit);
   if (messageInput) {
     messageInput.addEventListener('keydown', handleMessageInputKeyDown);
+  }
+  if (modelExplorerButton) {
+    modelExplorerButton.addEventListener('click', handleModelExplorerClick);
   }
   if (stopButton) {
     stopButton.addEventListener('click', handleStopClick);
@@ -216,6 +219,13 @@ function handleMessageInputKeyDown(event) {
   } else {
     form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
   }
+}
+
+function handleModelExplorerClick(event) {
+  if (event) {
+    event.preventDefault();
+  }
+  window.location.href = '/settings';
 }
 
 function handleStopClick(event) {
@@ -726,7 +736,6 @@ function normalizeGenerationData(payload) {
 async function requestStream(latestUserMessage) {
   isStreaming = true;
   stopRequested = false;
-  sendButton.disabled = true;
   messageInput.disabled = true;
   modelSelect.disabled = true;
 
@@ -911,7 +920,6 @@ async function requestStream(latestUserMessage) {
     assistantMessage.element.classList.add('error');
     throw error;
   } finally {
-    sendButton.disabled = false;
     messageInput.disabled = false;
     modelSelect.disabled = false;
     if (stopButton) {

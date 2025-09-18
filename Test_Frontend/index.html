@@ -10,16 +10,13 @@
 
 <body>
   <header>
-    <h1>OpenRouter Chat</h1>
-    <p class="subtitle">Streamed completions from any OpenRouter model.</p>
-    <nav class="toolbar" aria-label="Global">
-      <a href="/settings">Model explorer</a>
-    </nav>
+    <h1>Ziggazigah</h1>
   </header>
 
   <main>
     <section class="controls">
-      <label for="model-select">Model</label>
+      <button id="model-explorer-button" type="button" class="ghost-button">Model explorer</button>
+      <label class="visually-hidden" for="model-select">Model</label>
       <select id="model-select" autocomplete="off">
         <option value="openrouter/auto">Loading models…</option>
       </select>
@@ -31,10 +28,9 @@
 
     <form id="chat-form">
       <label class="visually-hidden" for="message-input">Message</label>
-      <textarea id="message-input" placeholder="Send a message to the selected model…" rows="3" required></textarea>
-      <div class="actions">
+      <div class="chat-input">
+        <textarea id="message-input" placeholder="Send a message to the selected model…" rows="3" required></textarea>
         <button id="stop-button" type="button" class="ghost-button" hidden>Stop</button>
-        <button id="send-button" type="submit">Send</button>
       </div>
     </form>
   </main>
@@ -51,7 +47,8 @@
           </div>
           <div class="modal__header-actions">
             <p id="settings-updated-at" class="settings-meta" hidden></p>
-            <button type="button" id="close-settings" class="icon-button" aria-label="Close model settings" data-close-settings>
+            <button type="button" id="close-settings" class="icon-button" aria-label="Close model settings"
+              data-close-settings>
               <span aria-hidden="true">×</span>
             </button>
           </div>
@@ -113,7 +110,8 @@
                 <label class="field-label" for="param-temperature">Temperature</label>
                 <div class="range-control">
                   <div class="range-row">
-                    <input id="param-temperature" class="slider-input" type="range" min="0" max="2" step="0.01" data-default-value="1" />
+                    <input id="param-temperature" class="slider-input" type="range" min="0" max="2" step="0.01"
+                      data-default-value="1" />
                     <output class="range-output" data-slider-value="param-temperature" aria-live="polite"></output>
                   </div>
                 </div>
@@ -122,7 +120,8 @@
                 <label class="field-label" for="param-top-p">Top P</label>
                 <div class="range-control">
                   <div class="range-row">
-                    <input id="param-top-p" class="slider-input" type="range" min="0" max="1" step="0.01" data-default-value="1" />
+                    <input id="param-top-p" class="slider-input" type="range" min="0" max="1" step="0.01"
+                      data-default-value="1" />
                     <output class="range-output" data-slider-value="param-top-p" aria-live="polite"></output>
                   </div>
                 </div>
@@ -131,7 +130,8 @@
                 <label class="field-label" for="param-top-k">Top K</label>
                 <div class="range-control">
                   <div class="range-row">
-                    <input id="param-top-k" class="slider-input" type="range" min="0" max="400" step="1" data-default-value="0" />
+                    <input id="param-top-k" class="slider-input" type="range" min="0" max="400" step="1"
+                      data-default-value="0" />
                     <output class="range-output" data-slider-value="param-top-k" aria-live="polite"></output>
                   </div>
                 </div>
@@ -140,7 +140,8 @@
                 <label class="field-label" for="param-min-p">Min P</label>
                 <div class="range-control">
                   <div class="range-row">
-                    <input id="param-min-p" class="slider-input" type="range" min="0" max="1" step="0.01" data-default-value="0" />
+                    <input id="param-min-p" class="slider-input" type="range" min="0" max="1" step="0.01"
+                      data-default-value="0" />
                     <output class="range-output" data-slider-value="param-min-p" aria-live="polite"></output>
                   </div>
                 </div>
@@ -149,7 +150,8 @@
                 <label class="field-label" for="param-top-a">Top A</label>
                 <div class="range-control">
                   <div class="range-row">
-                    <input id="param-top-a" class="slider-input" type="range" min="0" max="1" step="0.01" data-default-value="0" />
+                    <input id="param-top-a" class="slider-input" type="range" min="0" max="1" step="0.01"
+                      data-default-value="0" />
                     <output class="range-output" data-slider-value="param-top-a" aria-live="polite"></output>
                   </div>
                 </div>
@@ -158,7 +160,8 @@
                 <label class="field-label" for="param-max-tokens">Max tokens</label>
                 <div class="range-control">
                   <div class="range-row">
-                    <input id="param-max-tokens" class="slider-input" type="range" min="0" max="32000" step="1" data-default-value="0" />
+                    <input id="param-max-tokens" class="slider-input" type="range" min="0" max="32000" step="1"
+                      data-default-value="0" />
                     <output class="range-output" data-slider-value="param-max-tokens" aria-live="polite"></output>
                   </div>
                 </div>
@@ -167,8 +170,10 @@
                 <label class="field-label" for="param-frequency-penalty">Frequency penalty</label>
                 <div class="range-control">
                   <div class="range-row">
-                    <input id="param-frequency-penalty" class="slider-input" type="range" min="-2" max="2" step="0.01" data-default-value="0" />
-                    <output class="range-output" data-slider-value="param-frequency-penalty" aria-live="polite"></output>
+                    <input id="param-frequency-penalty" class="slider-input" type="range" min="-2" max="2" step="0.01"
+                      data-default-value="0" />
+                    <output class="range-output" data-slider-value="param-frequency-penalty"
+                      aria-live="polite"></output>
                   </div>
                 </div>
               </div>
@@ -176,7 +181,8 @@
                 <label class="field-label" for="param-presence-penalty">Presence penalty</label>
                 <div class="range-control">
                   <div class="range-row">
-                    <input id="param-presence-penalty" class="slider-input" type="range" min="-2" max="2" step="0.01" data-default-value="0" />
+                    <input id="param-presence-penalty" class="slider-input" type="range" min="-2" max="2" step="0.01"
+                      data-default-value="0" />
                     <output class="range-output" data-slider-value="param-presence-penalty" aria-live="polite"></output>
                   </div>
                 </div>
@@ -185,8 +191,10 @@
                 <label class="field-label" for="param-repetition-penalty">Repetition penalty</label>
                 <div class="range-control">
                   <div class="range-row">
-                    <input id="param-repetition-penalty" class="slider-input" type="range" min="0" max="2" step="0.01" data-default-value="1" />
-                    <output class="range-output" data-slider-value="param-repetition-penalty" aria-live="polite"></output>
+                    <input id="param-repetition-penalty" class="slider-input" type="range" min="0" max="2" step="0.01"
+                      data-default-value="1" />
+                    <output class="range-output" data-slider-value="param-repetition-penalty"
+                      aria-live="polite"></output>
                   </div>
                 </div>
               </div>
@@ -194,7 +202,8 @@
                 <label class="field-label" for="param-seed">Seed</label>
                 <div class="range-control">
                   <div class="range-row">
-                    <input id="param-seed" class="slider-input" type="range" min="0" max="1000000" step="1" data-default-value="0" />
+                    <input id="param-seed" class="slider-input" type="range" min="0" max="1000000" step="1"
+                      data-default-value="0" />
                     <output class="range-output" data-slider-value="param-seed" aria-live="polite"></output>
                   </div>
                 </div>
@@ -260,7 +269,8 @@
             <p class="section-subtitle">Token counts, cost, and caching breakdown for the last reply.</p>
           </div>
           <div class="modal__header-actions">
-            <button type="button" id="close-message-metadata" class="icon-button" aria-label="Close usage details" data-close-metadata>
+            <button type="button" id="close-message-metadata" class="icon-button" aria-label="Close usage details"
+              data-close-metadata>
               <span aria-hidden="true">×</span>
             </button>
           </div>

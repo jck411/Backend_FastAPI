@@ -71,6 +71,9 @@ async function initialize() {
     modelSelect.addEventListener('change', handleModelSelectChange);
   }
   form.addEventListener('submit', handleSubmit);
+  if (messageInput) {
+    messageInput.addEventListener('keydown', handleMessageInputKeyDown);
+  }
   if (stopButton) {
     stopButton.addEventListener('click', handleStopClick);
   }
@@ -194,6 +197,24 @@ async function handleSubmit(event) {
     await requestStream(text);
   } catch (error) {
     console.error(error);
+  }
+}
+
+function handleMessageInputKeyDown(event) {
+  if (event.key !== 'Enter' || event.shiftKey || event.isComposing) {
+    return;
+  }
+
+  event.preventDefault();
+
+  if (isStreaming) {
+    return;
+  }
+
+  if (typeof form.requestSubmit === 'function') {
+    form.requestSubmit();
+  } else {
+    form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
   }
 }
 

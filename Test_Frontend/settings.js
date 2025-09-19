@@ -94,6 +94,7 @@ const containers = {
   promptPrice: document.querySelector('#prompt-price-options'),
   series: document.querySelector('#series-options'),
   supportedParameters: document.querySelector('#supported-parameters-options'),
+  moderation: document.querySelector('#moderation-options'),
 };
 
 const INPUT_MODALITY_OPTIONS = [
@@ -106,6 +107,11 @@ const INPUT_MODALITY_OPTIONS = [
 const OUTPUT_MODALITY_OPTIONS = [
   { label: 'Text', value: 'text' },
   { label: 'Image', value: 'image' },
+];
+
+const MODERATION_OPTIONS = [
+  { label: 'Moderated', value: 'true' },
+  { label: 'Unmoderated', value: 'false' },
 ];
 
 // Slider defaults; will be replaced by backend-provided facet ranges on first load
@@ -177,6 +183,7 @@ const state = {
   outputModalities: new Set(),
   series: new Set(),
   supportedParameters: new Set(),
+  moderation: new Set(), // 'true', 'false' for is_moderated filter
   // slider values
   contextValue: null, // numeric value of slider (min context). When equal to range.min, filter effectively off.
   priceValue: null,   // numeric value of slider (max price). When equal to range.max, filter effectively off.
@@ -214,6 +221,7 @@ async function initialize() {
     SUPPORTED_PARAMETER_OPTIONS.map((value) => ({ label: value, value })),
     state.supportedParameters,
   );
+  renderMultiSelect(containers.moderation, MODERATION_OPTIONS, state.moderation);
 
   searchInput.addEventListener('input', handleSearchInput);
   clearButton.addEventListener('click', clearAllFilters);
@@ -425,6 +433,7 @@ function clearAllFilters() {
   state.outputModalities.clear();
   state.series.clear();
   state.supportedParameters.clear();
+  state.moderation.clear();
   // Reset sliders to neutral (no-op) positions
   const contextValues = [0, 4000, 16000, 42000, 128000, 200000, 1000000, 2000000];
   const priceValues = [0.1, 0.2, 0.5, 1, 5, 10, Infinity];
@@ -504,6 +513,11 @@ function buildFilterPayload() {
   }
   if (state.supportedParameters.size) {
     filters.supported_parameters_normalized = Array.from(state.supportedParameters);
+  }
+  if (state.moderation.size) {
+    // Convert string values to boolean for the API filter
+    const moderationValues = Array.from(state.moderation).map(val => val === 'true');
+    filters['top_provider.is_moderated'] = moderationValues;
   }
   // Slider-based filters
   if (typeof state.contextValue === 'number' && state.contextValue > 0) {
@@ -915,6 +929,7 @@ function savePreferences() {
       outputModalities: Array.from(state.outputModalities),
       series: Array.from(state.series),
       supportedParameters: Array.from(state.supportedParameters),
+      moderation: Array.from(state.moderation),
       contextValue: typeof state.contextValue === 'number' ? state.contextValue : null,
       priceValue: Number.isFinite(state.priceValue) ? state.priceValue : null,
       priceFreeOnly: !!state.priceFreeOnly,
@@ -946,6 +961,7 @@ function loadPreferences() {
           .filter(Boolean);
         state.supportedParameters = new Set(normalizedParams);
       }
+      if (Array.isArray(data.moderation)) state.moderation = new Set(data.moderation);
       if (typeof data.contextValue === 'number') state.contextValue = data.contextValue;
       if (typeof data.priceValue === 'number') state.priceValue = data.priceValue;
       else state.priceValue = null;

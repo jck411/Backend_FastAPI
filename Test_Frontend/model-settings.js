@@ -35,8 +35,14 @@ export function createModelSettingsController({
     seed: document.querySelector('#param-seed'),
     stop: document.querySelector('#param-stop'),
     parallelToolCalls: document.querySelector('#param-parallel-tool-calls'),
+    toolChoice: document.querySelector('#param-tool-choice'),
     safePrompt: document.querySelector('#param-safe-prompt'),
     rawMode: document.querySelector('#param-raw-mode'),
+    structuredOutputs: document.querySelector('#param-structured-outputs'),
+    responseFormat: document.querySelector('#param-response-format'),
+    reasoningEffort: document.querySelector('#param-reasoning-effort'),
+    reasoningMaxTokens: document.querySelector('#param-reasoning-max-tokens'),
+    reasoningExclude: document.querySelector('#param-reasoning-exclude'),
     status: document.querySelector('#settings-status'),
     updatedAt: document.querySelector('#settings-updated-at'),
     submitButton: document.querySelector('#settings-submit'),
@@ -59,6 +65,12 @@ export function createModelSettingsController({
     { control: controls.presencePenalty, defaultValue: 0, maximumFractionDigits: 2 },
     { control: controls.repetitionPenalty, defaultValue: 1, maximumFractionDigits: 2 },
     { control: controls.seed, defaultValue: 0, maximumFractionDigits: 0, format: (value) => integerFormatter.format(value) },
+    {
+      control: controls.reasoningMaxTokens,
+      defaultValue: 0,
+      maximumFractionDigits: 0,
+      format: (value) => (value <= 0 ? 'Unset' : integerFormatter.format(value))
+    },
   ];
 
   sliderConfigurations.forEach(({ control, ...options }) => {
@@ -164,7 +176,7 @@ export function createModelSettingsController({
     setModalStatus('Saving…', 'pending');
 
     try {
-      const payload = buildPayload();
+      const payload = buildSettingsPayload();
       const response = await fetch('/api/settings/model', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -217,7 +229,8 @@ export function createModelSettingsController({
     updateActiveModelDisplay();
 
     const provider = settings?.provider || {};
-    const params = settings?.parameters || {};
+    // Handle both old nested "parameters" format and new flattened format
+    const params = settings?.parameters || settings || {};
 
     if (controls.providerSort) {
       controls.providerSort.value = provider.sort || '';
@@ -250,14 +263,23 @@ export function createModelSettingsController({
     }
 
     setBooleanSelect(controls.parallelToolCalls, params.parallel_tool_calls);
+    setStringSelect(controls.toolChoice, params.tool_choice);
     setBooleanSelect(controls.safePrompt, params.safe_prompt);
     setBooleanSelect(controls.rawMode, params.raw_mode);
+    setBooleanSelect(controls.structuredOutputs, params.structured_outputs);
+    setStringSelect(controls.responseFormat, params.response_format?.type);
+
+    // Handle reasoning parameters (complex object)
+    const reasoning = params.reasoning || {};
+    setStringSelect(controls.reasoningEffort, reasoning.effort);
+    setIntegerInput(controls.reasoningMaxTokens, reasoning.max_tokens);
+    setBooleanSelect(controls.reasoningExclude, reasoning.exclude);
 
     updateModalUpdatedAt(settings?.updated_at);
     updateParameterVisibility();
   }
 
-  function buildPayload() {
+  function buildSettingsPayload() {
     const model = modelSelect?.value || 'openrouter/auto';
     const payload = { model };
     const provider = {};
@@ -279,6 +301,7 @@ export function createModelSettingsController({
       payload.provider = provider;
     }
 
+    // Add all parameters to the nested params object for settings API
     const temperature = parseNumberField(controls.temperature);
     if (temperature !== null) params.temperature = temperature;
 
@@ -317,14 +340,136 @@ export function createModelSettingsController({
     const parallelToolCalls = parseBooleanSelect(controls.parallelToolCalls);
     if (parallelToolCalls !== null) params.parallel_tool_calls = parallelToolCalls;
 
+    const toolChoice = parseStringSelect(controls.toolChoice);
+    if (toolChoice) params.tool_choice = toolChoice;
+
     const safePrompt = parseBooleanSelect(controls.safePrompt);
     if (safePrompt !== null) params.safe_prompt = safePrompt;
 
     const rawMode = parseBooleanSelect(controls.rawMode);
     if (rawMode !== null) params.raw_mode = rawMode;
 
+    const structuredOutputs = parseBooleanSelect(controls.structuredOutputs);
+    if (structuredOutputs !== null) params.structured_outputs = structuredOutputs;
+
+    const responseFormat = parseStringSelect(controls.responseFormat);
+    if (responseFormat) {
+      params.response_format = { type: responseFormat };
+    }
+
+    // Build reasoning object if any reasoning parameters are set
+    const reasoningEffort = parseStringSelect(controls.reasoningEffort);
+    const reasoningMaxTokens = parseIntegerField(controls.reasoningMaxTokens);
+    const reasoningExclude = parseBooleanSelect(controls.reasoningExclude);
+
+    if (reasoningEffort || reasoningMaxTokens !== null || reasoningExclude !== null) {
+      const reasoning = {};
+      if (reasoningEffort) reasoning.effort = reasoningEffort;
+      if (reasoningMaxTokens !== null && reasoningMaxTokens > 0) reasoning.max_tokens = reasoningMaxTokens;
+      if (reasoningExclude !== null) reasoning.exclude = reasoningExclude;
+      if (Object.keys(reasoning).length > 0) {
+        params.reasoning = reasoning;
+      }
+    }
+
+    // Only add parameters object if it has content
     if (Object.keys(params).length) {
       payload.parameters = params;
+    }
+
+    return payload;
+  }
+
+  function buildPayload() {
+    const model = modelSelect?.value || 'openrouter/auto';
+    const payload = { model };
+    const provider = {};
+
+    const sort = controls.providerSort?.value?.trim();
+    if (sort) provider.sort = sort;
+
+    const dataCollection = controls.providerDataCollection?.value?.trim();
+    if (dataCollection) provider.data_collection = dataCollection;
+
+    const allowFallbacks = parseBooleanSelect(controls.providerAllowFallbacks);
+    if (allowFallbacks !== null) provider.allow_fallbacks = allowFallbacks;
+
+    const requireParameters = parseBooleanSelect(controls.providerRequireParameters);
+    if (requireParameters !== null) provider.require_parameters = requireParameters;
+
+    if (Object.keys(provider).length) {
+      payload.provider = provider;
+    }
+
+    // Add all parameters directly to the payload (not nested under "parameters")
+    const temperature = parseNumberField(controls.temperature);
+    if (temperature !== null) payload.temperature = temperature;
+
+    const topP = parseNumberField(controls.topP);
+    if (topP !== null) payload.top_p = topP;
+
+    const topK = parseIntegerField(controls.topK);
+    if (topK !== null) payload.top_k = topK;
+
+    const minP = parseNumberField(controls.minP);
+    if (minP !== null) payload.min_p = minP;
+
+    const topA = parseNumberField(controls.topA);
+    if (topA !== null) payload.top_a = topA;
+
+    const maxTokens = parseIntegerField(controls.maxTokens);
+    if (maxTokens !== null) payload.max_tokens = maxTokens;
+
+    const frequencyPenalty = parseNumberField(controls.frequencyPenalty);
+    if (frequencyPenalty !== null) payload.frequency_penalty = frequencyPenalty;
+
+    const presencePenalty = parseNumberField(controls.presencePenalty);
+    if (presencePenalty !== null) payload.presence_penalty = presencePenalty;
+
+    const repetitionPenalty = parseNumberField(controls.repetitionPenalty);
+    if (repetitionPenalty !== null) payload.repetition_penalty = repetitionPenalty;
+
+    const seed = parseIntegerField(controls.seed);
+    if (seed !== null) payload.seed = seed;
+
+    const stopSequences = parseStopField(controls.stop);
+    if (stopSequences) {
+      payload.stop = stopSequences.length === 1 ? stopSequences[0] : stopSequences;
+    }
+
+    const parallelToolCalls = parseBooleanSelect(controls.parallelToolCalls);
+    if (parallelToolCalls !== null) payload.parallel_tool_calls = parallelToolCalls;
+
+    const toolChoice = parseStringSelect(controls.toolChoice);
+    if (toolChoice) payload.tool_choice = toolChoice;
+
+    const safePrompt = parseBooleanSelect(controls.safePrompt);
+    if (safePrompt !== null) payload.safe_prompt = safePrompt;
+
+    const rawMode = parseBooleanSelect(controls.rawMode);
+    if (rawMode !== null) payload.raw_mode = rawMode;
+
+    const structuredOutputs = parseBooleanSelect(controls.structuredOutputs);
+    if (structuredOutputs !== null) payload.structured_outputs = structuredOutputs;
+
+    const responseFormat = parseStringSelect(controls.responseFormat);
+    if (responseFormat) {
+      payload.response_format = { type: responseFormat };
+    }
+
+    // Build reasoning object if any reasoning parameters are set
+    const reasoningEffort = parseStringSelect(controls.reasoningEffort);
+    const reasoningMaxTokens = parseIntegerField(controls.reasoningMaxTokens);
+    const reasoningExclude = parseBooleanSelect(controls.reasoningExclude);
+
+    if (reasoningEffort || reasoningMaxTokens !== null || reasoningExclude !== null) {
+      const reasoning = {};
+      if (reasoningEffort) reasoning.effort = reasoningEffort;
+      if (reasoningMaxTokens !== null && reasoningMaxTokens > 0) reasoning.max_tokens = reasoningMaxTokens;
+      if (reasoningExclude !== null) reasoning.exclude = reasoningExclude;
+      if (Object.keys(reasoning).length > 0) {
+        payload.reasoning = reasoning;
+      }
     }
 
     return payload;
@@ -620,6 +765,21 @@ function setBooleanSelect(control, value) {
   } else {
     control.value = '';
   }
+}
+
+function setStringSelect(control, value) {
+  if (!control) return;
+  if (value && typeof value === 'string') {
+    control.value = value;
+  } else {
+    control.value = '';
+  }
+}
+
+function parseStringSelect(control) {
+  if (!control) return null;
+  const value = control.value?.trim();
+  return value || null;
 }
 
 function formatTimestamp(value) {

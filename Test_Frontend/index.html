@@ -220,6 +220,15 @@
                 </select>
               </label>
               <label class="field-group">
+                <span class="field-label" for="param-tool-choice">Tool choice</span>
+                <select id="param-tool-choice">
+                  <option value="">Use provider default</option>
+                  <option value="auto">Auto (model decides)</option>
+                  <option value="none">None (disable tools)</option>
+                  <option value="required">Required (force tool use)</option>
+                </select>
+              </label>
+              <label class="field-group">
                 <span class="field-label" for="param-safe-prompt">Safe prompt</span>
                 <select id="param-safe-prompt">
                   <option value="">Use provider default</option>
@@ -235,7 +244,56 @@
                   <option value="false">Disable</option>
                 </select>
               </label>
+              <label class="field-group">
+                <span class="field-label" for="param-structured-outputs">Structured outputs</span>
+                <select id="param-structured-outputs">
+                  <option value="">Use provider default</option>
+                  <option value="true">Enable</option>
+                  <option value="false">Disable</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="param-response-format">Response format</span>
+                <select id="param-response-format">
+                  <option value="">Default (text)</option>
+                  <option value="json_object">JSON Object</option>
+                  <option value="json_schema">JSON Schema</option>
+                </select>
+              </label>
             </div>
+            <fieldset class="form-fieldset">
+              <legend>Reasoning (for thinking models)</legend>
+              <div class="form-grid three-column">
+                <label class="field-group">
+                  <span class="field-label" for="param-reasoning-effort">Reasoning effort</span>
+                  <select id="param-reasoning-effort">
+                    <option value="">Default</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </label>
+                <div class="field-group slider-field" data-slider-field="param-reasoning-max-tokens">
+                  <label class="field-label" for="param-reasoning-max-tokens">Reasoning max tokens</label>
+                  <div class="range-control">
+                    <div class="range-row">
+                      <input id="param-reasoning-max-tokens" class="slider-input" type="range" min="0" max="10000"
+                        step="100" data-default-value="0" />
+                      <output class="range-output" data-slider-value="param-reasoning-max-tokens"
+                        aria-live="polite"></output>
+                    </div>
+                  </div>
+                </div>
+                <label class="field-group">
+                  <span class="field-label" for="param-reasoning-exclude">Exclude reasoning from output</span>
+                  <select id="param-reasoning-exclude">
+                    <option value="">Use provider default</option>
+                    <option value="true">Exclude reasoning</option>
+                    <option value="false">Include reasoning</option>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
             <label class="field-group full-span">
               <span class="field-label" for="param-stop">Stop sequences</span>
               <textarea id="param-stop" rows="3" placeholder="One sequence per line or comma-separated"></textarea>

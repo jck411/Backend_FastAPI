@@ -1,11 +1,11 @@
 {
-  "model": "alibaba/tongyi-deepresearch-30b-a3b",
+  "model": "qwen/qwen3-next-80b-a3b-thinking",
   "parameters": {
-    "temperature": 0.24
+    "max_tokens": 100,
+    "reasoning": {
+      "exclude": false
+    },
+    "temperature": 0.7
   },
-  "provider": {
-    "allow_fallbacks": true,
-    "require_parameters": false
-  },
-  "updated_at": "2025-09-19T01:50:19.830604+00:00"
+  "updated_at": "2025-09-19T03:05:06.225220+00:00"
 }

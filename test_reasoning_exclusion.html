@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Test Reasoning Exclusion</title>
+</head>
+
+<body>
+    <h1>Test Reasoning Exclusion</h1>
+    <button id="testButton">Test Reasoning Exclusion</button>
+    <div id="results"></div>
+
+    <script>
+        document.getElementById('testButton').addEventListener('click', async () => {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = 'Testing...';
+
+            try {
+                const payload = {
+                    model: "qwen/qwen3-next-80b-a3b-thinking",
+                    messages: [
+                        { role: "user", content: "What is 2+2? Just give a simple answer." }
+                    ],
+                    reasoning: {
+                        exclude: true
+                    },
+                    max_tokens: 50
+                };
+
+                console.log('Sending payload:', JSON.stringify(payload, null, 2));
+
+                const response = await fetch('/api/chat/stream', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let result = '';
+                let hasReasoning = false;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                if (data.choices && data.choices[0] && data.choices[0].delta) {
+                                    const delta = data.choices[0].delta;
+                                    if (delta.reasoning) {
+                                        hasReasoning = true;
+                                    }
+                                    if (delta.content) {
+                                        result += delta.content;
+                                    }
+                                }
+                            } catch (e) {
+                                // Ignore JSON parse errors for non-JSON data lines
+                            }
+                        }
+                    }
+                }
+
+                resultsDiv.innerHTML = `
+                    <h2>Results:</h2>
+                    <p><strong>Response:</strong> ${result}</p>
+                    <p><strong>Had reasoning in response:</strong> ${hasReasoning ? 'YES (BAD)' : 'NO (GOOD)'}</p>
+                    <p><strong>Status:</strong> ${hasReasoning ? 'FAILED - Reasoning was not excluded' : 'SUCCESS - Reasoning was excluded'}</p>
+                `;
+
+            } catch (error) {
+                resultsDiv.innerHTML = `<p><strong>Error:</strong> ${error.message}</p>`;
+                console.error('Test error:', error);
+            }
+        });
+    </script>
+</body>
+
+</html>

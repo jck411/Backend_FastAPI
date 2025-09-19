@@ -43,19 +43,38 @@ class ProviderPreferences(BaseModel):
 class ModelHyperparameters(BaseModel):
     """Hyperparameter overrides applied to the active model."""
 
+    # Basic generation parameters
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     top_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     top_k: Optional[int] = Field(default=None, ge=0)
-    frequency_penalty: Optional[float] = Field(default=None, ge=-2.0, le=2.0)
-    presence_penalty: Optional[float] = Field(default=None, ge=-2.0, le=2.0)
-    repetition_penalty: Optional[float] = Field(default=None, ge=0.0)
     min_p: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     top_a: Optional[float] = Field(default=None, ge=0.0)
     max_tokens: Optional[int] = Field(default=None, ge=1)
+
+    # Penalty parameters
+    frequency_penalty: Optional[float] = Field(default=None, ge=-2.0, le=2.0)
+    presence_penalty: Optional[float] = Field(default=None, ge=-2.0, le=2.0)
+    repetition_penalty: Optional[float] = Field(default=None, ge=0.0)
+
+    # Advanced parameters
     seed: Optional[int] = None
     logit_bias: Optional[Dict[str, float]] = None
     stop: Optional[Union[str, List[str]]] = None
+    top_logprobs: Optional[int] = Field(default=None, ge=0)
+
+    # Tool calling
     parallel_tool_calls: Optional[bool] = None
+    tool_choice: Optional[Union[str, Dict[str, Any]]] = None
+
+    # Response formatting
+    response_format: Optional[Dict[str, Any]] = None
+    structured_outputs: Optional[bool] = None
+
+    # Reasoning parameters
+    reasoning: Optional[Dict[str, Any]] = None
+    include_reasoning: Optional[bool] = None
+
+    # Safety and moderation
     safe_prompt: Optional[bool] = None
     raw_mode: Optional[bool] = None
 

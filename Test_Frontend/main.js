@@ -1448,18 +1448,47 @@ function setAvailableModels(models) {
   // Debug: show what rich data we now have available
   if (availableModels.length > 0) {
     const sampleModel = availableModels[0];
-    console.debug('[models] sample model data:', {
+    console.debug('[models] FULL model data preserved:', {
+      // Basic fields
       id: sampleModel.id,
       name: sampleModel.name,
+      created: sampleModel.created,
+      description: sampleModel.description?.slice(0, 100) + '...',
+      canonical_slug: sampleModel.canonical_slug,
+      hugging_face_id: sampleModel.hugging_face_id,
+
+      // Capabilities
       context_length: sampleModel.context_length,
+      architecture: sampleModel.architecture,
+      top_provider: sampleModel.top_provider,
+      per_request_limits: sampleModel.per_request_limits,
+
+      // Pricing
       pricing: sampleModel.pricing,
+      prompt_price: sampleModel.prompt_price,
+      prompt_price_per_million: sampleModel.prompt_price_per_million,
+
+      // Parameters & Support
       supported_parameters: sampleModel.supported_parameters,
+      supported_parameters_normalized: sampleModel.supported_parameters_normalized,
+      supports_tools: sampleModel.supports_tools,
+
+      // Backend enrichments
       input_modalities: sampleModel.input_modalities,
-      description: sampleModel.description?.slice(0, 100) + '...'
+      output_modalities: sampleModel.output_modalities,
+      series: sampleModel.series,
+      provider_prefix: sampleModel.provider_prefix,
+
+      // UI field
+      label: sampleModel.label
     });
+
+    console.debug('[models] Total fields preserved:', Object.keys(sampleModel).length);
+    console.debug('[models] All field names:', Object.keys(sampleModel).sort());
   }
 
-  // Populate the selector with the latest normalized set
+  // Make models available for inspection in browser console
+  window.debugModels = availableModels;  // Populate the selector with the latest normalized set
   updateModelSelect(availableModels);
 }
 

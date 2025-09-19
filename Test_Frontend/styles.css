@@ -1222,3 +1222,16 @@ textarea:focus {
   border: 1px solid #374151;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
 }
+
+/* Style for unsupported fieldsets */
+fieldset.parameter-unsupported {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+fieldset.parameter-unsupported legend::after {
+  content: " (unsupported)";
+  font-size: 0.8em;
+  color: #f59e0b;
+  font-weight: normal;
+}

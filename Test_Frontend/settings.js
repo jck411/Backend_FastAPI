@@ -642,6 +642,7 @@ function toDateMs(value) {
 
 function pickNewestTimestampMs(model) {
   const keys = [
+    'created', // OpenRouter creation timestamp (Unix seconds)
     'updated_at', 'updatedAt',
     'release_date', 'releaseDate',
     'created_at', 'createdAt',
@@ -649,7 +650,13 @@ function pickNewestTimestampMs(model) {
   ];
   let best = 0;
   for (const k of keys) {
-    const v = toDateMs(model?.[k]);
+    let v;
+    if (k === 'created' && typeof model?.[k] === 'number') {
+      // Convert Unix timestamp (seconds) to milliseconds for consistency
+      v = model[k] * 1000;
+    } else {
+      v = toDateMs(model?.[k]);
+    }
     if (v && v > best) best = v;
   }
   return best;
@@ -690,7 +697,10 @@ function populateCard(fragment, model) {
   const modalities = fragment.querySelector('.model-modalities');
   const input = Array.isArray(model.input_modalities) ? model.input_modalities : [];
   const output = Array.isArray(model.output_modalities) ? model.output_modalities : [];
-  modalities.textContent = `In: ${formatList(input)} • Out: ${formatList(output)}`;
+  modalities.innerHTML = `In: ${formatList(input)}<br>Out: ${formatList(output)}`;
+
+  const created = fragment.querySelector('.model-created');
+  created.textContent = formatCreatedDate(model.created);
 
   // Tags removed - users can search, filter and sort instead
 
@@ -757,6 +767,52 @@ function formatList(values) {
     return '—';
   }
   return values.map((value) => value.charAt(0).toUpperCase() + value.slice(1)).join(', ');
+}
+
+function formatCreatedDate(timestamp) {
+  if (typeof timestamp !== 'number' || Number.isNaN(timestamp) || timestamp <= 0) {
+    return '—';
+  }
+
+  // Convert Unix timestamp (seconds) to JavaScript Date (milliseconds)
+  const date = new Date(timestamp * 1000);
+
+  // Check if the date is valid
+  if (Number.isNaN(date.getTime())) {
+    return '—';
+  }
+
+  // Format as a readable date string
+  const now = new Date();
+  const diffTime = now.getTime() - date.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 1) {
+    return 'Today';
+  } else if (diffDays === 1) {
+    return 'Yesterday';
+  } else if (diffDays < 7) {
+    return `${diffDays} days ago`;
+  } else if (diffDays < 30) {
+    const weeks = Math.floor(diffDays / 7);
+    return weeks === 1 ? '1 week ago' : `${weeks} weeks ago`;
+  } else if (diffDays < 365) {
+    const months = Math.floor(diffDays / 30);
+    return months === 1 ? '1 month ago' : `${months} months ago`;
+  } else {
+    const years = Math.floor(diffDays / 365);
+    if (years === 1) {
+      return '1 year ago';
+    } else if (years < 3) {
+      return `${years} years ago`;
+    } else {
+      // For older models, show the actual date
+      return date.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short'
+      });
+    }
+  }
 }
 
 function makeTag(text) {

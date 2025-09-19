@@ -1,5 +1,5 @@
-import { createModelSettingsController } from './model-settings.js';
 import { renderMarkdown } from './markdown.js';
+import { createModelSettingsController } from './model-settings.js';
 
 const chatLog = document.querySelector('#chat-log');
 const messageTemplate = document.querySelector('#message-template');
@@ -268,6 +268,44 @@ function renderReasoningSegments(container, segments) {
   container.appendChild(textNode);
 }
 
+// Helper function to get supported parameters for a model
+function getSupportedParametersForModel(modelId) {
+  if (!modelId || !availableModels.length) {
+    return [];
+  }
+  const model = availableModels.find(m => m.id === modelId);
+  return model?.supported_parameters || [];
+}
+
+// Helper function to check if a parameter is supported by the current model
+function isParameterSupported(parameterName, modelId) {
+  const supportedParams = getSupportedParametersForModel(modelId);
+  const normalizedParams = supportedParams.map(p => p.toLowerCase().trim());
+  const normalizedParam = parameterName.toLowerCase().trim();
+
+  // Handle common parameter name variations
+  const parameterAliases = {
+    'temperature': ['temperature'],
+    'top_p': ['top_p', 'top-p'],
+    'top_k': ['top_k', 'top-k'],
+    'max_tokens': ['max_tokens', 'max-tokens', 'maxTokens'],
+    'frequency_penalty': ['frequency_penalty', 'frequency-penalty'],
+    'presence_penalty': ['presence_penalty', 'presence-penalty'],
+    'repetition_penalty': ['repetition_penalty', 'repetition-penalty'],
+    'stop': ['stop'],
+    'seed': ['seed'],
+    'tools': ['tools', 'functions', 'function_calling'],
+    'parallel_tool_calls': ['parallel_tool_calls', 'parallel-tool-calls'],
+    'safe_prompt': ['safe_prompt', 'safe-prompt'],
+    'raw_mode': ['raw_mode', 'raw-mode'],
+    'min_p': ['min_p', 'min-p'],
+    'top_a': ['top_a', 'top-a']
+  };
+
+  const aliases = parameterAliases[normalizedParam] || [normalizedParam];
+  return aliases.some(alias => normalizedParams.includes(alias));
+}
+
 const modelSettingsController = createModelSettingsController({
   modelSelect,
   openSettingsButton,
@@ -277,6 +315,7 @@ const modelSettingsController = createModelSettingsController({
   loadModels,
   persistSelectedModel: (value) => persistSelectedModel(value),
   getAvailableModels: () => availableModels,
+  getSupportedParametersForModel,
 });
 
 async function initialize() {
@@ -1406,6 +1445,20 @@ function setAvailableModels(models) {
   }
   console.debug('[models] normalized length', availableModels.length);
 
+  // Debug: show what rich data we now have available
+  if (availableModels.length > 0) {
+    const sampleModel = availableModels[0];
+    console.debug('[models] sample model data:', {
+      id: sampleModel.id,
+      name: sampleModel.name,
+      context_length: sampleModel.context_length,
+      pricing: sampleModel.pricing,
+      supported_parameters: sampleModel.supported_parameters,
+      input_modalities: sampleModel.input_modalities,
+      description: sampleModel.description?.slice(0, 100) + '...'
+    });
+  }
+
   // Populate the selector with the latest normalized set
   updateModelSelect(availableModels);
 }
@@ -1429,7 +1482,7 @@ function updateModelSelect(models) {
     const option = document.createElement('option');
     option.value = model.id;
     option.textContent = model.label;
-    option.dataset.supportsTools = String(model.supportsTools);
+    option.dataset.supportsTools = String(model.supports_tools);
     modelSelect.appendChild(option);
   }
 
@@ -1877,9 +1930,23 @@ function normalizeModel(model) {
     return null;
   }
 
-  const label = model.name || model.id || model.slug || id;
-  const supportsTools = detectToolSupport(model);
-  return { id, label, supportsTools };
+  // Preserve the entire model object and just add computed fields
+  const enriched = { ...model };
+
+  // Ensure we have a consistent label field for the UI
+  enriched.label = model.name || model.id || model.slug || id;
+
+  // Ensure we have the tool support detection (which uses complex logic)
+  if (enriched.supports_tools === undefined) {
+    enriched.supports_tools = detectToolSupport(model);
+  }
+
+  // Ensure supported_parameters is always an array
+  if (!Array.isArray(enriched.supported_parameters)) {
+    enriched.supported_parameters = [];
+  }
+
+  return enriched;
 }
 
 function detectToolSupport(model) {

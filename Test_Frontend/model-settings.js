@@ -14,6 +14,7 @@ export function createModelSettingsController({
   loadModels,
   persistSelectedModel,
   getAvailableModels,
+  getSupportedParametersForModel,
 }) {
   const controls = {
     form: document.querySelector('#model-settings-form'),
@@ -253,6 +254,7 @@ export function createModelSettingsController({
     setBooleanSelect(controls.rawMode, params.raw_mode);
 
     updateModalUpdatedAt(settings?.updated_at);
+    updateParameterVisibility();
   }
 
   function buildPayload() {
@@ -383,6 +385,77 @@ export function createModelSettingsController({
     }
   }
 
+  // Update parameter visibility based on current model's supported parameters
+  function updateParameterVisibility() {
+    const currentModelId = modelSelect?.value?.trim();
+    if (!currentModelId || typeof getSupportedParametersForModel !== 'function') {
+      return;
+    }
+
+    const supportedParams = getSupportedParametersForModel(currentModelId);
+    const normalizedSupported = supportedParams.map(p => p.toLowerCase().trim());
+
+    // Define parameter mappings from control to API parameter names
+    const parameterMappings = [
+      { control: controls.temperature, paramName: 'temperature' },
+      { control: controls.topP, paramName: 'top_p' },
+      { control: controls.topK, paramName: 'top_k' },
+      { control: controls.minP, paramName: 'min_p' },
+      { control: controls.topA, paramName: 'top_a' },
+      { control: controls.maxTokens, paramName: 'max_tokens' },
+      { control: controls.frequencyPenalty, paramName: 'frequency_penalty' },
+      { control: controls.presencePenalty, paramName: 'presence_penalty' },
+      { control: controls.repetitionPenalty, paramName: 'repetition_penalty' },
+      { control: controls.seed, paramName: 'seed' },
+      { control: controls.stop, paramName: 'stop' },
+      { control: controls.parallelToolCalls, paramName: 'parallel_tool_calls' },
+      { control: controls.safePrompt, paramName: 'safe_prompt' },
+      { control: controls.rawMode, paramName: 'raw_mode' }
+    ];
+
+    parameterMappings.forEach(({ control, paramName }) => {
+      if (!control) return;
+
+      const isSupported = isParameterSupportedByModel(paramName, normalizedSupported);
+      const fieldGroup = control.closest('.field-group') || control.closest('.slider-field');
+
+      if (fieldGroup) {
+        if (isSupported) {
+          fieldGroup.classList.remove('parameter-unsupported');
+          fieldGroup.removeAttribute('title');
+          control.disabled = false;
+        } else {
+          fieldGroup.classList.add('parameter-unsupported');
+          fieldGroup.setAttribute('title', `This parameter is not supported by ${currentModelId}`);
+          control.disabled = true;
+        }
+      }
+    });
+  }
+
+  // Check if a parameter is supported by checking various alias forms
+  function isParameterSupportedByModel(paramName, normalizedSupported) {
+    const paramAliases = {
+      'temperature': ['temperature'],
+      'top_p': ['top_p', 'top-p'],
+      'top_k': ['top_k', 'top-k'],
+      'max_tokens': ['max_tokens', 'max-tokens', 'maxtokens'],
+      'frequency_penalty': ['frequency_penalty', 'frequency-penalty'],
+      'presence_penalty': ['presence_penalty', 'presence-penalty'],
+      'repetition_penalty': ['repetition_penalty', 'repetition-penalty'],
+      'stop': ['stop'],
+      'seed': ['seed'],
+      'parallel_tool_calls': ['parallel_tool_calls', 'parallel-tool-calls'],
+      'safe_prompt': ['safe_prompt', 'safe-prompt'],
+      'raw_mode': ['raw_mode', 'raw-mode'],
+      'min_p': ['min_p', 'min-p'],
+      'top_a': ['top_a', 'top-a']
+    };
+
+    const aliases = paramAliases[paramName] || [paramName];
+    return aliases.some(alias => normalizedSupported.includes(alias));
+  }
+
   function formatSortLabel(value) {
     switch (value) {
       case 'price':
@@ -476,6 +549,7 @@ export function createModelSettingsController({
     initialize,
     syncActiveModelDisplay: () => {
       updateActiveModelDisplay();
+      updateParameterVisibility();
     },
   };
 }

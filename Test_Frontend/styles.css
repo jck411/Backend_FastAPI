@@ -1179,3 +1179,46 @@ textarea:focus {
     grid-template-columns: 1fr;
   }
 }
+
+/* Unsupported parameter styling */
+.parameter-unsupported {
+  opacity: 0.5;
+  position: relative;
+}
+
+.parameter-unsupported .field-label::after {
+  content: " (unsupported)";
+  font-size: 0.8em;
+  color: #f59e0b;
+  font-weight: normal;
+}
+
+.parameter-unsupported input,
+.parameter-unsupported select,
+.parameter-unsupported textarea {
+  cursor: not-allowed;
+  background-color: #374151;
+}
+
+.parameter-unsupported input:disabled,
+.parameter-unsupported select:disabled,
+.parameter-unsupported textarea:disabled {
+  opacity: 0.6;
+}
+
+/* Tooltip styling for unsupported parameters */
+.parameter-unsupported:hover::before {
+  content: attr(title);
+  position: absolute;
+  background: #1f2937;
+  color: #f3f4f6;
+  padding: 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+  white-space: nowrap;
+  z-index: 1000;
+  top: -2.5rem;
+  left: 0;
+  border: 1px solid #374151;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}

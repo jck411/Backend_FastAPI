@@ -716,9 +716,9 @@ function populateCard(fragment, model) {
 
   const price = fragment.querySelector('.model-price');
   if (model.id && model.id.includes('auto')) {
-    price.textContent = 'Variable';
+    price.innerHTML = 'Variable';
   } else {
-    price.textContent = formatPromptPrice(model.prompt_price_per_million);
+    price.innerHTML = formatDetailedPricing(model.pricing);
   }
 
   const modalities = fragment.querySelector('.model-modalities');
@@ -800,6 +800,35 @@ function formatPromptPrice(value) {
     return `$${value.toFixed(2)}`;
   }
   return `$${value.toFixed(1)}`;
+}
+
+function formatDetailedPricing(pricing) {
+  if (!pricing || typeof pricing !== 'object') {
+    return 'Unknown';
+  }
+
+  const promptPrice = parseFloat(pricing.prompt || 0);
+  const completionPrice = parseFloat(pricing.completion || 0);
+
+  if (promptPrice === 0 && completionPrice === 0) {
+    return 'Free';
+  }
+
+  const formatPrice = (price) => {
+    const perMillion = price * 1000000;
+    if (perMillion < 0.01) {
+      return `$${perMillion.toFixed(3)}`;
+    }
+    if (perMillion < 1) {
+      return `$${perMillion.toFixed(2)}`;
+    }
+    return `$${perMillion.toFixed(1)}`;
+  };
+
+  const inputFormatted = formatPrice(promptPrice);
+  const outputFormatted = formatPrice(completionPrice);
+
+  return `${inputFormatted}/M input<br>${outputFormatted}/M output`;
 }
 
 function formatList(values) {

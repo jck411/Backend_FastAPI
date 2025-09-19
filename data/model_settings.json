@@ -1,13 +1,10 @@
 {
-  "model": "openrouter/auto",
+  "model": "google/gemini-2.5-pro-preview",
   "parameters": {
     "reasoning": {
+      "effort": "high",
       "exclude": false
-    },
-    "response_format": {
-      "type": "json_schema"
-    },
-    "structured_outputs": true
+    }
   },
-  "updated_at": "2025-09-19T04:34:45.465862+00:00"
+  "updated_at": "2025-09-19T04:56:39.040825+00:00"
 }

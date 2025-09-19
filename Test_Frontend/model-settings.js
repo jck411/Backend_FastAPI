@@ -86,12 +86,39 @@ export function createModelSettingsController({
   const resetHyperparametersButton = document.querySelector('#reset-hyperparameters');
   resetHyperparametersButton?.addEventListener('click', (event) => {
     event.preventDefault();
+
+    // Reset all slider controls to their defaults
     sliderControls.forEach((control) => {
       setSliderValue(control, null);
     });
-  });
 
-  const state = {
+    // Reset all select controls to their defaults (empty string = first option)
+    const selectControls = [
+      controls.providerSort,
+      controls.providerDataCollection,
+      controls.providerAllowFallbacks,
+      controls.providerRequireParameters,
+      controls.parallelToolCalls,
+      controls.toolChoice,
+      controls.safePrompt,
+      controls.rawMode,
+      controls.structuredOutputs,
+      controls.responseFormat,
+      controls.reasoningEffort,
+      controls.reasoningExclude
+    ];
+
+    selectControls.forEach((control) => {
+      if (control) {
+        control.value = '';
+      }
+    });
+
+    // Reset textarea controls to empty
+    if (controls.stop) {
+      controls.stop.value = '';
+    }
+  }); const state = {
     visible: false,
     saving: false,
     initialized: false,
@@ -559,9 +586,9 @@ export function createModelSettingsController({
       { control: controls.rawMode, paramName: 'raw_mode' },
       { control: controls.structuredOutputs, paramName: 'structured_outputs' },
       { control: controls.responseFormat, paramName: 'response_format' },
-      { control: controls.reasoningEffort, paramName: 'reasoning_effort' },
-      { control: controls.reasoningMaxTokens, paramName: 'reasoning_max_tokens' },
-      { control: controls.reasoningExclude, paramName: 'reasoning_exclude' }
+      { control: controls.reasoningEffort, paramName: 'reasoning' },
+      { control: controls.reasoningMaxTokens, paramName: 'reasoning' },
+      { control: controls.reasoningExclude, paramName: 'reasoning' }
     ];
 
     parameterMappings.forEach(({ control, paramName }) => {
@@ -579,6 +606,25 @@ export function createModelSettingsController({
           fieldGroup.classList.add('parameter-unsupported');
           fieldGroup.setAttribute('title', `This parameter is not supported by ${currentModelId}`);
           control.disabled = true;
+
+          // Set safe default values for unsupported fields
+          if (control.tagName === 'SELECT') {
+            // For select elements, set to empty string (first option is usually the default)
+            control.value = '';
+          } else if (control.tagName === 'TEXTAREA') {
+            // For textarea elements, set to empty string
+            control.value = '';
+          } else if (control.type === 'range') {
+            // For sliders, use the data-default-value attribute
+            const defaultValue = control.getAttribute('data-default-value');
+            if (defaultValue !== null) {
+              control.value = defaultValue;
+              // Trigger any associated slider update logic
+              if (isSliderControl(control)) {
+                setSliderValue(control, parseFloat(defaultValue));
+              }
+            }
+          }
         }
       }
     });
@@ -604,9 +650,7 @@ export function createModelSettingsController({
       'top_a': ['top_a', 'top-a'],
       'structured_outputs': ['structured_outputs', 'structured-outputs'],
       'response_format': ['response_format', 'response-format'],
-      'reasoning_effort': ['reasoning_effort', 'reasoning-effort'],
-      'reasoning_max_tokens': ['reasoning_max_tokens', 'reasoning-max-tokens'],
-      'reasoning_exclude': ['reasoning_exclude', 'reasoning-exclude']
+      'reasoning': ['reasoning', 'reasoning_effort', 'reasoning-effort', 'reasoning_max_tokens', 'reasoning-max-tokens', 'reasoning_exclude', 'reasoning-exclude']
     };
 
     const aliases = paramAliases[paramName] || [paramName];
@@ -699,6 +743,21 @@ export function createModelSettingsController({
           console.error('Failed to update provider routing:', error);
         }
       });
+    });
+
+    // Auto-set reasoning effort based on reasoning exclude setting
+    controls.reasoningExclude?.addEventListener('change', () => {
+      if (!controls.reasoningEffort) return;
+
+      const excludeValue = controls.reasoningExclude.value;
+      if (excludeValue === 'true') {
+        // If excluding reasoning, set effort to default (empty)
+        controls.reasoningEffort.value = '';
+      } else if (excludeValue === 'false') {
+        // If including reasoning, set effort to high
+        controls.reasoningEffort.value = 'high';
+      }
+      // If excludeValue is empty/default, don't change reasoning effort
     });
   }
 

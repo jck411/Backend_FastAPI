@@ -7,6 +7,7 @@ import {
 
 const searchInput = document.querySelector('#model-search');
 const clearButton = document.querySelector('#clear-filters');
+const excludeButton = document.querySelector('#exclude-mode');
 const modelGrid = document.querySelector('#model-grid');
 const resultSummary = document.querySelector('#result-summary');
 const sortButtons = {
@@ -193,6 +194,7 @@ const state = {
   prefsLoaded: false,
   sortBy: 'newness',
   sortDir: 'desc', // 'asc' | 'desc'
+  excludeMode: false, // when true, filters are negated
 };
 
 let requestCounter = 0;
@@ -220,8 +222,14 @@ async function initialize() {
   );
   renderMultiSelect(containers.moderation, MODERATION_OPTIONS, state.moderation);
 
+  // Update exclude button state from loaded preferences
+  excludeButton.textContent = state.excludeMode ? 'Exclude' : 'Include';
+  excludeButton.setAttribute('aria-pressed', state.excludeMode.toString());
+  excludeButton.classList.toggle('is-active', state.excludeMode);
+
   searchInput.addEventListener('input', handleSearchInput);
   clearButton.addEventListener('click', clearAllFilters);
+  excludeButton.addEventListener('click', toggleExcludeMode);
   wireSortButtons();
 
   savePreferences();
@@ -431,6 +439,8 @@ function clearAllFilters() {
   state.series.clear();
   state.supportedParameters.clear();
   state.moderation.clear();
+  state.excludeMode = false;
+
   // Reset sliders to neutral (no-op) positions
   const contextValues = [0, 4000, 16000, 42000, 128000, 200000, 1000000, 2000000];
   const priceValues = [0.1, 0.2, 0.5, 1, 5, 10, Infinity];
@@ -453,10 +463,34 @@ function clearAllFilters() {
     priceOut.textContent = 'Any';
   }
   if (freeBtn) freeBtn.classList.remove('is-active');
+
+  // Reset exclude button
+  excludeButton.textContent = 'Include';
+  excludeButton.setAttribute('aria-pressed', 'false');
+  excludeButton.classList.remove('is-active');
+
   savePreferences();
 
   document.querySelectorAll('.filter-option').forEach((button) => button.classList.remove('is-active'));
   refreshResults().catch((error) => console.error('Failed to refresh after clearing filters', error));
+}
+
+function toggleExcludeMode() {
+  state.excludeMode = !state.excludeMode;
+
+  // Update button text and aria-pressed
+  excludeButton.textContent = state.excludeMode ? 'Exclude' : 'Include';
+  excludeButton.setAttribute('aria-pressed', state.excludeMode.toString());
+
+  // Add visual feedback - toggle a class for styling
+  if (state.excludeMode) {
+    excludeButton.classList.add('is-active');
+  } else {
+    excludeButton.classList.remove('is-active');
+  }
+
+  savePreferences();
+  refreshResults().catch((error) => console.error('Failed to refresh after toggling exclude mode', error));
 }
 
 async function refreshResults() {
@@ -499,24 +533,33 @@ async function refreshResults() {
 
 function buildFilterPayload() {
   const filters = {};
+
+  // Helper function to apply exclude mode to array filters
+  const applyExcludeMode = (filterArray) => {
+    if (state.excludeMode && filterArray.length > 0) {
+      return { "not": filterArray };
+    }
+    return filterArray;
+  };
+
   if (state.inputModalities.size) {
-    filters.input_modalities = Array.from(state.inputModalities);
+    filters.input_modalities = applyExcludeMode(Array.from(state.inputModalities));
   }
   if (state.outputModalities.size) {
-    filters.output_modalities = Array.from(state.outputModalities);
+    filters.output_modalities = applyExcludeMode(Array.from(state.outputModalities));
   }
   if (state.series.size) {
-    filters.series = Array.from(state.series);
+    filters.series = applyExcludeMode(Array.from(state.series));
   }
   if (state.supportedParameters.size) {
-    filters.supported_parameters_normalized = Array.from(state.supportedParameters);
+    filters.supported_parameters_normalized = applyExcludeMode(Array.from(state.supportedParameters));
   }
   if (state.moderation.size) {
     // Convert string values to boolean for the API filter
     const moderationValues = Array.from(state.moderation).map(val => val === 'true');
-    filters['top_provider.is_moderated'] = moderationValues;
+    filters['top_provider.is_moderated'] = applyExcludeMode(moderationValues);
   }
-  // Slider-based filters
+  // Slider-based filters (exclude mode doesn't apply to range filters)
   if (typeof state.contextValue === 'number' && state.contextValue > 0) {
     filters.context_length = { min: state.contextValue };
   }
@@ -526,9 +569,7 @@ function buildFilterPayload() {
     filters.prompt_price_per_million = { max: state.priceValue };
   }
   return filters;
-}
-
-function renderResults(payload) {
+} function renderResults(payload) {
   const models = Array.isArray(payload?.data) ? payload.data.slice() : [];
   applySort(models);
   updateActiveModelOptions(models);
@@ -537,7 +578,8 @@ function renderResults(payload) {
   const baseCount = typeof meta.base_count === 'number' ? meta.base_count : models.length;
   const shown = typeof meta.count === 'number' ? meta.count : models.length;
 
-  resultSummary.textContent = `${shown} shown • ${baseCount} filtered • ${total} total`;
+  const excludeIndicator = state.excludeMode ? ' (exclude mode)' : '';
+  resultSummary.textContent = `${shown} shown • ${baseCount} filtered • ${total} total${excludeIndicator}`;
   clearButton.disabled = !hasActiveFilters();
 
   modelGrid.innerHTML = '';
@@ -932,6 +974,7 @@ function savePreferences() {
       priceFreeOnly: !!state.priceFreeOnly,
       sortBy: state.sortBy || 'newness',
       sortDir: state.sortDir || 'desc',
+      excludeMode: !!state.excludeMode,
       filters: buildFilterPayload(),
     };
     localStorage.setItem(LS_KEY, JSON.stringify(data));
@@ -965,6 +1008,7 @@ function loadPreferences() {
       if (typeof data.priceFreeOnly === 'boolean') state.priceFreeOnly = data.priceFreeOnly;
       if (typeof data.sortBy === 'string') state.sortBy = data.sortBy;
       if (data.sortDir === 'asc' || data.sortDir === 'desc') state.sortDir = data.sortDir;
+      if (typeof data.excludeMode === 'boolean') state.excludeMode = data.excludeMode;
     }
   } catch (_) {
     // ignore

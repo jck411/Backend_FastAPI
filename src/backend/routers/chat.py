@@ -538,9 +538,16 @@ def _match_mapping(values: list[Any], mapping: dict[str, Any]) -> bool:
             if not any(value == needle for value in normalized_values):
                 return False
         elif key in {"neq", "not"}:
-            needle = _normalize_value(expected)
-            if any(value == needle for value in normalized_values):
-                return False
+            if isinstance(expected, list):
+                # Support array negation: return False if ANY of the excluded values are found
+                excluded = {_normalize_value(item) for item in expected}
+                if any(value in excluded for value in normalized_values):
+                    return False
+            else:
+                # Single value negation (original behavior)
+                needle = _normalize_value(expected)
+                if any(value == needle for value in normalized_values):
+                    return False
         elif key in {"contains", "substring"}:
             if expected is None:
                 return False

@@ -19,6 +19,8 @@ export function createModelSettingsController({
   const controls = {
     form: document.querySelector('#model-settings-form'),
     activeModelDisplay: document.querySelector('#active-model-display'),
+    modelDescriptionDetails: document.querySelector('#model-description-details'),
+    modelDescriptionContent: document.querySelector('#model-description-content'),
     providerSort: document.querySelector('#provider-sort'),
     providerDataCollection: document.querySelector('#provider-data-collection'),
     providerAllowFallbacks: document.querySelector('#provider-allow-fallbacks'),
@@ -534,6 +536,9 @@ export function createModelSettingsController({
 
   function updateActiveModelDisplay() {
     const node = controls.activeModelDisplay;
+    const descriptionDetails = controls.modelDescriptionDetails;
+    const descriptionContent = controls.modelDescriptionContent;
+
     if (!node) {
       return;
     }
@@ -541,6 +546,9 @@ export function createModelSettingsController({
     if (!modelSelect) {
       node.textContent = 'No model selected';
       delete node.dataset.modelId;
+      if (descriptionDetails) {
+        descriptionDetails.hidden = true;
+      }
       return;
     }
 
@@ -554,6 +562,22 @@ export function createModelSettingsController({
       node.dataset.modelId = value;
     } else {
       delete node.dataset.modelId;
+    }
+
+    // Update model description
+    if (descriptionDetails && descriptionContent) {
+      const availableModels = typeof getAvailableModels === 'function' ? getAvailableModels() : [];
+      const currentModel = availableModels.find(model => model?.id === value);
+      const description = currentModel?.description?.trim();
+
+      if (description) {
+        descriptionContent.textContent = description;
+        descriptionDetails.hidden = false;
+        // Ensure it starts collapsed
+        descriptionDetails.open = false;
+      } else {
+        descriptionDetails.hidden = true;
+      }
     }
   }
 

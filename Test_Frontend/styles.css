@@ -525,6 +525,34 @@ button:hover:not(:disabled) {
   word-break: break-word;
 }
 
+.model-description {
+  margin-top: 0.5rem;
+}
+
+.model-description-summary {
+  color: #9ca3af;
+  font-size: 0.875rem;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  user-select: none;
+  list-style-position: outside;
+}
+
+.model-description-summary:hover {
+  color: #bfdbfe;
+}
+
+.model-description-content {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 0.5rem;
+  color: #d1d5db;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
 .search-input {
   width: 100%;
   padding: 0.75rem;

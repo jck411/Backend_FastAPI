@@ -55,7 +55,6 @@ class ChatCompletionRequest(BaseModel):
 
     # Reasoning parameters
     reasoning: Optional[Dict[str, Any]] = None
-    include_reasoning: Optional[bool] = None
 
     # Provider and routing
     provider: Optional[Dict[str, Any]] = None

@@ -141,9 +141,7 @@ const SERIES_OPTIONS = [
   'PaLM',
 ];
 
-const SUPPORTED_PARAMETER_ALIAS_MAP = new Map([
-  ['include_reasoning', 'reasoning_optionality'],
-]);
+const SUPPORTED_PARAMETER_ALIAS_MAP = new Map([]);
 
 function normalizeSupportedParameterValue(value) {
   if (typeof value !== 'string') return null;
@@ -171,7 +169,6 @@ const SUPPORTED_PARAMETER_OPTIONS = [
   'structured_outputs',
   'stop',
   'parallel_tool_calls',
-  'reasoning_optionality',
   'reasoning',
   'web_search_options',
   'verbosity',

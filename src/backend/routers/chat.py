@@ -10,8 +10,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sse_starlette.sse import EventSourceResponse
 
-from ..config import Settings, get_settings
 from ..chat import ChatOrchestrator
+from ..config import Settings, get_settings
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..schemas.chat import ChatCompletionRequest
 
@@ -109,7 +109,7 @@ async def list_models(
         alias="filters",
         description=(
             "JSON-encoded mapping of dotted property paths to filter criteria. "
-            "Example: {\"pricing.prompt\": {\"max\": 0.002}}"
+            'Example: {"pricing.prompt": {"max": 0.002}}'
         ),
     ),
     client: OpenRouterClient = Depends(get_openrouter_client),
@@ -185,7 +185,13 @@ def _apply_tools_filter(models: list[Any], tools_only: bool) -> list[Any]:
 def _model_supports_tools(model: dict[str, Any]) -> bool:
     capabilities = model.get("capabilities")
     if isinstance(capabilities, dict):
-        for key in ("tools", "functions", "function_calling", "tool_choice", "tool_calls"):
+        for key in (
+            "tools",
+            "functions",
+            "function_calling",
+            "tool_choice",
+            "tool_calls",
+        ):
             if _is_truthy(capabilities.get(key)):
                 return True
 
@@ -196,7 +202,13 @@ def _model_supports_tools(model: dict[str, Any]) -> bool:
     supported_parameters = model.get("supported_parameters")
     if isinstance(supported_parameters, (list, tuple, set)):
         normalized = {str(param).strip().lower() for param in supported_parameters}
-        for key in ("tools", "tool_choice", "parallel_tool_calls", "functions", "function_calling"):
+        for key in (
+            "tools",
+            "tool_choice",
+            "parallel_tool_calls",
+            "functions",
+            "function_calling",
+        ):
             if key in normalized:
                 return True
 
@@ -214,9 +226,13 @@ def _enrich_model(item: dict[str, Any]) -> dict[str, Any]:
     output_modalities = []
     if isinstance(architecture, dict):
         if isinstance(architecture.get("input_modalities"), list):
-            input_modalities = [str(mod).lower() for mod in architecture["input_modalities"] if mod]
+            input_modalities = [
+                str(mod).lower() for mod in architecture["input_modalities"] if mod
+            ]
         if isinstance(architecture.get("output_modalities"), list):
-            output_modalities = [str(mod).lower() for mod in architecture["output_modalities"] if mod]
+            output_modalities = [
+                str(mod).lower() for mod in architecture["output_modalities"] if mod
+            ]
 
     enriched["input_modalities"] = sorted({mod for mod in input_modalities})
     enriched["output_modalities"] = sorted({mod for mod in output_modalities})
@@ -339,9 +355,7 @@ _PROVIDER_SERIES_ALIASES: dict[str, set[str]] = {
 _SERIES_TOKEN_PATTERN = re.compile(r"[\s/_-]+")
 
 
-_SUPPORTED_PARAMETER_ALIASES: dict[str, str] = {
-    "include_reasoning": "reasoning_optionality",
-}
+_SUPPORTED_PARAMETER_ALIASES: dict[str, str] = {}
 
 
 def _normalize_supported_parameter(value: str) -> str | None:
@@ -352,7 +366,9 @@ def _normalize_supported_parameter(value: str) -> str | None:
 
 
 def _tokenize_series_string(value: str) -> set[str]:
-    chunks = {chunk.strip() for chunk in _SERIES_TOKEN_PATTERN.split(value) if chunk.strip()}
+    chunks = {
+        chunk.strip() for chunk in _SERIES_TOKEN_PATTERN.split(value) if chunk.strip()
+    }
     return chunks
 
 
@@ -511,7 +527,9 @@ def _match_values(values: list[Any], criterion: Any) -> bool:
 
 def _match_mapping(values: list[Any], mapping: dict[str, Any]) -> bool:
     normalized_values = [_normalize_value(value) for value in values]
-    numeric_values = [_to_number(value) for value in values if _to_number(value) is not None]
+    numeric_values = [
+        _to_number(value) for value in values if _to_number(value) is not None
+    ]
     text_values = [str(value).lower() for value in values if value is not None]
 
     for key, expected in mapping.items():
@@ -539,13 +557,17 @@ def _match_mapping(values: list[Any], mapping: dict[str, Any]) -> bool:
             threshold = _to_number(expected)
             if threshold is None:
                 return False
-            if not numeric_values or not any(value is not None and value >= threshold for value in numeric_values):
+            if not numeric_values or not any(
+                value is not None and value >= threshold for value in numeric_values
+            ):
                 return False
         elif key in {"max", "lte"}:
             threshold = _to_number(expected)
             if threshold is None:
                 return False
-            if not numeric_values or not any(value is not None and value <= threshold for value in numeric_values):
+            if not numeric_values or not any(
+                value is not None and value <= threshold for value in numeric_values
+            ):
                 return False
         elif key == "exists":
             flag = bool(expected)
@@ -608,7 +630,9 @@ def _build_model_metadata(models: list[Any]) -> list[dict[str, Any]]:
             entry["max"] = info["max"]
 
         if info["item_types"]:
-            entry["item_types"] = sorted(info["item_types"], key=lambda value: str(value))
+            entry["item_types"] = sorted(
+                info["item_types"], key=lambda value: str(value)
+            )
 
         entries.append(entry)
 
@@ -645,8 +669,16 @@ def _build_faceted_metadata(models: list[Any]) -> dict[str, Any]:
 
         context_length = item.get("context_length")
         if isinstance(context_length, int):
-            min_context = context_length if min_context is None else min(min_context, context_length)
-            max_context = context_length if max_context is None else max(max_context, context_length)
+            min_context = (
+                context_length
+                if min_context is None
+                else min(min_context, context_length)
+            )
+            max_context = (
+                context_length
+                if max_context is None
+                else max(max_context, context_length)
+            )
 
         price = item.get("prompt_price_per_million")
         if isinstance(price, (int, float)):

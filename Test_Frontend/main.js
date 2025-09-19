@@ -53,9 +53,7 @@ let webSearchEnabled = false;
 
 const COPY_BUTTON_RESET_DELAY = 2000;
 
-const SUPPORTED_PARAMETER_ALIAS_MAP = new Map([
-  ['include_reasoning', 'reasoning_optionality'],
-]);
+const SUPPORTED_PARAMETER_ALIAS_MAP = new Map([]);
 
 function normalizeSupportedParameterValue(value) {
   if (typeof value !== 'string') {

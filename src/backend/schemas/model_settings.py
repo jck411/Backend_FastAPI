@@ -72,7 +72,6 @@ class ModelHyperparameters(BaseModel):
 
     # Reasoning parameters
     reasoning: Optional[Dict[str, Any]] = None
-    include_reasoning: Optional[bool] = None
 
     # Safety and moderation
     safe_prompt: Optional[bool] = None

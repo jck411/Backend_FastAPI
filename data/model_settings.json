@@ -1,11 +1,12 @@
 {
-  "model": "qwen/qwen3-next-80b-a3b-thinking",
+  "model": "nvidia/nemotron-nano-9b-v2:free",
   "parameters": {
     "max_tokens": 100,
     "reasoning": {
-      "exclude": false
+      "exclude": false,
+      "max_tokens": 10000
     },
     "temperature": 0.7
   },
-  "updated_at": "2025-09-19T03:05:06.225220+00:00"
+  "updated_at": "2025-09-19T03:15:37.368540+00:00"
 }

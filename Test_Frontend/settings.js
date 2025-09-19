@@ -312,14 +312,14 @@ function renderContextSlider() {
   {
     const idx = Number(input.value);
     const val = contextValues[idx];
-    output.textContent = val === 0 ? 'Any' : `Min ${formatContextLength(val)}`;
+    output.textContent = val === 0 ? 'Any' : `${formatContextLength(val)}+`;
   }
 
   input.addEventListener('input', () => {
     const idx = Number(input.value);
     const val = contextValues[idx];
     state.contextValue = val;
-    output.textContent = val === 0 ? 'Any' : `Min ${formatContextLength(val)}`;
+    output.textContent = val === 0 ? 'Any' : `${formatContextLength(val)}+`;
     savePreferences();
   });
   input.addEventListener('change', async () => {
@@ -712,7 +712,7 @@ function populateCard(fragment, model) {
   id.textContent = model.id || '';
 
   const context = fragment.querySelector('.model-context');
-  context.textContent = formatContextLength(model.context_length);
+  context.textContent = formatContextLengthForCard(model.context_length);
 
   const price = fragment.querySelector('.model-price');
   if (model.id && model.id.includes('auto')) {
@@ -761,6 +761,19 @@ function attachCardInteractions(card, model) {
 }
 
 function formatContextLength(value) {
+  if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
+    return '—';
+  }
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${Math.round(value / 1_000)}K`;
+  }
+  return `${value}`;
+}
+
+function formatContextLengthForCard(value) {
   if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) {
     return '—';
   }
@@ -888,7 +901,7 @@ function syncRangesFromFacets(facets) {
     if (out) {
       const idx = Number(ctxInput.value);
       const val = contextValues[idx];
-      out.textContent = val === 0 ? 'Any' : `Min ${formatContextLength(val)}`;
+      out.textContent = val === 0 ? 'Any' : `${formatContextLength(val)}+`;
     }
   }
 

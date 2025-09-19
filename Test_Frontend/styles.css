@@ -819,8 +819,12 @@ button:hover:not(:disabled) {
   font-variant-numeric: tabular-nums;
   font-size: 0.875rem;
   font-weight: 500;
-  min-width: 80px;
+  min-width: 60px;
+  max-width: 90px;
   text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 input[type="range"] {

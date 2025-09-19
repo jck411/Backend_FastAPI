@@ -628,21 +628,18 @@ function populateCard(fragment, model) {
   context.textContent = formatContextLength(model.context_length);
 
   const price = fragment.querySelector('.model-price');
-  price.textContent = formatPromptPrice(model.prompt_price_per_million);
+  if (model.id && model.id.includes('auto')) {
+    price.textContent = 'Variable';
+  } else {
+    price.textContent = formatPromptPrice(model.prompt_price_per_million);
+  }
 
   const modalities = fragment.querySelector('.model-modalities');
   const input = Array.isArray(model.input_modalities) ? model.input_modalities : [];
   const output = Array.isArray(model.output_modalities) ? model.output_modalities : [];
   modalities.textContent = `In: ${formatList(input)} • Out: ${formatList(output)}`;
 
-  const tagContainer = fragment.querySelector('.model-tags');
-  if (model.supports_tools) {
-    tagContainer.appendChild(makeTag('Tools'));
-  }
-  const series = Array.isArray(model.series) ? model.series : [];
-  series.slice(0, 3).forEach((entry) => tagContainer.appendChild(makeTag(entry)));
-  const params = Array.isArray(model.supported_parameters) ? model.supported_parameters : [];
-  params.slice(0, 4).forEach((entry) => tagContainer.appendChild(makeTag(entry)));
+  // Tags removed - users can search, filter and sort instead
 
   if (card && model && model.id) {
     attachCardInteractions(card, model);

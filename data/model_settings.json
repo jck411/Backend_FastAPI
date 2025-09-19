@@ -1,8 +1,11 @@
 {
-  "model": "anthropic/claude-3-opus",
+  "model": "alibaba/tongyi-deepresearch-30b-a3b",
+  "parameters": {
+    "temperature": 0.24
+  },
   "provider": {
     "allow_fallbacks": true,
     "require_parameters": false
   },
-  "updated_at": "2025-09-18T14:52:15.427635+00:00"
+  "updated_at": "2025-09-19T01:50:19.830604+00:00"
 }

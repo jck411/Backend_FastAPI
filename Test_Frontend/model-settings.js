@@ -554,8 +554,14 @@ export function createModelSettingsController({
       { control: controls.seed, paramName: 'seed' },
       { control: controls.stop, paramName: 'stop' },
       { control: controls.parallelToolCalls, paramName: 'parallel_tool_calls' },
+      { control: controls.toolChoice, paramName: 'tool_choice' },
       { control: controls.safePrompt, paramName: 'safe_prompt' },
-      { control: controls.rawMode, paramName: 'raw_mode' }
+      { control: controls.rawMode, paramName: 'raw_mode' },
+      { control: controls.structuredOutputs, paramName: 'structured_outputs' },
+      { control: controls.responseFormat, paramName: 'response_format' },
+      { control: controls.reasoningEffort, paramName: 'reasoning_effort' },
+      { control: controls.reasoningMaxTokens, paramName: 'reasoning_max_tokens' },
+      { control: controls.reasoningExclude, paramName: 'reasoning_exclude' }
     ];
 
     parameterMappings.forEach(({ control, paramName }) => {
@@ -591,10 +597,16 @@ export function createModelSettingsController({
       'stop': ['stop'],
       'seed': ['seed'],
       'parallel_tool_calls': ['parallel_tool_calls', 'parallel-tool-calls'],
+      'tool_choice': ['tool_choice', 'tool-choice'],
       'safe_prompt': ['safe_prompt', 'safe-prompt'],
       'raw_mode': ['raw_mode', 'raw-mode'],
       'min_p': ['min_p', 'min-p'],
-      'top_a': ['top_a', 'top-a']
+      'top_a': ['top_a', 'top-a'],
+      'structured_outputs': ['structured_outputs', 'structured-outputs'],
+      'response_format': ['response_format', 'response-format'],
+      'reasoning_effort': ['reasoning_effort', 'reasoning-effort'],
+      'reasoning_max_tokens': ['reasoning_max_tokens', 'reasoning-max-tokens'],
+      'reasoning_exclude': ['reasoning_exclude', 'reasoning-exclude']
     };
 
     const aliases = paramAliases[paramName] || [paramName];

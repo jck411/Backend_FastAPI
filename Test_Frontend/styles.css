@@ -1186,12 +1186,7 @@ textarea:focus {
   position: relative;
 }
 
-.parameter-unsupported .field-label::after {
-  content: " (unsupported)";
-  font-size: 0.8em;
-  color: #f59e0b;
-  font-weight: normal;
-}
+
 
 .parameter-unsupported input,
 .parameter-unsupported select,
@@ -1227,11 +1222,4 @@ textarea:focus {
 fieldset.parameter-unsupported {
   opacity: 0.5;
   pointer-events: none;
-}
-
-fieldset.parameter-unsupported legend::after {
-  content: " (unsupported)";
-  font-size: 0.8em;
-  color: #f59e0b;
-  font-weight: normal;
 }

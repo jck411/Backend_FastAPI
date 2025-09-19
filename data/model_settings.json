@@ -1,12 +1,13 @@
 {
-  "model": "nvidia/nemotron-nano-9b-v2:free",
+  "model": "openrouter/auto",
   "parameters": {
-    "max_tokens": 100,
     "reasoning": {
-      "exclude": false,
-      "max_tokens": 10000
+      "exclude": false
     },
-    "temperature": 0.7
+    "response_format": {
+      "type": "json_schema"
+    },
+    "structured_outputs": true
   },
-  "updated_at": "2025-09-19T03:15:37.368540+00:00"
+  "updated_at": "2025-09-19T04:34:45.465862+00:00"
 }

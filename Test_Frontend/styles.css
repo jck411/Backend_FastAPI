@@ -636,6 +636,17 @@ button:hover:not(:disabled) {
   color: #f8fafc;
 }
 
+.filter-option.is-excluded {
+  background: #dc2626;
+  border-color: #ef4444;
+  color: #fecaca;
+}
+
+.filter-option.is-excluded:hover {
+  background: #b91c1c;
+  border-color: #dc2626;
+}
+
 .section-header {
   display: flex;
   flex-wrap: wrap;

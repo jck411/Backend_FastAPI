@@ -7,7 +7,6 @@ import {
 
 const searchInput = document.querySelector('#model-search');
 const clearButton = document.querySelector('#clear-filters');
-const excludeButton = document.querySelector('#exclude-mode');
 const modelGrid = document.querySelector('#model-grid');
 const resultSummary = document.querySelector('#result-summary');
 const sortButtons = {
@@ -177,15 +176,15 @@ const SUPPORTED_PARAMETER_OPTIONS = [
 
 const state = {
   search: '',
-  inputModalities: new Set(),
-  outputModalities: new Set(),
-  series: new Set(),
-  supportedParameters: new Set(),
-  moderation: new Set(), // 'true', 'false' for is_moderated filter
+  inputModalities: new Map(), // value -> 'include' | 'exclude'
+  outputModalities: new Map(),
+  series: new Map(),
+  supportedParameters: new Map(),
+  moderation: new Map(),
   // slider values
-  contextValue: null, // numeric value of slider (min context). When equal to range.min, filter effectively off.
-  priceValue: null,   // numeric value of slider (max price). When equal to range.max, filter effectively off.
-  priceFreeOnly: false, // when true, force min=0 and max=0 for price
+  contextValue: null,
+  priceValue: null,
+  priceFreeOnly: false,
   ranges: {
     context: { ...DEFAULT_CONTEXT_RANGE },
     price: { ...DEFAULT_PRICE_RANGE },
@@ -193,8 +192,7 @@ const state = {
   },
   prefsLoaded: false,
   sortBy: 'newness',
-  sortDir: 'desc', // 'asc' | 'desc'
-  excludeMode: false, // when true, filters are negated
+  sortDir: 'desc',
 };
 
 let requestCounter = 0;
@@ -206,30 +204,24 @@ async function initialize() {
   if (searchInput) {
     searchInput.value = state.search;
   }
-  renderMultiSelect(containers.inputModalities, INPUT_MODALITY_OPTIONS, state.inputModalities);
-  renderMultiSelect(containers.outputModalities, OUTPUT_MODALITY_OPTIONS, state.outputModalities);
+  renderThreeStateMultiSelect(containers.inputModalities, INPUT_MODALITY_OPTIONS, state.inputModalities);
+  renderThreeStateMultiSelect(containers.outputModalities, OUTPUT_MODALITY_OPTIONS, state.outputModalities);
   renderContextSlider();
   renderPriceSlider();
-  renderMultiSelect(
+  renderThreeStateMultiSelect(
     containers.series,
     SERIES_OPTIONS.map((value) => ({ label: value, value })),
     state.series,
   );
-  renderMultiSelect(
+  renderThreeStateMultiSelect(
     containers.supportedParameters,
     SUPPORTED_PARAMETER_OPTIONS.map((value) => ({ label: value, value })),
     state.supportedParameters,
   );
-  renderMultiSelect(containers.moderation, MODERATION_OPTIONS, state.moderation);
-
-  // Update exclude button state from loaded preferences
-  excludeButton.textContent = state.excludeMode ? 'Exclude' : 'Include';
-  excludeButton.setAttribute('aria-pressed', state.excludeMode.toString());
-  excludeButton.classList.toggle('is-active', state.excludeMode);
+  renderThreeStateMultiSelect(containers.moderation, MODERATION_OPTIONS, state.moderation);
 
   searchInput.addEventListener('input', handleSearchInput);
   clearButton.addEventListener('click', clearAllFilters);
-  excludeButton.addEventListener('click', toggleExcludeMode);
   wireSortButtons();
 
   savePreferences();
@@ -247,7 +239,7 @@ async function initialize() {
   }
 }
 
-function renderMultiSelect(container, options, targetSet) {
+function renderThreeStateMultiSelect(container, options, targetMap) {
   container.innerHTML = '';
   for (const option of options) {
     const button = document.createElement('button');
@@ -255,18 +247,32 @@ function renderMultiSelect(container, options, targetSet) {
     button.className = 'filter-option';
     button.textContent = option.label;
     button.dataset.value = option.value;
-    if (targetSet.has(option.value)) {
+
+    const state = targetMap.get(option.value);
+    if (state === 'include') {
       button.classList.add('is-active');
+    } else if (state === 'exclude') {
+      button.classList.add('is-excluded');
     }
 
     button.addEventListener('click', async () => {
-      if (targetSet.has(option.value)) {
-        targetSet.delete(option.value);
-        button.classList.remove('is-active');
-      } else {
-        targetSet.add(option.value);
+      const currentState = targetMap.get(option.value);
+
+      // Cycle through states: inactive -> include -> exclude -> inactive
+      if (!currentState) {
+        targetMap.set(option.value, 'include');
         button.classList.add('is-active');
+        button.classList.remove('is-excluded');
+      } else if (currentState === 'include') {
+        targetMap.set(option.value, 'exclude');
+        button.classList.remove('is-active');
+        button.classList.add('is-excluded');
+      } else {
+        targetMap.delete(option.value);
+        button.classList.remove('is-active');
+        button.classList.remove('is-excluded');
       }
+
       savePreferences();
       await refreshResults();
     });
@@ -439,7 +445,6 @@ function clearAllFilters() {
   state.series.clear();
   state.supportedParameters.clear();
   state.moderation.clear();
-  state.excludeMode = false;
 
   // Reset sliders to neutral (no-op) positions
   const contextValues = [0, 4000, 16000, 42000, 128000, 200000, 1000000, 2000000];
@@ -464,33 +469,13 @@ function clearAllFilters() {
   }
   if (freeBtn) freeBtn.classList.remove('is-active');
 
-  // Reset exclude button
-  excludeButton.textContent = 'Include';
-  excludeButton.setAttribute('aria-pressed', 'false');
-  excludeButton.classList.remove('is-active');
-
   savePreferences();
 
-  document.querySelectorAll('.filter-option').forEach((button) => button.classList.remove('is-active'));
+  document.querySelectorAll('.filter-option').forEach((button) => {
+    button.classList.remove('is-active');
+    button.classList.remove('is-excluded');
+  });
   refreshResults().catch((error) => console.error('Failed to refresh after clearing filters', error));
-}
-
-function toggleExcludeMode() {
-  state.excludeMode = !state.excludeMode;
-
-  // Update button text and aria-pressed
-  excludeButton.textContent = state.excludeMode ? 'Exclude' : 'Include';
-  excludeButton.setAttribute('aria-pressed', state.excludeMode.toString());
-
-  // Add visual feedback - toggle a class for styling
-  if (state.excludeMode) {
-    excludeButton.classList.add('is-active');
-  } else {
-    excludeButton.classList.remove('is-active');
-  }
-
-  savePreferences();
-  refreshResults().catch((error) => console.error('Failed to refresh after toggling exclude mode', error));
 }
 
 async function refreshResults() {
@@ -534,32 +519,72 @@ async function refreshResults() {
 function buildFilterPayload() {
   const filters = {};
 
-  // Helper function to apply exclude mode to array filters
-  const applyExcludeMode = (filterArray) => {
-    if (state.excludeMode && filterArray.length > 0) {
-      return { "not": filterArray };
+  // Helper function to build filter arrays from Maps
+  const buildFilterFromMap = (filterMap) => {
+    const included = [];
+    const excluded = [];
+
+    for (const [value, state] of filterMap) {
+      if (state === 'include') {
+        included.push(value);
+      } else if (state === 'exclude') {
+        excluded.push(value);
+      }
     }
-    return filterArray;
+
+    if (included.length > 0 && excluded.length > 0) {
+      // If we have both includes and excludes, use a complex filter
+      return {
+        "in": included,    // Must be one of these values (backend supports "in")
+        "not": excluded    // Must NOT be any of these values
+      };
+    } else if (included.length > 0) {
+      return included;
+    } else if (excluded.length > 0) {
+      return { "not": excluded };
+    }
+
+    return null;
   };
 
-  if (state.inputModalities.size) {
-    filters.input_modalities = applyExcludeMode(Array.from(state.inputModalities));
+  const inputModalitiesFilter = buildFilterFromMap(state.inputModalities);
+  if (inputModalitiesFilter) {
+    filters.input_modalities = inputModalitiesFilter;
   }
-  if (state.outputModalities.size) {
-    filters.output_modalities = applyExcludeMode(Array.from(state.outputModalities));
+
+  const outputModalitiesFilter = buildFilterFromMap(state.outputModalities);
+  if (outputModalitiesFilter) {
+    filters.output_modalities = outputModalitiesFilter;
   }
-  if (state.series.size) {
-    filters.series = applyExcludeMode(Array.from(state.series));
+
+  const seriesFilter = buildFilterFromMap(state.series);
+  if (seriesFilter) {
+    filters.series = seriesFilter;
   }
-  if (state.supportedParameters.size) {
-    filters.supported_parameters_normalized = applyExcludeMode(Array.from(state.supportedParameters));
+
+  const supportedParametersFilter = buildFilterFromMap(state.supportedParameters);
+  if (supportedParametersFilter) {
+    filters.supported_parameters_normalized = supportedParametersFilter;
   }
-  if (state.moderation.size) {
+
+  const moderationFilter = buildFilterFromMap(state.moderation);
+  if (moderationFilter) {
     // Convert string values to boolean for the API filter
-    const moderationValues = Array.from(state.moderation).map(val => val === 'true');
-    filters['top_provider.is_moderated'] = applyExcludeMode(moderationValues);
+    if (Array.isArray(moderationFilter)) {
+      filters['top_provider.is_moderated'] = moderationFilter.map(val => val === 'true');
+    } else if (moderationFilter.not && !moderationFilter.in) {
+      filters['top_provider.is_moderated'] = { "not": moderationFilter.not.map(val => val === 'true') };
+    } else if (moderationFilter.in && moderationFilter.not) {
+      filters['top_provider.is_moderated'] = {
+        "in": moderationFilter.in.map(val => val === 'true'),
+        "not": moderationFilter.not.map(val => val === 'true')
+      };
+    } else if (moderationFilter.in) {
+      filters['top_provider.is_moderated'] = moderationFilter.in.map(val => val === 'true');
+    }
   }
-  // Slider-based filters (exclude mode doesn't apply to range filters)
+
+  // Slider-based filters (unchanged)
   if (typeof state.contextValue === 'number' && state.contextValue > 0) {
     filters.context_length = { min: state.contextValue };
   }
@@ -568,6 +593,7 @@ function buildFilterPayload() {
   } else if (typeof state.priceValue === 'number' && isFinite(state.priceValue)) {
     filters.prompt_price_per_million = { max: state.priceValue };
   }
+
   return filters;
 } function renderResults(payload) {
   const models = Array.isArray(payload?.data) ? payload.data.slice() : [];
@@ -578,7 +604,7 @@ function buildFilterPayload() {
   const baseCount = typeof meta.base_count === 'number' ? meta.base_count : models.length;
   const shown = typeof meta.count === 'number' ? meta.count : models.length;
 
-  const excludeIndicator = state.excludeMode ? ' (exclude mode)' : '';
+  const excludeIndicator = '';
   resultSummary.textContent = `${shown} shown • ${baseCount} filtered • ${total} total${excludeIndicator}`;
   clearButton.disabled = !hasActiveFilters();
 
@@ -669,6 +695,7 @@ function hasActiveFilters() {
     state.outputModalities.size ||
     state.series.size ||
     state.supportedParameters.size ||
+    state.moderation.size ||
     // slider active only when deviating from neutral bounds
     (typeof state.contextValue === 'number' && state.contextValue > 0) ||
     state.priceFreeOnly ||
@@ -1020,17 +1047,16 @@ function savePreferences() {
   try {
     const data = {
       search: state.search,
-      inputModalities: Array.from(state.inputModalities),
-      outputModalities: Array.from(state.outputModalities),
-      series: Array.from(state.series),
-      supportedParameters: Array.from(state.supportedParameters),
-      moderation: Array.from(state.moderation),
+      inputModalities: Array.from(state.inputModalities.entries()),
+      outputModalities: Array.from(state.outputModalities.entries()),
+      series: Array.from(state.series.entries()),
+      supportedParameters: Array.from(state.supportedParameters.entries()),
+      moderation: Array.from(state.moderation.entries()),
       contextValue: typeof state.contextValue === 'number' ? state.contextValue : null,
       priceValue: Number.isFinite(state.priceValue) ? state.priceValue : null,
       priceFreeOnly: !!state.priceFreeOnly,
       sortBy: state.sortBy || 'newness',
       sortDir: state.sortDir || 'desc',
-      excludeMode: !!state.excludeMode,
       filters: buildFilterPayload(),
     };
     localStorage.setItem(LS_KEY, JSON.stringify(data));
@@ -1048,23 +1074,30 @@ function loadPreferences() {
     const data = JSON.parse(raw);
     if (data && typeof data === 'object') {
       if (typeof data.search === 'string') state.search = data.search;
-      if (Array.isArray(data.inputModalities)) state.inputModalities = new Set(data.inputModalities);
-      if (Array.isArray(data.outputModalities)) state.outputModalities = new Set(data.outputModalities);
-      if (Array.isArray(data.series)) state.series = new Set(data.series);
+      if (Array.isArray(data.inputModalities)) {
+        state.inputModalities = new Map(data.inputModalities);
+      }
+      if (Array.isArray(data.outputModalities)) {
+        state.outputModalities = new Map(data.outputModalities);
+      }
+      if (Array.isArray(data.series)) {
+        state.series = new Map(data.series);
+      }
       if (Array.isArray(data.supportedParameters)) {
         const normalizedParams = data.supportedParameters
-          .map(normalizeSupportedParameterValue)
-          .filter(Boolean);
-        state.supportedParameters = new Set(normalizedParams);
+          .map(([value, filterState]) => [normalizeSupportedParameterValue(value), filterState])
+          .filter(([value]) => value);
+        state.supportedParameters = new Map(normalizedParams);
       }
-      if (Array.isArray(data.moderation)) state.moderation = new Set(data.moderation);
+      if (Array.isArray(data.moderation)) {
+        state.moderation = new Map(data.moderation);
+      }
       if (typeof data.contextValue === 'number') state.contextValue = data.contextValue;
       if (typeof data.priceValue === 'number') state.priceValue = data.priceValue;
       else state.priceValue = null;
       if (typeof data.priceFreeOnly === 'boolean') state.priceFreeOnly = data.priceFreeOnly;
       if (typeof data.sortBy === 'string') state.sortBy = data.sortBy;
       if (data.sortDir === 'asc' || data.sortDir === 'desc') state.sortDir = data.sortDir;
-      if (typeof data.excludeMode === 'boolean') state.excludeMode = data.excludeMode;
     }
   } catch (_) {
     // ignore

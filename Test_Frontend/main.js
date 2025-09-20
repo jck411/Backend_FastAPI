@@ -90,7 +90,13 @@ function updateWakewordSubscription() {
           try {
             const data = JSON.parse(ev.data || '{}');
             if (data && data.type === 'wakeword') {
-              handleVoiceClick();
+              console.log('🎤 Wakeword detected, triggering voice input...', { isRecording, isStreaming });
+              // Only trigger if not already recording to avoid interrupting ongoing session
+              if (!isRecording && !isStreaming) {
+                handleVoiceClick();
+              } else {
+                console.log('🎤 Ignoring wakeword - already recording or streaming');
+              }
             }
           } catch (_) {
             // ignore parse errors
@@ -1440,12 +1446,20 @@ function handleVoiceClick(event) {
   if (event) {
     event.preventDefault();
   }
+  console.log('🎤 handleVoiceClick called', {
+    isStreaming,
+    isRecording,
+    source: event ? 'manual' : 'wakeword'
+  });
   if (isStreaming) {
+    console.log('🎤 Skipping voice input - already streaming');
     return; // Don't start STT while model is responding
   }
   if (isRecording) {
+    console.log('🎤 Stopping current recording with submit=true');
     stopVoiceInput(true).catch((err) => console.warn('Voice stop failed', err));
   } else {
+    console.log('🎤 Starting new voice input');
     startVoiceInput().catch((err) => {
       console.error('Voice start failed', err);
       updateVoiceUi(false);
@@ -1570,6 +1584,7 @@ async function startVoiceInput() {
 
       if (speechFinal) {
         // End of utterance detected
+        console.log('🎤 speechFinal detected - auto-stopping with submit=true');
         stopVoiceInput(true).catch((err) => console.warn('Auto stop failed', err));
       }
     } catch (err) {
@@ -1601,6 +1616,7 @@ async function startVoiceInput() {
 async function stopVoiceInput(submit) {
   if (!isRecording) return;
   isRecording = false;
+  console.log('🎤 stopVoiceInput called', { submit, messageInputValue: messageInput?.value, lastFinalTranscript });
 
   try { mediaRecorder?.stop(); } catch (_) { }
   try { mediaStream?.getTracks().forEach((t) => t.stop()); } catch (_) { }
@@ -1614,16 +1630,21 @@ async function stopVoiceInput(submit) {
 
   if (submit) {
     const text = (messageInput?.value || '').trim() || lastFinalTranscript;
+    console.log('🎤 Processing submit', { text, isStreaming });
     if (text) {
       messageInput.value = text;
       if (!isStreaming) {
+        console.log('🎤 Submitting form with text:', text);
         if (typeof form.requestSubmit === 'function') {
           form.requestSubmit();
         } else {
           form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
         }
+      } else {
+        console.log('🎤 Skipping submit - already streaming');
       }
     } else {
+      console.log('🎤 No text to submit, restoring previous value');
       // Restore previous typed value if no transcript
       if (messageInput) messageInput.value = voiceInputPreviousValue;
     }

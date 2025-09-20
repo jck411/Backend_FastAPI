@@ -135,6 +135,63 @@ let lastFinalTranscript = '';
 let voiceInputPreviousValue = '';
 let conversationModeActive = false; // Track if conversation mode initiated the current interaction
 let listeningTimeoutId = null; // Track the listening timeout
+let countdownIntervalId = null; // Track the countdown interval
+let countdownSecondsRemaining = 0; // Track remaining seconds for countdown
+let countdownTimeoutMs = 0; // Store the original timeout value for resetting
+
+// Function to reset countdown when speech is detected
+function resetCountdown() {
+  if (!countdownIntervalId || countdownTimeoutMs === 0) return;
+
+  console.log('🎤 Speech detected - resetting countdown');
+
+  // Clear existing timeout and interval
+  if (listeningTimeoutId) {
+    clearTimeout(listeningTimeoutId);
+    listeningTimeoutId = null;
+  }
+  if (countdownIntervalId) {
+    clearInterval(countdownIntervalId);
+    countdownIntervalId = null;
+  }
+
+  // Reset countdown to full value
+  countdownSecondsRemaining = Math.ceil(countdownTimeoutMs / 1000);
+  updateVoiceUi(true, countdownSecondsRemaining);
+
+  // Restart countdown interval
+  countdownIntervalId = setInterval(() => {
+    countdownSecondsRemaining--;
+    if (countdownSecondsRemaining > 0) {
+      updateVoiceUi(true, countdownSecondsRemaining);
+    }
+  }, 1000);
+
+  // Restart timeout
+  const sttSettings = getSpeechSettings()?.stt || {};
+  listeningTimeoutId = setTimeout(() => {
+    console.log('🎤 Listening timeout reached');
+
+    // Clear countdown
+    if (countdownIntervalId) {
+      clearInterval(countdownIntervalId);
+      countdownIntervalId = null;
+    }
+    countdownSecondsRemaining = 0;
+
+    // Check if we have any transcript when timeout occurs
+    const currentText = (messageInput?.value || '').trim() || lastFinalTranscript;
+    const autoSubmitEnabled = sttSettings.auto_submit !== false;
+
+    if (currentText && autoSubmitEnabled) {
+      console.log('🎤 Timeout with transcript - auto-submitting');
+      stopVoiceInput(true).catch((err) => console.warn('Timeout auto-submit failed', err));
+    } else {
+      console.log('🎤 Timeout without valid transcript or auto-submit disabled');
+      stopVoiceInput(false).catch((err) => console.warn('Timeout stop failed', err));
+    }
+  }, countdownTimeoutMs);
+}
 
 // Clear button double-click state
 let lastClearClickTime = 0;
@@ -1532,13 +1589,17 @@ function handleVoiceClick(event) {
 
 async function startVoiceInput() {
   if (isRecording) return;
-  updateVoiceUi(true);
+
   lastFinalTranscript = '';
   voiceInputPreviousValue = messageInput ? messageInput.value : '';
 
   // Check if conversation mode is enabled for auto-restart after response
   const speechSettings = getSpeechSettings();
   const conversationEnabled = speechSettings?.conversation?.enabled === true;
+
+  // Set initial UI state - countdown will be updated later if conversation mode is enabled
+  updateVoiceUi(true);
+
   if (conversationEnabled) {
     conversationModeActive = true;
     console.log('🎤 Conversation mode active - will auto-restart after AI response');
@@ -1557,11 +1618,17 @@ async function startVoiceInput() {
     if (!token) throw new Error('Missing Deepgram token');
   } catch (err) {
     updateVoiceUi(false);
-    // Clear timeout if setup fails
+    // Clear timeout and countdown if setup fails
     if (listeningTimeoutId) {
       clearTimeout(listeningTimeoutId);
       listeningTimeoutId = null;
     }
+    if (countdownIntervalId) {
+      clearInterval(countdownIntervalId);
+      countdownIntervalId = null;
+    }
+    countdownSecondsRemaining = 0;
+    countdownTimeoutMs = 0;
     throw err;
   }
 
@@ -1569,11 +1636,17 @@ async function startVoiceInput() {
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   } catch (err) {
     updateVoiceUi(false);
-    // Clear timeout if microphone setup fails
+    // Clear timeout and countdown if microphone setup fails
     if (listeningTimeoutId) {
       clearTimeout(listeningTimeoutId);
       listeningTimeoutId = null;
     }
+    if (countdownIntervalId) {
+      clearInterval(countdownIntervalId);
+      countdownIntervalId = null;
+    }
+    countdownSecondsRemaining = 0;
+    countdownTimeoutMs = 0;
     throw new Error('Microphone permission denied or unavailable');
   }
 
@@ -1641,33 +1714,63 @@ async function startVoiceInput() {
 
     mediaRecorder.start(250);
 
-    // Start listening timeout
-    const sttSettings = getSpeechSettings()?.stt || {};
-    const timeoutMs = Number.isFinite(Number(sttSettings.timeout_ms)) ? Number(sttSettings.timeout_ms) : 5000;
-    console.log(`🎤 Starting listening timeout: ${timeoutMs}ms`);
+    // Start listening timeout only if conversation mode is enabled
+    const conversationEnabled = speechSettings?.conversation?.enabled === true;
+    if (conversationEnabled) {
+      const sttSettings = getSpeechSettings()?.stt || {};
+      const timeoutMs = Number.isFinite(Number(sttSettings.timeout_ms)) ? Number(sttSettings.timeout_ms) : 5000;
+      console.log(`🎤 Conversation mode enabled - countdown will start when no speech detected: ${timeoutMs}ms`);
 
-    listeningTimeoutId = setTimeout(() => {
-      console.log('🎤 Listening timeout reached');
+      // Store timeout value for resetting
+      countdownTimeoutMs = timeoutMs;
 
-      // Check if we have any transcript when timeout occurs
-      const currentText = (messageInput?.value || '').trim() || lastFinalTranscript;
-      const autoSubmitEnabled = sttSettings.auto_submit !== false;
+      // Initialize countdown but don't start interval yet (wait for silence)
+      countdownSecondsRemaining = Math.ceil(timeoutMs / 1000);
+      updateVoiceUi(true, countdownSecondsRemaining);
 
-      if (currentText && autoSubmitEnabled) {
-        console.log('🎤 Timeout with transcript - auto-submitting');
-        stopVoiceInput(true).catch((err) => console.warn('Timeout auto-submit failed', err));
-      } else {
-        console.log('🎤 Timeout without valid transcript or auto-submit disabled');
-        stopVoiceInput(false).catch((err) => console.warn('Timeout stop failed', err));
-      }
-    }, timeoutMs);
+      // Start initial timeout - this will be reset when speech is detected
+      listeningTimeoutId = setTimeout(() => {
+        console.log('🎤 Listening timeout reached');
+
+        // Clear countdown
+        if (countdownIntervalId) {
+          clearInterval(countdownIntervalId);
+          countdownIntervalId = null;
+        }
+        countdownSecondsRemaining = 0;
+
+        // Check if we have any transcript when timeout occurs
+        const currentText = (messageInput?.value || '').trim() || lastFinalTranscript;
+        const autoSubmitEnabled = sttSettings.auto_submit !== false;
+
+        if (currentText && autoSubmitEnabled) {
+          console.log('🎤 Timeout with transcript - auto-submitting');
+          stopVoiceInput(true).catch((err) => console.warn('Timeout auto-submit failed', err));
+        } else {
+          console.log('🎤 Timeout without valid transcript or auto-submit disabled');
+          stopVoiceInput(false).catch((err) => console.warn('Timeout stop failed', err));
+        }
+      }, timeoutMs);
+
+      // Start countdown interval
+      countdownIntervalId = setInterval(() => {
+        countdownSecondsRemaining--;
+        if (countdownSecondsRemaining > 0) {
+          updateVoiceUi(true, countdownSecondsRemaining);
+        }
+      }, 1000);
+    } else {
+      console.log('🎤 Conversation mode disabled - no listening timeout set');
+      countdownTimeoutMs = 0;
+    }
   });
 
   dgSocket.addEventListener('message', (ev) => {
     try {
       const msg = JSON.parse(ev.data);
       if (msg.type === 'SpeechStarted') {
-        // no-op; could show UI cue
+        // Reset countdown when speech is detected
+        resetCountdown();
         return;
       }
       const alt = msg?.channel?.alternatives?.[0];
@@ -1676,6 +1779,9 @@ async function startVoiceInput() {
       const speechFinal = Boolean(msg?.speech_final);
 
       if (transcript) {
+        // Reset countdown when we receive any transcript (interim or final)
+        resetCountdown();
+
         if (messageInput) {
           messageInput.value = transcript;
         }
@@ -1721,12 +1827,19 @@ async function stopVoiceInput(submit) {
   if (!isRecording) return;
   isRecording = false;
 
-  // Clear listening timeout
+  // Clear listening timeout and countdown
   if (listeningTimeoutId) {
     clearTimeout(listeningTimeoutId);
     listeningTimeoutId = null;
     console.log('🎤 Cleared listening timeout');
   }
+  if (countdownIntervalId) {
+    clearInterval(countdownIntervalId);
+    countdownIntervalId = null;
+    console.log('🎤 Cleared countdown interval');
+  }
+  countdownSecondsRemaining = 0;
+  countdownTimeoutMs = 0;
 
   const sttSettings = getSpeechSettings()?.stt || {};
   const autoSubmitEnabled = sttSettings.auto_submit !== false;
@@ -1785,12 +1898,25 @@ async function stopVoiceInput(submit) {
   }
 }
 
-function updateVoiceUi(recording) {
+function updateVoiceUi(recording, countdownSeconds = null) {
   isRecording = recording;
   if (!voiceButton) return;
   voiceButton.classList.toggle('is-active', recording);
   voiceButton.setAttribute('aria-pressed', recording ? 'true' : 'false');
-  voiceButton.setAttribute('aria-label', recording ? 'Stop voice input' : 'Start voice input');
+
+  if (recording && countdownSeconds !== null && countdownSeconds > 0) {
+    // Show countdown instead of mic icon
+    voiceButton.innerHTML = `<span style="font-weight: bold; font-size: 16px;">${countdownSeconds}</span>`;
+    voiceButton.setAttribute('aria-label', `Stop voice input (${countdownSeconds}s remaining)`);
+  } else if (recording) {
+    // Show mic icon when recording without countdown
+    voiceButton.innerHTML = '<img src="/static/icons/mic_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg" alt="" width="24" height="24" />';
+    voiceButton.setAttribute('aria-label', 'Stop voice input');
+  } else {
+    // Show mic icon when not recording
+    voiceButton.innerHTML = '<img src="/static/icons/mic_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg" alt="" width="24" height="24" />';
+    voiceButton.setAttribute('aria-label', 'Start voice input');
+  }
 }
 
 function parseSseChunk(chunk) {

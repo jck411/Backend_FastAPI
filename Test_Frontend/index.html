@@ -381,11 +381,6 @@
                   <option value="false">Disable</option>
                 </select>
               </label>
-              <label class="field-group">
-                <span class="field-label" for="stt-timeout-ms">Listening timeout (ms)</span>
-                <input id="stt-timeout-ms" type="number" min="5000" max="300000" step="500" value="5000"
-                  placeholder="5000" title="Timeout in milliseconds (5-300 seconds, adjustable in 500ms increments)" />
-              </label>
             </div>
           </fieldset>
 
@@ -430,9 +425,14 @@
               <label class="field-group">
                 <span class="field-label" for="conversation-enabled">Conversation mode</span>
                 <select id="conversation-enabled">
-                  <option value="false">Disabled (manual activation only)</option>
-                  <option value="true">Enabled (auto-restart listening after AI response)</option>
+                  <option value="false">Disabled</option>
+                  <option value="true">Enabled</option>
                 </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-timeout-ms">Listening timeout (ms)</span>
+                <input id="stt-timeout-ms" type="number" min="5000" max="300000" step="500" value="5000"
+                  placeholder="5000" title="Timeout in milliseconds (5-300 seconds, adjustable in 500ms increments)" />
               </label>
             </div>
           </fieldset>

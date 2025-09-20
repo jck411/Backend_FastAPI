@@ -136,6 +136,10 @@ let voiceInputPreviousValue = '';
 let conversationModeActive = false; // Track if conversation mode initiated the current interaction
 let listeningTimeoutId = null; // Track the listening timeout
 
+// Clear button double-click state
+let lastClearClickTime = 0;
+const CLEAR_DOUBLE_CLICK_TIMEOUT = 500; // 500ms window for double-click
+
 const COPY_BUTTON_RESET_DELAY = 2000;
 
 const SUPPORTED_PARAMETER_ALIAS_MAP = new Map([]);
@@ -445,9 +449,32 @@ async function initialize() {
   }
   clearButton.addEventListener('click', (event) => {
     event.preventDefault();
-    resetConversation(true).catch((error) => {
-      console.error('Reset failed', error);
-    });
+
+    const currentTime = Date.now();
+    const timeSinceLastClick = currentTime - lastClearClickTime;
+
+    // Check if this is a double-click (second click within timeout window)
+    if (timeSinceLastClick < CLEAR_DOUBLE_CLICK_TIMEOUT) {
+      // Double-click: clear both conversation and input field
+      console.log('Clear button double-clicked - clearing conversation and input field');
+      if (messageInput) {
+        messageInput.value = '';
+        messageInput.focus();
+      }
+      resetConversation(true).catch((error) => {
+        console.error('Reset failed', error);
+      });
+      // Reset the timer to prevent triple-clicks from triggering again
+      lastClearClickTime = 0;
+    } else {
+      // Single-click: only clear conversation
+      console.log('Clear button single-clicked - clearing conversation only');
+      resetConversation(true).catch((error) => {
+        console.error('Reset failed', error);
+      });
+      // Record this click time for potential double-click detection
+      lastClearClickTime = currentTime;
+    }
   });
 
   initializeMetadataModal();

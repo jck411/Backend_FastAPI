@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clear Button Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .test-area {
+            border: 1px solid #ccc;
+            padding: 20px;
+            margin: 10px 0;
+        }
+
+        #clear-chat {
+            background: #ff4444;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        #message-input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        .instructions {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .log {
+            background: #f9f9f9;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-top: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Clear Button Double-Click Test</h1>
+
+    <div class="instructions">
+        <h3>Test Instructions:</h3>
+        <ol>
+            <li>Type some text in the input field below</li>
+            <li>Click "Clear chat" once - should only clear the log (simulated chat history)</li>
+            <li>Type some text again</li>
+            <li>Click "Clear chat" twice quickly (within 500ms) - should clear both the log AND the input field</li>
+        </ol>
+    </div>
+
+    <div class="test-area">
+        <h3>Chat Interface Simulation</h3>
+        <div id="chat-log">
+            <p>Welcome to the chat! This simulates chat history.</p>
+            <p>Type something and test the clear functionality.</p>
+        </div>
+
+        <br>
+
+        <textarea id="message-input" placeholder="Type your message here..." rows="3"></textarea>
+
+        <br><br>
+
+        <button id="clear-chat" type="button">Clear chat</button>
+
+        <div class="log" id="action-log">
+            <strong>Action Log:</strong><br>
+        </div>
+    </div>
+
+    <script>
+        // Clear button double-click state
+        let lastClearClickTime = 0;
+        const CLEAR_DOUBLE_CLICK_TIMEOUT = 500; // 500ms window for double-click
+
+        // DOM elements
+        const clearButton = document.querySelector('#clear-chat');
+        const messageInput = document.querySelector('#message-input');
+        const chatLog = document.querySelector('#chat-log');
+        const actionLog = document.querySelector('#action-log');
+
+        // Logging function
+        function logAction(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            actionLog.innerHTML += `<br>[${timestamp}] ${message}`;
+            actionLog.scrollTop = actionLog.scrollHeight;
+        }
+
+        // Simulate conversation reset
+        function resetConversation() {
+            chatLog.innerHTML = '<p><em>Chat history cleared</em></p>';
+            logAction('Chat history cleared');
+        }
+
+        // Add some test messages when typing
+        messageInput.addEventListener('input', function () {
+            if (this.value.trim() && !chatLog.innerHTML.includes('You typed:')) {
+                chatLog.innerHTML += `<p><strong>You typed:</strong> "${this.value}"</p>`;
+            }
+        });
+
+        // Clear button event handler with double-click logic
+        clearButton.addEventListener('click', (event) => {
+            event.preventDefault();
+
+            const currentTime = Date.now();
+            const timeSinceLastClick = currentTime - lastClearClickTime;
+
+            // Check if this is a double-click (second click within timeout window)
+            if (timeSinceLastClick < CLEAR_DOUBLE_CLICK_TIMEOUT && lastClearClickTime > 0) {
+                // Double-click: clear both conversation and input field
+                logAction(`Double-click detected (${timeSinceLastClick}ms gap) - clearing conversation and input field`);
+                messageInput.value = '';
+                messageInput.focus();
+                resetConversation();
+                // Reset the timer to prevent triple-clicks from triggering again
+                lastClearClickTime = 0;
+            } else {
+                // Single-click: only clear conversation
+                logAction(`Single-click detected - clearing conversation only`);
+                resetConversation();
+                // Record this click time for potential double-click detection
+                lastClearClickTime = currentTime;
+            }
+        });
+
+        // Initial log
+        logAction('Test page loaded. Clear button functionality ready.');
+    </script>
+</body>
+
+</html>

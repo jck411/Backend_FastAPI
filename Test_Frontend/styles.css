@@ -512,6 +512,12 @@ button:hover:not(:disabled) {
   background: #1d4ed8;
 }
 
+button:active:not(:disabled) {
+  background: #1e40af;
+  transform: scale(0.95);
+  transition: transform 0.1s ease;
+}
+
 .discovery-intro,
 .filters,
 .results {

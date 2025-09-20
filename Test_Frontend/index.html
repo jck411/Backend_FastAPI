@@ -374,6 +374,13 @@
                 <span class="field-label" for="stt-endpointing">Endpointing (ms)</span>
                 <input id="stt-endpointing" type="number" min="0" step="100" value="1000" />
               </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-auto-submit">Auto-submit on speech end</span>
+                <select id="stt-auto-submit">
+                  <option value="true">Enable (automatically send message when speech ends)</option>
+                  <option value="false">Disable (keep transcript in input for manual send)</option>
+                </select>
+              </label>
             </div>
           </fieldset>
 

@@ -1456,7 +1456,9 @@ function handleVoiceClick(event) {
     return; // Don't start STT while model is responding
   }
   if (isRecording) {
-    console.log('🎤 Stopping current recording with submit=true');
+    // When manually stopping recording, always submit (ignore auto_submit setting)
+    // because the user explicitly wants to stop and send the message
+    console.log('🎤 Manually stopping current recording with submit=true');
     stopVoiceInput(true).catch((err) => console.warn('Voice stop failed', err));
   } else {
     console.log('🎤 Starting new voice input');
@@ -1584,8 +1586,10 @@ async function startVoiceInput() {
 
       if (speechFinal) {
         // End of utterance detected
-        console.log('🎤 speechFinal detected - auto-stopping with submit=true');
-        stopVoiceInput(true).catch((err) => console.warn('Auto stop failed', err));
+        const sttSettings = getSpeechSettings()?.stt || {};
+        const autoSubmit = sttSettings.auto_submit !== false; // Default to true
+        console.log('🎤 speechFinal detected', { autoSubmit });
+        stopVoiceInput(autoSubmit).catch((err) => console.warn('Auto stop failed', err));
       }
     } catch (err) {
       // Ignore non-JSON pings/keepalives
@@ -1616,7 +1620,15 @@ async function startVoiceInput() {
 async function stopVoiceInput(submit) {
   if (!isRecording) return;
   isRecording = false;
-  console.log('🎤 stopVoiceInput called', { submit, messageInputValue: messageInput?.value, lastFinalTranscript });
+
+  const sttSettings = getSpeechSettings()?.stt || {};
+  const autoSubmitEnabled = sttSettings.auto_submit !== false;
+  console.log('🎤 stopVoiceInput called', {
+    submit,
+    autoSubmitEnabled,
+    messageInputValue: messageInput?.value,
+    lastFinalTranscript
+  });
 
   try { mediaRecorder?.stop(); } catch (_) { }
   try { mediaStream?.getTracks().forEach((t) => t.stop()); } catch (_) { }
@@ -1630,7 +1642,7 @@ async function stopVoiceInput(submit) {
 
   if (submit) {
     const text = (messageInput?.value || '').trim() || lastFinalTranscript;
-    console.log('🎤 Processing submit', { text, isStreaming });
+    console.log('🎤 Processing submit', { text, isStreaming, autoSubmitEnabled });
     if (text) {
       messageInput.value = text;
       if (!isStreaming) {
@@ -1647,6 +1659,14 @@ async function stopVoiceInput(submit) {
       console.log('🎤 No text to submit, restoring previous value');
       // Restore previous typed value if no transcript
       if (messageInput) messageInput.value = voiceInputPreviousValue;
+    }
+  } else {
+    console.log('🎤 Voice input stopped without submit (auto-submit disabled or manual stop)');
+    // When auto-submit is disabled, keep the transcript in the input for manual submission
+    const text = (messageInput?.value || '').trim() || lastFinalTranscript;
+    if (text && messageInput) {
+      messageInput.value = text;
+      console.log('🎤 Transcript preserved in input field for manual submission:', text);
     }
   }
 }

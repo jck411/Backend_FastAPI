@@ -17,6 +17,7 @@ export function getDefaultSpeechSettings() {
             vad_events: true,
             utterance_end_ms: 1000,
             endpointing: 1000,
+            auto_submit: true,
         },
         tts: {
             provider: '',
@@ -62,6 +63,10 @@ export function getSpeechSettings() {
                     endpointing: Number.isFinite(Number(data.stt.endpointing))
                         ? Number(data.stt.endpointing)
                         : defaults.stt.endpointing,
+                    auto_submit:
+                        typeof data.stt.auto_submit === 'boolean'
+                            ? data.stt.auto_submit
+                            : defaults.stt.auto_submit,
                 };
             }
 
@@ -145,6 +150,7 @@ export function createSpeechSettingsController({
         sttVad: null,
         sttUtteranceEndMs: null,
         sttEndpointing: null,
+        sttAutoSubmit: null,
 
         ttsProvider: null,
         ttsVoice: null,
@@ -171,6 +177,7 @@ export function createSpeechSettingsController({
         controls.sttVad = document.querySelector('#stt-vad-events');
         controls.sttUtteranceEndMs = document.querySelector('#stt-utterance-end-ms');
         controls.sttEndpointing = document.querySelector('#stt-endpointing');
+        controls.sttAutoSubmit = document.querySelector('#stt-auto-submit');
 
         controls.ttsProvider = document.querySelector('#tts-provider');
         controls.ttsVoice = document.querySelector('#tts-voice');
@@ -232,6 +239,7 @@ export function createSpeechSettingsController({
             controls.sttEndpointing.value = String(
                 Number.isFinite(Number(s.stt.endpointing)) ? Number(s.stt.endpointing) : 1000
             );
+        if (controls.sttAutoSubmit) controls.sttAutoSubmit.value = s.stt.auto_submit ? 'true' : 'false';
 
         // TTS
         if (controls.ttsProvider) controls.ttsProvider.value = s.tts.provider || '';
@@ -249,6 +257,7 @@ export function createSpeechSettingsController({
         const sttModel = controls.sttModel?.value || 'nova-3';
         const sttInterim = controls.sttInterim?.value === 'true';
         const sttVad = controls.sttVad?.value === 'true';
+        const sttAutoSubmit = controls.sttAutoSubmit?.value === 'true';
 
         const utteranceRaw = controls.sttUtteranceEndMs?.value;
         const endpointingRaw = controls.sttEndpointing?.value;
@@ -269,6 +278,7 @@ export function createSpeechSettingsController({
                 vad_events: sttVad,
                 utterance_end_ms: Number.isFinite(utterance) ? utterance : 1000,
                 endpointing: Number.isFinite(endpointing) ? endpointing : 1000,
+                auto_submit: sttAutoSubmit,
             },
             tts: {
                 provider: ttsProvider,

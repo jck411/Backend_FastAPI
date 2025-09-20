@@ -422,6 +422,18 @@ body.modal-open {
   pointer-events: auto;
 }
 
+/* Prevent wrapping only for the two settings buttons to avoid any style side-effects */
+#open-settings,
+#open-speech-settings {
+  white-space: nowrap;
+}
+
+/* Keep all controls bar button labels on a single line (no other style changes) */
+.controls button,
+.controls .ghost-button {
+  white-space: nowrap;
+}
+
 .filter-toggle {
   display: inline-flex;
   align-items: center;
@@ -1184,6 +1196,33 @@ textarea:focus {
   top: 50%;
   right: 0.75rem;
   transform: translateY(-50%);
+  z-index: 2;
+}
+
+/* Voice button sits inside the input, same spot as Stop */
+.chat-input #voice-button {
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  transform: translateY(-50%);
+  width: 2.5rem;
+  height: 2.5rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  z-index: 1;
+}
+
+.chat-input #voice-button img {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: block;
+}
+
+/* Ensure hidden attribute fully hides the voice button */
+.chat-input #voice-button[hidden] {
+  display: none !important;
 }
 
 .visually-hidden {

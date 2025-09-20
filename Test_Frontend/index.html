@@ -25,6 +25,7 @@
         Web search off
       </button>
       <button id="open-settings" type="button" class="ghost-button">Model settings</button>
+      <button id="open-speech-settings" type="button" class="ghost-button">Speech settings</button>
     </section>
 
     <section id="chat-log" aria-live="polite"></section>
@@ -33,6 +34,9 @@
       <label class="visually-hidden" for="message-input">Message</label>
       <div class="chat-input">
         <textarea id="message-input" placeholder="Send a message to the selected model…" rows="3" required></textarea>
+        <button id="voice-button" type="button" class="icon-button" aria-label="Start voice input">
+          <img src="/static/icons/mic_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg" alt="" width="24" height="24" />
+        </button>
         <button id="stop-button" type="button" class="ghost-button" hidden>Stop</button>
       </div>
     </form>
@@ -308,6 +312,110 @@
         <footer class="form-actions modal__footer">
           <button type="submit" id="settings-submit">Save settings</button>
           <span id="settings-status" class="settings-status" role="status" aria-live="polite"></span>
+        </footer>
+      </form>
+    </div>
+  </div>
+
+  <div id="speech-settings-modal" class="modal" aria-hidden="true">
+    <div class="modal__backdrop" id="speech-settings-backdrop" data-close-speech-settings></div>
+    <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="speech-settings-title">
+      <form id="speech-settings-form" class="settings-card speech-settings-form">
+        <header class="section-header modal__header">
+          <div>
+            <h2 id="speech-settings-title">Speech Settings</h2>
+            <p class="section-subtitle">Configure STT, TTS, and Wakeword behavior for voice features.</p>
+          </div>
+          <div class="modal__header-actions">
+            <p id="speech-settings-updated-at" class="settings-meta" hidden></p>
+            <button type="button" id="close-speech-settings" class="icon-button" aria-label="Close speech settings"
+              data-close-speech-settings>
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+        </header>
+
+        <div class="modal__body">
+          <fieldset class="form-fieldset">
+            <legend>Speech-to-Text (STT)</legend>
+            <div class="form-grid two-column">
+              <label class="field-group">
+                <span class="field-label" for="stt-provider">Provider</span>
+                <select id="stt-provider">
+                  <option value="deepgram">Deepgram</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-model">Model</span>
+                <select id="stt-model">
+                  <option value="nova-3">nova-3</option>
+                  <option value="nova-2">nova-2</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-interim">Interim results</span>
+                <select id="stt-interim">
+                  <option value="true">Enable</option>
+                  <option value="false">Disable</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-vad-events">VAD events</span>
+                <select id="stt-vad-events">
+                  <option value="true">Enable</option>
+                  <option value="false">Disable</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-utterance-end-ms">Utterance end (ms)</span>
+                <input id="stt-utterance-end-ms" type="number" min="0" step="100" value="1000" />
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-endpointing">Endpointing (ms)</span>
+                <input id="stt-endpointing" type="number" min="0" step="100" value="1000" />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-fieldset">
+            <legend>Text-to-Speech (TTS)</legend>
+            <div class="form-grid two-column">
+              <label class="field-group">
+                <span class="field-label" for="tts-provider">Provider</span>
+                <select id="tts-provider">
+                  <option value="">None</option>
+                  <option value="elevenlabs">ElevenLabs</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="tts-voice">Voice</span>
+                <input id="tts-voice" type="text" placeholder="e.g., 'Alloy', 'Rachel'" />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-fieldset">
+            <legend>Wakeword</legend>
+            <div class="form-grid two-column">
+              <label class="field-group">
+                <span class="field-label" for="wakeword-enabled">Wakeword enabled</span>
+                <select id="wakeword-enabled">
+                  <option value="false">Disabled</option>
+                  <option value="true">Enabled</option>
+                </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="wakeword-phrase">Wakeword phrase</span>
+                <input id="wakeword-phrase" type="text" placeholder="e.g., 'computer'" />
+              </label>
+            </div>
+          </fieldset>
+        </div>
+
+        <footer class="form-actions modal__footer">
+          <button type="submit" id="speech-settings-submit">Save settings</button>
+          <span id="speech-settings-status" class="settings-status" role="status" aria-live="polite"></span>
         </footer>
       </form>
     </div>

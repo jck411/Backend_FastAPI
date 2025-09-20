@@ -1,5 +1,6 @@
 import { renderMarkdown } from './markdown.js';
 import { createModelSettingsController } from './model-settings.js';
+import { createSpeechSettingsController, getSpeechSettings, SPEECH_SETTINGS_LS_KEY } from './speech-settings.js';
 
 const chatLog = document.querySelector('#chat-log');
 const messageTemplate = document.querySelector('#message-template');
@@ -8,6 +9,7 @@ const form = document.querySelector('#chat-form');
 const messageInput = document.querySelector('#message-input');
 const clearButton = document.querySelector('#clear-chat');
 const stopButton = document.querySelector('#stop-button');
+const voiceButton = document.querySelector('#voice-button');
 const modelExplorerButton = document.querySelector('#model-explorer-button');
 const webSearchButton = document.querySelector('#toggle-web-search');
 
@@ -15,6 +17,10 @@ const openSettingsButton = document.querySelector('#open-settings');
 const settingsModal = document.querySelector('#model-settings-modal');
 const settingsBackdrop = document.querySelector('#model-settings-backdrop');
 const closeSettingsButton = document.querySelector('#close-settings');
+const openSpeechSettingsButton = document.querySelector('#open-speech-settings');
+const speechSettingsModal = document.querySelector('#speech-settings-modal');
+const speechSettingsBackdrop = document.querySelector('#speech-settings-backdrop');
+const closeSpeechSettingsButton = document.querySelector('#close-speech-settings');
 const metadataModal = document.querySelector('#message-metadata-modal');
 const closeMetadataButton = document.querySelector('#close-message-metadata');
 const metadataContent = document.querySelector('#message-metadata-content');
@@ -50,6 +56,77 @@ let stopRequested = false;
 let isChatLogPinnedToBottom = true;
 let pendingScrollAnimationFrame = null;
 let webSearchEnabled = false;
+
+let wakewordSource = null;
+
+function startWakewordListener() {
+  try {
+    fetch('/api/stt/wakeword/listener/start', { method: 'POST' }).catch(() => { });
+  } catch (_) {
+    // ignore
+  }
+}
+
+function stopWakewordListener() {
+  try {
+    fetch('/api/stt/wakeword/listener/stop', { method: 'POST' }).catch(() => { });
+  } catch (_) {
+    // ignore
+  }
+}
+
+function updateWakewordSubscription() {
+  try {
+    const settings = getSpeechSettings();
+    const enabled = !!(settings && settings.wakeword && settings.wakeword.enabled);
+    if (enabled) {
+      // Ensure backend listener process is running
+      startWakewordListener();
+
+      // Create SSE subscription if not already connected
+      if (!wakewordSource) {
+        wakewordSource = new EventSource('/api/stt/wakeword/stream');
+        wakewordSource.addEventListener('wakeword', (ev) => {
+          try {
+            const data = JSON.parse(ev.data || '{}');
+            if (data && data.type === 'wakeword') {
+              handleVoiceClick();
+            }
+          } catch (_) {
+            // ignore parse errors
+          }
+        });
+        wakewordSource.onerror = () => {
+          // keep connection; browser will auto-reconnect
+        };
+      }
+    } else {
+      // Close SSE and stop backend listener process
+      if (wakewordSource) {
+        try { wakewordSource.close(); } catch (_) { }
+        wakewordSource = null;
+      }
+      stopWakewordListener();
+    }
+  } catch (err) {
+    console.warn('Wakeword subscription error', err);
+  }
+}
+
+function handleSpeechSettingsStorageChange(event) {
+  if (!event || event.key !== SPEECH_SETTINGS_LS_KEY) {
+    return;
+  }
+  updateWakewordSubscription();
+}
+
+// STT state
+let isRecording = false;
+let dgSocket = null;
+let mediaStream = null;
+let mediaRecorder = null;
+let lastFinalTranscript = '';
+let voiceInputPreviousValue = '';
 
 const COPY_BUTTON_RESET_DELAY = 2000;
 
@@ -316,11 +393,20 @@ const modelSettingsController = createModelSettingsController({
   getSupportedParametersForModel,
 });
 
+const speechSettingsController = createSpeechSettingsController({
+  openButton: openSpeechSettingsButton,
+  modal: speechSettingsModal,
+  backdrop: speechSettingsBackdrop,
+  closeButton: closeSpeechSettingsButton,
+});
+
 async function initialize() {
   restoreConversationFromStorage();
   await loadModels();
   if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
     window.addEventListener('storage', handleModelFilterChange);
+    window.addEventListener('storage', handleSpeechSettingsStorageChange);
+    window.addEventListener('speechsettings:updated', () => updateWakewordSubscription());
   }
   if (chatLog) {
     chatLog.addEventListener('scroll', handleChatLogScroll);
@@ -346,6 +432,9 @@ async function initialize() {
   if (stopButton) {
     stopButton.addEventListener('click', handleStopClick);
   }
+  if (voiceButton) {
+    voiceButton.addEventListener('click', handleVoiceClick);
+  }
   clearButton.addEventListener('click', (event) => {
     event.preventDefault();
     resetConversation(true).catch((error) => {
@@ -355,6 +444,8 @@ async function initialize() {
 
   initializeMetadataModal();
   modelSettingsController.initialize();
+  speechSettingsController.initialize();
+  updateWakewordSubscription();
 }
 
 if (document.readyState === 'loading') {
@@ -1074,6 +1165,10 @@ async function requestStream(latestUserMessage) {
   stopRequested = false;
   messageInput.disabled = true;
   modelSelect.disabled = true;
+  if (voiceButton) {
+    voiceButton.hidden = true;
+    voiceButton.setAttribute('aria-hidden', 'true');
+  }
 
   if (stopButton) {
     stopButton.hidden = false;
@@ -1330,11 +1425,217 @@ async function requestStream(latestUserMessage) {
       stopButton.disabled = false;
       stopButton.textContent = 'Stop';
     }
+    if (voiceButton) {
+      voiceButton.hidden = false;
+      voiceButton.setAttribute('aria-hidden', 'false');
+    }
     currentStreamAbortController = null;
     stopRequested = false;
     isStreaming = false;
     messageInput.focus();
   }
+}
+
+function handleVoiceClick(event) {
+  if (event) {
+    event.preventDefault();
+  }
+  if (isStreaming) {
+    return; // Don't start STT while model is responding
+  }
+  if (isRecording) {
+    stopVoiceInput(true).catch((err) => console.warn('Voice stop failed', err));
+  } else {
+    startVoiceInput().catch((err) => {
+      console.error('Voice start failed', err);
+      updateVoiceUi(false);
+    });
+  }
+}
+
+async function startVoiceInput() {
+  if (isRecording) return;
+  updateVoiceUi(true);
+  lastFinalTranscript = '';
+  voiceInputPreviousValue = messageInput ? messageInput.value : '';
+
+  let token;
+  try {
+    const resp = await fetch('/api/stt/deepgram/token', { method: 'POST', headers: { 'Accept': 'application/json' } });
+    if (!resp.ok) {
+      let reason = `${resp.status}`;
+      try { const b = await resp.json(); reason = b?.detail || reason; } catch (_) { }
+      throw new Error(`Token request failed: ${reason}`);
+    }
+    const data = await resp.json();
+    token = data.access_token;
+    if (!token) throw new Error('Missing Deepgram token');
+  } catch (err) {
+    updateVoiceUi(false);
+    throw err;
+  }
+
+  try {
+    mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch (err) {
+    updateVoiceUi(false);
+    throw new Error('Microphone permission denied or unavailable');
+  }
+
+  // Pick a recorder mime first so we can set matching Deepgram encoding
+  const recorderMimeCandidates = [
+    'audio/ogg;codecs=opus',
+    'audio/webm;codecs=opus',
+    'audio/webm',
+  ];
+  const selectedMime = recorderMimeCandidates.find((t) => {
+    try { return MediaRecorder.isTypeSupported(t); } catch { return false; }
+  });
+
+  // Deepgram expects the audio codec; keep encoding=opus regardless of container
+  const encoding = 'opus';
+
+  const sttSettings = getSpeechSettings()?.stt || {};
+  const dgModel = typeof sttSettings.model === 'string' && sttSettings.model ? sttSettings.model : 'nova-3';
+  const interim = sttSettings.interim_results !== false;
+  const vad = sttSettings.vad_events !== false;
+  const utteranceMs = Number.isFinite(Number(sttSettings.utterance_end_ms)) ? Number(sttSettings.utterance_end_ms) : 1000;
+  const endpointMs = Number.isFinite(Number(sttSettings.endpointing)) ? Number(sttSettings.endpointing) : 1000;
+
+  const params = new URLSearchParams({
+    model: dgModel,
+    interim_results: String(interim),
+    smart_format: 'true',
+    vad_events: String(vad),
+    utterance_end_ms: String(utteranceMs),
+    endpointing: String(endpointMs),
+    encoding,
+  });
+
+  const url = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
+  const isJwt = typeof token === 'string' && token.split('.').length >= 3;
+  const protocols = isJwt ? ['Bearer', token] : ['token', token];
+  dgSocket = new WebSocket(url, protocols);
+
+  dgSocket.addEventListener('open', () => {
+    const mimeType = selectedMime;
+    try {
+      mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
+    } catch (err) {
+      console.warn('MediaRecorder init failed, stopping voice input', err);
+      stopVoiceInput(false);
+      return;
+    }
+
+    mediaRecorder.addEventListener('dataavailable', async (ev) => {
+      if (!ev.data || ev.data.size === 0) return;
+      try {
+        const buf = await ev.data.arrayBuffer();
+        if (dgSocket && dgSocket.readyState === WebSocket.OPEN) {
+          dgSocket.send(buf);
+        }
+      } catch (err) {
+        console.warn('Chunk send failed', err);
+      }
+    });
+
+    mediaRecorder.addEventListener('stop', () => {
+      // Signal end of stream
+      try { dgSocket?.send(new Uint8Array()); } catch (_) { }
+    });
+
+    mediaRecorder.start(250);
+  });
+
+  dgSocket.addEventListener('message', (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === 'SpeechStarted') {
+        // no-op; could show UI cue
+        return;
+      }
+      const alt = msg?.channel?.alternatives?.[0];
+      const transcript = alt?.transcript || '';
+      const isFinal = Boolean(msg?.is_final);
+      const speechFinal = Boolean(msg?.speech_final);
+
+      if (transcript) {
+        if (messageInput) {
+          messageInput.value = transcript;
+        }
+        if (isFinal) {
+          lastFinalTranscript = transcript;
+        }
+      }
+
+      if (speechFinal) {
+        // End of utterance detected
+        stopVoiceInput(true).catch((err) => console.warn('Auto stop failed', err));
+      }
+    } catch (err) {
+      // Ignore non-JSON pings/keepalives
+    }
+  });
+
+  dgSocket.addEventListener('error', (err) => {
+    console.warn('Deepgram socket error', err);
+    stopVoiceInput(false).catch(() => { });
+  });
+
+  dgSocket.addEventListener('close', (ev) => {
+    // Code 1005: "No Status Received" - this is normal and indicates a clean close
+    // Other common codes: 1000 (normal), 1001 (going away), 1006 (abnormal)
+    const isNormalClose = ev.code === 1005 || ev.code === 1000 || ev.code === 1001;
+    if (isNormalClose) {
+      console.log('Deepgram socket closed normally', { code: ev.code, reason: ev.reason });
+    } else {
+      console.warn('Deepgram socket closed', { code: ev.code, reason: ev.reason });
+    }
+    updateVoiceUi(false);
+  });
+  dgSocket.addEventListener('close', () => {
+    updateVoiceUi(false);
+  });
+}
+
+async function stopVoiceInput(submit) {
+  if (!isRecording) return;
+  isRecording = false;
+
+  try { mediaRecorder?.stop(); } catch (_) { }
+  try { mediaStream?.getTracks().forEach((t) => t.stop()); } catch (_) { }
+  mediaRecorder = null;
+  mediaStream = null;
+
+  try { dgSocket?.close(); } catch (_) { }
+  dgSocket = null;
+
+  updateVoiceUi(false);
+
+  if (submit) {
+    const text = (messageInput?.value || '').trim() || lastFinalTranscript;
+    if (text) {
+      messageInput.value = text;
+      if (!isStreaming) {
+        if (typeof form.requestSubmit === 'function') {
+          form.requestSubmit();
+        } else {
+          form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+        }
+      }
+    } else {
+      // Restore previous typed value if no transcript
+      if (messageInput) messageInput.value = voiceInputPreviousValue;
+    }
+  }
+}
+
+function updateVoiceUi(recording) {
+  isRecording = recording;
+  if (!voiceButton) return;
+  voiceButton.classList.toggle('is-active', recording);
+  voiceButton.setAttribute('aria-pressed', recording ? 'true' : 'false');
+  voiceButton.setAttribute('aria-label', recording ? 'Stop voice input' : 'Start voice input');
 }
 
 function parseSseChunk(chunk) {

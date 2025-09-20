@@ -62,6 +62,24 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CHAT_DATABASE_PATH", "chat_db"),
     )
 
+    # Deepgram (optional, only needed if using browser STT)
+    deepgram_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("DEEPGRAM_API_KEY")
+    )
+    deepgram_token_ttl_seconds: int = Field(
+        default=30,
+        validation_alias=AliasChoices("DEEPGRAM_TOKEN_TTL", "deepgram_token_ttl"),
+        ge=1,
+        le=3600,
+    )
+    deepgram_allow_apikey_fallback: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "DEEPGRAM_ALLOW_APIKEY_FALLBACK",
+            "DEEPGRAM_DEV_APIKEY_FALLBACK",
+        ),
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

@@ -1,0 +1,26 @@
+{
+  "name": "test_frontend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "deepgram": "node STT/Deepgram/deepgram_client.js",
+    "wakeword": "node STT/Wakeword/wakeword_listiner_no_key.cjs",
+    "wakeword:backend": "BACKEND_URL=http://localhost:8000/api/stt/wakeword/detected node STT/Wakeword/wakeword_listiner_no_key.cjs",
+    "wakeword:use-builtin": "node STT/Wakeword/wakeword_listiner_no_key.cjs --use_builtin",
+    "versions": "node -e \"console.log('dotenv',require('dotenv/package.json').version);console.log('node-record-lpcm16',require('node-record-lpcm16/package.json').version);console.log('ws',require('ws/package.json').version)\"",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^17.2.2",
+    "minimist": "^1.2.8",
+    "@picovoice/porcupine-node": "1.9.2",
+    "@picovoice/pvrecorder-node": "^1.2.3",
+    "node-record-lpcm16": "^1.0.1",
+    "ws": "^8.18.3"
+  }
+}

@@ -381,6 +381,11 @@
                   <option value="false">Disable (keep transcript in input for manual send)</option>
                 </select>
               </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-timeout-ms">Listening timeout (ms)</span>
+                <input id="stt-timeout-ms" type="number" min="5000" max="300000" step="1000" value="30000"
+                  placeholder="30000" title="Timeout in milliseconds (5-300 seconds)" />
+              </label>
             </div>
           </fieldset>
 
@@ -415,6 +420,19 @@
               <label class="field-group">
                 <span class="field-label" for="wakeword-phrase">Wakeword phrase</span>
                 <input id="wakeword-phrase" type="text" placeholder="e.g., 'computer'" />
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="form-fieldset">
+            <legend>Conversation Mode</legend>
+            <div class="form-grid two-column">
+              <label class="field-group">
+                <span class="field-label" for="conversation-enabled">Conversation mode</span>
+                <select id="conversation-enabled">
+                  <option value="false">Disabled (manual activation only)</option>
+                  <option value="true">Enabled (auto-restart listening after AI response)</option>
+                </select>
               </label>
             </div>
           </fieldset>

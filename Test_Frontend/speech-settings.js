@@ -18,6 +18,7 @@ export function getDefaultSpeechSettings() {
             utterance_end_ms: 1000,
             endpointing: 1000,
             auto_submit: true,
+            timeout_ms: 30000, // 30 seconds default
         },
         tts: {
             provider: '',
@@ -26,6 +27,9 @@ export function getDefaultSpeechSettings() {
         wakeword: {
             enabled: false,
             phrase: '',
+        },
+        conversation: {
+            enabled: false,
         },
         updated_at: null,
     };
@@ -67,6 +71,9 @@ export function getSpeechSettings() {
                         typeof data.stt.auto_submit === 'boolean'
                             ? data.stt.auto_submit
                             : defaults.stt.auto_submit,
+                    timeout_ms: Number.isFinite(Number(data.stt.timeout_ms))
+                        ? Number(data.stt.timeout_ms)
+                        : defaults.stt.timeout_ms,
                 };
             }
 
@@ -84,6 +91,15 @@ export function getSpeechSettings() {
                             ? data.wakeword.enabled
                             : defaults.wakeword.enabled,
                     phrase: typeof data.wakeword.phrase === 'string' ? data.wakeword.phrase : defaults.wakeword.phrase,
+                };
+            }
+
+            if (data.conversation && typeof data.conversation === 'object') {
+                settings.conversation = {
+                    enabled:
+                        typeof data.conversation.enabled === 'boolean'
+                            ? data.conversation.enabled
+                            : defaults.conversation.enabled,
                 };
             }
 
@@ -119,6 +135,12 @@ export function saveSpeechSettings(settings) {
                 ...settings.wakeword,
             };
         }
+        if (settings.conversation && typeof settings.conversation === 'object') {
+            sanitized.conversation = {
+                ...sanitized.conversation,
+                ...settings.conversation,
+            };
+        }
     }
     sanitized.updated_at = nowIso();
 
@@ -151,12 +173,15 @@ export function createSpeechSettingsController({
         sttUtteranceEndMs: null,
         sttEndpointing: null,
         sttAutoSubmit: null,
+        sttTimeoutMs: null,
 
         ttsProvider: null,
         ttsVoice: null,
 
         wakeEnabled: null,
         wakePhrase: null,
+
+        conversationEnabled: null,
     };
 
     const state = {
@@ -178,12 +203,15 @@ export function createSpeechSettingsController({
         controls.sttUtteranceEndMs = document.querySelector('#stt-utterance-end-ms');
         controls.sttEndpointing = document.querySelector('#stt-endpointing');
         controls.sttAutoSubmit = document.querySelector('#stt-auto-submit');
+        controls.sttTimeoutMs = document.querySelector('#stt-timeout-ms');
 
         controls.ttsProvider = document.querySelector('#tts-provider');
         controls.ttsVoice = document.querySelector('#tts-voice');
 
         controls.wakeEnabled = document.querySelector('#wakeword-enabled');
         controls.wakePhrase = document.querySelector('#wakeword-phrase');
+
+        controls.conversationEnabled = document.querySelector('#conversation-enabled');
     }
 
     function setModalSavingState(isSaving) {
@@ -240,6 +268,10 @@ export function createSpeechSettingsController({
                 Number.isFinite(Number(s.stt.endpointing)) ? Number(s.stt.endpointing) : 1000
             );
         if (controls.sttAutoSubmit) controls.sttAutoSubmit.value = s.stt.auto_submit ? 'true' : 'false';
+        if (controls.sttTimeoutMs)
+            controls.sttTimeoutMs.value = String(
+                Number.isFinite(Number(s.stt.timeout_ms)) ? Number(s.stt.timeout_ms) : 30000
+            );
 
         // TTS
         if (controls.ttsProvider) controls.ttsProvider.value = s.tts.provider || '';
@@ -248,6 +280,9 @@ export function createSpeechSettingsController({
         // Wakeword
         if (controls.wakeEnabled) controls.wakeEnabled.value = s.wakeword.enabled ? 'true' : 'false';
         if (controls.wakePhrase) controls.wakePhrase.value = s.wakeword.phrase || '';
+
+        // Conversation
+        if (controls.conversationEnabled) controls.conversationEnabled.value = s.conversation.enabled ? 'true' : 'false';
 
         updateModalUpdatedAt(s.updated_at);
     }
@@ -261,14 +296,18 @@ export function createSpeechSettingsController({
 
         const utteranceRaw = controls.sttUtteranceEndMs?.value;
         const endpointingRaw = controls.sttEndpointing?.value;
+        const timeoutRaw = controls.sttTimeoutMs?.value;
         const utterance = Number(utteranceRaw);
         const endpointing = Number(endpointingRaw);
+        const timeout = Number(timeoutRaw);
 
         const ttsProvider = controls.ttsProvider?.value || '';
         const ttsVoice = controls.ttsVoice?.value || '';
 
         const wakeEnabled = controls.wakeEnabled?.value === 'true';
         const wakePhrase = controls.wakePhrase?.value || '';
+
+        const conversationEnabled = controls.conversationEnabled?.value === 'true';
 
         return {
             stt: {
@@ -279,6 +318,7 @@ export function createSpeechSettingsController({
                 utterance_end_ms: Number.isFinite(utterance) ? utterance : 1000,
                 endpointing: Number.isFinite(endpointing) ? endpointing : 1000,
                 auto_submit: sttAutoSubmit,
+                timeout_ms: Number.isFinite(timeout) ? timeout : 30000,
             },
             tts: {
                 provider: ttsProvider,
@@ -287,6 +327,9 @@ export function createSpeechSettingsController({
             wakeword: {
                 enabled: wakeEnabled,
                 phrase: wakePhrase,
+            },
+            conversation: {
+                enabled: conversationEnabled,
             },
         };
     }

@@ -133,6 +133,8 @@ let mediaStream = null;
 let mediaRecorder = null;
 let lastFinalTranscript = '';
 let voiceInputPreviousValue = '';
+let conversationModeActive = false; // Track if conversation mode initiated the current interaction
+let listeningTimeoutId = null; // Track the listening timeout
 
 const COPY_BUTTON_RESET_DELAY = 2000;
 
@@ -623,6 +625,14 @@ async function handleSubmit(event) {
     return;
   }
 
+  // Check if conversation mode should be activated for manual submissions
+  const speechSettings = getSpeechSettings();
+  const conversationEnabled = speechSettings?.conversation?.enabled === true;
+  if (conversationEnabled) {
+    conversationModeActive = true;
+    console.log('🎤 Conversation mode: Manual submission with conversation mode enabled');
+  }
+
   conversation.push({ role: 'user', content: text });
   persistConversationState();
   addMessage('user', text);
@@ -670,6 +680,12 @@ function handleStopClick(event) {
   }
 
   stopRequested = true;
+
+  // Reset conversation mode when user manually stops streaming
+  if (conversationModeActive) {
+    console.log('🎤 Conversation mode: User manually stopped streaming, disabling auto-restart');
+    conversationModeActive = false;
+  }
 
   if (stopButton) {
     stopButton.disabled = true;
@@ -1438,6 +1454,24 @@ async function requestStream(latestUserMessage) {
     currentStreamAbortController = null;
     stopRequested = false;
     isStreaming = false;
+
+    // Handle conversation mode auto-restart
+    const shouldRestartConversation = conversationModeActive && !stopRequested;
+    if (shouldRestartConversation) {
+      console.log('🎤 Conversation mode: AI response complete, restarting voice input...');
+      // Small delay to ensure UI updates and focus, then restart listening
+      setTimeout(() => {
+        if (!isRecording && !isStreaming) {
+          startVoiceInput().catch((err) => {
+            console.error('🎤 Conversation mode auto-restart failed:', err);
+            conversationModeActive = false; // Reset on failure
+          });
+        }
+      }, 500);
+    } else {
+      conversationModeActive = false; // Reset conversation mode if not restarting
+    }
+
     messageInput.focus();
   }
 }
@@ -1475,6 +1509,14 @@ async function startVoiceInput() {
   lastFinalTranscript = '';
   voiceInputPreviousValue = messageInput ? messageInput.value : '';
 
+  // Check if conversation mode is enabled for auto-restart after response
+  const speechSettings = getSpeechSettings();
+  const conversationEnabled = speechSettings?.conversation?.enabled === true;
+  if (conversationEnabled) {
+    conversationModeActive = true;
+    console.log('🎤 Conversation mode active - will auto-restart after AI response');
+  }
+
   let token;
   try {
     const resp = await fetch('/api/stt/deepgram/token', { method: 'POST', headers: { 'Accept': 'application/json' } });
@@ -1488,6 +1530,11 @@ async function startVoiceInput() {
     if (!token) throw new Error('Missing Deepgram token');
   } catch (err) {
     updateVoiceUi(false);
+    // Clear timeout if setup fails
+    if (listeningTimeoutId) {
+      clearTimeout(listeningTimeoutId);
+      listeningTimeoutId = null;
+    }
     throw err;
   }
 
@@ -1495,6 +1542,11 @@ async function startVoiceInput() {
     mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
   } catch (err) {
     updateVoiceUi(false);
+    // Clear timeout if microphone setup fails
+    if (listeningTimeoutId) {
+      clearTimeout(listeningTimeoutId);
+      listeningTimeoutId = null;
+    }
     throw new Error('Microphone permission denied or unavailable');
   }
 
@@ -1561,6 +1613,27 @@ async function startVoiceInput() {
     });
 
     mediaRecorder.start(250);
+
+    // Start listening timeout
+    const sttSettings = getSpeechSettings()?.stt || {};
+    const timeoutMs = Number.isFinite(Number(sttSettings.timeout_ms)) ? Number(sttSettings.timeout_ms) : 30000;
+    console.log(`🎤 Starting listening timeout: ${timeoutMs}ms`);
+
+    listeningTimeoutId = setTimeout(() => {
+      console.log('🎤 Listening timeout reached');
+
+      // Check if we have any transcript when timeout occurs
+      const currentText = (messageInput?.value || '').trim() || lastFinalTranscript;
+      const autoSubmitEnabled = sttSettings.auto_submit !== false;
+
+      if (currentText && autoSubmitEnabled) {
+        console.log('🎤 Timeout with transcript - auto-submitting');
+        stopVoiceInput(true).catch((err) => console.warn('Timeout auto-submit failed', err));
+      } else {
+        console.log('🎤 Timeout without valid transcript or auto-submit disabled');
+        stopVoiceInput(false).catch((err) => console.warn('Timeout stop failed', err));
+      }
+    }, timeoutMs);
   });
 
   dgSocket.addEventListener('message', (ev) => {
@@ -1621,6 +1694,13 @@ async function stopVoiceInput(submit) {
   if (!isRecording) return;
   isRecording = false;
 
+  // Clear listening timeout
+  if (listeningTimeoutId) {
+    clearTimeout(listeningTimeoutId);
+    listeningTimeoutId = null;
+    console.log('🎤 Cleared listening timeout');
+  }
+
   const sttSettings = getSpeechSettings()?.stt || {};
   const autoSubmitEnabled = sttSettings.auto_submit !== false;
   console.log('🎤 stopVoiceInput called', {
@@ -1647,6 +1727,7 @@ async function stopVoiceInput(submit) {
       messageInput.value = text;
       if (!isStreaming) {
         console.log('🎤 Submitting form with text:', text);
+        // Keep conversationModeActive true since we're submitting and expecting a response
         if (typeof form.requestSubmit === 'function') {
           form.requestSubmit();
         } else {
@@ -1654,19 +1735,25 @@ async function stopVoiceInput(submit) {
         }
       } else {
         console.log('🎤 Skipping submit - already streaming');
+        conversationModeActive = false; // Reset if we can't submit
       }
     } else {
       console.log('🎤 No text to submit, restoring previous value');
+      conversationModeActive = false; // Reset if no text to submit
       // Restore previous typed value if no transcript
       if (messageInput) messageInput.value = voiceInputPreviousValue;
     }
   } else {
     console.log('🎤 Voice input stopped without submit (auto-submit disabled or manual stop)');
-    // When auto-submit is disabled, keep the transcript in the input for manual submission
+    // When not submitting, check if we should reset conversation mode
+    // Only keep it active if auto-submit is disabled but we have text that might be submitted later
     const text = (messageInput?.value || '').trim() || lastFinalTranscript;
     if (text && messageInput) {
       messageInput.value = text;
       console.log('🎤 Transcript preserved in input field for manual submission:', text);
+      // Keep conversation mode active since user might still submit manually
+    } else {
+      conversationModeActive = false; // Reset if no text or manual stop without intent to submit
     }
   }
 }

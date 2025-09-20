@@ -251,6 +251,27 @@ export function createSpeechSettingsController({
         return `Updated ${date.toLocaleString()}`;
     }
 
+    function updateTimeoutFieldState() {
+        if (!controls.conversationEnabled || !controls.sttTimeoutMs) return;
+
+        const conversationEnabled = controls.conversationEnabled.value === 'true';
+        const timeoutFieldGroup = controls.sttTimeoutMs.closest('.field-group');
+
+        if (conversationEnabled) {
+            // Enable timeout field
+            controls.sttTimeoutMs.disabled = false;
+            if (timeoutFieldGroup) {
+                timeoutFieldGroup.classList.remove('parameter-unsupported');
+            }
+        } else {
+            // Disable timeout field using same styling as hyperparameters
+            controls.sttTimeoutMs.disabled = true;
+            if (timeoutFieldGroup) {
+                timeoutFieldGroup.classList.add('parameter-unsupported');
+            }
+        }
+    }
+
     function populateForm(settings) {
         const s = settings || getSpeechSettings();
 
@@ -285,6 +306,9 @@ export function createSpeechSettingsController({
         if (controls.conversationEnabled) controls.conversationEnabled.value = s.conversation.enabled ? 'true' : 'false';
 
         updateModalUpdatedAt(s.updated_at);
+
+        // Update timeout field state based on conversation mode
+        updateTimeoutFieldState();
     }
 
     function readFromForm() {
@@ -431,6 +455,11 @@ export function createSpeechSettingsController({
 
         if (controls.form) {
             controls.form.addEventListener('submit', handleSubmit);
+        }
+
+        // Add event listener for conversation mode changes
+        if (controls.conversationEnabled) {
+            controls.conversationEnabled.addEventListener('change', updateTimeoutFieldState);
         }
     }
 

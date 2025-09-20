@@ -18,7 +18,7 @@ export function getDefaultSpeechSettings() {
             utterance_end_ms: 1000,
             endpointing: 1000,
             auto_submit: true,
-            timeout_ms: 30000, // 30 seconds default
+            timeout_ms: 5000, // 5 seconds default
         },
         tts: {
             provider: '',
@@ -270,7 +270,7 @@ export function createSpeechSettingsController({
         if (controls.sttAutoSubmit) controls.sttAutoSubmit.value = s.stt.auto_submit ? 'true' : 'false';
         if (controls.sttTimeoutMs)
             controls.sttTimeoutMs.value = String(
-                Number.isFinite(Number(s.stt.timeout_ms)) ? Number(s.stt.timeout_ms) : 30000
+                Number.isFinite(Number(s.stt.timeout_ms)) ? Number(s.stt.timeout_ms) : 5000
             );
 
         // TTS
@@ -318,7 +318,7 @@ export function createSpeechSettingsController({
                 utterance_end_ms: Number.isFinite(utterance) ? utterance : 1000,
                 endpointing: Number.isFinite(endpointing) ? endpointing : 1000,
                 auto_submit: sttAutoSubmit,
-                timeout_ms: Number.isFinite(timeout) ? timeout : 30000,
+                timeout_ms: Number.isFinite(timeout) ? timeout : 5000,
             },
             tts: {
                 provider: ttsProvider,

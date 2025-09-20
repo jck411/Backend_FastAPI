@@ -1616,7 +1616,7 @@ async function startVoiceInput() {
 
     // Start listening timeout
     const sttSettings = getSpeechSettings()?.stt || {};
-    const timeoutMs = Number.isFinite(Number(sttSettings.timeout_ms)) ? Number(sttSettings.timeout_ms) : 30000;
+    const timeoutMs = Number.isFinite(Number(sttSettings.timeout_ms)) ? Number(sttSettings.timeout_ms) : 5000;
     console.log(`🎤 Starting listening timeout: ${timeoutMs}ms`);
 
     listeningTimeoutId = setTimeout(() => {

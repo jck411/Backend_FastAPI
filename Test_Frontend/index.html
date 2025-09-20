@@ -377,14 +377,14 @@
               <label class="field-group">
                 <span class="field-label" for="stt-auto-submit">Auto-submit on speech end</span>
                 <select id="stt-auto-submit">
-                  <option value="true">Enable (automatically send message when speech ends)</option>
-                  <option value="false">Disable (keep transcript in input for manual send)</option>
+                  <option value="true">Enable</option>
+                  <option value="false">Disable</option>
                 </select>
               </label>
               <label class="field-group">
                 <span class="field-label" for="stt-timeout-ms">Listening timeout (ms)</span>
-                <input id="stt-timeout-ms" type="number" min="5000" max="300000" step="1000" value="30000"
-                  placeholder="30000" title="Timeout in milliseconds (5-300 seconds)" />
+                <input id="stt-timeout-ms" type="number" min="5000" max="300000" step="500" value="5000"
+                  placeholder="5000" title="Timeout in milliseconds (5-300 seconds, adjustable in 500ms increments)" />
               </label>
             </div>
           </fieldset>

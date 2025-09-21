@@ -162,14 +162,23 @@ let countdownTimeoutMs = 0; // Store the original timeout value for resetting
 // Speech detection state for robust end-of-speech detection
 let speechFinalReceived = false; // Track if we've seen speech_final=true
 let utteranceEndTimer = null; // Timer for UtteranceEnd handling
+let lastCountdownReset = 0; // Timestamp of last countdown reset to prevent spam
+let accumulatedTranscript = ''; // Accumulate transcripts for slow speech
 
 // Function to reset countdown when speech is detected
 function resetCountdown() {
   // Only reset countdown if conversation mode is enabled and countdown is actually running
   if (!countdownIntervalId || countdownTimeoutMs === 0) {
-    console.log('🎤 resetCountdown called but no countdown active - ignoring');
     return;
   }
+
+  // Rate limit countdown resets to prevent spam (max once per 2 seconds)
+  const now = Date.now();
+  if (now - lastCountdownReset < 2000) {
+    console.log('🎤 Countdown reset rate limited - ignoring rapid reset attempt');
+    return;
+  }
+  lastCountdownReset = now;
 
   console.log('🎤 Speech detected - resetting countdown');
 
@@ -1644,6 +1653,7 @@ async function startVoiceInput() {
   if (isRecording) return;
 
   lastFinalTranscript = '';
+  accumulatedTranscript = ''; // Reset accumulated transcript for new session
   voiceInputPreviousValue = messageInput ? messageInput.value : '';
 
   // Reset speech detection state for new session
@@ -1665,9 +1675,7 @@ async function startVoiceInput() {
   });
 
   // Set initial UI state - countdown will be updated later if conversation mode is enabled
-  updateVoiceUi(true);
-
-  if (conversationEnabled) {
+  updateVoiceUi(true); if (conversationEnabled) {
     conversationModeActive = true;
     console.log('🎤 Conversation mode active - will auto-restart after AI response');
   }
@@ -1737,14 +1745,31 @@ async function startVoiceInput() {
   const utteranceMs = Number.isFinite(Number(sttSettings.utterance_end_ms)) ? Number(sttSettings.utterance_end_ms) : 1000;
   const endpointMs = Number.isFinite(Number(sttSettings.endpointing)) ? Number(sttSettings.endpointing) : 1000;
 
+  // Get additional formatting settings
+  const smartFormat = sttSettings.smart_format !== false; // Default to true
+  const punctuate = sttSettings.punctuate !== false; // Default to true
+  const numerals = sttSettings.numerals !== false; // Default to true
+  const fillerWords = sttSettings.filler_words === true; // Default to false
+  const profanityFilter = sttSettings.profanity_filter === true; // Default to false
+
+  // For slow speakers, we need to be more conservative with these parameters
+  // to prevent Deepgram from treating pauses as utterance boundaries
   const params = new URLSearchParams({
     model: dgModel,
     interim_results: String(interim),
-    smart_format: 'true',
+    smart_format: String(smartFormat),
+    punctuate: String(punctuate),
+    numerals: String(numerals),
+    filler_words: String(fillerWords),
+    profanity_filter: String(profanityFilter),
     vad_events: String(vad),
-    utterance_end_ms: String(utteranceMs),
-    endpointing: String(endpointMs),
+    utterance_end_ms: String(Math.max(utteranceMs, 3000)), // Minimum 3 seconds for slow speakers
+    endpointing: String(Math.max(endpointMs, 2500)), // Minimum 2.5 seconds for slow speakers
     encoding,
+    // Add these parameters to improve slow speech handling
+    no_delay: 'false', // Allow Deepgram more time to process
+    multichannel: 'false',
+    alternatives: '1' // Focus on best transcription, not alternatives
   });
 
   const url = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
@@ -1795,9 +1820,9 @@ async function startVoiceInput() {
       countdownSecondsRemaining = Math.ceil(timeoutMs / 1000);
       updateVoiceUi(true, countdownSecondsRemaining);
 
-      // Start initial timeout - this will be reset when speech is detected
+      // Start initial timeout - this will only be reset by meaningful transcripts
       listeningTimeoutId = setTimeout(() => {
-        console.log('🎤 Listening timeout reached');
+        console.log('🎤 Listening timeout reached - no meaningful speech detected');
 
         // Clear countdown
         if (countdownIntervalId) {
@@ -1818,7 +1843,7 @@ async function startVoiceInput() {
           });
           stopVoiceInput(true).catch((err) => console.warn('Timeout auto-submit failed', err));
         } else {
-          console.log('🎤 Timeout without valid transcript or auto-submit disabled', {
+          console.log('🎤 Timeout without valid transcript or auto-submit disabled - stopping listening', {
             currentText,
             autoSubmitEnabled,
             autoSubmitSetting: sttSettings.auto_submit
@@ -1843,20 +1868,28 @@ async function startVoiceInput() {
   dgSocket.addEventListener('message', (ev) => {
     try {
       const msg = JSON.parse(ev.data);
-      console.log('🎤 Deepgram message received:', {
-        type: msg.type,
-        is_final: msg.is_final,
-        speech_final: msg.speech_final,
-        transcript: msg?.channel?.alternatives?.[0]?.transcript || '',
-        confidence: msg?.channel?.alternatives?.[0]?.confidence
-      });
+      const alt = msg?.channel?.alternatives?.[0];
+      const transcript = alt?.transcript || '';
+      const confidence = alt?.confidence;
+
+      // Only log meaningful messages (avoid empty transcript spam)
+      if (msg.type !== 'Results' || transcript || confidence > 0 || msg.is_final || msg.speech_final) {
+        console.log('🎤 Deepgram message received:', {
+          type: msg.type,
+          is_final: msg.is_final,
+          speech_final: msg.speech_final,
+          transcript,
+          confidence
+        });
+      }
 
       if (msg.type === 'SpeechStarted') {
-        console.log('🎤 SpeechStarted event - resetting countdown');
-        // Only reset countdown if conversation mode is enabled
-        const speechSettings = getSpeechSettings();
-        if (speechSettings?.conversation?.enabled === true) {
-          resetCountdown();
+        // Don't reset countdown on SpeechStarted - too sensitive to noise
+        // We'll reset countdown only when we get actual transcripts
+        if (typeof conversationModeActive !== 'undefined' && conversationModeActive) {
+          console.log('🎤 SpeechStarted event (conversation mode - waiting for transcript to reset countdown)');
+        } else {
+          console.log('🎤 SpeechStarted event (conversation mode disabled)');
         }
         return;
       }
@@ -1883,6 +1916,7 @@ async function startVoiceInput() {
             currentTranscript: msg?.channel?.alternatives?.[0]?.transcript || '',
             messageInputValue: messageInput?.value,
             lastFinalTranscript,
+            accumulatedTranscript,
             willAutoSubmit: autoSubmit,
             speechFinalReceived: false
           });
@@ -1903,8 +1937,6 @@ async function startVoiceInput() {
         return;
       }
 
-      const alt = msg?.channel?.alternatives?.[0];
-      const transcript = alt?.transcript || '';
       const isFinal = Boolean(msg?.is_final);
       const speechFinal = Boolean(msg?.speech_final);
 
@@ -1912,23 +1944,45 @@ async function startVoiceInput() {
         console.log('🎤 Transcript received:', {
           transcript,
           isFinal,
-          confidence: alt?.confidence,
+          confidence,
           previousValue: messageInput?.value,
-          lastFinalTranscript
+          lastFinalTranscript,
+          accumulatedTranscript
         });
 
-        // Only reset countdown when we receive transcript AND conversation mode is enabled
-        const speechSettings = getSpeechSettings();
-        if (speechSettings?.conversation?.enabled === true) {
+        // Only reset countdown when we receive meaningful transcript AND conversation mode is enabled
+        if (typeof conversationModeActive !== 'undefined' && conversationModeActive && transcript.trim()) {
+          console.log('🎤 Meaningful transcript received - resetting countdown');
           resetCountdown();
         }
 
-        if (messageInput) {
-          messageInput.value = transcript;
-        }
-        if (isFinal) {
-          console.log('🎤 Final transcript updated:', transcript);
-          lastFinalTranscript = transcript;
+        // For interim results, just update the UI
+        if (!isFinal) {
+          // Show current accumulated transcript + current interim
+          const combinedText = accumulatedTranscript ? `${accumulatedTranscript} ${transcript}` : transcript;
+          if (messageInput) {
+            messageInput.value = combinedText.trim();
+          }
+        } else {
+          // For final results, accumulate them
+          console.log('🎤 Final transcript segment:', transcript);
+
+          if (transcript.trim()) {
+            // Add this final transcript to our accumulated transcript
+            if (accumulatedTranscript) {
+              accumulatedTranscript += ` ${transcript.trim()}`;
+            } else {
+              accumulatedTranscript = transcript.trim();
+            }
+
+            console.log('🎤 Accumulated transcript updated:', accumulatedTranscript);
+            lastFinalTranscript = accumulatedTranscript;
+
+            // Update the UI with accumulated transcript
+            if (messageInput) {
+              messageInput.value = accumulatedTranscript;
+            }
+          }
         }
       }
 
@@ -1952,6 +2006,7 @@ async function startVoiceInput() {
           currentTranscript: transcript,
           messageInputValue: messageInput?.value,
           lastFinalTranscript,
+          accumulatedTranscript,
           willAutoSubmit: autoSubmit,
           speechFinalReceived: true
         });

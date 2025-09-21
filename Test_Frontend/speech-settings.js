@@ -15,10 +15,15 @@ export function getDefaultSpeechSettings() {
             model: 'nova-3',
             interim_results: true,
             vad_events: true,
-            utterance_end_ms: 1000,
-            endpointing: 1000,
+            utterance_end_ms: 2500,  // Increased for slow speakers - wait longer between words
+            endpointing: 2000,       // Increased for slow speakers - wait longer for pauses
             auto_submit: true,
-            timeout_ms: 5000, // 5 seconds default
+            timeout_ms: 8000,        // Increased timeout for slower speech patterns
+            smart_format: true,      // Enable smart formatting by default
+            punctuate: true,         // Enable punctuation by default
+            numerals: true,          // Enable numeral conversion by default
+            filler_words: false,     // Disable filler words by default
+            profanity_filter: false, // Disable profanity filter by default
         },
         tts: {
             provider: '',
@@ -48,7 +53,7 @@ export function getSpeechSettings() {
             return defaults;
         }
         const data = JSON.parse(raw);
-        console.log('🎤 getSpeechSettings: Raw stored data:', data);
+        // Only log when debugging is needed - removed excessive logging
 
         // Sanitize and merge with defaults
         const settings = { ...defaults };
@@ -77,6 +82,26 @@ export function getSpeechSettings() {
                     timeout_ms: Number.isFinite(Number(data.stt.timeout_ms))
                         ? Number(data.stt.timeout_ms)
                         : defaults.stt.timeout_ms,
+                    smart_format:
+                        typeof data.stt.smart_format === 'boolean'
+                            ? data.stt.smart_format
+                            : defaults.stt.smart_format,
+                    punctuate:
+                        typeof data.stt.punctuate === 'boolean'
+                            ? data.stt.punctuate
+                            : defaults.stt.punctuate,
+                    numerals:
+                        typeof data.stt.numerals === 'boolean'
+                            ? data.stt.numerals
+                            : defaults.stt.numerals,
+                    filler_words:
+                        typeof data.stt.filler_words === 'boolean'
+                            ? data.stt.filler_words
+                            : defaults.stt.filler_words,
+                    profanity_filter:
+                        typeof data.stt.profanity_filter === 'boolean'
+                            ? data.stt.profanity_filter
+                            : defaults.stt.profanity_filter,
                 };
             }
 
@@ -184,6 +209,16 @@ export function createSpeechSettingsController({
         sttEndpointing: null,
         sttAutoSubmit: null,
         sttTimeoutMs: null,
+        sttSmartFormat: null,
+        sttPunctuate: null,
+        sttNumerals: null,
+        sttFillerWords: null,
+        sttProfanityFilter: null,
+
+        // Preset buttons
+        presetFast: null,
+        presetNormal: null,
+        presetSlow: null,
 
         ttsProvider: null,
         ttsVoice: null,
@@ -214,6 +249,16 @@ export function createSpeechSettingsController({
         controls.sttEndpointing = document.querySelector('#stt-endpointing');
         controls.sttAutoSubmit = document.querySelector('#stt-auto-submit');
         controls.sttTimeoutMs = document.querySelector('#stt-timeout-ms');
+        controls.sttSmartFormat = document.querySelector('#stt-smart-format');
+        controls.sttPunctuate = document.querySelector('#stt-punctuate');
+        controls.sttNumerals = document.querySelector('#stt-numerals');
+        controls.sttFillerWords = document.querySelector('#stt-filler-words');
+        controls.sttProfanityFilter = document.querySelector('#stt-profanity-filter');
+
+        // Preset buttons
+        controls.presetFast = document.querySelector('#stt-preset-fast');
+        controls.presetNormal = document.querySelector('#stt-preset-normal');
+        controls.presetSlow = document.querySelector('#stt-preset-slow');
 
         controls.ttsProvider = document.querySelector('#tts-provider');
         controls.ttsVoice = document.querySelector('#tts-voice');
@@ -282,6 +327,44 @@ export function createSpeechSettingsController({
         }
     }
 
+    // Speech timing presets for different speaking speeds
+    function applyPreset(presetType) {
+        const presets = {
+            fast: {
+                utterance_end_ms: 1000,
+                endpointing: 800,
+                timeout_ms: 5000
+            },
+            normal: {
+                utterance_end_ms: 1500,
+                endpointing: 1200,
+                timeout_ms: 6000
+            },
+            slow: {
+                utterance_end_ms: 2500,
+                endpointing: 2000,
+                timeout_ms: 8000
+            }
+        };
+
+        const preset = presets[presetType];
+        if (!preset) return;
+
+        // Apply preset values to form controls
+        if (controls.sttUtteranceEndMs) {
+            controls.sttUtteranceEndMs.value = preset.utterance_end_ms;
+        }
+        if (controls.sttEndpointing) {
+            controls.sttEndpointing.value = preset.endpointing;
+        }
+        if (controls.sttTimeoutMs) {
+            controls.sttTimeoutMs.value = preset.timeout_ms;
+        }
+
+        console.log(`🎤 Applied ${presetType} speech preset:`, preset);
+        setModalStatus(`Applied ${presetType} speech settings`, 'success');
+    }
+
     function populateForm(settings) {
         const s = settings || getSpeechSettings();
 
@@ -303,6 +386,11 @@ export function createSpeechSettingsController({
             controls.sttTimeoutMs.value = String(
                 Number.isFinite(Number(s.stt.timeout_ms)) ? Number(s.stt.timeout_ms) : 5000
             );
+        if (controls.sttSmartFormat) controls.sttSmartFormat.value = s.stt.smart_format ? 'true' : 'false';
+        if (controls.sttPunctuate) controls.sttPunctuate.value = s.stt.punctuate ? 'true' : 'false';
+        if (controls.sttNumerals) controls.sttNumerals.value = s.stt.numerals ? 'true' : 'false';
+        if (controls.sttFillerWords) controls.sttFillerWords.value = s.stt.filler_words ? 'true' : 'false';
+        if (controls.sttProfanityFilter) controls.sttProfanityFilter.value = s.stt.profanity_filter ? 'true' : 'false';
 
         // TTS
         if (controls.ttsProvider) controls.ttsProvider.value = s.tts.provider || '';
@@ -327,6 +415,11 @@ export function createSpeechSettingsController({
         const sttInterim = controls.sttInterim?.value === 'true';
         const sttVad = controls.sttVad?.value === 'true';
         const sttAutoSubmit = controls.sttAutoSubmit?.value === 'true';
+        const sttSmartFormat = controls.sttSmartFormat?.value === 'true';
+        const sttPunctuate = controls.sttPunctuate?.value === 'true';
+        const sttNumerals = controls.sttNumerals?.value === 'true';
+        const sttFillerWords = controls.sttFillerWords?.value === 'true';
+        const sttProfanityFilter = controls.sttProfanityFilter?.value === 'true';
 
         const utteranceRaw = controls.sttUtteranceEndMs?.value;
         const endpointingRaw = controls.sttEndpointing?.value;
@@ -353,6 +446,11 @@ export function createSpeechSettingsController({
                 endpointing: Number.isFinite(endpointing) ? endpointing : 1000,
                 auto_submit: sttAutoSubmit,
                 timeout_ms: Number.isFinite(timeout) ? timeout : 5000,
+                smart_format: sttSmartFormat,
+                punctuate: sttPunctuate,
+                numerals: sttNumerals,
+                filler_words: sttFillerWords,
+                profanity_filter: sttProfanityFilter,
             },
             tts: {
                 provider: ttsProvider,
@@ -473,6 +571,17 @@ export function createSpeechSettingsController({
         // Add event listener for conversation mode changes
         if (controls.conversationEnabled) {
             controls.conversationEnabled.addEventListener('change', updateTimeoutFieldState);
+        }
+
+        // Add event listeners for preset buttons
+        if (controls.presetFast) {
+            controls.presetFast.addEventListener('click', () => applyPreset('fast'));
+        }
+        if (controls.presetNormal) {
+            controls.presetNormal.addEventListener('click', () => applyPreset('normal'));
+        }
+        if (controls.presetSlow) {
+            controls.presetSlow.addEventListener('click', () => applyPreset('slow'));
         }
     }
 

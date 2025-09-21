@@ -338,6 +338,11 @@
         <div class="modal__body">
           <fieldset class="form-fieldset">
             <legend>Speech-to-Text (STT)</legend>
+            <div class="form-grid three-column" style="margin-bottom: 1rem;">
+              <button type="button" id="stt-preset-fast" class="ghost-button">Fast Speech</button>
+              <button type="button" id="stt-preset-normal" class="ghost-button">Normal Speech</button>
+              <button type="button" id="stt-preset-slow" class="ghost-button">Slow Speech</button>
+            </div>
             <div class="form-grid two-column">
               <label class="field-group">
                 <span class="field-label" for="stt-provider">Provider</span>
@@ -360,19 +365,24 @@
                 </select>
               </label>
               <label class="field-group">
-                <span class="field-label" for="stt-vad-events">VAD events</span>
+                <span class="field-label" for="stt-vad-events">VAD events (Voice Activity Detection)</span>
                 <select id="stt-vad-events">
                   <option value="true">Enable</option>
                   <option value="false">Disable</option>
                 </select>
+                <p class="field-hint">Detects when speech starts/stops vs background noise</p>
               </label>
               <label class="field-group">
                 <span class="field-label" for="stt-utterance-end-ms">Utterance end (ms)</span>
-                <input id="stt-utterance-end-ms" type="number" min="0" step="100" value="1000" />
+                <input id="stt-utterance-end-ms" type="number" min="500" max="5000" step="100" value="1000" />
+                <p class="field-hint">Time between words to trigger end detection. Fast: 1000ms, Normal: 1500ms, Slow:
+                  2500ms</p>
               </label>
               <label class="field-group">
                 <span class="field-label" for="stt-endpointing">Endpointing (ms)</span>
-                <input id="stt-endpointing" type="number" min="0" step="100" value="1000" />
+                <input id="stt-endpointing" type="number" min="300" max="5000" step="100" value="1000" />
+                <p class="field-hint">Silence duration to finalize speech. Fast: 1000ms, Normal: 1500ms, Slow: 2000ms
+                </p>
               </label>
               <label class="field-group">
                 <span class="field-label" for="stt-auto-submit">Auto-submit on speech end</span>
@@ -380,6 +390,46 @@
                   <option value="true">Enable</option>
                   <option value="false">Disable</option>
                 </select>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-smart-format">Smart formatting</span>
+                <select id="stt-smart-format">
+                  <option value="true">Enable</option>
+                  <option value="false">Disable</option>
+                </select>
+                <p class="field-hint">Auto punctuation, date/number formatting, capitalization</p>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-punctuate">Punctuation</span>
+                <select id="stt-punctuate">
+                  <option value="true">Enable</option>
+                  <option value="false">Disable</option>
+                </select>
+                <p class="field-hint">Adds punctuation and capitalization</p>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-numerals">Numerals</span>
+                <select id="stt-numerals">
+                  <option value="true">Enable</option>
+                  <option value="false">Disable</option>
+                </select>
+                <p class="field-hint">Converts "twenty five" to "25"</p>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-filler-words">Filler words</span>
+                <select id="stt-filler-words">
+                  <option value="false">Disable</option>
+                  <option value="true">Enable</option>
+                </select>
+                <p class="field-hint">Include "um", "uh", "like" in transcripts</p>
+              </label>
+              <label class="field-group">
+                <span class="field-label" for="stt-profanity-filter">Profanity filter</span>
+                <select id="stt-profanity-filter">
+                  <option value="false">Disable</option>
+                  <option value="true">Enable</option>
+                </select>
+                <p class="field-hint">Replaces profanity with asterisks</p>
               </label>
             </div>
           </fieldset>
@@ -433,6 +483,7 @@
                 <span class="field-label" for="stt-timeout-ms">Listening timeout (ms)</span>
                 <input id="stt-timeout-ms" type="number" min="5000" max="300000" step="500" value="5000"
                   placeholder="5000" title="Timeout in milliseconds (5-300 seconds, adjustable in 500ms increments)" />
+                <p class="field-hint">Conversation mode timeout. Fast: 5000ms, Normal: 6000ms, Slow: 8000ms</p>
               </label>
             </div>
           </fieldset>

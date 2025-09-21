@@ -39,13 +39,16 @@ export function getSpeechSettings() {
     const defaults = getDefaultSpeechSettings();
     try {
         if (typeof window === 'undefined' || !window.localStorage) {
+            console.log('🎤 getSpeechSettings: No localStorage available, returning defaults');
             return defaults;
         }
         const raw = window.localStorage.getItem(SPEECH_SETTINGS_LS_KEY);
         if (!raw) {
+            console.log('🎤 getSpeechSettings: No stored settings found, returning defaults');
             return defaults;
         }
         const data = JSON.parse(raw);
+        console.log('🎤 getSpeechSettings: Raw stored data:', data);
 
         // Sanitize and merge with defaults
         const settings = { ...defaults };
@@ -109,13 +112,16 @@ export function getSpeechSettings() {
         }
 
         return settings;
-    } catch (_) {
+    } catch (error) {
+        console.warn('🎤 getSpeechSettings: Failed to read settings:', error);
         return defaults;
     }
 }
 
 export function saveSpeechSettings(settings) {
     const sanitized = getSpeechSettings();
+    console.log('🎤 saveSpeechSettings called with:', settings);
+    console.log('🎤 Current sanitized settings before merge:', sanitized);
     if (settings && typeof settings === 'object') {
         if (settings.stt && typeof settings.stt === 'object') {
             sanitized.stt = {
@@ -144,11 +150,15 @@ export function saveSpeechSettings(settings) {
     }
     sanitized.updated_at = nowIso();
 
+    console.log('🎤 Final settings to save:', sanitized);
+
     try {
         if (typeof window !== 'undefined' && window.localStorage) {
             window.localStorage.setItem(SPEECH_SETTINGS_LS_KEY, JSON.stringify(sanitized));
+            console.log('🎤 Settings saved to localStorage successfully');
         }
-    } catch (_) {
+    } catch (error) {
+        console.warn('🎤 Failed to save settings to localStorage:', error);
         // ignore storage failures
     }
     return sanitized;
@@ -411,11 +421,14 @@ export function createSpeechSettingsController({
         setModalStatus('Saving…', 'pending');
         try {
             const payload = readFromForm();
+            console.log('🎤 Speech settings form submitted with payload:', payload);
             const saved = saveSpeechSettings(payload);
+            console.log('🎤 Speech settings saved successfully:', saved);
             populateForm(saved);
             try {
                 // Notify listeners in the same tab that speech settings changed
                 window.dispatchEvent(new CustomEvent('speechsettings:updated', { detail: saved }));
+                console.log('🎤 speechsettings:updated event dispatched');
             } catch (_) {
                 // no-op
             }

@@ -2,6 +2,26 @@ import { renderMarkdown } from './markdown.js';
 import { createModelSettingsController } from './model-settings.js';
 import { createSpeechSettingsController, getSpeechSettings, SPEECH_SETTINGS_LS_KEY } from './speech-settings.js';
 
+// Debug function for testing speech settings - you can call this from browser console
+window.debugSpeechSettings = function () {
+  const settings = getSpeechSettings();
+  console.log('🎤 DEBUG: Current speech settings:', settings);
+  console.log('🎤 DEBUG: Auto-submit setting:', settings?.stt?.auto_submit);
+  console.log('🎤 DEBUG: Conversation enabled:', settings?.conversation?.enabled);
+
+  try {
+    const raw = localStorage.getItem('speech.settings.v1');
+    console.log('🎤 DEBUG: Raw localStorage:', raw);
+    if (raw) {
+      console.log('🎤 DEBUG: Parsed localStorage:', JSON.parse(raw));
+    }
+  } catch (err) {
+    console.log('🎤 DEBUG: localStorage error:', err);
+  }
+
+  return settings;
+};
+
 const chatLog = document.querySelector('#chat-log');
 const messageTemplate = document.querySelector('#message-template');
 const modelSelect = document.querySelector('#model-select');
@@ -139,9 +159,17 @@ let countdownIntervalId = null; // Track the countdown interval
 let countdownSecondsRemaining = 0; // Track remaining seconds for countdown
 let countdownTimeoutMs = 0; // Store the original timeout value for resetting
 
+// Speech detection state for robust end-of-speech detection
+let speechFinalReceived = false; // Track if we've seen speech_final=true
+let utteranceEndTimer = null; // Timer for UtteranceEnd handling
+
 // Function to reset countdown when speech is detected
 function resetCountdown() {
-  if (!countdownIntervalId || countdownTimeoutMs === 0) return;
+  // Only reset countdown if conversation mode is enabled and countdown is actually running
+  if (!countdownIntervalId || countdownTimeoutMs === 0) {
+    console.log('🎤 resetCountdown called but no countdown active - ignoring');
+    return;
+  }
 
   console.log('🎤 Speech detected - resetting countdown');
 
@@ -181,13 +209,21 @@ function resetCountdown() {
 
     // Check if we have any transcript when timeout occurs
     const currentText = (messageInput?.value || '').trim() || lastFinalTranscript;
-    const autoSubmitEnabled = sttSettings.auto_submit !== false;
+    const autoSubmitEnabled = sttSettings.auto_submit === true; // Check for explicit true value
 
     if (currentText && autoSubmitEnabled) {
-      console.log('🎤 Timeout with transcript - auto-submitting');
+      console.log('🎤 Timeout with transcript - auto-submitting', {
+        currentText,
+        autoSubmitEnabled,
+        autoSubmitSetting: sttSettings.auto_submit
+      });
       stopVoiceInput(true).catch((err) => console.warn('Timeout auto-submit failed', err));
     } else {
-      console.log('🎤 Timeout without valid transcript or auto-submit disabled');
+      console.log('🎤 Timeout without valid transcript or auto-submit disabled', {
+        currentText,
+        autoSubmitEnabled,
+        autoSubmitSetting: sttSettings.auto_submit
+      });
       stopVoiceInput(false).catch((err) => console.warn('Timeout stop failed', err));
     }
   }, countdownTimeoutMs);
@@ -1564,11 +1600,28 @@ function handleVoiceClick(event) {
   if (event) {
     event.preventDefault();
   }
+
+  const speechSettings = getSpeechSettings();
   console.log('🎤 handleVoiceClick called', {
     isStreaming,
     isRecording,
-    source: event ? 'manual' : 'wakeword'
+    source: event ? 'manual' : 'wakeword',
+    currentSpeechSettings: speechSettings,
+    autoSubmitSetting: speechSettings?.stt?.auto_submit
   });
+
+  // Additional debug: check localStorage directly
+  try {
+    const rawSettings = localStorage.getItem('speech.settings.v1');
+    console.log('🎤 Raw localStorage speech.settings.v1:', rawSettings);
+    if (rawSettings) {
+      const parsed = JSON.parse(rawSettings);
+      console.log('🎤 Parsed localStorage settings:', parsed);
+    }
+  } catch (err) {
+    console.log('🎤 Error reading localStorage:', err);
+  }
+
   if (isStreaming) {
     console.log('🎤 Skipping voice input - already streaming');
     return; // Don't start STT while model is responding
@@ -1576,7 +1629,7 @@ function handleVoiceClick(event) {
   if (isRecording) {
     // When manually stopping recording, always submit (ignore auto_submit setting)
     // because the user explicitly wants to stop and send the message
-    console.log('🎤 Manually stopping current recording with submit=true');
+    console.log('🎤 Manually stopping current recording with submit=true (user clicked stop)');
     stopVoiceInput(true).catch((err) => console.warn('Voice stop failed', err));
   } else {
     console.log('🎤 Starting new voice input');
@@ -1593,9 +1646,23 @@ async function startVoiceInput() {
   lastFinalTranscript = '';
   voiceInputPreviousValue = messageInput ? messageInput.value : '';
 
+  // Reset speech detection state for new session
+  speechFinalReceived = false;
+  if (utteranceEndTimer) {
+    clearTimeout(utteranceEndTimer);
+    utteranceEndTimer = null;
+  }
+
   // Check if conversation mode is enabled for auto-restart after response
   const speechSettings = getSpeechSettings();
   const conversationEnabled = speechSettings?.conversation?.enabled === true;
+
+  console.log('🎤 Starting voice input with settings:', {
+    speechSettings,
+    autoSubmit: speechSettings?.stt?.auto_submit,
+    conversationEnabled,
+    voiceInputPreviousValue
+  });
 
   // Set initial UI state - countdown will be updated later if conversation mode is enabled
   updateVoiceUi(true);
@@ -1741,13 +1808,21 @@ async function startVoiceInput() {
 
         // Check if we have any transcript when timeout occurs
         const currentText = (messageInput?.value || '').trim() || lastFinalTranscript;
-        const autoSubmitEnabled = sttSettings.auto_submit !== false;
+        const autoSubmitEnabled = sttSettings.auto_submit === true; // Check for explicit true value
 
         if (currentText && autoSubmitEnabled) {
-          console.log('🎤 Timeout with transcript - auto-submitting');
+          console.log('🎤 Timeout with transcript - auto-submitting', {
+            currentText,
+            autoSubmitEnabled,
+            autoSubmitSetting: sttSettings.auto_submit
+          });
           stopVoiceInput(true).catch((err) => console.warn('Timeout auto-submit failed', err));
         } else {
-          console.log('🎤 Timeout without valid transcript or auto-submit disabled');
+          console.log('🎤 Timeout without valid transcript or auto-submit disabled', {
+            currentText,
+            autoSubmitEnabled,
+            autoSubmitSetting: sttSettings.auto_submit
+          });
           stopVoiceInput(false).catch((err) => console.warn('Timeout stop failed', err));
         }
       }, timeoutMs);
@@ -1768,41 +1843,128 @@ async function startVoiceInput() {
   dgSocket.addEventListener('message', (ev) => {
     try {
       const msg = JSON.parse(ev.data);
+      console.log('🎤 Deepgram message received:', {
+        type: msg.type,
+        is_final: msg.is_final,
+        speech_final: msg.speech_final,
+        transcript: msg?.channel?.alternatives?.[0]?.transcript || '',
+        confidence: msg?.channel?.alternatives?.[0]?.confidence
+      });
+
       if (msg.type === 'SpeechStarted') {
-        // Reset countdown when speech is detected
-        resetCountdown();
+        console.log('🎤 SpeechStarted event - resetting countdown');
+        // Only reset countdown if conversation mode is enabled
+        const speechSettings = getSpeechSettings();
+        if (speechSettings?.conversation?.enabled === true) {
+          resetCountdown();
+        }
         return;
       }
+
+      if (msg.type === 'UtteranceEnd') {
+        console.log('🎤 UtteranceEnd event detected');
+
+        // Clear any existing utterance end timer
+        if (utteranceEndTimer) {
+          clearTimeout(utteranceEndTimer);
+          utteranceEndTimer = null;
+        }
+
+        // Implement robust end-of-speech detection per Deepgram docs:
+        // Trigger auto-submit when we get UtteranceEnd WITHOUT a preceding speech_final=true
+        if (!speechFinalReceived) {
+          console.log('🎤 UtteranceEnd without speech_final - triggering auto-submit');
+          const sttSettings = getSpeechSettings()?.stt || {};
+          const autoSubmit = sttSettings.auto_submit === true;
+
+          console.log('🎤 UtteranceEnd detected - END OF UTTERANCE (no speech_final)', {
+            autoSubmit,
+            autoSubmitSetting: sttSettings.auto_submit,
+            currentTranscript: msg?.channel?.alternatives?.[0]?.transcript || '',
+            messageInputValue: messageInput?.value,
+            lastFinalTranscript,
+            willAutoSubmit: autoSubmit,
+            speechFinalReceived: false
+          });
+
+          if (autoSubmit) {
+            stopVoiceInput(autoSubmit).catch((err) => console.warn('Auto stop failed', err));
+          }
+        } else {
+          console.log('🎤 UtteranceEnd received but speech_final already handled this utterance');
+        }
+
+        // Reset speech_final flag after a delay in case of multiple UtteranceEnd events
+        utteranceEndTimer = setTimeout(() => {
+          speechFinalReceived = false;
+          utteranceEndTimer = null;
+        }, 1000);
+
+        return;
+      }
+
       const alt = msg?.channel?.alternatives?.[0];
       const transcript = alt?.transcript || '';
       const isFinal = Boolean(msg?.is_final);
       const speechFinal = Boolean(msg?.speech_final);
 
       if (transcript) {
-        // Reset countdown when we receive any transcript (interim or final)
-        resetCountdown();
+        console.log('🎤 Transcript received:', {
+          transcript,
+          isFinal,
+          confidence: alt?.confidence,
+          previousValue: messageInput?.value,
+          lastFinalTranscript
+        });
+
+        // Only reset countdown when we receive transcript AND conversation mode is enabled
+        const speechSettings = getSpeechSettings();
+        if (speechSettings?.conversation?.enabled === true) {
+          resetCountdown();
+        }
 
         if (messageInput) {
           messageInput.value = transcript;
         }
         if (isFinal) {
+          console.log('🎤 Final transcript updated:', transcript);
           lastFinalTranscript = transcript;
         }
       }
 
       if (speechFinal) {
-        // End of utterance detected
+        // Mark that we've received speech_final=true for this utterance
+        speechFinalReceived = true;
+
+        // Clear any pending utterance end timer since speech_final takes precedence
+        if (utteranceEndTimer) {
+          clearTimeout(utteranceEndTimer);
+          utteranceEndTimer = null;
+        }
+
+        // End of utterance detected via speech_final=true
         const sttSettings = getSpeechSettings()?.stt || {};
-        const autoSubmit = sttSettings.auto_submit !== false; // Default to true
-        console.log('🎤 speechFinal detected', { autoSubmit });
-        stopVoiceInput(autoSubmit).catch((err) => console.warn('Auto stop failed', err));
+        const autoSubmit = sttSettings.auto_submit === true;
+
+        console.log('🎤 speech_final=true detected - END OF UTTERANCE (definitive)', {
+          autoSubmit,
+          autoSubmitSetting: sttSettings.auto_submit,
+          currentTranscript: transcript,
+          messageInputValue: messageInput?.value,
+          lastFinalTranscript,
+          willAutoSubmit: autoSubmit,
+          speechFinalReceived: true
+        });
+
+        if (autoSubmit) {
+          stopVoiceInput(autoSubmit).catch((err) => console.warn('Auto stop failed', err));
+        }
       }
     } catch (err) {
+      console.warn('🎤 Failed to parse Deepgram message:', err, 'Raw data:', ev.data);
       // Ignore non-JSON pings/keepalives
     }
-  });
-
-  dgSocket.addEventListener('error', (err) => {
+  }); dgSocket.addEventListener('error', (err) => {
     console.warn('Deepgram socket error', err);
     stopVoiceInput(false).catch(() => { });
   });
@@ -1842,10 +2004,11 @@ async function stopVoiceInput(submit) {
   countdownTimeoutMs = 0;
 
   const sttSettings = getSpeechSettings()?.stt || {};
-  const autoSubmitEnabled = sttSettings.auto_submit !== false;
+  const autoSubmitEnabled = sttSettings.auto_submit === true; // Check for explicit true value
   console.log('🎤 stopVoiceInput called', {
     submit,
     autoSubmitEnabled,
+    autoSubmitSetting: sttSettings.auto_submit,
     messageInputValue: messageInput?.value,
     lastFinalTranscript
   });
@@ -1862,15 +2025,29 @@ async function stopVoiceInput(submit) {
 
   if (submit) {
     const text = (messageInput?.value || '').trim() || lastFinalTranscript;
-    console.log('🎤 Processing submit', { text, isStreaming, autoSubmitEnabled });
+    console.log('🎤 Processing submit', {
+      text,
+      isStreaming,
+      autoSubmitEnabled,
+      autoSubmitSetting: sttSettings.auto_submit,
+      messageInputValue: messageInput?.value,
+      lastFinalTranscript
+    });
     if (text) {
       messageInput.value = text;
       if (!isStreaming) {
         console.log('🎤 Submitting form with text:', text);
+        console.log('🎤 Form submission details:', {
+          formElement: form,
+          hasRequestSubmit: typeof form.requestSubmit === 'function',
+          conversationModeActive
+        });
         // Keep conversationModeActive true since we're submitting and expecting a response
         if (typeof form.requestSubmit === 'function') {
+          console.log('🎤 Using form.requestSubmit()');
           form.requestSubmit();
         } else {
+          console.log('🎤 Using form.dispatchEvent(submit)');
           form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
         }
       } else {
@@ -1884,7 +2061,10 @@ async function stopVoiceInput(submit) {
       if (messageInput) messageInput.value = voiceInputPreviousValue;
     }
   } else {
-    console.log('🎤 Voice input stopped without submit (auto-submit disabled or manual stop)');
+    console.log('🎤 Voice input stopped without submit (auto-submit disabled or manual stop)', {
+      autoSubmitEnabled,
+      autoSubmitSetting: sttSettings.auto_submit
+    });
     // When not submitting, check if we should reset conversation mode
     // Only keep it active if auto-submit is disabled but we have text that might be submitted later
     const text = (messageInput?.value || '').trim() || lastFinalTranscript;

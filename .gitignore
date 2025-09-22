@@ -32,6 +32,22 @@ dist/
 .env.*
 !.env.example
 
+# Database files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Credentials and tokens
+*credentials*.json
+*token*.json
+google_tasks_credentials.json
+google_tasks_token.json
+
+# Node modules
+node_modules/
+
 # UV lock files (keep pyproject & lock as desired)
 # uv.lock can be committed; comment out next line if you want it tracked
 # uv.lock

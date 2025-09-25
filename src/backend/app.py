@@ -6,8 +6,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import Response
 
 from .chat import ChatOrchestrator
 from .config import get_settings
@@ -15,8 +14,6 @@ from .routers.chat import router as chat_router
 from .routers.settings import router as settings_router
 from .routers.stt import router as stt_router
 from .services.model_settings import ModelSettingsService
-
-FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "Test_Frontend"
 
 
 def create_app() -> FastAPI:
@@ -60,17 +57,6 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(settings_router)
     app.include_router(stt_router)
-
-    if FRONTEND_DIR.exists():
-        app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
-
-        @app.get("/", include_in_schema=False)
-        async def index() -> FileResponse:
-            return FileResponse(FRONTEND_DIR / "index.html")
-
-        @app.get("/settings", include_in_schema=False)
-        async def settings_page() -> FileResponse:
-            return FileResponse(FRONTEND_DIR / "settings.html")
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> Response:

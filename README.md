@@ -42,16 +42,12 @@ You can also use the CLI entrypoint:
 uv run backend
 ```
 
-Then open `http://localhost:8000/` for the lightweight web UI:
-
-- Pick any model exposed by OpenRouter (including `openrouter/auto`).
-- Send messages and watch the assistant respond in real-time via SSE.
-
-The API also remains available directly for other clients:
+The service exposes a clean API surface that any client (web, desktop, mobile) can consume:
 
 - `GET /health` — quick readiness probe that also reports the configured default model.
 - `POST /api/chat/stream` — accepts an OpenRouter-compatible chat body and streams completions via SSE.
 - `GET /api/models` — returns the upstream OpenRouter model catalog so the frontend can offer a picker.
+- `POST /api/stt/deepgram/token` — optional helper to mint short-lived Deepgram access tokens without exposing API keys to clients.
 
 ### Streaming example
 

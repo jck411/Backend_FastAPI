@@ -2,13 +2,15 @@
   import { afterUpdate, onMount } from 'svelte';
   import { chatStore } from './lib/stores/chat';
   import { modelStore } from './lib/stores/models';
+  import ModelExplorer from './lib/components/ModelExplorer.svelte';
 
   const { sendMessage, cancelStream, clearConversation, setModel } = chatStore;
-  const { loadModels } = modelStore;
+  const { loadModels, models: modelsStore, loading: modelsLoading, error: modelsError, filtered: filteredModels } = modelStore;
 
   let prompt = '';
   let chatLog: HTMLElement | null = null;
   let lastMessageCount = 0;
+  let explorerOpen = false;
 
   onMount(() => {
     loadModels();
@@ -43,7 +45,20 @@
       handleSubmit();
     }
   }
+
+  function openExplorer() {
+    explorerOpen = true;
+  }
+
+  function handleExplorerSelect(event: CustomEvent<{ id: string }>) {
+    const nextModel = event.detail.id;
+    if (nextModel) {
+      setModel(nextModel);
+    }
+  }
 </script>
+
+<ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />
 
 <main>
   <header class="app-header">
@@ -59,15 +74,15 @@
   <section class="toolbar">
     <label>
       <span>Model</span>
-      <select on:change={handleModelChange} bind:value={$chatStore.selectedModel} disabled={$modelStore.loading}>
-        {#if $modelStore.loading}
+      <select on:change={handleModelChange} bind:value={$chatStore.selectedModel} disabled={$modelsLoading}>
+        {#if $modelsLoading}
           <option>Loading models…</option>
-        {:else if $modelStore.error}
-          <option disabled>{`Failed to load models (${ $modelStore.error })`}</option>
-        {:else if $modelStore.models.length === 0}
+        {:else if $modelsError}
+          <option disabled>{`Failed to load models (${ $modelsError })`}</option>
+        {:else if $modelsStore.length === 0}
           <option disabled>No models available</option>
         {:else}
-          {#each $modelStore.models as model}
+          {#each $filteredModels as model}
             <option value={model.id}>
               {model.name ?? model.id}
             </option>
@@ -75,6 +90,9 @@
         {/if}
       </select>
     </label>
+    <button type="button" class="ghost" on:click={openExplorer} disabled={$modelsLoading}>
+      Explorer
+    </button>
     <div class="status">
       {#if $chatStore.isStreaming}
         <span class="dot" aria-hidden="true"></span>
@@ -202,6 +220,15 @@
     border: 1px solid #24304c;
     background: #0b101b;
     color: inherit;
+  }
+
+  .toolbar .ghost {
+    border-radius: 999px;
+    border: 1px solid #25314d;
+    background: none;
+    color: inherit;
+    padding: 0.45rem 1.1rem;
+    cursor: pointer;
   }
 
   .status {

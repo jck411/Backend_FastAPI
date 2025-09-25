@@ -64,7 +64,7 @@ curl -N \
 
 ## Frontend (Svelte)
 
-A Svelte + TypeScript client lives in `frontend/`. It proxies `/api/*` calls to the FastAPI backend during development.
+A Svelte + TypeScript client lives in `frontend/`. It proxies `/api/*` calls to the FastAPI backend during development and ships with a model explorer for filtering OpenRouter models.
 
 ```bash
 cd frontend

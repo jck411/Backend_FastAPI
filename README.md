@@ -62,6 +62,18 @@ curl -N \
   http://localhost:8000/api/chat/stream
 ```
 
+## Frontend (Svelte)
+
+A Svelte + TypeScript client lives in `frontend/`. It proxies `/api/*` calls to the FastAPI backend during development.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Set `VITE_API_BASE_URL` in `frontend/.env` if you need to target a remote backend instead of the local proxy.
+
 ## Run the MCP server
 
 The MCP server exposes a `chat.completions` tool that mirrors the OpenRouter request schema and returns the final assistant message (including any streamed tool call arguments).

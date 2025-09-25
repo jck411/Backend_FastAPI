@@ -12,9 +12,10 @@
     dispatch('toggle', value);
   }
 
-  function isSelected(value: string): boolean {
-    return selected.includes(value);
-  }
+function isSelected(value: string): boolean {
+  const normalized = value.trim().toLowerCase();
+  return selected.some((entry) => entry.trim().toLowerCase() === normalized);
+}
 </script>
 
 <div class="filter-card">
@@ -62,7 +63,6 @@
     color: inherit;
     padding: 0.35rem 0.8rem;
     cursor: pointer;
-    text-transform: capitalize;
   }
 
   button.active {

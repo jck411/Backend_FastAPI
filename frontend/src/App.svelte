@@ -5,7 +5,14 @@
   import ModelExplorer from './lib/components/model-explorer/ModelExplorer.svelte';
 
   const { sendMessage, cancelStream, clearConversation, setModel } = chatStore;
-  const { loadModels, models: modelsStore, loading: modelsLoading, error: modelsError, filtered: filteredModels } = modelStore;
+  const {
+    loadModels,
+    models: modelsStore,
+    loading: modelsLoading,
+    error: modelsError,
+    filtered: filteredModels,
+    activeFilters,
+  } = modelStore;
 
   let prompt = '';
   let chatLog: HTMLElement | null = null;
@@ -56,6 +63,30 @@
       setModel(nextModel);
     }
   }
+
+  $: selectableModels = (() => {
+    const active = $activeFilters;
+    const base = active ? $filteredModels : $modelsStore;
+    if (!base || base.length === 0) {
+      if (!active) {
+        return [];
+      }
+    }
+
+    const selectedId = $chatStore.selectedModel;
+    if (!selectedId) {
+      return base;
+    }
+    const exists = base.some((model) => model.id === selectedId);
+    if (exists) {
+      return base;
+    }
+    const fallback = $modelsStore.find((model) => model.id === selectedId);
+    if (!fallback) {
+      return base;
+    }
+    return [fallback, ...base.filter((model) => model.id !== selectedId)];
+  })();
 </script>
 
 <ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />
@@ -79,10 +110,16 @@
           <option>Loading models…</option>
         {:else if $modelsError}
           <option disabled>{`Failed to load models (${ $modelsError })`}</option>
-        {:else if $modelsStore.length === 0}
-          <option disabled>No models available</option>
+        {:else if selectableModels.length === 0}
+          <option disabled>
+            {#if $activeFilters}
+              No models match current filters
+            {:else}
+              No models available
+            {/if}
+          </option>
         {:else}
-          {#each $filteredModels as model}
+          {#each selectableModels as model (model.id)}
             <option value={model.id}>
               {model.name ?? model.id}
             </option>

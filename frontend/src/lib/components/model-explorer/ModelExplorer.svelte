@@ -4,7 +4,7 @@
   import type { ModelRecord } from '../../api/types';
   import { formatContext, formatPrice } from '../../models/utils';
   import ModelCard from './ModelCard.svelte';
-  import ModalityFilterGroup from './ModalityFilterGroup.svelte';
+  import TogglePillGroup from './TogglePillGroup.svelte';
   import SortControls from './SortControls.svelte';
 
   export let open = false;
@@ -18,10 +18,15 @@
     setSearch,
     toggleInputModality,
     toggleOutputModality,
+    toggleSeries,
+    toggleProvider,
+    toggleSupportedParameter,
+    toggleModeration,
     setMinContext,
     setMaxPromptPrice,
     setSort,
     resetFilters,
+    activeFilters,
   } = modelStore;
 
   const bodyClass = 'modal-open';
@@ -61,6 +66,7 @@
   $: filteredModels = $filtered as ModelRecord[];
   $: availableFacets = $facets;
   $: currentFilters = $filters;
+  $: filtersActive = $activeFilters;
 </script>
 
 {#if open}
@@ -88,19 +94,47 @@
     </section>
 
     <section class="filters">
-      <ModalityFilterGroup
+      <TogglePillGroup
         title="Input modalities"
         options={availableFacets.inputModalities}
         selected={$filters.inputModalities}
         on:toggle={(event) => toggleInputModality(event.detail)}
         emptyMessage="No modality data available."
       />
-      <ModalityFilterGroup
+      <TogglePillGroup
         title="Output modalities"
         options={availableFacets.outputModalities}
         selected={$filters.outputModalities}
         on:toggle={(event) => toggleOutputModality(event.detail)}
         emptyMessage="No modality data available."
+      />
+      <TogglePillGroup
+        title="Series"
+        options={availableFacets.series}
+        selected={$filters.series}
+        on:toggle={(event) => toggleSeries(event.detail)}
+        emptyMessage="Series information unavailable."
+      />
+      <TogglePillGroup
+        title="Providers"
+        options={availableFacets.providers}
+        selected={$filters.providers}
+        on:toggle={(event) => toggleProvider(event.detail)}
+        emptyMessage="No provider data available."
+      />
+      <TogglePillGroup
+        title="Supported parameters"
+        options={availableFacets.supportedParameters}
+        selected={$filters.supportedParameters}
+        on:toggle={(event) => toggleSupportedParameter(event.detail)}
+        emptyMessage="No parameter metadata available."
+      />
+      <TogglePillGroup
+        title="Moderation"
+        options={availableFacets.moderation}
+        selected={$filters.moderation}
+        on:toggle={(event) => toggleModeration(event.detail)}
+        emptyMessage="No moderation metadata available."
       />
       <div class="filter-card">
         <header>
@@ -164,7 +198,13 @@
       </header>
 
       {#if filteredModels.length === 0}
-        <p class="empty">No models match your current filters.</p>
+        <p class="empty">
+          {#if filtersActive}
+            No models match your current filters.
+          {:else}
+            No models available.
+          {/if}
+        </p>
       {:else}
         <ul class="model-grid">
           {#each filteredModels as model (model.id)}

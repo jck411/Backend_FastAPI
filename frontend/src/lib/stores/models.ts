@@ -5,8 +5,12 @@ import {
   asNumeric,
   extractContextLength,
   extractInputModalities,
+  extractModeration,
   extractOutputModalities,
   extractPromptPrice,
+  extractProviderName,
+  extractSeries,
+  extractSupportedParameters,
 } from '../models/utils';
 
 export type ModelSort = 'newness' | 'price' | 'context';
@@ -18,6 +22,10 @@ interface ModelFilters {
   minContext: number | null;
   maxPromptPrice: number | null;
   sort: ModelSort;
+  series: string[];
+  providers: string[];
+  supportedParameters: string[];
+  moderation: string[];
 }
 
 interface ModelFacets {
@@ -27,6 +35,10 @@ interface ModelFacets {
   maxContext: number | null;
   minPromptPrice: number | null;
   maxPromptPrice: number | null;
+  series: string[];
+  providers: string[];
+  supportedParameters: string[];
+  moderation: string[];
 }
 
 interface ModelState {
@@ -44,6 +56,10 @@ const initialFilters: ModelFilters = {
   minContext: null,
   maxPromptPrice: null,
   sort: 'newness',
+  series: [],
+  providers: [],
+  supportedParameters: [],
+  moderation: [],
 };
 
 const emptyFacets: ModelFacets = {
@@ -53,6 +69,10 @@ const emptyFacets: ModelFacets = {
   maxContext: null,
   minPromptPrice: null,
   maxPromptPrice: null,
+  series: [],
+  providers: [],
+  supportedParameters: [],
+  moderation: [],
 };
 
 const initialState: ModelState = {
@@ -70,6 +90,10 @@ function computeFacets(models: ModelRecord[]): ModelFacets {
   let maxContext: number | null = null;
   let minPromptPrice: number | null = null;
   let maxPromptPrice: number | null = null;
+  const seriesSet = new Set<string>();
+  const providerSet = new Set<string>();
+  const parameterSet = new Set<string>();
+  const moderationSet = new Set<string>();
 
   for (const model of models) {
     for (const modality of extractInputModalities(model)) {
@@ -90,6 +114,24 @@ function computeFacets(models: ModelRecord[]): ModelFacets {
       minPromptPrice = minPromptPrice === null ? promptPrice : Math.min(minPromptPrice, promptPrice);
       maxPromptPrice = maxPromptPrice === null ? promptPrice : Math.max(maxPromptPrice, promptPrice);
     }
+
+    for (const label of extractSeries(model)) {
+      seriesSet.add(label);
+    }
+
+    const provider = extractProviderName(model);
+    if (provider) {
+      providerSet.add(provider);
+    }
+
+    for (const parameter of extractSupportedParameters(model)) {
+      parameterSet.add(parameter);
+    }
+
+    const moderation = extractModeration(model);
+    if (moderation) {
+      moderationSet.add(moderation);
+    }
   }
 
   return {
@@ -99,6 +141,10 @@ function computeFacets(models: ModelRecord[]): ModelFacets {
     maxContext,
     minPromptPrice,
     maxPromptPrice,
+    series: Array.from(seriesSet).sort(),
+    providers: Array.from(providerSet).sort(),
+    supportedParameters: Array.from(parameterSet).sort(),
+    moderation: Array.from(moderationSet).sort(),
   };
 }
 
@@ -151,6 +197,34 @@ function filterAndSortModels(state: ModelState): ModelRecord[] {
       }
     }
 
+    if (filters.series.length > 0) {
+      const seriesValues = extractSeries(model).map((value) => value.toLowerCase());
+      if (!matchesModality(filters.series.map((value) => value.toLowerCase()), seriesValues)) {
+        return false;
+      }
+    }
+
+    if (filters.providers.length > 0) {
+      const provider = extractProviderName(model)?.toLowerCase() ?? null;
+      if (!provider || !filters.providers.some((value) => provider === value.toLowerCase())) {
+        return false;
+      }
+    }
+
+    if (filters.supportedParameters.length > 0) {
+      const parameters = extractSupportedParameters(model).map((value) => value.toLowerCase());
+      if (!matchesModality(filters.supportedParameters.map((value) => value.toLowerCase()), parameters)) {
+        return false;
+      }
+    }
+
+    if (filters.moderation.length > 0) {
+      const moderation = extractModeration(model)?.toLowerCase() ?? null;
+      if (!moderation || !filters.moderation.some((value) => moderation === value.toLowerCase())) {
+        return false;
+      }
+    }
+
     return true;
   });
 
@@ -196,6 +270,20 @@ function sanitizeFilterValue(value: number | null): number | null {
   if (Number.isNaN(value)) return null;
   if (!Number.isFinite(value)) return null;
   return value;
+}
+
+function hasAnyFilters(filters: ModelFilters): boolean {
+  return Boolean(
+    filters.search.trim() ||
+      filters.inputModalities.length ||
+      filters.outputModalities.length ||
+      filters.series.length ||
+      filters.providers.length ||
+      filters.supportedParameters.length ||
+      filters.moderation.length ||
+      filters.minContext !== null ||
+      filters.maxPromptPrice !== null,
+  );
 }
 
 function createModelStore() {
@@ -259,6 +347,46 @@ function createModelStore() {
     }));
   }
 
+  function toggleSeries(value: string): void {
+    store.update((state) => ({
+      ...state,
+      filters: {
+        ...state.filters,
+        series: toggleValue(state.filters.series, value),
+      },
+    }));
+  }
+
+  function toggleProvider(value: string): void {
+    store.update((state) => ({
+      ...state,
+      filters: {
+        ...state.filters,
+        providers: toggleValue(state.filters.providers, value),
+      },
+    }));
+  }
+
+  function toggleSupportedParameter(value: string): void {
+    store.update((state) => ({
+      ...state,
+      filters: {
+        ...state.filters,
+        supportedParameters: toggleValue(state.filters.supportedParameters, value),
+      },
+    }));
+  }
+
+  function toggleModeration(value: string): void {
+    store.update((state) => ({
+      ...state,
+      filters: {
+        ...state.filters,
+        moderation: toggleValue(state.filters.moderation, value),
+      },
+    }));
+  }
+
   function setMinContext(minContext: number | null): void {
     store.update((value) => ({
       ...value,
@@ -302,6 +430,7 @@ function createModelStore() {
   const filters = derived(store, (state) => state.filters);
   const facets = derived(store, (state) => state.facets);
   const filtered = derived(store, (state) => filterAndSortModels(state));
+  const activeFilters = derived(store, (state) => hasAnyFilters(state.filters));
 
   return {
     subscribe: store.subscribe,
@@ -309,6 +438,10 @@ function createModelStore() {
     setSearch,
     toggleInputModality,
     toggleOutputModality,
+    toggleSeries,
+    toggleProvider,
+    toggleSupportedParameter,
+    toggleModeration,
     setMinContext,
     setMaxPromptPrice,
     setSort,
@@ -319,6 +452,7 @@ function createModelStore() {
     filters,
     facets,
     filtered,
+    activeFilters,
   };
 }
 

@@ -38,6 +38,7 @@ dist/
 *.db-wal
 *.sqlite
 *.sqlite3
+data/chat_sessions.db
 
 # Credentials and tokens
 *credentials*.json

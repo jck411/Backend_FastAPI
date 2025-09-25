@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -19,12 +20,6 @@ from .services.model_settings import ModelSettingsService
 def create_app() -> FastAPI:
     settings = get_settings()
 
-    app = FastAPI(
-        title="OpenRouter Chat Backend",
-        version="0.1.0",
-        description="Streaming chat backend powered by OpenRouter and MCP.",
-    )
-
     project_root = Path(__file__).resolve().parent.parent.parent
     model_settings_path = settings.model_settings_path
     if not model_settings_path.is_absolute():
@@ -33,9 +28,25 @@ def create_app() -> FastAPI:
     model_settings_service = ModelSettingsService(
         model_settings_path, settings.default_model
     )
-    app.state.model_settings_service = model_settings_service
 
     orchestrator = ChatOrchestrator(settings, model_settings_service)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        await orchestrator.initialize()
+        try:
+            yield
+        finally:
+            await orchestrator.shutdown()
+
+    app = FastAPI(
+        title="OpenRouter Chat Backend",
+        version="0.1.0",
+        description="Streaming chat backend powered by OpenRouter and MCP.",
+        lifespan=lifespan,
+    )
+
+    app.state.model_settings_service = model_settings_service
     app.state.chat_orchestrator = orchestrator
 
     app.add_middleware(
@@ -45,14 +56,6 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-
-    @app.on_event("startup")
-    async def startup() -> None:
-        await orchestrator.initialize()
-
-    @app.on_event("shutdown")
-    async def shutdown() -> None:
-        await orchestrator.shutdown()
 
     app.include_router(chat_router)
     app.include_router(settings_router)

@@ -93,12 +93,13 @@
       <SortControls selected={$filters.sort} onSelect={handleSort} />
     </section>
 
-    <section class="filters">
-      <TogglePillGroup
-        title="Input modalities"
-        options={availableFacets.inputModalities}
-        selected={$filters.inputModalities}
-        on:toggle={(event) => toggleInputModality(event.detail)}
+    <div class="body">
+      <section class="filters">
+        <TogglePillGroup
+          title="Input modalities"
+          options={availableFacets.inputModalities}
+          selected={$filters.inputModalities}
+          on:toggle={(event) => toggleInputModality(event.detail)}
         emptyMessage="No modality data available."
       />
       <TogglePillGroup
@@ -186,35 +187,36 @@
           </p>
         {/if}
       </div>
-    </section>
+      </section>
 
-    <section class="results" aria-live="polite">
-      <header class="results-header">
-        <div>
-          <h3>Models</h3>
-          <p class="summary">{filteredModels.length} result{filteredModels.length === 1 ? '' : 's'}</p>
-        </div>
-        <button type="button" class="ghost" on:click={resetFilters}>Reset filters</button>
-      </header>
+      <section class="results" aria-live="polite">
+        <header class="results-header">
+          <div>
+            <h3>Models</h3>
+            <p class="summary">{filteredModels.length} result{filteredModels.length === 1 ? '' : 's'}</p>
+          </div>
+          <button type="button" class="ghost" on:click={resetFilters}>Reset filters</button>
+        </header>
 
-      {#if filteredModels.length === 0}
-        <p class="empty">
-          {#if filtersActive}
-            No models match your current filters.
-          {:else}
-            No models available.
-          {/if}
-        </p>
-      {:else}
-        <ul class="model-grid">
-          {#each filteredModels as model (model.id)}
-            <li>
-              <ModelCard {model} onSelect={handleSelect} />
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </section>
+        {#if filteredModels.length === 0}
+          <p class="empty">
+            {#if filtersActive}
+              No models match your current filters.
+            {:else}
+              No models available.
+            {/if}
+          </p>
+        {:else}
+          <ul class="model-grid">
+            {#each filteredModels as model (model.id)}
+              <li>
+                <ModelCard {model} onSelect={handleSelect} />
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </section>
+    </div>
   </div>
 {/if}
 
@@ -234,10 +236,11 @@
     border: 1px solid #1d2741;
     border-radius: 1.25rem;
     padding: 1.75rem;
-    display: grid;
-    grid-template-rows: auto auto auto 1fr;
+    display: flex;
+    flex-direction: column;
     gap: 1.5rem;
     z-index: 100;
+    max-height: 90vh;
     overflow: hidden;
   }
 
@@ -287,6 +290,14 @@
     color: inherit;
   }
 
+  .body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    display: grid;
+    gap: 1.5rem;
+  }
+
   .filters {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -328,7 +339,6 @@
   }
 
   .results {
-    overflow: hidden;
     display: grid;
     gap: 1rem;
   }

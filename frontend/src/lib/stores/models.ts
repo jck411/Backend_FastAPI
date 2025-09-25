@@ -1,6 +1,13 @@
 import { derived, writable } from 'svelte/store';
 import { fetchModels } from '../api/client';
-import type { ModelListResponse, ModelPricing, ModelRecord } from '../api/types';
+import type { ModelListResponse, ModelRecord } from '../api/types';
+import {
+  asNumeric,
+  extractContextLength,
+  extractInputModalities,
+  extractOutputModalities,
+  extractPromptPrice,
+} from '../models/utils';
 
 export type ModelSort = 'newness' | 'price' | 'context';
 
@@ -55,117 +62,6 @@ const initialState: ModelState = {
   filters: { ...initialFilters },
   facets: { ...emptyFacets },
 };
-
-function asNumeric(value: unknown): number | null {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : null;
-  }
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-function collectModalities(source: unknown): string[] {
-  const values: string[] = [];
-  if (Array.isArray(source)) {
-    for (const item of source) {
-      if (typeof item === 'string' && item.trim()) {
-        values.push(item.trim().toLowerCase());
-      }
-    }
-    return values;
-  }
-  if (typeof source === 'string') {
-    return source
-      .split(/[,/]/)
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean);
-  }
-  if (typeof source === 'object' && source !== null) {
-    const maybeValues = Object.values(source as Record<string, unknown>);
-    for (const value of maybeValues) {
-      values.push(...collectModalities(value));
-    }
-  }
-  return values;
-}
-
-function extractInputModalities(model: ModelRecord): string[] {
-  const candidates: unknown[] = [];
-  const { capabilities, tags } = model;
-  if (capabilities) {
-    candidates.push(
-      (capabilities as Record<string, unknown>).input_modalities,
-      (capabilities as Record<string, unknown>).input,
-      (capabilities as Record<string, unknown>).modalities,
-      (capabilities as Record<string, unknown>).inputs,
-    );
-  }
-  if ((model as Record<string, unknown>).input_modalities) {
-    candidates.push((model as Record<string, unknown>).input_modalities);
-  }
-  if (tags) {
-    candidates.push(tags);
-  }
-  const values = new Set<string>();
-  for (const candidate of candidates) {
-    for (const value of collectModalities(candidate)) {
-      values.add(value);
-    }
-  }
-  return Array.from(values);
-}
-
-function extractOutputModalities(model: ModelRecord): string[] {
-  const candidates: unknown[] = [];
-  const { capabilities, tags } = model;
-  if (capabilities) {
-    const record = capabilities as Record<string, unknown>;
-    candidates.push(record.output_modalities, record.output, record.outputs);
-    const modalities = record.modalities as Record<string, unknown> | undefined;
-    if (modalities) {
-      candidates.push(modalities.output, modalities.outputs);
-    }
-  }
-  if ((model as Record<string, unknown>).output_modalities) {
-    candidates.push((model as Record<string, unknown>).output_modalities);
-  }
-  if (tags) {
-    candidates.push(tags);
-  }
-  const values = new Set<string>();
-  for (const candidate of candidates) {
-    for (const value of collectModalities(candidate)) {
-      values.add(value);
-    }
-  }
-  return Array.from(values);
-}
-
-function extractPromptPrice(pricing?: ModelPricing | null): number | null {
-  if (!pricing) return null;
-  const prompt = pricing.prompt ?? pricing.request ?? pricing.completion ?? null;
-  return asNumeric(prompt);
-}
-
-function extractContextLength(model: ModelRecord): number | null {
-  const candidates = [
-    (model as Record<string, unknown>).max_context,
-    (model as Record<string, unknown>).context_length,
-    (model as Record<string, unknown>).context_window,
-    (model as Record<string, unknown>).context_tokens,
-    (model.stats as Record<string, unknown> | undefined)?.context_length,
-  ];
-  for (const candidate of candidates) {
-    const numeric = asNumeric(candidate);
-    if (numeric !== null) {
-      return numeric;
-    }
-  }
-  return null;
-}
 
 function computeFacets(models: ModelRecord[]): ModelFacets {
   const inputSet = new Set<string>();

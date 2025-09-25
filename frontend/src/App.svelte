@@ -2,7 +2,7 @@
   import { afterUpdate, onMount } from 'svelte';
   import { chatStore } from './lib/stores/chat';
   import { modelStore } from './lib/stores/models';
-  import ModelExplorer from './lib/components/ModelExplorer.svelte';
+  import ModelExplorer from './lib/components/model-explorer/ModelExplorer.svelte';
 
   const { sendMessage, cancelStream, clearConversation, setModel } = chatStore;
   const { loadModels, models: modelsStore, loading: modelsLoading, error: modelsError, filtered: filteredModels } = modelStore;

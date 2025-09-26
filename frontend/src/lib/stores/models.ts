@@ -20,6 +20,7 @@ interface ModelFilters {
   inputModalities: string[];
   outputModalities: string[];
   minContext: number | null;
+  minPromptPrice: number | null;
   maxPromptPrice: number | null;
   sort: ModelSort;
   series: string[];
@@ -54,6 +55,7 @@ const initialFilters: ModelFilters = {
   inputModalities: [],
   outputModalities: [],
   minContext: null,
+  minPromptPrice: null,
   maxPromptPrice: null,
   sort: 'newness',
   series: [],
@@ -191,6 +193,11 @@ function filterAndSortModels(state: ModelState): ModelRecord[] {
     }
 
     const promptPrice = extractPromptPrice(model.pricing ?? null);
+    if (filters.minPromptPrice !== null) {
+      if (promptPrice === null || promptPrice < filters.minPromptPrice) {
+        return false;
+      }
+    }
     if (filters.maxPromptPrice !== null) {
       if (promptPrice === null || promptPrice > filters.maxPromptPrice) {
         return false;
@@ -269,6 +276,7 @@ function sanitizeFilterValue(value: number | null): number | null {
   if (value === null) return null;
   if (Number.isNaN(value)) return null;
   if (!Number.isFinite(value)) return null;
+  if (value < 0) return null;
   return value;
 }
 
@@ -282,6 +290,7 @@ function hasAnyFilters(filters: ModelFilters): boolean {
       filters.supportedParameters.length ||
       filters.moderation.length ||
       filters.minContext !== null ||
+      filters.minPromptPrice !== null ||
       filters.maxPromptPrice !== null,
   );
 }
@@ -397,6 +406,16 @@ function createModelStore() {
     }));
   }
 
+  function setMinPromptPrice(minPromptPrice: number | null): void {
+    store.update((value) => ({
+      ...value,
+      filters: {
+        ...value.filters,
+        minPromptPrice: sanitizeFilterValue(minPromptPrice),
+      },
+    }));
+  }
+
   function setMaxPromptPrice(maxPromptPrice: number | null): void {
     store.update((value) => ({
       ...value,
@@ -443,6 +462,7 @@ function createModelStore() {
     toggleSupportedParameter,
     toggleModeration,
     setMinContext,
+    setMinPromptPrice,
     setMaxPromptPrice,
     setSort,
     resetFilters,

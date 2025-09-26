@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import FilterSection from './FilterSection.svelte';
 
   export let title: string;
   export let options: string[] = [];
@@ -12,44 +13,32 @@
     dispatch('toggle', value);
   }
 
-function isSelected(value: string): boolean {
-  const normalized = value.trim().toLowerCase();
-  return selected.some((entry) => entry.trim().toLowerCase() === normalized);
-}
+  function isSelected(value: string): boolean {
+    const normalized = value.trim().toLowerCase();
+    return selected.some((entry) => entry.trim().toLowerCase() === normalized);
+  }
 </script>
 
-<div class="filter-card">
-  <header>
-    <h3>{title}</h3>
-  </header>
+<FilterSection {title}>
   <div class="options">
     {#if options.length === 0}
       <p class="empty">{emptyMessage}</p>
     {:else}
       {#each options as option}
-        <button type="button" class:active={isSelected(option)} on:click={() => handleToggle(option)}>
+        <button
+          type="button"
+          aria-pressed={isSelected(option)}
+          class:active={isSelected(option)}
+          on:click={() => handleToggle(option)}
+        >
           {option}
         </button>
       {/each}
     {/if}
   </div>
-</div>
+</FilterSection>
 
 <style>
-  .filter-card {
-    border: 1px solid #1e2b46;
-    border-radius: 1rem;
-    padding: 1rem;
-    display: grid;
-    gap: 0.75rem;
-    background: #10182b;
-  }
-
-  h3 {
-    margin: 0;
-    font-size: 1rem;
-  }
-
   .options {
     display: flex;
     flex-wrap: wrap;
@@ -58,15 +47,29 @@ function isSelected(value: string): boolean {
 
   button {
     border-radius: 999px;
-    border: 1px solid #25314d;
-    background: none;
-    color: inherit;
-    padding: 0.35rem 0.8rem;
+    border: 1px solid #1f2a45;
+    background: rgba(14, 20, 33, 0.9);
+    color: #d4daee;
+    padding: 0.35rem 0.9rem;
+    font-size: 0.88rem;
+    line-height: 1.3;
+    min-height: 2rem;
     cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
+  }
+
+  button:hover {
+    border-color: #38bdf8;
+    color: #f2f7ff;
+  }
+
+  button:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
   }
 
   button.active {
-    background: #17263f;
+    background: rgba(35, 60, 104, 0.85);
     border-color: #38bdf8;
     color: #38bdf8;
   }

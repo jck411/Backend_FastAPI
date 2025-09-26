@@ -103,7 +103,12 @@ export function extractOutputModalities(model: ModelRecord): string[] {
 
 export function extractPromptPrice(pricing?: ModelPricing | null): number | null {
   if (!pricing) return null;
-  return asNumeric(pricing.prompt ?? pricing.request ?? pricing.completion ?? pricing.image ?? null);
+  const value = asNumeric(pricing.prompt ?? pricing.request ?? pricing.completion ?? pricing.image ?? null);
+  if (value === null) return null;
+  if (value < 0) {
+    return null;
+  }
+  return value;
 }
 
 export function extractContextLength(model: ModelRecord): number | null {
@@ -125,6 +130,7 @@ export function extractContextLength(model: ModelRecord): number | null {
 
 export function formatPrice(value: number | null): string {
   if (value === null) return '—';
+  if (value === 0) return 'Free';
   if (value >= 1) return `$${value.toFixed(2)}`;
   if (value >= 0.01) return `$${value.toFixed(3)}`;
   return `$${value.toFixed(4)}`;

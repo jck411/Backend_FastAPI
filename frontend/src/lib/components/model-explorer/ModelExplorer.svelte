@@ -1,13 +1,13 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from 'svelte';
-  import { modelStore, type ModelSort } from '../../stores/models';
-  import type { ModelRecord } from '../../api/types';
-  import { formatContext, formatPrice } from '../../models/utils';
-  import ModelCard from './ModelCard.svelte';
-  import TogglePillGroup from './TogglePillGroup.svelte';
-  import SortControls from './SortControls.svelte';
-  import FilterSection from './FilterSection.svelte';
-  import RangeSlider from './RangeSlider.svelte';
+  import { createEventDispatcher, onDestroy } from "svelte";
+  import type { ModelRecord } from "../../api/types";
+  import { formatContext } from "../../models/utils";
+  import { modelStore, type ModelSort } from "../../stores/models";
+  import FilterSection from "./FilterSection.svelte";
+  import ModelCard from "./ModelCard.svelte";
+  import RangeSlider from "./RangeSlider.svelte";
+  import SortControls from "./SortControls.svelte";
+  import TogglePillGroup from "./TogglePillGroup.svelte";
 
   export let open = false;
 
@@ -30,7 +30,10 @@
     max: number;
   };
 
-  const dispatch = createEventDispatcher<{ select: { id: string }; close: void }>();
+  const dispatch = createEventDispatcher<{
+    select: { id: string };
+    close: void;
+  }>();
 
   const {
     filtered,
@@ -51,16 +54,16 @@
     activeFilters,
   } = modelStore;
 
-  const bodyClass = 'modal-open';
+  const bodyClass = "modal-open";
 
   let cleanup = () => {
-    if (typeof document !== 'undefined') {
+    if (typeof document !== "undefined") {
       document.body.classList.remove(bodyClass);
     }
   };
 
   $: {
-    if (typeof document !== 'undefined') {
+    if (typeof document !== "undefined") {
       if (open) {
         document.body.classList.add(bodyClass);
       } else {
@@ -73,11 +76,11 @@
 
   function close(): void {
     open = false;
-    dispatch('close');
+    dispatch("close");
   }
 
   function handleSelect(model: ModelRecord): void {
-    dispatch('select', { id: model.id });
+    dispatch("select", { id: model.id });
     close();
   }
 
@@ -87,57 +90,67 @@
 
   let currentFilters: FilterState;
   let contextStep = 1;
-  let priceStep = 0.001;
   let contextValue = 0;
   let priceRange: PriceRange = { min: 0, max: 0 };
-  let priceLabel = '';
+  let priceLabel = "";
   let contextSliderDisabled = false;
   let priceSliderDisabled = false;
   let priceScale: string[] = [];
 
-  const contextSliderId = 'context-length-slider';
-  const priceSliderId = 'prompt-price-slider';
-  const CONTEXT_SCALE = ['4K', '64K', '1M'];
-  const PRICE_SCALE = ['FREE', '$0.5', '$10+'];
+  const contextSliderId = "context-length-slider";
+  const priceSliderId = "prompt-price-slider";
+  const CONTEXT_SCALE = ["4K", "64K", "1M"];
+  const PRICE_STOPS = [0, 0.1, 0.2, 0.5, 1, 5, 10];
+  const PRICE_STOP_COUNT = PRICE_STOPS.length;
+  const PRICE_UNBOUNDED_INDEX = PRICE_STOP_COUNT;
+  const PRICE_UNBOUNDED_LABEL = "$10+";
+  const PRICE_SCALE_LABELS = PRICE_STOPS.map((stop) => formatStopLabel(stop));
 
   $: filteredModels = $filtered as ModelRecord[];
   $: availableFacets = $facets;
   $: currentFilters = $filters as FilterState;
   $: filtersActive = $activeFilters;
   $: activeFilterCount = countActiveFilters(currentFilters);
-  $: filterStatus = activeFilterCount > 0
-    ? `${activeFilterCount} active filter${activeFilterCount === 1 ? '' : 's'}`
-    : 'All models shown.';
+  $: filterStatus =
+    activeFilterCount > 0
+      ? `${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}`
+      : "All models shown.";
 
   $: contextMin = availableFacets.minContext ?? 0;
   $: contextMax = availableFacets.maxContext ?? contextMin;
-  $: contextSliderDisabled = availableFacets.maxContext === null || contextMin === contextMax;
+  $: contextSliderDisabled =
+    availableFacets.maxContext === null || contextMin === contextMax;
   $: contextStep = deriveContextStep(contextMin, contextMax);
-  $: contextValue = clampIntegerValue(currentFilters?.minContext ?? contextMin, contextMin, contextMax);
+  $: contextValue = clampIntegerValue(
+    currentFilters?.minContext ?? contextMin,
+    contextMin,
+    contextMax,
+  );
 
-  $: priceMin = availableFacets.minPromptPrice ?? 0;
-  $: priceMax = availableFacets.maxPromptPrice ?? priceMin;
-  $: priceSliderDisabled = availableFacets.maxPromptPrice === null || priceMin === priceMax;
-  $: priceStep = derivePriceStep(priceMin, priceMax);
+  $: priceSliderDisabled = availableFacets.maxPromptPrice === null;
   $: priceRange = (() => {
-    const range = {
-      min: clampDecimalValue(currentFilters?.minPromptPrice ?? priceMin, priceMin, priceMax),
-      max: clampDecimalValue(currentFilters?.maxPromptPrice ?? priceMax, priceMin, priceMax),
-    };
-    if (range.min > range.max) {
-      return { min: range.max, max: range.max };
+    if (priceSliderDisabled) {
+      return { min: 0, max: PRICE_UNBOUNDED_INDEX };
     }
-    return range;
+    const minIndex = indexForMinPrice(currentFilters?.minPromptPrice ?? null);
+    const maxIndex = indexForMaxPrice(currentFilters?.maxPromptPrice ?? null);
+    const clampedMin = clampIndex(minIndex, 0, PRICE_STOP_COUNT - 1);
+    const clampedMax = clampIndex(maxIndex, 0, PRICE_UNBOUNDED_INDEX);
+    if (clampedMin > clampedMax) {
+      return { min: clampedMax, max: clampedMax };
+    }
+    return { min: clampedMin, max: clampedMax };
   })();
   $: priceLabel = (() => {
-    const [minScale,, maxScale] = PRICE_SCALE;
     const minFilter = currentFilters?.minPromptPrice;
     const maxFilter = currentFilters?.maxPromptPrice;
-    const minLabel = minFilter === null || minFilter <= priceMin ? minScale : formatPrice(minFilter);
-    const maxLabel = maxFilter === null || maxFilter >= priceMax ? maxScale : formatPrice(maxFilter);
-    return `${minLabel.toUpperCase()} – ${maxLabel.toUpperCase()}`;
+    const minLabel =
+      minFilter === null ? PRICE_SCALE_LABELS[0] : formatStopLabel(minFilter);
+    const maxLabel =
+      maxFilter === null ? PRICE_UNBOUNDED_LABEL : formatStopLabel(maxFilter);
+    return `${minLabel} – ${maxLabel}`;
   })();
-  $: priceScale = priceSliderDisabled ? [] : PRICE_SCALE;
+  $: priceScale = priceSliderDisabled ? [] : PRICE_SCALE_LABELS;
 
   function countActiveFilters(filters: FilterState): number {
     let count = 0;
@@ -174,11 +187,90 @@
     return Math.round(value);
   }
 
-  function clampDecimalValue(value: number, min: number, max: number): number {
-    if (!Number.isFinite(value)) return max;
+  const STOP_EPSILON = 1e-9;
+
+  function clampIndex(value: number, min: number, max: number): number {
+    if (!Number.isFinite(value)) return min;
     if (value < min) return min;
     if (value > max) return max;
-    return Number(value.toFixed(3));
+    return Math.round(value);
+  }
+
+  function findNearestStopIndex(value: number): number {
+    let nearestIndex = 0;
+    let nearestDiff = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < PRICE_STOP_COUNT; index += 1) {
+      const diff = Math.abs(PRICE_STOPS[index] - value);
+      if (diff < nearestDiff) {
+        nearestDiff = diff;
+        nearestIndex = index;
+      }
+    }
+    return nearestIndex;
+  }
+
+  function indexForMinPrice(value: number | null): number {
+    if (value === null || value <= 0) {
+      return 0;
+    }
+    const exactIndex = PRICE_STOPS.findIndex(
+      (stop) => Math.abs(stop - value) <= STOP_EPSILON,
+    );
+    if (exactIndex >= 0) {
+      return exactIndex;
+    }
+    return findNearestStopIndex(value);
+  }
+
+  function indexForMaxPrice(value: number | null): number {
+    if (value === null) {
+      return PRICE_UNBOUNDED_INDEX;
+    }
+    const exactIndex = PRICE_STOPS.findIndex(
+      (stop) => Math.abs(stop - value) <= STOP_EPSILON,
+    );
+    if (exactIndex >= 0) {
+      return exactIndex;
+    }
+    return findNearestStopIndex(value);
+  }
+
+  function valueForMinIndex(index: number): number | null {
+    if (index <= 0) {
+      return null;
+    }
+    const safeIndex = Math.min(index, PRICE_STOP_COUNT - 1);
+    return PRICE_STOPS[safeIndex];
+  }
+
+  function valueForMaxIndex(index: number): number | null {
+    if (index >= PRICE_UNBOUNDED_INDEX) {
+      return null;
+    }
+    const safeIndex = Math.min(Math.max(index, 0), PRICE_STOP_COUNT - 1);
+    return PRICE_STOPS[safeIndex];
+  }
+
+  function formatStopLabel(value: number): string {
+    if (value <= 0) {
+      return "FREE";
+    }
+    const abs = Math.abs(value);
+    const digits =
+      abs >= 10
+        ? 0
+        : abs >= 1
+        ? 0
+        : abs >= 0.1
+        ? 1
+        : abs >= 0.01
+        ? 2
+        : 3;
+    const formatted = value
+      .toFixed(digits)
+      .replace(/\.0+$/, "")
+      .replace(/(\.\d*?)0+$/, "$1");
+    return `$${formatted}`;
   }
 
   function deriveContextStep(min: number, max: number): number {
@@ -188,34 +280,6 @@
     }
     const approx = Math.round(span / 40);
     return Math.max(approx, 1);
-  }
-
-  function derivePriceStep(min: number, max: number): number {
-    const span = max - min;
-    if (!Number.isFinite(span) || span <= 0) {
-      return 0.001;
-    }
-    const approx = span / 40;
-    if (approx <= 0.001) return 0.001;
-    if (approx <= 0.005) return 0.005;
-    if (approx <= 0.01) return 0.01;
-    if (approx <= 0.05) return 0.05;
-    if (approx <= 0.1) return 0.1;
-    if (approx <= 0.5) return 0.25;
-    if (approx <= 1) return 0.5;
-    if (approx <= 2) return 1;
-    if (approx <= 5) return 2.5;
-    return 5;
-  }
-
-  function roundPriceValue(value: number): number {
-    if (!Number.isFinite(value)) {
-      return value;
-    }
-    if (priceStep >= 1) return Number(value.toFixed(2));
-    if (priceStep >= 0.1) return Number(value.toFixed(2));
-    if (priceStep >= 0.01) return Number(value.toFixed(3));
-    return Number(value.toFixed(4));
   }
 
   function handleContextSlider(nextValue: number): void {
@@ -235,40 +299,42 @@
   }
 
   function handlePriceRangeChange(event: CustomEvent<PriceRange>): void {
-    const range = event.detail;
-    const max = availableFacets.maxPromptPrice;
-    if (max === null) {
+    if (priceSliderDisabled) {
       setMinPromptPrice(null);
       setMaxPromptPrice(null);
       return;
     }
 
-    const min = availableFacets.minPromptPrice ?? priceMin;
-    const epsilon = Math.max(priceStep / 2, 0.0005);
+    const raw = event.detail;
+    const minIndex = clampIndex(raw.min, 0, PRICE_STOP_COUNT - 1);
+    const maxIndex = clampIndex(raw.max, 0, PRICE_UNBOUNDED_INDEX);
 
-    if (Math.abs(range.min - min) <= epsilon) {
-      setMinPromptPrice(null);
-    } else {
-      setMinPromptPrice(roundPriceValue(range.min));
-    }
-
-    if (Math.abs(range.max - max) <= epsilon) {
-      setMaxPromptPrice(null);
-    } else {
-      setMaxPromptPrice(roundPriceValue(range.max));
-    }
+    setMinPromptPrice(valueForMinIndex(minIndex));
+    setMaxPromptPrice(valueForMaxIndex(maxIndex));
   }
 </script>
 
 {#if open}
   <div class="modal-backdrop" role="presentation" on:click={close}></div>
-  <div class="model-explorer" role="dialog" aria-modal="true" aria-labelledby="model-explorer-title">
+  <div
+    class="model-explorer"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="model-explorer-title"
+  >
     <header class="explorer-header">
       <div>
         <h2 id="model-explorer-title">Model Explorer</h2>
-        <p class="subtitle">Filter and compare OpenRouter models before selecting them.</p>
+        <p class="subtitle">
+          Filter and compare OpenRouter models before selecting them.
+        </p>
       </div>
-      <button type="button" class="ghost" on:click={close} aria-label="Close model explorer">×</button>
+      <button
+        type="button"
+        class="ghost"
+        on:click={close}
+        aria-label="Close model explorer">×</button
+      >
     </header>
 
     <section class="controls">
@@ -278,7 +344,8 @@
           type="search"
           placeholder="Search by name, provider, description, or tags"
           value={$filters.search}
-          on:input={(event) => setSearch((event.target as HTMLInputElement).value)}
+          on:input={(event) =>
+            setSearch((event.target as HTMLInputElement).value)}
         />
       </label>
       <SortControls selected={$filters.sort} onSelect={handleSort} />
@@ -289,7 +356,9 @@
         <header class="filters-header">
           <div>
             <h3>Filters</h3>
-            <p class="filters-status" class:muted={activeFilterCount === 0}>{filterStatus}</p>
+            <p class="filters-status" class:muted={activeFilterCount === 0}>
+              {filterStatus}
+            </p>
           </div>
           <button
             type="button"
@@ -320,7 +389,9 @@
               {#if availableFacets.maxContext === null}
                 <p class="hint">No context metadata available.</p>
               {:else}
-                <p class="hint">All models offer {formatContext(contextMax)} context.</p>
+                <p class="hint">
+                  All models offer {formatContext(contextMax)} context.
+                </p>
               {/if}
             {:else}
               <div class="slider-group">
@@ -328,7 +399,7 @@
                   <span class="slider-label">Minimum tokens</span>
                   <span class="slider-value">
                     {currentFilters.minContext === null
-                      ? 'Any'
+                      ? "Any"
                       : formatContext(currentFilters.minContext)}
                   </span>
                 </div>
@@ -340,7 +411,10 @@
                   max={contextMax}
                   step={contextStep}
                   value={contextValue}
-                  on:input={(event) => handleContextSlider(Number((event.target as HTMLInputElement).value))}
+                  on:input={(event) =>
+                    handleContextSlider(
+                      Number((event.target as HTMLInputElement).value),
+                    )}
                   aria-label="Minimum context tokens"
                 />
                 <div class="slider-scale context-scale">
@@ -356,7 +430,11 @@
               {#if availableFacets.maxPromptPrice === null}
                 <p class="hint">No pricing metadata available.</p>
               {:else}
-                <p class="hint">All models share {formatPrice(priceMax)} pricing.</p>
+                <p class="hint">
+                  All models share {formatStopLabel(
+                    availableFacets.maxPromptPrice ?? 0,
+                  )} pricing.
+                </p>
               {/if}
             {:else}
               <div class="slider-group">
@@ -366,11 +444,12 @@
                 </div>
                 <RangeSlider
                   id={priceSliderId}
-                  min={priceMin}
-                  max={priceMax}
-                  step={priceStep}
+                  min={0}
+                  max={PRICE_UNBOUNDED_INDEX}
+                  step={1}
                   value={priceRange}
                   on:input={handlePriceRangeChange}
+                  on:change={handlePriceRangeChange}
                   ariaLabelMin="Minimum prompt price"
                   ariaLabelMax="Maximum prompt price"
                   disabled={priceSliderDisabled}
@@ -420,7 +499,11 @@
         <header class="results-header">
           <div>
             <h3>Models</h3>
-            <p class="summary">{filteredModels.length} result{filteredModels.length === 1 ? '' : 's'}</p>
+            <p class="summary">
+              {filteredModels.length} result{filteredModels.length === 1
+                ? ""
+                : "s"}
+            </p>
           </div>
           <button
             type="button"
@@ -502,7 +585,10 @@
     color: #f2f4f8;
     padding: 0.4rem 1rem;
     cursor: pointer;
-    transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+    transition:
+      border-color 0.2s ease,
+      color 0.2s ease,
+      background 0.2s ease;
   }
 
   .ghost:hover:not(:disabled) {

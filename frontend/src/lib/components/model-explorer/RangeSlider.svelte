@@ -1,12 +1,15 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher } from "svelte";
 
   type RangeValue = {
     min: number;
     max: number;
   };
 
-  const dispatch = createEventDispatcher<{ input: RangeValue; change: RangeValue }>();
+  const dispatch = createEventDispatcher<{
+    input: RangeValue;
+    change: RangeValue;
+  }>();
 
   export let id: string;
   export let min = 0;
@@ -14,8 +17,8 @@
   export let step = 1;
   export let value: RangeValue = { min, max };
   export let disabled = false;
-  export let ariaLabelMin = 'Minimum value';
-  export let ariaLabelMax = 'Maximum value';
+  export let ariaLabelMin = "Minimum value";
+  export let ariaLabelMax = "Maximum value";
 
   const precision = 6;
 
@@ -44,8 +47,8 @@
 
   function emit(nextMin: number, nextMax: number): void {
     const detail = { min: nextMin, max: nextMax } satisfies RangeValue;
-    dispatch('input', detail);
-    dispatch('change', detail);
+    dispatch("input", detail);
+    dispatch("change", detail);
   }
 
   function handleLower(event: Event): void {
@@ -82,11 +85,11 @@
     type="range"
     min={lowerBound}
     max={upper}
-    step={step}
+    {step}
     value={lower}
     on:input={handleLower}
     aria-label={ariaLabelMin}
-    disabled={disabled}
+    {disabled}
   />
   <input
     id={id ? `${id}-max` : undefined}
@@ -94,11 +97,11 @@
     type="range"
     min={lower}
     max={upperBound}
-    step={step}
+    {step}
     value={upper}
     on:input={handleUpper}
     aria-label={ariaLabelMax}
-    disabled={disabled}
+    {disabled}
   />
 </div>
 
@@ -109,7 +112,7 @@
     height: 2.25rem;
   }
 
-  .range-slider[data-disabled='true'] {
+  .range-slider[data-disabled="true"] {
     opacity: 0.5;
     pointer-events: none;
   }
@@ -131,7 +134,7 @@
     background: linear-gradient(90deg, #2563eb, #38bdf8);
   }
 
-  input[type='range'] {
+  input[type="range"] {
     position: absolute;
     inset: 0;
     margin: 0;
@@ -143,20 +146,16 @@
     -webkit-appearance: none;
   }
 
-  .thumb {
-    pointer-events: auto;
-  }
-
-  input[type='range']::-webkit-slider-runnable-track {
+  input[type="range"]::-webkit-slider-runnable-track {
     height: 0;
   }
 
-  input[type='range']::-moz-range-track {
+  input[type="range"]::-moz-range-track {
     height: 0;
     background: none;
   }
 
-  input[type='range']::-webkit-slider-thumb {
+  input[type="range"]::-webkit-slider-thumb {
     pointer-events: auto;
     -webkit-appearance: none;
     height: 1rem;
@@ -165,10 +164,12 @@
     background: #f8fbff;
     border: 2px solid #2563eb;
     box-shadow: 0 2px 6px rgba(13, 20, 39, 0.45);
-    transition: transform 0.2s ease, border-color 0.2s ease;
+    transition:
+      transform 0.2s ease,
+      border-color 0.2s ease;
   }
 
-  input[type='range']::-moz-range-thumb {
+  input[type="range"]::-moz-range-thumb {
     pointer-events: auto;
     height: 1rem;
     width: 1rem;
@@ -176,17 +177,19 @@
     background: #f8fbff;
     border: 2px solid #2563eb;
     box-shadow: 0 2px 6px rgba(13, 20, 39, 0.45);
-    transition: transform 0.2s ease, border-color 0.2s ease;
+    transition:
+      transform 0.2s ease,
+      border-color 0.2s ease;
   }
 
-  input[type='range']:hover::-webkit-slider-thumb,
-  input[type='range']:focus-visible::-webkit-slider-thumb {
+  input[type="range"]:hover::-webkit-slider-thumb,
+  input[type="range"]:focus-visible::-webkit-slider-thumb {
     transform: scale(1.05);
     border-color: #38bdf8;
   }
 
-  input[type='range']:hover::-moz-range-thumb,
-  input[type='range']:focus-visible::-moz-range-thumb {
+  input[type="range"]:hover::-moz-range-thumb,
+  input[type="range"]:focus-visible::-moz-range-thumb {
     transform: scale(1.05);
     border-color: #38bdf8;
   }

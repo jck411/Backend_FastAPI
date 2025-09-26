@@ -3,11 +3,11 @@ import { fetchModels } from '../api/client';
 import type { ModelListResponse, ModelRecord } from '../api/types';
 import {
   asNumeric,
+  derivePromptPrice,
   extractContextLength,
   extractInputModalities,
   extractModeration,
   extractOutputModalities,
-  extractPromptPrice,
   extractProviderName,
   extractSeries,
   extractSupportedParameters,
@@ -111,7 +111,7 @@ function computeFacets(models: ModelRecord[]): ModelFacets {
       maxContext = maxContext === null ? contextLength : Math.max(maxContext, contextLength);
     }
 
-    const promptPrice = extractPromptPrice(model.pricing ?? null);
+    const promptPrice = derivePromptPrice(model);
     if (promptPrice !== null) {
       minPromptPrice = minPromptPrice === null ? promptPrice : Math.min(minPromptPrice, promptPrice);
       maxPromptPrice = maxPromptPrice === null ? promptPrice : Math.max(maxPromptPrice, promptPrice);
@@ -192,7 +192,7 @@ function filterAndSortModels(state: ModelState): ModelRecord[] {
       }
     }
 
-    const promptPrice = extractPromptPrice(model.pricing ?? null);
+    const promptPrice = derivePromptPrice(model);
     if (filters.minPromptPrice !== null) {
       if (promptPrice === null || promptPrice < filters.minPromptPrice) {
         return false;
@@ -242,8 +242,8 @@ function filterAndSortModels(state: ModelState): ModelRecord[] {
       return bDate - aDate;
     },
     price: (a, b) => {
-      const aPrice = extractPromptPrice(a.pricing ?? null);
-      const bPrice = extractPromptPrice(b.pricing ?? null);
+      const aPrice = derivePromptPrice(a);
+      const bPrice = derivePromptPrice(b);
       const left = aPrice ?? Number.POSITIVE_INFINITY;
       const right = bPrice ?? Number.POSITIVE_INFINITY;
       if (left === right) return 0;

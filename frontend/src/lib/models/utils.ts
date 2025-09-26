@@ -101,14 +101,42 @@ export function extractOutputModalities(model: ModelRecord): string[] {
   }
 }
 
+const TOKENS_PER_MILLION = 1_000_000;
+
+function normalizePromptPricePerMillion(value: number | null): number | null {
+  if (value === null) return null;
+  if (!Number.isFinite(value)) return null;
+  if (value < 0) return null;
+  if (value === 0) return 0;
+  return Number(value.toFixed(6));
+}
+
 export function extractPromptPrice(pricing?: ModelPricing | null): number | null {
   if (!pricing) return null;
-  const value = asNumeric(pricing.prompt ?? pricing.request ?? pricing.completion ?? pricing.image ?? null);
-  if (value === null) return null;
-  if (value < 0) {
+  const perToken = asNumeric(pricing.prompt ?? null);
+  if (perToken === null || perToken < 0) {
     return null;
   }
-  return value;
+  if (perToken === 0) {
+    return 0;
+  }
+  return Number((perToken * TOKENS_PER_MILLION).toFixed(6));
+}
+
+export function derivePromptPrice(model: ModelRecord): number | null {
+  const record = model as Record<string, unknown>;
+
+  const perMillion = normalizePromptPricePerMillion(asNumeric(record.prompt_price_per_million));
+  if (perMillion !== null) {
+    return perMillion;
+  }
+
+  const perTokenFallback = asNumeric(record.prompt_price);
+  if (perTokenFallback !== null) {
+    return extractPromptPrice({ prompt: perTokenFallback });
+  }
+
+  return extractPromptPrice(model.pricing ?? null);
 }
 
 export function extractContextLength(model: ModelRecord): number | null {
@@ -130,10 +158,12 @@ export function extractContextLength(model: ModelRecord): number | null {
 
 export function formatPrice(value: number | null): string {
   if (value === null) return '—';
-  if (value === 0) return 'Free';
+  if (value === 0) return 'FREE';
+  if (value >= 100) return `$${value.toFixed(0)}`;
+  if (value >= 10) return `$${value.toFixed(1)}`;
   if (value >= 1) return `$${value.toFixed(2)}`;
-  if (value >= 0.01) return `$${value.toFixed(3)}`;
-  return `$${value.toFixed(4)}`;
+  if (value >= 0.1) return `$${value.toFixed(2)}`;
+  return `$${value.toFixed(3)}`;
 }
 
 export function formatContext(value: number | null): string {

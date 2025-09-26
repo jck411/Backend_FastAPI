@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ModelRecord } from '../../api/types';
-  import { extractContextLength, extractPromptPrice, formatContext, formatPrice } from '../../models/utils';
+  import { derivePromptPrice, extractContextLength, formatContext, formatPrice } from '../../models/utils';
 
   export let model: ModelRecord;
   export let onSelect: (model: ModelRecord) => void;
@@ -16,12 +16,12 @@
   {/if}
   <dl class="metadata">
     <div>
-      <dt>Context</dt>
+      <dt>Context length</dt>
       <dd>{formatContext(extractContextLength(model))}</dd>
     </div>
     <div>
-      <dt>Prompt price</dt>
-      <dd>{formatPrice(extractPromptPrice(model.pricing ?? null))}</dd>
+      <dt>Prompt pricing (1M tokens)</dt>
+      <dd>{formatPrice(derivePromptPrice(model))}</dd>
     </div>
     {#if model.provider?.display_name}
       <div>

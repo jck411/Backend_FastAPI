@@ -75,12 +75,18 @@ export interface SseEvent {
   id?: string;
 }
 
+type ModelPriceValue = number | string | null | undefined;
+
 export interface ModelPricing {
-  prompt?: number | null;
-  completion?: number | null;
-  request?: number | null;
-  image?: number | null;
-  [key: string]: number | null | undefined;
+  prompt?: ModelPriceValue;
+  completion?: ModelPriceValue;
+  request?: ModelPriceValue;
+  image?: ModelPriceValue;
+  web_search?: ModelPriceValue;
+  internal_reasoning?: ModelPriceValue;
+  input_cache_read?: ModelPriceValue;
+  input_cache_write?: ModelPriceValue;
+  [key: string]: ModelPriceValue;
 }
 
 export interface ModelProviderInfo {

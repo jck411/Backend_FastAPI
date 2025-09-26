@@ -277,6 +277,7 @@ class StreamingHandler:
                 "meta": assistant_turn.meta,
                 "generation_id": assistant_turn.generation_id,
                 "reasoning": assistant_turn.reasoning,
+                "tool_calls": assistant_turn.tool_calls if assistant_turn.tool_calls else None,
             }
             yield {
                 "event": "metadata",

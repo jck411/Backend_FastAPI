@@ -19,6 +19,7 @@
     providers: string[];
     supportedParameters: string[];
     moderation: string[];
+    categories: string[];
     minContext: number | null;
     minPromptPrice: number | null;
     maxPromptPrice: number | null;
@@ -46,6 +47,7 @@
     toggleProvider,
     toggleSupportedParameter,
     toggleModeration,
+    toggleCategory,
     setMinContext,
     setMinPromptPrice,
     setMaxPromptPrice,
@@ -166,6 +168,7 @@
     count += filters.providers.length;
     count += filters.supportedParameters.length;
     count += filters.moderation.length;
+    count += filters.categories.length;
 
     if (filters.minContext !== null) {
       count += 1;
@@ -285,15 +288,7 @@
     }
     const abs = Math.abs(value);
     const digits =
-      abs >= 10
-        ? 0
-        : abs >= 1
-        ? 0
-        : abs >= 0.1
-        ? 1
-        : abs >= 0.01
-        ? 2
-        : 3;
+      abs >= 10 ? 0 : abs >= 1 ? 0 : abs >= 0.1 ? 1 : abs >= 0.01 ? 2 : 3;
     const formatted = value
       .toFixed(digits)
       .replace(/\.0+$/, "")
@@ -518,6 +513,13 @@
             selected={$filters.moderation}
             on:toggle={(event) => toggleModeration(event.detail)}
             emptyMessage="No moderation metadata available."
+          />
+          <TogglePillGroup
+            title="Categories"
+            options={availableFacets.categories}
+            selected={$filters.categories}
+            on:toggle={(event) => toggleCategory(event.detail)}
+            emptyMessage="No category metadata available."
           />
         </div>
       </aside>

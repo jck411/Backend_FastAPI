@@ -589,32 +589,37 @@ export function extractSupportedParameters(model: ModelRecord): string[] {
 
 export function extractModeration(model: ModelRecord): string | null {
   const record = model as Record<string, unknown>;
-  const capabilities = model.capabilities as Record<string, unknown> | undefined;
 
-  const moderationValues: unknown[] = [];
-  moderationValues.push(record.moderation);
-  moderationValues.push(record.requires_moderation);
-  if (capabilities) {
-    moderationValues.push(capabilities.moderation);
-    moderationValues.push(capabilities.content_filtering);
+  const sources: unknown[] = [
+    record.is_moderated,
+    record.moderation,
+    record.requires_moderation,
+  ];
+
+  const capabilities = model.capabilities as Record<string, unknown> | undefined;
+  if (capabilities && typeof capabilities === 'object') {
+    sources.push(capabilities.is_moderated);
+    sources.push(capabilities.requires_moderation);
   }
 
-  for (const value of moderationValues) {
-    if (value === null || value === undefined) {
-      continue;
-    }
+  const provider = model.provider as Record<string, unknown> | undefined;
+  if (provider && typeof provider === 'object') {
+    sources.push(provider.is_moderated);
+  }
+
+  const topProvider = record.top_provider as Record<string, unknown> | undefined;
+  if (topProvider && typeof topProvider === 'object') {
+    sources.push(topProvider.is_moderated);
+  }
+
+  const metadata = record.metadata as Record<string, unknown> | undefined;
+  if (metadata && typeof metadata === 'object') {
+    sources.push(metadata.is_moderated);
+  }
+
+  for (const value of sources) {
     if (typeof value === 'boolean') {
       return value ? 'moderated' : 'unmoderated';
-    }
-    if (typeof value === 'string') {
-      const token = value.trim().toLowerCase();
-      if (!token) continue;
-      if (['strict', 'standard', 'moderated', 'safe'].includes(token)) {
-        return 'moderated';
-      }
-      if (['none', 'relaxed', 'unmoderated'].includes(token)) {
-        return 'unmoderated';
-      }
     }
   }
 

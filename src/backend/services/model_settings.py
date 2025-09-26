@@ -153,13 +153,23 @@ def _provider_latency_sort_key(provider_entry: Dict[str, Any]) -> float:
 
 
 class ModelSettingsService:
-    """Manage the active model, provider routing, and hyperparameters."""
+    """Manage the active model, provider routing, hyperparameters, and system prompt."""
 
-    def __init__(self, path: Path, default_model: str) -> None:
+    def __init__(
+        self,
+        path: Path,
+        default_model: str,
+        *,
+        default_system_prompt: str | None = None,
+    ) -> None:
         self._path = path
         self._lock = asyncio.Lock()
         self._settings = ActiveModelSettingsResponse(model=default_model)
+        prompt = (default_system_prompt or "").strip() if default_system_prompt else None
+        self._system_prompt: str | None = prompt if prompt else None
         self._load_from_disk()
+        if self._system_prompt is None and prompt:
+            self._system_prompt = prompt
 
     def _load_from_disk(self) -> None:
         if not self._path.exists():
@@ -170,6 +180,15 @@ class ModelSettingsService:
         except (OSError, json.JSONDecodeError) as exc:
             logger.warning("Failed to read model settings file %s: %s", self._path, exc)
             return
+
+        system_prompt_value: str | None = None
+        if isinstance(data, dict) and "system_prompt" in data:
+            extracted = data.get("system_prompt")
+            if isinstance(extracted, str):
+                extracted = extracted.strip()
+            system_prompt_value = extracted or None
+            data = dict(data)
+            data.pop("system_prompt", None)
 
         try:
             loaded = ActiveModelSettingsResponse.model_validate(data)
@@ -189,11 +208,15 @@ class ModelSettingsService:
             )
 
         self._settings = loaded
+        if system_prompt_value is not None:
+            self._system_prompt = system_prompt_value
 
     def _save_to_disk(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         data = self._settings.model_dump(exclude_none=True)
         data["updated_at"] = self._settings.updated_at.isoformat()
+        if self._system_prompt is not None:
+            data["system_prompt"] = self._system_prompt
         serialized = json.dumps(data, indent=2, sort_keys=True)
         self._path.write_text(serialized + "\n", encoding="utf-8")
 
@@ -218,6 +241,17 @@ class ModelSettingsService:
         settings = await self.get_settings()
         overrides = settings.as_openrouter_overrides()
         return settings.model, overrides
+
+    async def get_system_prompt(self) -> str | None:
+        async with self._lock:
+            return self._system_prompt
+
+    async def update_system_prompt(self, prompt: str | None) -> str | None:
+        normalized = prompt.strip() if isinstance(prompt, str) else None
+        async with self._lock:
+            self._system_prompt = normalized if normalized else None
+            self._save_to_disk()
+            return self._system_prompt
 
     async def get_active_provider_info(self, openrouter_client) -> Dict[str, Any]:
         """Get the active service provider information for the current model based on provider preferences."""

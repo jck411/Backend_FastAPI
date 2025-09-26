@@ -64,6 +64,30 @@
     }
   }
 
+  function formatToolCallList(
+    toolCalls: Array<Record<string, unknown>> | null | undefined,
+  ): string | null {
+    if (!toolCalls || toolCalls.length === 0) {
+      return null;
+    }
+    const labels = toolCalls
+      .map((call) => {
+        if (!call || typeof call !== 'object') {
+          return null;
+        }
+        const entry = call as Record<string, unknown>;
+        const fn = entry.function as Record<string, unknown> | undefined;
+        const functionName =
+          (fn && typeof fn.name === 'string' && fn.name) ||
+          (typeof entry.name === 'string' && entry.name) ||
+          (typeof entry.id === 'string' && entry.id) ||
+          null;
+        return functionName;
+      })
+      .filter((value): value is string => Boolean(value));
+    return labels.length ? labels.join(', ') : null;
+  }
+
   $: selectableModels = (() => {
     const active = $activeFilters;
     const base = active ? $filteredModels : $modelsStore;
@@ -150,6 +174,65 @@
           <p>{message.content}</p>
           {#if message.pending}
             <span class="pending">…</span>
+          {/if}
+          {#if message.details}
+            {#if message.details.model || message.details.finishReason || message.details.generationId || message.details.toolName || message.details.toolStatus || (message.details.toolCalls && message.details.toolCalls.length)}
+              <dl class="meta">
+                {#if message.details.model}
+                  <div>
+                    <dt>Model</dt>
+                    <dd>{message.details.model}</dd>
+                  </div>
+                {/if}
+                {#if message.details.finishReason}
+                  <div>
+                    <dt>Finish</dt>
+                    <dd>{message.details.finishReason}</dd>
+                  </div>
+                {/if}
+                {#if message.details.generationId}
+                  <div>
+                    <dt>Generation</dt>
+                    <dd>{message.details.generationId}</dd>
+                  </div>
+                {/if}
+                {#if message.details.toolCalls && message.details.toolCalls.length}
+                  {#if formatToolCallList(message.details.toolCalls)}
+                    <div>
+                      <dt>Tool Calls</dt>
+                      <dd>{formatToolCallList(message.details.toolCalls)}</dd>
+                    </div>
+                  {/if}
+                {/if}
+                {#if message.details.toolName}
+                  <div>
+                    <dt>Tool</dt>
+                    <dd>{message.details.toolName}</dd>
+                  </div>
+                {/if}
+                {#if message.details.toolStatus}
+                  <div>
+                    <dt>Status</dt>
+                    <dd>{message.details.toolStatus}</dd>
+                  </div>
+                {/if}
+              </dl>
+            {/if}
+            {#if message.details.reasoning && message.details.reasoning.length}
+              <div class="reasoning">
+                <span class="reasoning-label">Reasoning</span>
+                <ul>
+                  {#each message.details.reasoning as segment, index (index)}
+                    <li>
+                      {#if segment.type}
+                        <span class="reasoning-type">{segment.type}</span>
+                      {/if}
+                      <span>{segment.text}</span>
+                    </li>
+                  {/each}
+                </ul>
+              </div>
+            {/if}
           {/if}
         </article>
       {/each}
@@ -340,10 +423,78 @@
     background: #172034;
   }
 
+  .message.tool {
+    align-self: stretch;
+    background: #1c2a46;
+  }
+
   .message p {
     margin: 0;
     white-space: pre-wrap;
     line-height: 1.45;
+  }
+
+  .message .meta {
+    display: grid;
+    gap: 0.35rem;
+    margin: 0;
+  }
+
+  .message .meta div {
+    display: grid;
+    grid-template-columns: minmax(0, max-content) 1fr;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+  }
+
+  .message .meta dt {
+    margin: 0;
+    color: #7b87a1;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+  }
+
+  .message .meta dd {
+    margin: 0;
+    color: #d7dcef;
+  }
+
+  .message .reasoning {
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 0.55rem;
+  }
+
+  .message .reasoning-label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #7b87a1;
+    margin-bottom: 0.35rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .message .reasoning ul {
+    margin: 0;
+    padding-left: 1rem;
+    display: grid;
+    gap: 0.35rem;
+    font-size: 0.92rem;
+    color: #e3e7f5;
+  }
+
+  .message .reasoning li {
+    list-style: disc;
+  }
+
+  .message .reasoning-type {
+    font-weight: 600;
+    margin-right: 0.4rem;
+    color: #8ec3ff;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
   }
 
   .pending {

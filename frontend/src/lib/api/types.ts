@@ -112,6 +112,8 @@ export interface ModelRecord {
   provider?: ModelProviderInfo | null;
   supports_tools?: boolean;
   tags?: string[];
+  categories?: string[];
+  categories_normalized?: string[];
   [key: string]: unknown;
 }
 

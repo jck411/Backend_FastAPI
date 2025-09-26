@@ -4,11 +4,30 @@ import type { ChatCompletionRequest } from '../api/types';
 
 export type ConversationRole = 'user' | 'assistant' | 'system' | 'tool';
 
+interface ReasoningSegment {
+  text: string;
+  type?: string;
+}
+
+interface ConversationMessageDetails {
+  model?: string | null;
+  finishReason?: string | null;
+  reasoning?: ReasoningSegment[];
+  usage?: Record<string, unknown> | null;
+  routing?: Record<string, unknown> | null;
+  toolCalls?: Array<Record<string, unknown>> | null;
+  generationId?: string | null;
+  toolName?: string | null;
+  toolStatus?: string | null;
+  toolResult?: string | null;
+}
+
 export interface ConversationMessage {
   id: string;
   role: ConversationRole;
   content: string;
   pending?: boolean;
+  details?: ConversationMessageDetails;
 }
 
 interface ChatState {
@@ -32,17 +51,15 @@ function createId(prefix: string): string {
 }
 
 function toChatPayload(state: ChatState, prompt: string): ChatCompletionRequest {
-  const history = state.messages.map((item) => ({
-    role: item.role,
-    content: item.content,
-  }));
-
-  history.push({ role: 'user', content: prompt });
-
   const payload: ChatCompletionRequest = {
     model: state.selectedModel,
     session_id: state.sessionId ?? undefined,
-    messages: history,
+    messages: [
+      {
+        role: 'user',
+        content: prompt,
+      },
+    ],
   };
 
   return payload;
@@ -66,7 +83,7 @@ function createChatStore() {
     const assistantMessageId = createId('assistant');
 
     const payload = toChatPayload(state, prompt);
-
+    
     store.update((value) => ({
       ...value,
       messages: [
@@ -80,6 +97,7 @@ function createChatStore() {
 
     const abortController = new AbortController();
     currentAbort = abortController;
+    const toolMessageIds = new Map<string, string>();
 
     try {
       await streamChat(payload, {
@@ -87,21 +105,149 @@ function createChatStore() {
         onSession(sessionId) {
           store.update((value) => ({ ...value, sessionId }));
         },
-        onChunk(chunk) {
-          const deltaText = chunk.choices?.map((choice) => choice.delta?.content ?? '').join('') ?? '';
-          if (!deltaText) return;
-          store.update((value) => {
-            const messages = value.messages.map((message) => {
-              if (message.id === assistantMessageId) {
-                return {
-                  ...message,
-                  content: `${message.content}${deltaText}`,
-                };
-              }
-              return message;
+        onChunk(chunk, rawEvent) {
+          const eventType = rawEvent?.event ?? 'message';
+
+          if (eventType === 'message') {
+            const deltaText =
+              chunk.choices?.map((choice) => choice.delta?.content ?? '').join('') ?? '';
+            if (!deltaText) {
+              return;
+            }
+            store.update((value) => {
+              const messages = value.messages.map((message) => {
+                if (message.id === assistantMessageId) {
+                  return {
+                    ...message,
+                    content: `${message.content}${deltaText}`,
+                  };
+                }
+                return message;
+              });
+              return { ...value, messages };
             });
-            return { ...value, messages };
-          });
+            return;
+          }
+
+          if (eventType === 'metadata' && rawEvent?.data) {
+            try {
+              const metadata = JSON.parse(rawEvent.data) as Record<string, unknown>;
+              store.update((value) => {
+                const messages = value.messages.map((message) => {
+                  if (message.id !== assistantMessageId) {
+                    return message;
+                  }
+                  const existingDetails = message.details ?? {};
+                  const reasoning = Array.isArray(metadata.reasoning)
+                    ? (metadata.reasoning as ReasoningSegment[])
+                    : existingDetails.reasoning;
+                  return {
+                    ...message,
+                    details: {
+                      ...existingDetails,
+                      model:
+                        typeof metadata.model === 'string'
+                          ? metadata.model
+                          : existingDetails.model ?? null,
+                      finishReason:
+                        typeof metadata.finish_reason === 'string'
+                          ? metadata.finish_reason
+                          : existingDetails.finishReason ?? null,
+                      reasoning,
+                      usage:
+                        metadata.usage && typeof metadata.usage === 'object'
+                          ? (metadata.usage as Record<string, unknown>)
+                          : existingDetails.usage ?? null,
+                      routing:
+                        metadata.routing && typeof metadata.routing === 'object'
+                          ? (metadata.routing as Record<string, unknown>)
+                          : existingDetails.routing ?? null,
+                      toolCalls:
+                        Array.isArray(metadata.tool_calls)
+                          ? (metadata.tool_calls as Array<Record<string, unknown>>)
+                          : existingDetails.toolCalls ?? null,
+                      generationId:
+                        typeof metadata.generation_id === 'string'
+                          ? metadata.generation_id
+                          : existingDetails.generationId ?? null,
+                    },
+                  };
+                });
+                return { ...value, messages };
+              });
+            } catch (error) {
+              console.warn('Failed to parse metadata payload', error, rawEvent.data);
+            }
+            return;
+          }
+
+          if (eventType === 'tool' && rawEvent?.data) {
+            try {
+              const payload = JSON.parse(rawEvent.data) as Record<string, unknown>;
+              const callId = typeof payload.call_id === 'string' ? payload.call_id : createId('tool');
+              const status = typeof payload.status === 'string' ? payload.status : 'started';
+              const toolName = typeof payload.name === 'string' ? payload.name : 'tool';
+              const result = payload.result;
+              const toolResult =
+                typeof result === 'string'
+                  ? result
+                  : result && typeof result === 'object'
+                    ? JSON.stringify(result)
+                    : null;
+
+              let messageId = toolMessageIds.get(callId);
+              if (!messageId) {
+                messageId = createId('tool');
+                toolMessageIds.set(callId, messageId);
+                store.update((value) => ({
+                  ...value,
+                  messages: [
+                    ...value.messages,
+                    {
+                      id: messageId as string,
+                      role: 'tool',
+                      content: status === 'started'
+                        ? `Running ${toolName}…`
+                        : toolResult ?? `Tool ${toolName} responded.`,
+                      pending: status === 'started',
+                      details: {
+                        toolName,
+                        toolStatus: status,
+                        toolResult: toolResult ?? null,
+                      },
+                    },
+                  ],
+                }));
+              } else {
+                store.update((value) => {
+                  const messages = value.messages.map((message) => {
+                    if (message.id !== messageId) {
+                      return message;
+                    }
+                    const details = {
+                      ...(message.details ?? {}),
+                      toolName,
+                      toolStatus: status,
+                      toolResult: toolResult ?? (message.details?.toolResult ?? null),
+                    };
+                    return {
+                      ...message,
+                      content:
+                        toolResult ??
+                        (status === 'started'
+                          ? `Running ${toolName}…`
+                          : `Tool ${toolName} ${status}.`),
+                      pending: status === 'started',
+                      details,
+                    };
+                  });
+                  return { ...value, messages };
+                });
+              }
+            } catch (error) {
+              console.warn('Failed to parse tool payload', error, rawEvent.data);
+            }
+          }
         },
         onDone() {
           store.update((value) => ({
@@ -118,7 +264,10 @@ function createChatStore() {
             ...value,
             isStreaming: false,
             error: error.message ?? 'Unknown error',
-            messages: value.messages.filter((message) => message.id !== assistantMessageId),
+            messages: value.messages.filter(
+              (message) =>
+                message.id !== assistantMessageId && !(message.role === 'tool' && message.pending),
+            ),
           }));
         },
       });
@@ -132,7 +281,9 @@ function createChatStore() {
         ...value,
         isStreaming: false,
         error: message,
-        messages: value.messages.filter((msg) => msg.id !== assistantMessageId),
+        messages: value.messages.filter(
+          (msg) => msg.id !== assistantMessageId && !(msg.role === 'tool' && msg.pending),
+        ),
       }));
     } finally {
       currentAbort = null;
@@ -147,7 +298,11 @@ function createChatStore() {
         ...value,
         isStreaming: false,
         messages: value.messages.filter(
-          (message) => !(message.role === 'assistant' && message.pending && !message.content),
+          (message) =>
+            !(
+              (message.role === 'assistant' && message.pending && !message.content) ||
+              (message.role === 'tool' && message.pending)
+            ),
         ),
       }));
     }

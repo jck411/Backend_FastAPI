@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from typing import Any
+from typing import Any, Iterable
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sse_starlette.sse import EventSourceResponse
@@ -121,7 +121,19 @@ async def list_models(
     except OpenRouterError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
-    annotated = _annotate_and_enrich_models(payload)
+    category_memberships: dict[str, set[str]] | None = None
+    raw_models = payload.get("data")
+    if isinstance(raw_models, list):
+        missing_ids = _collect_models_missing_categories(raw_models)
+        if missing_ids:
+            category_memberships = await _fetch_category_memberships(
+                client, candidate_ids=missing_ids
+            )
+
+    annotated = _annotate_and_enrich_models(
+        payload,
+        category_memberships=category_memberships,
+    )
 
     parsed_filters = _parse_filter_query(filters)
 
@@ -151,7 +163,11 @@ async def list_models(
     return response_payload
 
 
-def _annotate_and_enrich_models(payload: dict[str, Any]) -> dict[str, Any]:
+def _annotate_and_enrich_models(
+    payload: dict[str, Any],
+    *,
+    category_memberships: dict[str, set[str]] | None = None,
+) -> dict[str, Any]:
     data = payload.get("data")
     if not isinstance(data, list):
         return payload
@@ -161,12 +177,61 @@ def _annotate_and_enrich_models(payload: dict[str, Any]) -> dict[str, Any]:
 
     for item in data:
         if isinstance(item, dict):
-            annotated = _enrich_model(item)
+            annotated = _enrich_model(
+                item,
+                category_memberships=category_memberships,
+            )
             filtered_payload["data"].append(annotated)
         else:
             filtered_payload["data"].append(item)
 
     return filtered_payload
+
+
+def _collect_models_missing_categories(models: list[Any]) -> set[str]:
+    missing: set[str] = set()
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        ident = item.get("id")
+        if not isinstance(ident, str):
+            continue
+        if _extract_category_slugs(item):
+            continue
+        missing.add(ident)
+    return missing
+
+
+async def _fetch_category_memberships(
+    client: OpenRouterClient,
+    *,
+    candidate_ids: set[str] | None = None,
+) -> dict[str, set[str]]:
+    if candidate_ids is not None and not candidate_ids:
+        return {}
+
+    memberships: dict[str, set[str]] = {}
+    for slug in _OPENROUTER_CATEGORIES.keys():
+        try:
+            payload = await client.list_models(params={"category": slug})
+        except OpenRouterError:
+            continue
+
+        data = payload.get("data")
+        if not isinstance(data, list):
+            continue
+
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            ident = item.get("id")
+            if not isinstance(ident, str):
+                continue
+            if candidate_ids is not None and ident not in candidate_ids:
+                continue
+            memberships.setdefault(ident, set()).add(slug)
+
+    return memberships
 
 
 def _apply_tools_filter(models: list[Any], tools_only: bool) -> list[Any]:
@@ -215,7 +280,11 @@ def _model_supports_tools(model: dict[str, Any]) -> bool:
     return False
 
 
-def _enrich_model(item: dict[str, Any]) -> dict[str, Any]:
+def _enrich_model(
+    item: dict[str, Any],
+    *,
+    category_memberships: dict[str, set[str]] | None = None,
+) -> dict[str, Any]:
     enriched = dict(item)
 
     supports_tools = _model_supports_tools(item)
@@ -269,6 +338,18 @@ def _enrich_model(item: dict[str, Any]) -> dict[str, Any]:
         {_canonicalize_token(label) for label in series if isinstance(label, str)}
     )
     enriched["provider_prefix"] = _provider_prefix(item)
+
+    category_slugs: set[str] = set(_extract_category_slugs(enriched))
+    if category_memberships:
+        ident = enriched.get("id")
+        if isinstance(ident, str):
+            category_slugs.update(category_memberships.get(ident, set()))
+
+    sorted_slugs = _sort_category_slugs(category_slugs)
+    enriched["categories"] = [
+        _OPENROUTER_CATEGORIES.get(slug, slug.title()) for slug in sorted_slugs
+    ]
+    enriched["categories_normalized"] = sorted_slugs
 
     return enriched
 
@@ -356,6 +437,91 @@ _SERIES_TOKEN_PATTERN = re.compile(r"[\s/_-]+")
 
 
 _SUPPORTED_PARAMETER_ALIASES: dict[str, str] = {}
+
+_OPENROUTER_CATEGORIES: dict[str, str] = {
+    "programming": "Programming",
+    "roleplay": "Roleplay",
+    "marketing": "Marketing",
+    "marketing/seo": "Marketing/Seo",
+    "technology": "Technology",
+    "science": "Science",
+    "translation": "Translation",
+    "legal": "Legal",
+    "finance": "Finance",
+    "health": "Health",
+    "trivia": "Trivia",
+    "academia": "Academia",
+}
+
+_OPENROUTER_CATEGORY_LABEL_LOOKUP = {
+    label.lower(): slug for slug, label in _OPENROUTER_CATEGORIES.items()
+}
+
+_OPENROUTER_CATEGORY_ORDER = {
+    slug: index for index, slug in enumerate(_OPENROUTER_CATEGORIES.keys())
+}
+
+
+def _sort_category_slugs(slugs: Iterable[str]) -> list[str]:
+    unique = {slug for slug in slugs if isinstance(slug, str) and slug}
+    return sorted(
+        unique,
+        key=lambda candidate: (
+            _OPENROUTER_CATEGORY_ORDER.get(candidate, len(_OPENROUTER_CATEGORY_ORDER)),
+            candidate,
+        ),
+    )
+
+
+def _category_label_for_slug(slug: str) -> str:
+    label = _OPENROUTER_CATEGORIES.get(slug)
+    if label is not None:
+        return label
+    normalized = slug.replace("_", " ").replace("-", " ")
+    parts = [part.strip().title() for part in normalized.split("/")]
+    return "/".join(parts)
+
+
+def _normalize_category_token(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    token = value.strip()
+    if not token:
+        return None
+    lowered = token.lower()
+    if lowered in _OPENROUTER_CATEGORIES:
+        return lowered
+    return _OPENROUTER_CATEGORY_LABEL_LOOKUP.get(lowered)
+
+
+def _extract_category_slugs(item: dict[str, Any]) -> list[str]:
+    slugs: set[str] = set()
+
+    def collect(candidate: Any) -> None:
+        if candidate is None:
+            return
+        if isinstance(candidate, str):
+            slug = _normalize_category_token(candidate)
+            if slug:
+                slugs.add(slug)
+            return
+        if isinstance(candidate, (list, tuple, set)):
+            for entry in candidate:
+                collect(entry)
+
+    collect(item.get("categories"))
+    collect(item.get("category"))
+
+    capabilities = item.get("capabilities")
+    if isinstance(capabilities, dict):
+        collect(capabilities.get("categories"))
+
+    tags = item.get("tags")
+    if isinstance(tags, (list, tuple, set)):
+        for tag in tags:
+            collect(tag)
+
+    return _sort_category_slugs(slugs)
 
 
 def _normalize_supported_parameter(value: str) -> str | None:
@@ -653,6 +819,7 @@ def _build_faceted_metadata(models: list[Any]) -> dict[str, Any]:
         "supported_parameters": set(),
         "series": set(),
         "series_normalized": set(),
+        "categories": set(),
     }
     min_context: int | None = None
     max_context: int | None = None
@@ -673,6 +840,13 @@ def _build_faceted_metadata(models: list[Any]) -> dict[str, Any]:
             facets["series"].add(str(value))
         for value in item.get("series_normalized", []):
             facets["series_normalized"].add(str(value))
+        for value in item.get("categories_normalized", []):
+            facets["categories"].add(str(value))
+        if not item.get("categories_normalized"):
+            for value in item.get("categories", []):
+                slug = _normalize_category_token(value)
+                if slug:
+                    facets["categories"].add(slug)
 
         context_length = item.get("context_length")
         if isinstance(context_length, int):
@@ -692,12 +866,16 @@ def _build_faceted_metadata(models: list[Any]) -> dict[str, Any]:
             min_price = price if min_price is None else min(min_price, price)
             max_price = price if max_price is None else max(max_price, price)
 
+    category_slugs = _sort_category_slugs(facets["categories"])
+
     return {
         "input_modalities": sorted(facets["input_modalities"]),
         "output_modalities": sorted(facets["output_modalities"]),
         "supported_parameters": sorted(facets["supported_parameters"]),
         "series": sorted(facets["series"]),
         "series_normalized": sorted(facets["series_normalized"]),
+        "categories": [_category_label_for_slug(slug) for slug in category_slugs],
+        "categories_normalized": category_slugs,
         "context_length": {
             "min": min_context,
             "max": max_context,

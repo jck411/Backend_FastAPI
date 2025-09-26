@@ -48,6 +48,17 @@ class Settings(BaseSettings):
             "default_model",
         ),
     )
+    openrouter_system_prompt: Optional[str] = Field(
+        default=(
+            "You are a helpful assistant who follows OpenRouter best practices. "
+            "Use the provided context from the server, call tools when they improve your answer, "
+            "and if a tool is unavailable you should continue without it while complying with safety policies."
+        ),
+        validation_alias=AliasChoices(
+            "OPENROUTER_SYSTEM_PROMPT",
+            "system_prompt",
+        ),
+    )
     model_settings_path: Path = Field(
         default_factory=lambda: Path("data/model_settings.json"),
         validation_alias=AliasChoices("MODEL_SETTINGS_PATH", "model_settings_path"),

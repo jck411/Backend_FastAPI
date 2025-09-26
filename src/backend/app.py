@@ -26,7 +26,9 @@ def create_app() -> FastAPI:
         model_settings_path = project_root / model_settings_path
 
     model_settings_service = ModelSettingsService(
-        model_settings_path, settings.default_model
+        model_settings_path,
+        settings.default_model,
+        default_system_prompt=settings.openrouter_system_prompt,
     )
 
     orchestrator = ChatOrchestrator(settings, model_settings_service)

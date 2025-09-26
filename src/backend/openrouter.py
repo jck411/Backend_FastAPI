@@ -105,7 +105,9 @@ class OpenRouterClient:
             except httpx.HTTPError as exc:
                 raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
-    async def list_models(self) -> Dict[str, Any]:
+    async def list_models(
+        self, *, params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """Return the raw payload from OpenRouter's `/models` endpoint."""
 
         url = f"{self._base_url}/models"
@@ -114,7 +116,7 @@ class OpenRouterClient:
 
         async with httpx.AsyncClient(timeout=self._settings.request_timeout) as client:
             try:
-                response = await client.get(url, headers=headers)
+                response = await client.get(url, headers=headers, params=params)
             except httpx.HTTPError as exc:
                 raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 

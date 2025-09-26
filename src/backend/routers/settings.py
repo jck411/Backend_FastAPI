@@ -10,6 +10,8 @@ from ..chat.orchestrator import ChatOrchestrator
 from ..schemas.model_settings import (
     ActiveModelSettingsPayload,
     ActiveModelSettingsResponse,
+    SystemPromptPayload,
+    SystemPromptResponse,
 )
 from ..services.model_settings import ModelSettingsService
 
@@ -53,6 +55,23 @@ async def get_active_provider_info(
     """Get information about the active provider for the current model."""
     client = orchestrator.get_openrouter_client()
     return await service.get_active_provider_info(client)
+
+
+@router.get("/system-prompt", response_model=SystemPromptResponse)
+async def read_system_prompt(
+    service: ModelSettingsService = Depends(get_model_settings_service),
+) -> SystemPromptResponse:
+    prompt = await service.get_system_prompt()
+    return SystemPromptResponse(system_prompt=prompt)
+
+
+@router.put("/system-prompt", response_model=SystemPromptResponse)
+async def update_system_prompt(
+    payload: SystemPromptPayload,
+    service: ModelSettingsService = Depends(get_model_settings_service),
+) -> SystemPromptResponse:
+    prompt = await service.update_system_prompt(payload.system_prompt)
+    return SystemPromptResponse(system_prompt=prompt)
 
 
 __all__ = ["router"]

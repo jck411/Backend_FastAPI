@@ -84,16 +84,38 @@ class ChatOrchestrator:
 
         await self._ready.wait()
 
-        if request.messages:
-            incoming_messages = request.messages
-        else:
+        if not request.messages:
             raise ValueError("At least one message is required to start a turn")
+        incoming_messages = request.messages
 
         session_id = request.session_id or uuid.uuid4().hex
         existing = await self._repo.session_exists(session_id)
         await self._repo.ensure_session(session_id)
 
+        stored_messages = await self._repo.get_messages(session_id)
+        has_system_message = any(msg.get("role") == "system" for msg in stored_messages)
+        incoming_has_system = any(message.role == "system" for message in incoming_messages)
+        system_prompt = await self._model_settings.get_system_prompt()
+
+        if (
+            system_prompt
+            and not stored_messages
+            and not has_system_message
+            and not incoming_has_system
+        ):
+            await self._repo.add_message(
+                session_id,
+                role="system",
+                content=system_prompt,
+            )
+
         for message in incoming_messages:
+            if message.role == "assistant":
+                logger.debug(
+                    "Ignoring assistant-authored message provided by client for session %s",
+                    session_id,
+                )
+                continue
             content = message.content
             metadata: dict[str, Any] = {}
             if message.name:
@@ -110,18 +132,6 @@ class ChatOrchestrator:
             )
 
         conversation = await self._repo.get_messages(session_id)
-
-        if not existing:
-            system_prompt = {
-                "role": "system",
-                "content": "You are a helpful assistant with access to tools.",
-            }
-            conversation.insert(0, system_prompt)
-            await self._repo.add_message(
-                session_id,
-                role="system",
-                content=system_prompt["content"],
-            )
         tools_payload = self._mcp_client.get_openai_tools()
 
         if not existing:

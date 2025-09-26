@@ -111,10 +111,26 @@ class ActiveModelSettingsResponse(ActiveModelSettingsPayload):
         return payload
 
 
+class SystemPromptPayload(BaseModel):
+    """Request payload for updating the orchestrator system prompt."""
+
+    system_prompt: Optional[str] = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class SystemPromptResponse(SystemPromptPayload):
+    """Response wrapper returning the active system prompt."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
 __all__ = [
     "ActiveModelSettingsPayload",
     "ActiveModelSettingsResponse",
     "ModelHyperparameters",
     "ProviderMaxPrice",
     "ProviderPreferences",
+    "SystemPromptPayload",
+    "SystemPromptResponse",
 ]

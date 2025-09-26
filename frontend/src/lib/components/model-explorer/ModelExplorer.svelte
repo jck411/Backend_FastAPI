@@ -19,7 +19,6 @@
     providers: string[];
     supportedParameters: string[];
     moderation: string[];
-    categories: string[];
     minContext: number | null;
     minPromptPrice: number | null;
     maxPromptPrice: number | null;
@@ -47,7 +46,6 @@
     toggleProvider,
     toggleSupportedParameter,
     toggleModeration,
-    toggleCategory,
     setMinContext,
     setMinPromptPrice,
     setMaxPromptPrice,
@@ -168,7 +166,6 @@
     count += filters.providers.length;
     count += filters.supportedParameters.length;
     count += filters.moderation.length;
-    count += filters.categories.length;
 
     if (filters.minContext !== null) {
       count += 1;
@@ -347,9 +344,6 @@
     <header class="explorer-header">
       <div>
         <h2 id="model-explorer-title">Model Explorer</h2>
-        <p class="subtitle">
-          Filter and compare OpenRouter models before selecting them.
-        </p>
       </div>
       <button
         type="button"
@@ -358,20 +352,6 @@
         aria-label="Close model explorer">×</button
       >
     </header>
-
-    <section class="controls">
-      <label class="search">
-        <span class="visually-hidden">Search models</span>
-        <input
-          type="search"
-          placeholder="Search by name, provider, description, or tags"
-          value={$filters.search}
-          on:input={(event) =>
-            setSearch((event.target as HTMLInputElement).value)}
-        />
-      </label>
-      <SortControls selected={$filters.sort} onSelect={handleSort} />
-    </section>
 
     <div class="body">
       <aside class="filters-panel" aria-label="Filter models">
@@ -514,26 +494,27 @@
             on:toggle={(event) => toggleModeration(event.detail)}
             emptyMessage="No moderation metadata available."
           />
-          <TogglePillGroup
-            title="Categories"
-            options={availableFacets.categories}
-            selected={$filters.categories}
-            on:toggle={(event) => toggleCategory(event.detail)}
-            emptyMessage="No category metadata available."
-          />
         </div>
       </aside>
 
       <section class="results" aria-live="polite">
-        <header class="results-header">
-          <div>
-            <h3>Models</h3>
-            <p class="summary">
-              {filteredModels.length} result{filteredModels.length === 1
-                ? ""
-                : "s"}
-            </p>
-          </div>
+        <div class="results-controls">
+          <label class="search">
+            <span class="visually-hidden">Search models</span>
+            <input
+              type="search"
+              placeholder="Search by name, provider, description, or tags"
+              value={$filters.search}
+              on:input={(event) =>
+                setSearch((event.target as HTMLInputElement).value)}
+            />
+          </label>
+          <p class="summary">
+            {filteredModels.length} result{filteredModels.length === 1
+              ? ""
+              : "s"}
+          </p>
+          <SortControls selected={$filters.sort} onSelect={handleSort} />
           <button
             type="button"
             class="ghost small results-reset"
@@ -542,7 +523,7 @@
           >
             Clear all
           </button>
-        </header>
+        </div>
 
         {#if filteredModels.length === 0}
           <p class="empty">
@@ -584,7 +565,7 @@
     padding: 1.5rem;
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 1.25rem;
     z-index: 100;
     max-height: 90vh;
     overflow: hidden;
@@ -599,12 +580,6 @@
 
   .explorer-header h2 {
     margin: 0;
-  }
-
-  .subtitle {
-    margin: 0.4rem 0 0;
-    color: #9aa2ba;
-    font-size: 0.95rem;
   }
 
   .ghost {
@@ -636,15 +611,35 @@
     border-radius: 0.85rem;
   }
 
-  .controls {
+  .results-controls {
     display: flex;
     flex-wrap: wrap;
-    gap: 1rem;
     align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
   }
 
   .search {
-    flex: 1 1 260px;
+    flex: 0 1 340px;
+    max-width: 420px;
+  }
+
+  .results-controls :global(.sort) {
+    flex: 0 0 auto;
+  }
+
+  .summary {
+    flex: 0 0 auto;
+    margin: 0;
+    color: #8a92ac;
+    font-size: 0.88rem;
+  }
+
+  .results-reset {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: auto;
   }
 
   .search input {
@@ -808,26 +803,6 @@
     min-height: 0;
   }
 
-  .results-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-
-  .results-reset {
-    display: none;
-  }
-
-  .results-header h3 {
-    margin: 0;
-  }
-
-  .summary {
-    margin: 0.2rem 0 0;
-    color: #8a92ac;
-    font-size: 0.9rem;
-  }
-
   .model-grid {
     list-style: none;
     margin: 0;
@@ -865,7 +840,7 @@
     }
 
     .filters-panel {
-      order: 2;
+      order: -1;
       max-height: none;
     }
 
@@ -877,9 +852,7 @@
     }
 
     .results-reset {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
+      margin-left: 0;
     }
   }
 
@@ -896,9 +869,27 @@
       border-radius: 0;
     }
 
-    .controls {
+    .results-controls {
       flex-direction: column;
       align-items: stretch;
+      gap: 0.75rem;
+    }
+
+    .search {
+      width: 100%;
+      max-width: none;
+    }
+
+    .results-controls :global(.sort) {
+      width: 100%;
+    }
+
+    .summary {
+      width: 100%;
+    }
+
+    .results-reset {
+      width: 100%;
     }
   }
 </style>

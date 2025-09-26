@@ -14,54 +14,6 @@ import {
 
 export type ModelSort = 'newness' | 'price' | 'context';
 
-const CATEGORY_ORDER: readonly string[] = [
-  'Programming',
-  'Roleplay',
-  'Marketing',
-  'Marketing/Seo',
-  'Technology',
-  'Science',
-  'Translation',
-  'Legal',
-  'Finance',
-  'Health',
-  'Trivia',
-  'Academia',
-];
-
-function normalizeCategoryLabel(label: string): string {
-  return label.trim().toLowerCase();
-}
-
-function categoryOrderIndex(label: string): number {
-  const normalized = normalizeCategoryLabel(label);
-  const index = CATEGORY_ORDER.findIndex(
-    (entry) => normalizeCategoryLabel(entry) === normalized,
-  );
-  return index === -1 ? CATEGORY_ORDER.length : index;
-}
-
-function sortCategories(values: Iterable<string>): string[] {
-  const unique: string[] = [];
-  const seen = new Set<string>();
-  for (const value of values) {
-    if (typeof value !== 'string') continue;
-    const trimmed = value.trim();
-    if (!trimmed) continue;
-    if (seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    unique.push(trimmed);
-  }
-  return unique.sort((a, b) => {
-    const left = categoryOrderIndex(a);
-    const right = categoryOrderIndex(b);
-    if (left === right) {
-      return a.localeCompare(b);
-    }
-    return left - right;
-  });
-}
-
 interface ModelFilters {
   search: string;
   inputModalities: string[];
@@ -74,7 +26,6 @@ interface ModelFilters {
   providers: string[];
   supportedParameters: string[];
   moderation: string[];
-  categories: string[];
 }
 
 interface ModelFacets {
@@ -88,7 +39,6 @@ interface ModelFacets {
   providers: string[];
   supportedParameters: string[];
   moderation: string[];
-  categories: string[];
 }
 
 interface ModelState {
@@ -111,7 +61,6 @@ const initialFilters: ModelFilters = {
   providers: [],
   supportedParameters: [],
   moderation: [],
-  categories: [],
 };
 
 const emptyFacets: ModelFacets = {
@@ -125,7 +74,6 @@ const emptyFacets: ModelFacets = {
   providers: [],
   supportedParameters: [],
   moderation: [],
-  categories: [],
 };
 
 const initialState: ModelState = {
@@ -147,7 +95,6 @@ function computeFacets(models: ModelRecord[]): ModelFacets {
   const providerSet = new Set<string>();
   const parameterSet = new Set<string>();
   const moderationSet = new Set<string>();
-  const categorySet = new Set<string>();
 
   for (const model of models) {
     for (const modality of extractInputModalities(model)) {
@@ -187,12 +134,6 @@ function computeFacets(models: ModelRecord[]): ModelFacets {
       moderationSet.add(moderation);
     }
 
-    const categories = (model.categories ?? []) as string[];
-    for (const category of categories) {
-      if (typeof category === 'string' && category.trim()) {
-        categorySet.add(category);
-      }
-    }
   }
 
   return {
@@ -206,7 +147,6 @@ function computeFacets(models: ModelRecord[]): ModelFacets {
     providers: Array.from(providerSet).sort(),
     supportedParameters: Array.from(parameterSet).sort(),
     moderation: Array.from(moderationSet).sort(),
-    categories: sortCategories(categorySet),
   };
 }
 
@@ -292,15 +232,6 @@ function filterAndSortModels(state: ModelState): ModelRecord[] {
       }
     }
 
-    if (filters.categories.length > 0) {
-      const categories = Array.isArray(model.categories)
-        ? model.categories.map((category) => category.toLowerCase())
-        : [];
-      if (!matchesModality(filters.categories.map((value) => value.toLowerCase()), categories)) {
-        return false;
-      }
-    }
-
     return true;
   });
 
@@ -358,7 +289,6 @@ function hasAnyFilters(filters: ModelFilters): boolean {
     filters.providers.length ||
     filters.supportedParameters.length ||
     filters.moderation.length ||
-    filters.categories.length ||
     filters.minContext !== null ||
     filters.minPromptPrice !== null ||
     filters.maxPromptPrice !== null,
@@ -380,19 +310,16 @@ function createModelStore() {
         facets,
         loading: false,
         error: null,
-        // Reset filters to defaults when the catalog refreshes.
-        filters: { ...initialFilters },
       }));
       return response;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      store.set({
-        models: [],
+      store.update((value) => ({
+        ...value,
         loading: false,
         error: message,
-        filters: { ...initialFilters },
-        facets: { ...emptyFacets },
-      });
+        // Preserve existing filters and data; surface error state only.
+      }));
     }
   }
 
@@ -466,16 +393,6 @@ function createModelStore() {
     }));
   }
 
-  function toggleCategory(value: string): void {
-    store.update((state) => ({
-      ...state,
-      filters: {
-        ...state.filters,
-        categories: toggleValue(state.filters.categories, value),
-      },
-    }));
-  }
-
   function setMinContext(minContext: number | null): void {
     store.update((value) => ({
       ...value,
@@ -541,7 +458,6 @@ function createModelStore() {
     toggleProvider,
     toggleSupportedParameter,
     toggleModeration,
-    toggleCategory,
     setMinContext,
     setMinPromptPrice,
     setMaxPromptPrice,

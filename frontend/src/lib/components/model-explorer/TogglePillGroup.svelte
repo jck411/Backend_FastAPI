@@ -19,7 +19,7 @@
   }
 </script>
 
-<FilterSection {title}>
+<FilterSection {title} forceOpen={selected.length > 0}>
   <div class="options">
     {#if options.length === 0}
       <p class="empty">{emptyMessage}</p>

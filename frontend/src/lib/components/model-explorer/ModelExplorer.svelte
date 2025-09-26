@@ -386,7 +386,10 @@
             on:toggle={(event) => toggleOutputModality(event.detail)}
             emptyMessage="No modality data available."
           />
-          <FilterSection title="Context length">
+          <FilterSection
+            title="Context length"
+            forceOpen={currentFilters.minContext !== null}
+          >
             {#if contextSliderDisabled}
               {#if availableFacets.maxContext === null}
                 <p class="hint">No context metadata available.</p>
@@ -427,7 +430,13 @@
               </div>
             {/if}
           </FilterSection>
-          <FilterSection title="Prompt pricing">
+          <FilterSection
+            title="Prompt pricing"
+            forceOpen={
+              currentFilters.minPromptPrice !== null ||
+              currentFilters.maxPromptPrice !== null
+            }
+          >
             {#if priceSliderDisabled}
               {#if availableFacets.maxPromptPrice === null}
                 <p class="hint">No pricing metadata available.</p>

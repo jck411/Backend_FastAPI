@@ -1,11 +1,16 @@
 <script lang="ts">
   export let title: string;
   export let startOpen = false;
+  export let forceOpen = false;
 
   let expanded = startOpen;
+  let wasForcedOpen = false;
   const panelId = createPanelId(title);
 
   function toggle() {
+    if (forceOpen) {
+      return;
+    }
     expanded = !expanded;
   }
 
@@ -19,6 +24,15 @@
     ).toString(36);
     return `filter-section-${normalized}-${hash}`;
   }
+  $: if (forceOpen) {
+    if (!expanded) {
+      expanded = true;
+    }
+    wasForcedOpen = true;
+  } else if (wasForcedOpen) {
+    expanded = startOpen;
+    wasForcedOpen = false;
+  }
 </script>
 
 <section class={`filter-section ${expanded ? 'expanded' : 'collapsed'}`}>
@@ -29,6 +43,8 @@
       aria-expanded={expanded}
       aria-controls={panelId}
       on:click={toggle}
+      aria-disabled={forceOpen}
+      class:locked={forceOpen}
     >
       <span class="title">{title}</span>
       <span class="chevron" aria-hidden="true"></span>
@@ -76,6 +92,12 @@
   .toggle:hover,
   .toggle:focus-visible {
     color: #38bdf8;
+  }
+
+  .toggle.locked {
+    cursor: default;
+    pointer-events: none;
+    color: inherit;
   }
 
   .toggle:focus-visible {

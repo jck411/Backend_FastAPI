@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { afterUpdate, onMount } from 'svelte';
-  import { chatStore } from './lib/stores/chat';
-  import { modelStore } from './lib/stores/models';
-  import ModelExplorer from './lib/components/model-explorer/ModelExplorer.svelte';
+  import { afterUpdate, onMount } from "svelte";
+  import ModelExplorer from "./lib/components/model-explorer/ModelExplorer.svelte";
+  import { chatStore } from "./lib/stores/chat";
+  import { modelStore } from "./lib/stores/models";
 
   const { sendMessage, cancelStream, clearConversation, setModel } = chatStore;
   const {
@@ -14,10 +14,11 @@
     activeFilters,
   } = modelStore;
 
-  let prompt = '';
+  let prompt = "";
   let chatLog: HTMLElement | null = null;
   let lastMessageCount = 0;
   let explorerOpen = false;
+  let sidebarCollapsed = false;
 
   onMount(() => {
     loadModels();
@@ -37,7 +38,7 @@
     const trimmed = prompt.trim();
     if (!trimmed) return;
     sendMessage(trimmed);
-    prompt = '';
+    prompt = "";
   }
 
   function handleModelChange(event: Event) {
@@ -47,7 +48,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       handleSubmit();
     }
@@ -55,6 +56,10 @@
 
   function openExplorer() {
     explorerOpen = true;
+  }
+
+  function toggleSidebar() {
+    sidebarCollapsed = !sidebarCollapsed;
   }
 
   function handleExplorerSelect(event: CustomEvent<{ id: string }>) {
@@ -72,20 +77,20 @@
     }
     const labels = toolCalls
       .map((call) => {
-        if (!call || typeof call !== 'object') {
+        if (!call || typeof call !== "object") {
           return null;
         }
         const entry = call as Record<string, unknown>;
         const fn = entry.function as Record<string, unknown> | undefined;
         const functionName =
-          (fn && typeof fn.name === 'string' && fn.name) ||
-          (typeof entry.name === 'string' && entry.name) ||
-          (typeof entry.id === 'string' && entry.id) ||
+          (fn && typeof fn.name === "string" && fn.name) ||
+          (typeof entry.name === "string" && entry.name) ||
+          (typeof entry.id === "string" && entry.id) ||
           null;
         return functionName;
       })
       .filter((value): value is string => Boolean(value));
-    return labels.length ? labels.join(', ') : null;
+    return labels.length ? labels.join(", ") : null;
   }
 
   $: selectableModels = (() => {
@@ -115,278 +120,410 @@
 
 <ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />
 
-<main>
-  <header class="app-header">
-    <div>
-      <h1>Chat Console</h1>
-      <p class="subtitle">Connects to the OpenRouter FastAPI backend.</p>
-    </div>
-    <button class="clear" type="button" on:click={clearConversation} disabled={$chatStore.messages.length === 0}>
-      Clear
-    </button>
-  </header>
-
-  <section class="toolbar">
-    <label>
-      <span>Model</span>
-      <select on:change={handleModelChange} bind:value={$chatStore.selectedModel} disabled={$modelsLoading}>
-        {#if $modelsLoading}
-          <option>Loading models…</option>
-        {:else if $modelsError}
-          <option disabled>{`Failed to load models (${ $modelsError })`}</option>
-        {:else if selectableModels.length === 0}
-          <option disabled>
-            {#if $activeFilters}
-              No models match current filters
-            {:else}
-              No models available
-            {/if}
-          </option>
-        {:else}
-          {#each selectableModels as model (model.id)}
-            <option value={model.id}>
-              {model.name ?? model.id}
+<main class="app-shell" class:sidebar-collapsed={sidebarCollapsed}>
+  <header class="hero">
+    <div class="hero-actions">
+      <label class="model-select">
+        <span class="visually-hidden">Active model</span>
+        <select
+          on:change={handleModelChange}
+          bind:value={$chatStore.selectedModel}
+          disabled={$modelsLoading}
+        >
+          {#if $modelsLoading}
+            <option>Loading models…</option>
+          {:else if $modelsError}
+            <option disabled>{`Failed to load models (${$modelsError})`}</option
+            >
+          {:else if selectableModels.length === 0}
+            <option disabled>
+              {#if $activeFilters}
+                No models match current filters
+              {:else}
+                No models available
+              {/if}
             </option>
-          {/each}
-        {/if}
-      </select>
-    </label>
-    <button type="button" class="ghost" on:click={openExplorer} disabled={$modelsLoading}>
-      Explorer
-    </button>
-    <div class="status">
-      {#if $chatStore.isStreaming}
-        <span class="dot" aria-hidden="true"></span>
-        <span>Streaming response…</span>
-      {:else}
-        <span>Idle</span>
-      {/if}
-    </div>
-  </section>
-
-  <section class="conversation" bind:this={chatLog} aria-live="polite">
-    {#if $chatStore.messages.length === 0}
-      <p class="placeholder">Send a message to start the conversation.</p>
-    {:else}
-      {#each $chatStore.messages as message (message.id)}
-        <article class={`message ${message.role}`}>
-          <header>{message.role}</header>
-          <p>{message.content}</p>
-          {#if message.pending}
-            <span class="pending">…</span>
+          {:else}
+            {#each selectableModels as model (model.id)}
+              <option value={model.id}>
+                {model.name ?? model.id}
+              </option>
+            {/each}
           {/if}
-          {#if message.details}
-            {#if message.details.model || message.details.finishReason || message.details.generationId || message.details.toolName || message.details.toolStatus || (message.details.toolCalls && message.details.toolCalls.length)}
-              <dl class="meta">
-                {#if message.details.model}
-                  <div>
-                    <dt>Model</dt>
-                    <dd>{message.details.model}</dd>
-                  </div>
-                {/if}
-                {#if message.details.finishReason}
-                  <div>
-                    <dt>Finish</dt>
-                    <dd>{message.details.finishReason}</dd>
-                  </div>
-                {/if}
-                {#if message.details.generationId}
-                  <div>
-                    <dt>Generation</dt>
-                    <dd>{message.details.generationId}</dd>
-                  </div>
-                {/if}
-                {#if message.details.toolCalls && message.details.toolCalls.length}
-                  {#if formatToolCallList(message.details.toolCalls)}
-                    <div>
-                      <dt>Tool Calls</dt>
-                      <dd>{formatToolCallList(message.details.toolCalls)}</dd>
-                    </div>
-                  {/if}
-                {/if}
-                {#if message.details.toolName}
-                  <div>
-                    <dt>Tool</dt>
-                    <dd>{message.details.toolName}</dd>
-                  </div>
-                {/if}
-                {#if message.details.toolStatus}
-                  <div>
-                    <dt>Status</dt>
-                    <dd>{message.details.toolStatus}</dd>
-                  </div>
-                {/if}
-              </dl>
-            {/if}
-            {#if message.details.reasoning && message.details.reasoning.length}
-              <div class="reasoning">
-                <span class="reasoning-label">Reasoning</span>
-                <ul>
-                  {#each message.details.reasoning as segment, index (index)}
-                    <li>
-                      {#if segment.type}
-                        <span class="reasoning-type">{segment.type}</span>
-                      {/if}
-                      <span>{segment.text}</span>
-                    </li>
-                  {/each}
-                </ul>
-              </div>
-            {/if}
-          {/if}
-        </article>
-      {/each}
-    {/if}
-  </section>
-
-  <form class="composer" on:submit|preventDefault={handleSubmit}>
-    <label class="visually-hidden" for="chat-input">Message</label>
-    <textarea
-      id="chat-input"
-      rows="4"
-      bind:value={prompt}
-      on:keydown={handleKeydown}
-      placeholder={$chatStore.isStreaming ? 'Waiting for response…' : 'Ask the assistant anything…'}
-      aria-disabled={$chatStore.isStreaming}
-    ></textarea>
-    <div class="actions">
-      {#if $chatStore.isStreaming}
-        <button type="button" class="secondary" on:click={cancelStream}>
-          Stop
-        </button>
-      {/if}
-      <button type="submit" class="primary" disabled={!prompt.trim() || $chatStore.isStreaming}>
-        Send
+        </select>
+      </label>
+      <button
+        type="button"
+        class="ghost"
+        on:click={openExplorer}
+        disabled={$modelsLoading}
+      >
+        Explorer
+      </button>
+      <button
+        class="clear"
+        type="button"
+        on:click={clearConversation}
+        disabled={$chatStore.messages.length === 0}
+      >
+        Clear Chat
+      </button>
+      <button
+        type="button"
+        class="ghost subtle toggle-sidebar"
+        on:click={toggleSidebar}
+        aria-controls="threads-sidebar"
+        aria-expanded={!sidebarCollapsed}
+      >
+        {sidebarCollapsed ? "Show Sidebar" : "Hide Sidebar"}
       </button>
     </div>
-  </form>
+  </header>
 
-  {#if $chatStore.error}
-    <p class="error" role="alert">{$chatStore.error}</p>
-  {/if}
+  <div class="layout-grid">
+    <aside
+      id="threads-sidebar"
+      class="sidebar"
+      aria-label="Threads history sidebar"
+      aria-hidden={sidebarCollapsed}
+    >
+      <span class="visually-hidden">Threads history sidebar placeholder.</span>
+      <div class="sidebar-surface" aria-hidden="true"></div>
+    </aside>
+
+    <section class="chat-surface" aria-label="Active chat">
+      <header class="chat-header">
+        {#if $chatStore.isStreaming}
+          <span class="status-pill live">Live · Streaming</span>
+        {/if}
+      </header>
+
+      <section class="conversation" bind:this={chatLog} aria-live="polite">
+        {#if $chatStore.messages.length === 0}
+          <p class="placeholder">Send a message to start the conversation.</p>
+        {:else}
+          {#each $chatStore.messages as message (message.id)}
+            <article class={`message ${message.role}`}>
+              <header>{message.role}</header>
+              <p>{message.content}</p>
+              {#if message.pending}
+                <span class="pending">…</span>
+              {/if}
+              {#if message.details}
+                {#if message.details.model || message.details.finishReason || message.details.generationId || message.details.toolName || message.details.toolStatus || (message.details.toolCalls && message.details.toolCalls.length)}
+                  <dl class="meta">
+                    {#if message.details.model}
+                      <div>
+                        <dt>Model</dt>
+                        <dd>{message.details.model}</dd>
+                      </div>
+                    {/if}
+                    {#if message.details.finishReason}
+                      <div>
+                        <dt>Finish</dt>
+                        <dd>{message.details.finishReason}</dd>
+                      </div>
+                    {/if}
+                    {#if message.details.generationId}
+                      <div>
+                        <dt>Generation</dt>
+                        <dd>{message.details.generationId}</dd>
+                      </div>
+                    {/if}
+                    {#if message.details.toolCalls && message.details.toolCalls.length}
+                      {#if formatToolCallList(message.details.toolCalls)}
+                        <div>
+                          <dt>Tool Calls</dt>
+                          <dd>
+                            {formatToolCallList(message.details.toolCalls)}
+                          </dd>
+                        </div>
+                      {/if}
+                    {/if}
+                    {#if message.details.toolName}
+                      <div>
+                        <dt>Tool</dt>
+                        <dd>{message.details.toolName}</dd>
+                      </div>
+                    {/if}
+                    {#if message.details.toolStatus}
+                      <div>
+                        <dt>Status</dt>
+                        <dd>{message.details.toolStatus}</dd>
+                      </div>
+                    {/if}
+                  </dl>
+                {/if}
+                {#if message.details.reasoning && message.details.reasoning.length}
+                  <div class="reasoning">
+                    <span class="reasoning-label">Reasoning</span>
+                    <ul>
+                      {#each message.details.reasoning as segment, index (index)}
+                        <li>
+                          {#if segment.type}
+                            <span class="reasoning-type">{segment.type}</span>
+                          {/if}
+                          <span>{segment.text}</span>
+                        </li>
+                      {/each}
+                    </ul>
+                  </div>
+                {/if}
+              {/if}
+            </article>
+          {/each}
+        {/if}
+      </section>
+
+      <form class="composer" on:submit|preventDefault={handleSubmit}>
+        <label class="visually-hidden" for="chat-input">Message</label>
+        <textarea
+          id="chat-input"
+          rows="4"
+          bind:value={prompt}
+          on:keydown={handleKeydown}
+          placeholder={$chatStore.isStreaming
+            ? "Waiting for response…"
+            : "Ask the assistant anything…"}
+          aria-disabled={$chatStore.isStreaming}
+          aria-describedby="composer-hint"
+        ></textarea>
+        <div class="actions">
+          {#if $chatStore.isStreaming}
+            <button type="button" class="secondary" on:click={cancelStream}>
+              Stop
+            </button>
+          {/if}
+          <button
+            type="submit"
+            class="primary"
+            disabled={!prompt.trim() || $chatStore.isStreaming}
+          >
+            Send
+          </button>
+        </div>
+        <p id="composer-hint" class="composer-hint">
+          Press Shift + Enter for a new line.
+        </p>
+      </form>
+
+      {#if $chatStore.error}
+        <p class="error" role="alert">{$chatStore.error}</p>
+      {/if}
+    </section>
+  </div>
 </main>
 
 <style>
   :global(body) {
     margin: 0;
-    font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #0b101b;
-    color: #f2f4f8;
+    font-family:
+      "Inter",
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
+    background: radial-gradient(
+      circle at top,
+      #162135 0%,
+      #05070f 55%,
+      #04060d 100%
+    );
+    color: #f3f5ff;
     min-height: 100vh;
   }
 
-  main {
-    max-width: 960px;
+  .app-shell {
+    max-width: 1240px;
     margin: 0 auto;
-    padding: 2.5rem 1.5rem 3rem;
+    padding: 2.25rem 2rem 3rem;
     display: grid;
-    gap: 1.5rem;
+    gap: 1.85rem;
   }
 
-  .app-header {
+  .hero {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    gap: 1rem;
+    justify-content: flex-end;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
   }
 
-  .app-header h1 {
-    margin: 0;
-    font-size: 1.75rem;
+  .hero-actions {
+    display: inline-flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
   }
 
-  .subtitle {
-    margin: 0.4rem 0 0;
-    color: #a4aab8;
+  .model-select {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .model-select select {
+    appearance: none;
+    min-width: 220px;
+    padding: 0.6rem 0.9rem;
+    border-radius: 0.9rem;
+    border: 1px solid rgba(58, 85, 126, 0.8);
+    background: rgba(4, 8, 18, 0.85);
+    color: inherit;
     font-size: 0.95rem;
   }
 
-  .clear {
-    background: none;
-    border: 1px solid #25314b;
-    border-radius: 999px;
-    color: #f2f4f8;
-    padding: 0.5rem 1.25rem;
-    cursor: pointer;
+  .model-select select:focus {
+    outline: 2px solid rgba(56, 189, 248, 0.65);
+    outline-offset: 2px;
   }
 
-  .clear:disabled {
-    opacity: 0.4;
+  .clear,
+  .ghost,
+  .primary,
+  .secondary {
+    border-radius: 999px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    font-weight: 600;
+    transition:
+      transform 0.15s ease,
+      border-color 0.2s ease,
+      background 0.2s ease;
+  }
+
+  .ghost {
+    border-color: rgba(57, 76, 114, 0.6);
+    background: rgba(20, 30, 51, 0.4);
+    color: #e0e6ff;
+    padding: 0.55rem 1.3rem;
+  }
+
+  .ghost:hover:not(:disabled) {
+    border-color: rgba(140, 180, 255, 0.6);
+    transform: translateY(-1px);
+  }
+
+  .ghost:disabled {
+    opacity: 0.45;
     cursor: not-allowed;
   }
 
-  .toolbar {
+  .ghost.subtle {
+    padding: 0.4rem 0.95rem;
+    font-size: 0.85rem;
+    backdrop-filter: blur(4px);
+  }
+
+  .toggle-sidebar {
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .clear {
+    border-color: rgba(62, 80, 122, 0.55);
+    background: rgba(18, 24, 42, 0.6);
+    color: #f3f5ff;
+    padding: 0.55rem 1.45rem;
+  }
+
+  .clear:hover:not(:disabled) {
+    border-color: rgba(90, 122, 186, 0.8);
+    transform: translateY(-1px);
+  }
+
+  .clear:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .layout-grid {
+    display: grid;
+    grid-template-columns: minmax(240px, 280px) minmax(0, 1fr);
+    gap: 1.75rem;
+    align-items: start;
+  }
+
+  .sidebar {
+    position: relative;
+    border-radius: 1.1rem;
+    border: 1px dashed rgba(89, 123, 175, 0.35);
+    background: rgba(14, 21, 36, 0.55);
+    min-height: 420px;
+    transition:
+      opacity 0.2s ease,
+      transform 0.2s ease;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 1rem;
-    background: #121a2c;
-    border: 1px solid #1d2640;
-    border-radius: 1rem;
   }
 
-  .toolbar label {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    font-size: 0.95rem;
+  .sidebar-surface {
+    flex: 1;
+    border-radius: inherit;
   }
 
-  .toolbar select {
-    min-width: 220px;
-    padding: 0.5rem 0.75rem;
-    border-radius: 0.75rem;
-    border: 1px solid #24304c;
-    background: #0b101b;
-    color: inherit;
+  .app-shell.sidebar-collapsed .layout-grid {
+    grid-template-columns: 0 minmax(0, 1fr);
+    gap: 0;
   }
 
-  .toolbar .ghost {
-    border-radius: 999px;
-    border: 1px solid #25314d;
-    background: none;
-    color: inherit;
-    padding: 0.45rem 1.1rem;
-    cursor: pointer;
+  .app-shell.sidebar-collapsed .sidebar {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateX(-12px);
   }
 
-  .status {
+  .status-pill {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.9rem;
-    color: #a4aab8;
-  }
-
-  .status .dot {
-    width: 0.75rem;
-    height: 0.75rem;
+    gap: 0.4rem;
     border-radius: 999px;
-    background: #38bdf8;
-    animation: pulse 1.2s ease-in-out infinite;
+    padding: 0.28rem 0.85rem;
+    font-size: 0.78rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    background: rgba(99, 112, 149, 0.25);
+    color: #bfc8e6;
   }
 
-  @keyframes pulse {
-    0%,
-    100% {
-      opacity: 0.5;
-      transform: scale(0.9);
-    }
-    50% {
-      opacity: 1;
-      transform: scale(1);
-    }
+  .status-pill::before {
+    content: "";
+    width: 0.48rem;
+    height: 0.48rem;
+    border-radius: 999px;
+    background: #7b87a1;
+    opacity: 0.8;
+  }
+
+  .status-pill.live {
+    background: rgba(56, 189, 248, 0.16);
+    color: #8ec3ff;
+  }
+
+  .status-pill.live::before {
+    background: #38bdf8;
+    animation: pulse 1.4s ease-in-out infinite;
+    opacity: 1;
+  }
+
+  .chat-surface {
+    display: grid;
+    gap: 1.1rem;
+  }
+
+  .chat-header {
+    min-height: 1.5rem;
+    display: flex;
+    justify-content: flex-end;
   }
 
   .conversation {
-    background: #10172b;
-    border-radius: 1rem;
-    border: 1px solid #1c2745;
+    background: rgba(11, 17, 35, 0.95);
+    border-radius: 1.2rem;
+    border: 1px solid rgba(42, 59, 99, 0.8);
     min-height: 380px;
     max-height: 560px;
     overflow-y: auto;
-    padding: 1.25rem;
+    padding: 1.35rem;
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -395,61 +532,66 @@
   .placeholder {
     margin: auto;
     text-align: center;
-    color: #7b8194;
+    color: #8491b3;
+    max-width: 70%;
+    line-height: 1.6;
   }
 
   .message {
-    padding: 0.75rem 1rem;
-    border-radius: 0.85rem;
+    padding: 0.85rem 1.15rem;
+    border-radius: 0.95rem;
     display: grid;
-    gap: 0.45rem;
+    gap: 0.5rem;
     position: relative;
+    background: rgba(18, 26, 46, 0.85);
+    border: 1px solid rgba(58, 77, 120, 0.38);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
 
   .message header {
-    font-size: 0.85rem;
+    font-size: 0.82rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #7b8194;
+    color: #7b87a1;
   }
 
   .message.user {
     align-self: flex-end;
-    background: #1f2b45;
+    background: rgba(38, 50, 88, 0.78);
   }
 
   .message.assistant {
     align-self: flex-start;
-    background: #172034;
   }
 
   .message.tool {
     align-self: stretch;
-    background: #1c2a46;
   }
 
   .message p {
     margin: 0;
     white-space: pre-wrap;
-    line-height: 1.45;
+    line-height: 1.55;
+    color: #e3e9ff;
   }
 
   .message .meta {
     display: grid;
     gap: 0.35rem;
     margin: 0;
+    font-size: 0.82rem;
+    color: #9aa6c8;
   }
 
   .message .meta div {
     display: grid;
     grid-template-columns: minmax(0, max-content) 1fr;
     gap: 0.5rem;
-    font-size: 0.8rem;
   }
 
   .message .meta dt {
     margin: 0;
-    color: #7b87a1;
+    color: #aab5d3;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     font-weight: 600;
@@ -457,19 +599,19 @@
 
   .message .meta dd {
     margin: 0;
-    color: #d7dcef;
+    color: #dce4ff;
   }
 
   .message .reasoning {
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
     padding-top: 0.55rem;
   }
 
   .message .reasoning-label {
     display: block;
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     font-weight: 600;
-    color: #7b87a1;
+    color: #96a2c4;
     margin-bottom: 0.35rem;
     text-transform: uppercase;
     letter-spacing: 0.06em;
@@ -481,7 +623,7 @@
     display: grid;
     gap: 0.35rem;
     font-size: 0.92rem;
-    color: #e3e7f5;
+    color: #e6ebff;
   }
 
   .message .reasoning li {
@@ -508,22 +650,26 @@
   .composer {
     display: grid;
     gap: 0.75rem;
+    background: rgba(13, 18, 34, 0.92);
+    border: 1px solid rgba(47, 66, 108, 0.6);
+    border-radius: 1.15rem;
+    padding: 1.1rem 1.2rem 1.25rem;
   }
 
   textarea {
     width: 100%;
     resize: vertical;
     min-height: 120px;
-    padding: 0.75rem 1rem;
-    border-radius: 1rem;
-    border: 1px solid #1d2943;
-    background: #0b101b;
+    padding: 0.85rem 1.1rem;
+    border-radius: 0.95rem;
+    border: 1px solid rgba(57, 82, 124, 0.75);
+    background: rgba(5, 10, 21, 0.9);
     color: inherit;
-    line-height: 1.45;
+    line-height: 1.55;
   }
 
   textarea:focus {
-    outline: 2px solid #38bdf8;
+    outline: 2px solid rgba(56, 189, 248, 0.6);
     outline-offset: 2px;
   }
 
@@ -534,9 +680,7 @@
   }
 
   .actions button {
-    border-radius: 999px;
-    padding: 0.6rem 1.4rem;
-    cursor: pointer;
+    padding: 0.65rem 1.45rem;
     border: 1px solid transparent;
   }
 
@@ -546,22 +690,36 @@
   }
 
   .primary {
-    background: #38bdf8;
-    color: #031221;
-    font-weight: 600;
+    background: linear-gradient(135deg, #38bdf8 0%, #60a5fa 100%);
+    color: #021226;
+  }
+
+  .primary:hover:not(:disabled) {
+    transform: translateY(-1px);
   }
 
   .secondary {
-    background: none;
-    color: #f2f4f8;
-    border-color: #2f3c5f;
+    background: rgba(17, 25, 46, 0.3);
+    color: #f3f5ff;
+    border-color: rgba(60, 82, 128, 0.7);
+  }
+
+  .secondary:hover:not(:disabled) {
+    border-color: rgba(111, 155, 222, 0.75);
+    transform: translateY(-1px);
+  }
+
+  .composer-hint {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #7e8db0;
   }
 
   .error {
     margin: 0;
-    padding: 0.75rem 1rem;
-    border-radius: 0.85rem;
-    background: rgba(248, 113, 113, 0.15);
+    padding: 0.85rem 1.1rem;
+    border-radius: 0.95rem;
+    background: rgba(248, 113, 113, 0.16);
     border: 1px solid rgba(248, 113, 113, 0.35);
     color: #fecaca;
   }
@@ -577,14 +735,41 @@
     border: 0;
   }
 
-  @media (max-width: 640px) {
-    .toolbar {
-      flex-direction: column;
-      align-items: stretch;
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 0.65;
+      transform: scale(0.9);
     }
 
-    .toolbar select {
-      width: 100%;
+    50% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @media (max-width: 1100px) {
+    .layout-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 880px) {
+    .hero {
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .app-shell {
+      padding: 2.25rem 1.35rem 3rem;
+      gap: 1.6rem;
+    }
+
+    .conversation {
+      min-height: 320px;
+      max-height: none;
     }
 
     .actions {

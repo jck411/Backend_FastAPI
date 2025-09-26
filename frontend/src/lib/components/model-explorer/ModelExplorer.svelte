@@ -89,17 +89,23 @@
   }
 
   let currentFilters: FilterState;
-  let contextStep = 1;
-  let contextValue = 0;
+  let contextIndex = 0;
   let priceRange: PriceRange = { min: 0, max: 0 };
   let priceLabel = "";
   let contextSliderDisabled = false;
   let priceSliderDisabled = false;
+  let contextScale: string[] = [];
   let priceScale: string[] = [];
 
   const contextSliderId = "context-length-slider";
   const priceSliderId = "prompt-price-slider";
-  const CONTEXT_SCALE = ["4K", "64K", "1M"];
+  const CONTEXT_STOPS = [4000, 16000, 32000, 64000, 128000, 256000, 1_000_000];
+  const CONTEXT_STOP_COUNT = CONTEXT_STOPS.length;
+  const CONTEXT_ANY_INDEX = 0;
+  const CONTEXT_SCALE_LABELS = [
+    "Any",
+    ...CONTEXT_STOPS.map((value) => formatContextStop(value)),
+  ];
   const PRICE_STOPS = [0, 0.1, 0.2, 0.5, 1, 5, 10];
   const PRICE_STOP_COUNT = PRICE_STOPS.length;
   const PRICE_UNBOUNDED_INDEX = PRICE_STOP_COUNT;
@@ -116,16 +122,12 @@
       ? `${activeFilterCount} active filter${activeFilterCount === 1 ? "" : "s"}`
       : "All models shown.";
 
-  $: contextMin = availableFacets.minContext ?? 0;
-  $: contextMax = availableFacets.maxContext ?? contextMin;
-  $: contextSliderDisabled =
-    availableFacets.maxContext === null || contextMin === contextMax;
-  $: contextStep = deriveContextStep(contextMin, contextMax);
-  $: contextValue = clampIntegerValue(
-    currentFilters?.minContext ?? contextMin,
-    contextMin,
-    contextMax,
-  );
+  $: contextMax = availableFacets.maxContext ?? null;
+  $: contextSliderDisabled = availableFacets.maxContext === null;
+  $: contextIndex = contextSliderDisabled
+    ? CONTEXT_ANY_INDEX
+    : indexForContext(currentFilters?.minContext ?? null);
+  $: contextScale = contextSliderDisabled ? [] : CONTEXT_SCALE_LABELS;
 
   $: priceSliderDisabled = availableFacets.maxPromptPrice === null;
   $: priceRange = (() => {
@@ -180,13 +182,6 @@
     return count;
   }
 
-  function clampIntegerValue(value: number, min: number, max: number): number {
-    if (!Number.isFinite(value)) return min;
-    if (value < min) return min;
-    if (value > max) return max;
-    return Math.round(value);
-  }
-
   const STOP_EPSILON = 1e-9;
 
   function clampIndex(value: number, min: number, max: number): number {
@@ -235,6 +230,39 @@
     return findNearestStopIndex(value);
   }
 
+  function findNearestContextIndex(value: number): number {
+    let nearestIndex = 0;
+    let nearestDiff = Number.POSITIVE_INFINITY;
+    for (let index = 0; index < CONTEXT_STOP_COUNT; index += 1) {
+      const diff = Math.abs(CONTEXT_STOPS[index] - value);
+      if (diff < nearestDiff) {
+        nearestDiff = diff;
+        nearestIndex = index;
+      }
+    }
+    return nearestIndex + 1;
+  }
+
+  function indexForContext(value: number | null): number {
+    if (value === null || value <= 0) {
+      return CONTEXT_ANY_INDEX;
+    }
+    for (let index = 0; index < CONTEXT_STOP_COUNT; index += 1) {
+      if (Math.abs(CONTEXT_STOPS[index] - value) <= STOP_EPSILON) {
+        return index + 1;
+      }
+    }
+    return findNearestContextIndex(value);
+  }
+
+  function valueForContextIndex(index: number): number | null {
+    if (index <= CONTEXT_ANY_INDEX) {
+      return null;
+    }
+    const stopIndex = Math.min(Math.max(index - 1, 0), CONTEXT_STOP_COUNT - 1);
+    return CONTEXT_STOPS[stopIndex];
+  }
+
   function valueForMinIndex(index: number): number | null {
     if (index <= 0) {
       return null;
@@ -273,29 +301,28 @@
     return `$${formatted}`;
   }
 
-  function deriveContextStep(min: number, max: number): number {
-    const span = max - min;
-    if (!Number.isFinite(span) || span <= 0) {
-      return 1;
+  function formatContextStop(value: number): string {
+    if (!Number.isFinite(value) || value <= 0) {
+      return "Any";
     }
-    const approx = Math.round(span / 40);
-    return Math.max(approx, 1);
+    if (value >= 1_000_000) {
+      return "1M";
+    }
+    if (value >= 1000) {
+      const rounded = Math.round(value / 1000);
+      return `${rounded}K`;
+    }
+    return `${value}`;
   }
 
   function handleContextSlider(nextValue: number): void {
-    const base = availableFacets.minContext ?? 0;
-    const max = availableFacets.maxContext;
-    if (max === null) {
+    if (contextSliderDisabled) {
       setMinContext(null);
       return;
     }
 
-    if (nextValue <= base + contextStep / 2) {
-      setMinContext(null);
-      return;
-    }
-
-    setMinContext(Math.round(nextValue));
+    const index = clampIndex(nextValue, CONTEXT_ANY_INDEX, CONTEXT_STOP_COUNT);
+    setMinContext(valueForContextIndex(index));
   }
 
   function handlePriceRangeChange(event: CustomEvent<PriceRange>): void {
@@ -407,10 +434,10 @@
                   id={contextSliderId}
                   class="slider"
                   type="range"
-                  min={contextMin}
-                  max={contextMax}
-                  step={contextStep}
-                  value={contextValue}
+                  min={CONTEXT_ANY_INDEX}
+                  max={CONTEXT_STOP_COUNT}
+                  step={1}
+                  value={contextIndex}
                   on:input={(event) =>
                     handleContextSlider(
                       Number((event.target as HTMLInputElement).value),
@@ -418,7 +445,7 @@
                   aria-label="Minimum context tokens"
                 />
                 <div class="slider-scale context-scale">
-                  {#each CONTEXT_SCALE as label, index (label + index)}
+                  {#each contextScale as label, index (label + index)}
                     <span>{label}</span>
                   {/each}
                 </div>

@@ -102,41 +102,344 @@ export function extractOutputModalities(model: ModelRecord): string[] {
 }
 
 const TOKENS_PER_MILLION = 1_000_000;
+const ITEMS_PER_THOUSAND = 1_000;
+const MILLION_DECIMALS = 6;
+const THOUSAND_DECIMALS = 4;
 
-function normalizePromptPricePerMillion(value: number | null): number | null {
+const INPUT_TOKEN_PER_MILLION_KEYS = [
+  'prompt_price_per_million',
+  'input_price_per_million',
+  'input_token_price_per_million',
+];
+const INPUT_TOKEN_PER_UNIT_KEYS = ['prompt_price', 'input_price', 'input_token_price'];
+const INPUT_TOKEN_PRICING_KEYS = ['prompt', 'input', 'input_tokens', 'prompt_tokens'];
+
+const OUTPUT_TOKEN_PER_MILLION_KEYS = [
+  'completion_price_per_million',
+  'output_price_per_million',
+  'output_token_price_per_million',
+];
+const OUTPUT_TOKEN_PER_UNIT_KEYS = ['completion_price', 'output_price', 'output_token_price'];
+const OUTPUT_TOKEN_PRICING_KEYS = ['completion', 'output', 'output_tokens', 'completion_tokens'];
+
+const INPUT_IMAGE_PER_THOUSAND_KEYS = [
+  'input_image_price_per_thousand',
+  'vision_input_price_per_thousand',
+  'image_price_per_thousand',
+];
+const INPUT_IMAGE_PER_UNIT_KEYS = [
+  'input_image_price',
+  'vision_input_price',
+  'input_image',
+  'image',
+];
+const INPUT_IMAGE_PRICING_KEYS = [
+  'input_image',
+  'image_input',
+  'vision_input',
+  'input_images',
+  'vision',
+  'image',
+];
+
+const OUTPUT_IMAGE_PER_THOUSAND_KEYS = [
+  'output_image_price_per_thousand',
+  'image_price_per_thousand',
+  'vision_output_price_per_thousand',
+];
+const OUTPUT_IMAGE_PER_UNIT_KEYS = [
+  'output_image_price',
+  'image_price',
+  'vision_output_price',
+  'output_image',
+];
+const OUTPUT_IMAGE_PRICING_KEYS = [
+  'output_image',
+  'image',
+  'image_output',
+  'vision_output',
+];
+
+const REQUEST_PER_THOUSAND_KEYS = [
+  'request_price_per_thousand',
+  'requests_price_per_thousand',
+];
+const REQUEST_PER_UNIT_KEYS = ['request_price', 'requests_price', 'request'];
+const REQUEST_PRICING_KEYS = ['request', 'requests'];
+
+const WEB_SEARCH_PER_UNIT_KEYS = ['web_search', 'web-search', 'search'];
+const WEB_SEARCH_PRICING_KEYS = ['web_search', 'web-search', 'search'];
+
+const REASONING_PER_MILLION_KEYS = [
+  'internal_reasoning_price_per_million',
+  'reasoning_price_per_million',
+  'reasoning_tokens_price_per_million',
+];
+const REASONING_PER_UNIT_KEYS = [
+  'internal_reasoning',
+  'reasoning',
+  'reasoning_tokens',
+  'internal_reasoning_token',
+  'reasoning_token',
+];
+const REASONING_PRICING_KEYS = ['internal_reasoning', 'reasoning', 'reasoning_tokens'];
+
+const CACHE_READ_PER_MILLION_KEYS = [
+  'input_cache_read_price_per_million',
+  'cache_read_price_per_million',
+  'cache_hit_price_per_million',
+];
+const CACHE_READ_PER_UNIT_KEYS = [
+  'input_cache_read',
+  'cache_read',
+  'cache_hit',
+  'cache_read_token',
+  'cache_hit_token',
+];
+const CACHE_READ_PRICING_KEYS = ['input_cache_read', 'cache_read', 'cache_hit'];
+
+const CACHE_WRITE_PER_MILLION_KEYS = [
+  'input_cache_write_price_per_million',
+  'cache_write_price_per_million',
+  'cache_refresh_price_per_million',
+];
+const CACHE_WRITE_PER_UNIT_KEYS = [
+  'input_cache_write',
+  'cache_write',
+  'cache_refresh',
+  'cache_write_token',
+  'cache_refresh_token',
+];
+const CACHE_WRITE_PRICING_KEYS = ['input_cache_write', 'cache_write', 'cache_refresh'];
+
+function normalizePrice(value: number | null, decimals: number): number | null {
   if (value === null) return null;
   if (!Number.isFinite(value)) return null;
   if (value < 0) return null;
   if (value === 0) return 0;
-  return Number(value.toFixed(6));
+  return Number(value.toFixed(decimals));
+}
+
+function scalePrice(value: number | null, multiplier: number, decimals: number): number | null {
+  if (value === null) return null;
+  if (!Number.isFinite(value)) return null;
+  if (value < 0) return null;
+  if (value === 0) return 0;
+  return Number((value * multiplier).toFixed(decimals));
+}
+
+function readRecordNumeric(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    if (!(key in record)) continue;
+    const numeric = asNumeric(record[key]);
+    if (numeric !== null) {
+      return numeric;
+    }
+  }
+  return null;
+}
+
+function gatherPricingSources(model: ModelRecord): ModelPricing[] {
+  const sources: ModelPricing[] = [];
+  const push = (candidate: unknown) => {
+    if (candidate && typeof candidate === 'object') {
+      sources.push(candidate as ModelPricing);
+    }
+  };
+  push(model.pricing);
+  if (model.provider && typeof model.provider === 'object') {
+    push(model.provider.pricing);
+  }
+  const topProvider = (model as Record<string, unknown>).top_provider;
+  if (topProvider && typeof topProvider === 'object') {
+    push((topProvider as Record<string, unknown>).pricing);
+  }
+  return sources;
+}
+
+function extractPriceFromRecord(
+  record: Record<string, unknown>,
+  perMillionKeys: string[],
+  perUnitKeys: string[],
+  multiplier: number,
+  decimals: number,
+): number | null {
+  const perMillion = readRecordNumeric(record, perMillionKeys);
+  const normalizedPerMillion = normalizePrice(perMillion, decimals);
+  if (normalizedPerMillion !== null) {
+    return normalizedPerMillion;
+  }
+
+  const perUnit = readRecordNumeric(record, perUnitKeys);
+  const scaledPerUnit = scalePrice(perUnit, multiplier, decimals);
+  if (scaledPerUnit !== null) {
+    return scaledPerUnit;
+  }
+
+  return null;
+}
+
+function extractPriceFromPricing(
+  pricing: ModelPricing | null | undefined,
+  perMillionKeys: string[],
+  perUnitKeys: string[],
+  multiplier: number,
+  decimals: number,
+): number | null {
+  if (!pricing) return null;
+  const record = pricing as Record<string, unknown>;
+
+  const perMillion = readRecordNumeric(record, perMillionKeys);
+  const normalizedPerMillion = normalizePrice(perMillion, decimals);
+  if (normalizedPerMillion !== null) {
+    return normalizedPerMillion;
+  }
+
+  const perUnit = readRecordNumeric(record, perUnitKeys);
+  const scaledPerUnit = scalePrice(perUnit, multiplier, decimals);
+  if (scaledPerUnit !== null) {
+    return scaledPerUnit;
+  }
+
+  return null;
+}
+
+function deriveScaledPrice(
+  model: ModelRecord,
+  perMillionKeys: string[],
+  perUnitKeys: string[],
+  pricingKeys: string[],
+  multiplier: number,
+  decimals: number,
+): number | null {
+  const record = model as Record<string, unknown>;
+  const direct = extractPriceFromRecord(record, perMillionKeys, perUnitKeys, multiplier, decimals);
+  if (direct !== null) {
+    return direct;
+  }
+
+  const pricingUnitKeys = [...pricingKeys, ...perUnitKeys];
+  for (const pricing of gatherPricingSources(model)) {
+    const value = extractPriceFromPricing(pricing, perMillionKeys, pricingUnitKeys, multiplier, decimals);
+    if (value !== null) {
+      return value;
+    }
+  }
+
+  return null;
 }
 
 export function extractPromptPrice(pricing?: ModelPricing | null): number | null {
-  if (!pricing) return null;
-  const perToken = asNumeric(pricing.prompt ?? null);
-  if (perToken === null || perToken < 0) {
-    return null;
-  }
-  if (perToken === 0) {
-    return 0;
-  }
-  return Number((perToken * TOKENS_PER_MILLION).toFixed(6));
+  return extractPriceFromPricing(
+    pricing ?? null,
+    INPUT_TOKEN_PER_MILLION_KEYS,
+    [...INPUT_TOKEN_PRICING_KEYS, ...INPUT_TOKEN_PER_UNIT_KEYS],
+    TOKENS_PER_MILLION,
+    MILLION_DECIMALS,
+  );
+}
+
+export function deriveInputTokenPrice(model: ModelRecord): number | null {
+  return deriveScaledPrice(
+    model,
+    INPUT_TOKEN_PER_MILLION_KEYS,
+    INPUT_TOKEN_PER_UNIT_KEYS,
+    INPUT_TOKEN_PRICING_KEYS,
+    TOKENS_PER_MILLION,
+    MILLION_DECIMALS,
+  );
+}
+
+export function deriveOutputTokenPrice(model: ModelRecord): number | null {
+  return deriveScaledPrice(
+    model,
+    OUTPUT_TOKEN_PER_MILLION_KEYS,
+    OUTPUT_TOKEN_PER_UNIT_KEYS,
+    OUTPUT_TOKEN_PRICING_KEYS,
+    TOKENS_PER_MILLION,
+    MILLION_DECIMALS,
+  );
+}
+
+export function deriveInputImagePrice(model: ModelRecord): number | null {
+  return deriveScaledPrice(
+    model,
+    INPUT_IMAGE_PER_THOUSAND_KEYS,
+    INPUT_IMAGE_PER_UNIT_KEYS,
+    INPUT_IMAGE_PRICING_KEYS,
+    ITEMS_PER_THOUSAND,
+    THOUSAND_DECIMALS,
+  );
+}
+
+export function deriveOutputImagePrice(model: ModelRecord): number | null {
+  return deriveScaledPrice(
+    model,
+    OUTPUT_IMAGE_PER_THOUSAND_KEYS,
+    OUTPUT_IMAGE_PER_UNIT_KEYS,
+    OUTPUT_IMAGE_PRICING_KEYS,
+    ITEMS_PER_THOUSAND,
+    THOUSAND_DECIMALS,
+  );
+}
+
+export function deriveRequestPrice(model: ModelRecord): number | null {
+  return deriveScaledPrice(
+    model,
+    REQUEST_PER_THOUSAND_KEYS,
+    REQUEST_PER_UNIT_KEYS,
+    REQUEST_PRICING_KEYS,
+    ITEMS_PER_THOUSAND,
+    THOUSAND_DECIMALS,
+  );
+}
+
+export function deriveWebSearchPrice(model: ModelRecord): number | null {
+  return deriveScaledPrice(
+    model,
+    [],
+    WEB_SEARCH_PER_UNIT_KEYS,
+    WEB_SEARCH_PRICING_KEYS,
+    1,
+    THOUSAND_DECIMALS,
+  );
+}
+
+export function deriveInternalReasoningPrice(model: ModelRecord): number | null {
+  return deriveScaledPrice(
+    model,
+    REASONING_PER_MILLION_KEYS,
+    REASONING_PER_UNIT_KEYS,
+    REASONING_PRICING_KEYS,
+    TOKENS_PER_MILLION,
+    MILLION_DECIMALS,
+  );
+}
+
+export function deriveCacheReadPrice(model: ModelRecord): number | null {
+  return deriveScaledPrice(
+    model,
+    CACHE_READ_PER_MILLION_KEYS,
+    CACHE_READ_PER_UNIT_KEYS,
+    CACHE_READ_PRICING_KEYS,
+    TOKENS_PER_MILLION,
+    MILLION_DECIMALS,
+  );
+}
+
+export function deriveCacheWritePrice(model: ModelRecord): number | null {
+  return deriveScaledPrice(
+    model,
+    CACHE_WRITE_PER_MILLION_KEYS,
+    CACHE_WRITE_PER_UNIT_KEYS,
+    CACHE_WRITE_PRICING_KEYS,
+    TOKENS_PER_MILLION,
+    MILLION_DECIMALS,
+  );
 }
 
 export function derivePromptPrice(model: ModelRecord): number | null {
-  const record = model as Record<string, unknown>;
-
-  const perMillion = normalizePromptPricePerMillion(asNumeric(record.prompt_price_per_million));
-  if (perMillion !== null) {
-    return perMillion;
-  }
-
-  const perTokenFallback = asNumeric(record.prompt_price);
-  if (perTokenFallback !== null) {
-    return extractPromptPrice({ prompt: perTokenFallback });
-  }
-
-  return extractPromptPrice(model.pricing ?? null);
+  return deriveInputTokenPrice(model);
 }
 
 export function extractContextLength(model: ModelRecord): number | null {
@@ -172,6 +475,25 @@ export function formatContext(value: number | null): string {
     return `${(value / 1000).toFixed(1)}k tokens`;
   }
   return `${value} tokens`;
+}
+
+export function formatContextMillions(value: number | null): string {
+  if (value === null) return '—';
+  const millions = value / TOKENS_PER_MILLION;
+  const roundedMillions = (() => {
+    if (millions >= 10) return millions.toFixed(0);
+    if (millions >= 1) return millions.toFixed(1);
+    if (millions >= 0.1) return millions.toFixed(2);
+    return millions.toFixed(3);
+  })().replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1');
+
+  const contextLabel = (() => {
+    if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
+    if (value >= 1000) return `${Math.round(value / 1000)}K`;
+    return `${value}`;
+  })();
+
+  return `${roundedMillions}M (~${contextLabel})`;
 }
 
 export function extractProviderName(model: ModelRecord): string | null {

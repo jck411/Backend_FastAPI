@@ -1,13 +1,24 @@
 <script lang="ts">
+  import { createEventDispatcher } from "svelte";
   import type { ModelRecord } from "../../api/types";
   import ModelCard from "./ModelCard.svelte";
+  import ActiveFilterSummary from "./ActiveFilterSummary.svelte";
+  import type { FilterChip } from "./types";
 
   export let models: ModelRecord[] = [];
   export let filtersActive = false;
   export let onSelect: (model: ModelRecord) => void;
+  export let filterChips: FilterChip[] = [];
+
+  const dispatch = createEventDispatcher<{ clearFilter: FilterChip }>();
+
+  function handleClear(event: CustomEvent<FilterChip>): void {
+    dispatch("clearFilter", event.detail);
+  }
 </script>
 
 <section class="results" aria-live="polite">
+  <ActiveFilterSummary chips={filterChips} on:clear={handleClear} />
   {#if models.length === 0}
     <p class="empty">
       {#if filtersActive}
@@ -31,7 +42,7 @@
   .results {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 1.25rem;
     min-height: 0;
     flex: 1;
   }

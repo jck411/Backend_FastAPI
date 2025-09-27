@@ -1,10 +1,16 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount } from "svelte";
   import type { ModelRecord } from "../../api/types";
-  import { modelStore, type ModelSort } from "../../stores/models";
+  import {
+    modelStore,
+    type ModelFilters,
+    type ModelSort,
+    type MultiSelectKey,
+  } from "../../stores/models";
   import FilterPanel from "./FilterPanel.svelte";
   import ModelExplorerHeader from "./ModelExplorerHeader.svelte";
   import ModelResults from "./ModelResults.svelte";
+  import type { FilterChip, FilterCategoryKey } from "./types";
 
   export let open = false;
 
@@ -13,13 +19,32 @@
     close: void;
   }>();
 
-  const { filtered, filters, setSearch, setSort, activeFilters } = modelStore;
+  const { filtered, filters, setSearch, setSort, activeFilters, setSelectionState } = modelStore;
+
+  const filterCategories: Record<FilterCategoryKey, { label: string }> = {
+    inputModalities: { label: "Input" },
+    outputModalities: { label: "Output" },
+    series: { label: "Series" },
+    providers: { label: "Provider" },
+    supportedParameters: { label: "Parameter" },
+    moderation: { label: "Moderation" },
+  };
+
+  const categoryOrder: FilterCategoryKey[] = [
+    "inputModalities",
+    "outputModalities",
+    "series",
+    "providers",
+    "supportedParameters",
+    "moderation",
+  ];
 
   const compactMediaQuery = "(max-width: 1024px)";
 
   let compactLayout = false;
   let filtersVisible = true;
   let filtersManuallyToggled = false;
+  let filterChips: FilterChip[] = [];
 
   const bodyClass = "modal-open";
 
@@ -61,6 +86,46 @@
 
   $: filteredModels = $filtered as ModelRecord[];
   $: filtersActive = $activeFilters;
+  $: currentFilters = $filters as ModelFilters;
+  $: filterChips = currentFilters ? buildFilterChips(currentFilters) : [];
+
+  function buildFilterChips(filters: ModelFilters): FilterChip[] {
+    const chips: FilterChip[] = [];
+    for (const key of categoryOrder) {
+      const selection = filters[key];
+      if (!selection) continue;
+      const config = filterCategories[key];
+      const categoryLabel = config?.label ?? key;
+      for (const value of selection.include) {
+        chips.push(createChip(key, categoryLabel, value, "include"));
+      }
+      for (const value of selection.exclude) {
+        chips.push(createChip(key, categoryLabel, value, "exclude"));
+      }
+    }
+    return chips;
+  }
+
+  function createChip(
+    category: FilterCategoryKey,
+    categoryLabel: string,
+    value: string,
+    state: "include" | "exclude",
+  ): FilterChip {
+    const normalized = value.trim();
+    return {
+      id: `${category}:${state}:${normalized}`,
+      category,
+      categoryLabel,
+      value: normalized,
+      valueLabel: formatValueLabel(normalized),
+      state,
+    };
+  }
+
+  function formatValueLabel(value: string): string {
+    return value.replace(/[_-]/g, " ") || value;
+  }
 
   function setCompactLayout(matches: boolean): void {
     compactLayout = matches;
@@ -77,6 +142,11 @@
   function toggleFilters(): void {
     filtersVisible = !filtersVisible;
     filtersManuallyToggled = true;
+  }
+
+  function handleFilterChipClear(event: CustomEvent<FilterChip>): void {
+    const chip = event.detail;
+    setSelectionState(chip.category as MultiSelectKey, chip.value, "neutral");
   }
 
   onMount(() => {
@@ -151,7 +221,9 @@
       <ModelResults
         models={filteredModels}
         {filtersActive}
+        filterChips={filterChips}
         onSelect={handleSelect}
+        on:clearFilter={handleFilterChipClear}
       />
     </div>
   </div>

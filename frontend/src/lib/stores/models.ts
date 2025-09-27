@@ -14,18 +14,33 @@ import {
 
 export type ModelSort = 'newness' | 'price' | 'context';
 
-interface ModelFilters {
+export interface MultiSelectFilter {
+  include: string[];
+  exclude: string[];
+}
+
+export type MultiSelectKey =
+  | 'inputModalities'
+  | 'outputModalities'
+  | 'series'
+  | 'providers'
+  | 'supportedParameters'
+  | 'moderation';
+
+export type MultiSelectState = 'include' | 'exclude' | 'neutral';
+
+export interface ModelFilters {
   search: string;
-  inputModalities: string[];
-  outputModalities: string[];
+  inputModalities: MultiSelectFilter;
+  outputModalities: MultiSelectFilter;
   minContext: number | null;
   minPromptPrice: number | null;
   maxPromptPrice: number | null;
   sort: ModelSort;
-  series: string[];
-  providers: string[];
-  supportedParameters: string[];
-  moderation: string[];
+  series: MultiSelectFilter;
+  providers: MultiSelectFilter;
+  supportedParameters: MultiSelectFilter;
+  moderation: MultiSelectFilter;
 }
 
 interface ModelFacets {
@@ -49,19 +64,25 @@ interface ModelState {
   facets: ModelFacets;
 }
 
-const initialFilters: ModelFilters = {
-  search: '',
-  inputModalities: [],
-  outputModalities: [],
-  minContext: null,
-  minPromptPrice: null,
-  maxPromptPrice: null,
-  sort: 'newness',
-  series: [],
-  providers: [],
-  supportedParameters: [],
-  moderation: [],
-};
+function createEmptyMultiSelect(): MultiSelectFilter {
+  return { include: [], exclude: [] };
+}
+
+function createInitialFilters(): ModelFilters {
+  return {
+    search: '',
+    inputModalities: createEmptyMultiSelect(),
+    outputModalities: createEmptyMultiSelect(),
+    minContext: null,
+    minPromptPrice: null,
+    maxPromptPrice: null,
+    sort: 'newness',
+    series: createEmptyMultiSelect(),
+    providers: createEmptyMultiSelect(),
+    supportedParameters: createEmptyMultiSelect(),
+    moderation: createEmptyMultiSelect(),
+  };
+}
 
 const emptyFacets: ModelFacets = {
   inputModalities: [],
@@ -80,7 +101,7 @@ const initialState: ModelState = {
   models: [],
   loading: false,
   error: null,
-  filters: { ...initialFilters },
+  filters: createInitialFilters(),
   facets: { ...emptyFacets },
 };
 
@@ -150,11 +171,102 @@ function computeFacets(models: ModelRecord[]): ModelFacets {
   };
 }
 
-function matchesModality(filterValues: string[], modelModalities: string[]): boolean {
-  if (filterValues.length === 0) return true;
-  if (modelModalities.length === 0) return false;
-  const set = new Set(modelModalities);
-  return filterValues.some((value) => set.has(value));
+function normalizeToken(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized ? normalized : null;
+}
+
+function normalizeList(values: readonly string[]): string[] {
+  const tokens: string[] = [];
+  for (const value of values) {
+    const token = normalizeToken(value);
+    if (token) {
+      tokens.push(token);
+    }
+  }
+  return tokens;
+}
+
+function getSelectionState(selection: MultiSelectFilter, token: string): MultiSelectState {
+  if (selection.include.includes(token)) {
+    return 'include';
+  }
+  if (selection.exclude.includes(token)) {
+    return 'exclude';
+  }
+  return 'neutral';
+}
+
+function setSelectionByToken(
+  selection: MultiSelectFilter,
+  token: string,
+  nextState: MultiSelectState,
+): MultiSelectFilter {
+  const include = selection.include.filter((item) => item !== token);
+  const exclude = selection.exclude.filter((item) => item !== token);
+
+  if (nextState === 'include') {
+    return {
+      include: [...include, token],
+      exclude,
+    };
+  }
+
+  if (nextState === 'exclude') {
+    return {
+      include,
+      exclude: [...exclude, token],
+    };
+  }
+
+  return {
+    include,
+    exclude,
+  };
+}
+
+function applySelectionState(
+  selection: MultiSelectFilter,
+  rawValue: string,
+  nextState: MultiSelectState,
+): MultiSelectFilter {
+  const token = normalizeToken(rawValue);
+  if (!token) {
+    return selection;
+  }
+  return setSelectionByToken(selection, token, nextState);
+}
+
+function matchesMultiSelect(filter: MultiSelectFilter, modelValues: string[]): boolean {
+  const include = normalizeList(filter.include);
+  const exclude = normalizeList(filter.exclude);
+
+  if (include.length === 0 && exclude.length === 0) {
+    return true;
+  }
+
+  const available = new Set(normalizeList(modelValues));
+
+  if (include.length > 0) {
+    for (const value of include) {
+      if (!available.has(value)) {
+        return false;
+      }
+    }
+  }
+
+  if (exclude.length > 0) {
+    for (const value of exclude) {
+      if (available.has(value)) {
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 function filterAndSortModels(state: ModelState): ModelRecord[] {
@@ -177,11 +289,11 @@ function filterAndSortModels(state: ModelState): ModelRecord[] {
       if (!matches) return false;
     }
 
-    if (!matchesModality(filters.inputModalities, extractInputModalities(model))) {
+    if (!matchesMultiSelect(filters.inputModalities, extractInputModalities(model))) {
       return false;
     }
 
-    if (!matchesModality(filters.outputModalities, extractOutputModalities(model))) {
+    if (!matchesMultiSelect(filters.outputModalities, extractOutputModalities(model))) {
       return false;
     }
 
@@ -204,32 +316,22 @@ function filterAndSortModels(state: ModelState): ModelRecord[] {
       }
     }
 
-    if (filters.series.length > 0) {
-      const seriesValues = extractSeries(model).map((value) => value.toLowerCase());
-      if (!matchesModality(filters.series.map((value) => value.toLowerCase()), seriesValues)) {
-        return false;
-      }
+    if (!matchesMultiSelect(filters.series, extractSeries(model))) {
+      return false;
     }
 
-    if (filters.providers.length > 0) {
-      const provider = extractProviderName(model)?.toLowerCase() ?? null;
-      if (!provider || !filters.providers.some((value) => provider === value.toLowerCase())) {
-        return false;
-      }
+    const provider = extractProviderName(model);
+    if (!matchesMultiSelect(filters.providers, provider ? [provider] : [])) {
+      return false;
     }
 
-    if (filters.supportedParameters.length > 0) {
-      const parameters = extractSupportedParameters(model).map((value) => value.toLowerCase());
-      if (!matchesModality(filters.supportedParameters.map((value) => value.toLowerCase()), parameters)) {
-        return false;
-      }
+    if (!matchesMultiSelect(filters.supportedParameters, extractSupportedParameters(model))) {
+      return false;
     }
 
-    if (filters.moderation.length > 0) {
-      const moderation = extractModeration(model)?.toLowerCase() ?? null;
-      if (!moderation || !filters.moderation.some((value) => moderation === value.toLowerCase())) {
-        return false;
-      }
+    const moderation = extractModeration(model);
+    if (!matchesMultiSelect(filters.moderation, moderation ? [moderation] : [])) {
+      return false;
     }
 
     return true;
@@ -263,13 +365,28 @@ function filterAndSortModels(state: ModelState): ModelRecord[] {
   return filtered.slice().sort(comparator);
 }
 
-function toggleValue(values: string[], value: string): string[] {
-  const normalized = value.toLowerCase();
-  if (!normalized) return values;
-  if (values.includes(normalized)) {
-    return values.filter((item) => item !== normalized);
+function cycleMultiSelect(selection: MultiSelectFilter, rawValue: string): MultiSelectFilter {
+  const token = normalizeToken(rawValue);
+  if (!token) {
+    return selection;
   }
-  return [...values, normalized];
+
+  const current = getSelectionState(selection, token);
+  const next: MultiSelectState =
+    current === 'include' ? 'exclude' : current === 'exclude' ? 'neutral' : 'include';
+
+  return setSelectionByToken(selection, token, next);
+}
+
+function setMultiSelectStateForKey(
+  filters: ModelFilters,
+  key: MultiSelectKey,
+  rawValue: string,
+  nextState: MultiSelectState,
+): ModelFilters {
+  const nextFilters = { ...filters };
+  nextFilters[key] = applySelectionState(filters[key], rawValue, nextState);
+  return nextFilters;
 }
 
 function sanitizeFilterValue(value: number | null): number | null {
@@ -280,15 +397,19 @@ function sanitizeFilterValue(value: number | null): number | null {
   return value;
 }
 
+function hasAnySelection(filter: MultiSelectFilter): boolean {
+  return filter.include.length > 0 || filter.exclude.length > 0;
+}
+
 function hasAnyFilters(filters: ModelFilters): boolean {
   return Boolean(
     filters.search.trim() ||
-    filters.inputModalities.length ||
-    filters.outputModalities.length ||
-    filters.series.length ||
-    filters.providers.length ||
-    filters.supportedParameters.length ||
-    filters.moderation.length ||
+    hasAnySelection(filters.inputModalities) ||
+    hasAnySelection(filters.outputModalities) ||
+    hasAnySelection(filters.series) ||
+    hasAnySelection(filters.providers) ||
+    hasAnySelection(filters.supportedParameters) ||
+    hasAnySelection(filters.moderation) ||
     filters.minContext !== null ||
     filters.minPromptPrice !== null ||
     filters.maxPromptPrice !== null,
@@ -338,7 +459,7 @@ function createModelStore() {
       ...value,
       filters: {
         ...value.filters,
-        inputModalities: toggleValue(value.filters.inputModalities, modality),
+        inputModalities: cycleMultiSelect(value.filters.inputModalities, modality),
       },
     }));
   }
@@ -348,7 +469,7 @@ function createModelStore() {
       ...value,
       filters: {
         ...value.filters,
-        outputModalities: toggleValue(value.filters.outputModalities, modality),
+        outputModalities: cycleMultiSelect(value.filters.outputModalities, modality),
       },
     }));
   }
@@ -358,7 +479,7 @@ function createModelStore() {
       ...state,
       filters: {
         ...state.filters,
-        series: toggleValue(state.filters.series, value),
+        series: cycleMultiSelect(state.filters.series, value),
       },
     }));
   }
@@ -368,7 +489,7 @@ function createModelStore() {
       ...state,
       filters: {
         ...state.filters,
-        providers: toggleValue(state.filters.providers, value),
+        providers: cycleMultiSelect(state.filters.providers, value),
       },
     }));
   }
@@ -378,7 +499,7 @@ function createModelStore() {
       ...state,
       filters: {
         ...state.filters,
-        supportedParameters: toggleValue(state.filters.supportedParameters, value),
+        supportedParameters: cycleMultiSelect(state.filters.supportedParameters, value),
       },
     }));
   }
@@ -388,8 +509,19 @@ function createModelStore() {
       ...state,
       filters: {
         ...state.filters,
-        moderation: toggleValue(state.filters.moderation, value),
+        moderation: cycleMultiSelect(state.filters.moderation, value),
       },
+    }));
+  }
+
+  function setSelectionState(
+    key: MultiSelectKey,
+    value: string,
+    nextState: MultiSelectState,
+  ): void {
+    store.update((state) => ({
+      ...state,
+      filters: setMultiSelectStateForKey(state.filters, key, value, nextState),
     }));
   }
 
@@ -434,10 +566,14 @@ function createModelStore() {
   }
 
   function resetFilters(): void {
-    store.update((value) => ({
-      ...value,
-      filters: { ...initialFilters, sort: value.filters.sort },
-    }));
+    store.update((value) => {
+      const nextFilters = createInitialFilters();
+      nextFilters.sort = value.filters.sort;
+      return {
+        ...value,
+        filters: nextFilters,
+      };
+    });
   }
 
   const models = derived(store, (state) => state.models);
@@ -458,6 +594,7 @@ function createModelStore() {
     toggleProvider,
     toggleSupportedParameter,
     toggleModeration,
+    setSelectionState,
     setMinContext,
     setMinPromptPrice,
     setMaxPromptPrice,
@@ -474,3 +611,9 @@ function createModelStore() {
 }
 
 export const modelStore = createModelStore();
+
+export const __filterInternals = {
+  matchesMultiSelect,
+  cycleMultiSelect,
+  applySelectionState,
+};

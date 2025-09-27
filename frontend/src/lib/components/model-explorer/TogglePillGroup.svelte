@@ -7,6 +7,7 @@
   export let title: string;
   export let options: string[] = [];
   export let selected: string[] = [];
+  export let excluded: string[] = [];
   export let emptyMessage = "No options available.";
   export let variant: ToggleVariant = "default";
 
@@ -16,23 +17,44 @@
     dispatch("toggle", value);
   }
 
-  function isSelected(value: string): boolean {
-    const normalized = value.trim().toLowerCase();
-    return selected.some((entry) => entry.trim().toLowerCase() === normalized);
+  function normalize(value: string): string {
+    return value.trim().toLowerCase();
+  }
+
+  function matches(list: string[], value: string): boolean {
+    if (list.length === 0) {
+      return false;
+    }
+    const token = normalize(value);
+    return token ? list.some((entry) => normalize(entry) === token) : false;
+  }
+
+  function selectionState(value: string): "include" | "exclude" | "neutral" {
+    if (matches(selected, value)) {
+      return "include";
+    }
+    if (matches(excluded, value)) {
+      return "exclude";
+    }
+    return "neutral";
   }
 </script>
 
-<FilterSection {title} forceOpen={selected.length > 0}>
+<FilterSection {title} forceOpen={selected.length + excluded.length > 0}>
   <div class="options" data-variant={variant}>
     {#if options.length === 0}
       <p class="empty">{emptyMessage}</p>
     {:else}
       {#each options as option}
+        {@const state = selectionState(option)}
+        {@const pressed = state === "include" ? "true" : state === "exclude" ? "mixed" : "false"}
         <button
           type="button"
           class="pill"
-          class:active={isSelected(option)}
-          aria-pressed={isSelected(option)}
+          class:active={state === "include"}
+          class:exclude={state === "exclude"}
+          aria-pressed={pressed}
+          data-state={state}
           on:click={() => handleToggle(option)}
         >
           <span class="label">{option}</span>
@@ -127,12 +149,34 @@
     opacity: 1;
   }
 
+  .pill.exclude {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(248, 113, 113, 0.75);
+    color: #fca5a5;
+  }
+
+  .pill.exclude .indicator {
+    opacity: 1;
+    background: #f87171;
+  }
+
+  .pill.exclude:hover {
+    border-color: #f87171;
+    color: #fee2e2;
+  }
+
   .options[data-variant="compact"] .indicator {
     display: none;
   }
 
   .options[data-variant="compact"] .pill.active {
     background: rgba(56, 189, 248, 0.15);
+  }
+
+  .options[data-variant="compact"] .pill.exclude {
+    background: rgba(248, 113, 113, 0.2);
+    border-color: rgba(248, 113, 113, 0.7);
+    color: #fecaca;
   }
 
   .empty {

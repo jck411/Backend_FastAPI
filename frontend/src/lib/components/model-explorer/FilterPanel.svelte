@@ -171,14 +171,16 @@
     <TogglePillGroup
       title="Input modalities"
       options={availableFacets?.inputModalities ?? []}
-      selected={currentFilters?.inputModalities ?? []}
+      selected={currentFilters?.inputModalities?.include ?? []}
+      excluded={currentFilters?.inputModalities?.exclude ?? []}
       on:toggle={(event) => toggleInputModality(event.detail)}
       emptyMessage="No modality data available."
     />
     <TogglePillGroup
       title="Output modalities"
       options={availableFacets?.outputModalities ?? []}
-      selected={currentFilters?.outputModalities ?? []}
+      selected={currentFilters?.outputModalities?.include ?? []}
+      excluded={currentFilters?.outputModalities?.exclude ?? []}
       on:toggle={(event) => toggleOutputModality(event.detail)}
       emptyMessage="No modality data available."
     />
@@ -268,14 +270,16 @@
     <TogglePillGroup
       title="Series"
       options={availableFacets?.series ?? []}
-      selected={currentFilters?.series ?? []}
+      selected={currentFilters?.series?.include ?? []}
+      excluded={currentFilters?.series?.exclude ?? []}
       on:toggle={(event) => toggleSeries(event.detail)}
       emptyMessage="Series information unavailable."
     />
     <TogglePillGroup
       title="Supported parameters"
       options={availableFacets?.supportedParameters ?? []}
-      selected={currentFilters?.supportedParameters ?? []}
+      selected={currentFilters?.supportedParameters?.include ?? []}
+      excluded={currentFilters?.supportedParameters?.exclude ?? []}
       on:toggle={(event) => toggleSupportedParameter(event.detail)}
       variant="columns"
       emptyMessage="No parameter metadata available."
@@ -283,14 +287,16 @@
     <TogglePillGroup
       title="Providers"
       options={availableFacets?.providers ?? []}
-      selected={currentFilters?.providers ?? []}
+      selected={currentFilters?.providers?.include ?? []}
+      excluded={currentFilters?.providers?.exclude ?? []}
       on:toggle={(event) => toggleProvider(event.detail)}
       emptyMessage="No provider data available."
     />
     <TogglePillGroup
       title="Moderation"
       options={availableFacets?.moderation ?? []}
-      selected={currentFilters?.moderation ?? []}
+      selected={currentFilters?.moderation?.include ?? []}
+      excluded={currentFilters?.moderation?.exclude ?? []}
       on:toggle={(event) => toggleModeration(event.detail)}
       variant="compact"
       emptyMessage="No moderation metadata available."

@@ -1,13 +1,13 @@
-import type { ModelSort } from "../../../stores/models";
+import type { ModelSort, MultiSelectFilter } from "../../../stores/models";
 
 export type FilterState = {
   search: string;
-  inputModalities: string[];
-  outputModalities: string[];
-  series: string[];
-  providers: string[];
-  supportedParameters: string[];
-  moderation: string[];
+  inputModalities: MultiSelectFilter;
+  outputModalities: MultiSelectFilter;
+  series: MultiSelectFilter;
+  providers: MultiSelectFilter;
+  supportedParameters: MultiSelectFilter;
+  moderation: MultiSelectFilter;
   minContext: number | null;
   minPromptPrice: number | null;
   maxPromptPrice: number | null;
@@ -166,12 +166,16 @@ export function countActiveFilters(filters: FilterState | undefined): number {
     count += 1;
   }
 
-  count += filters.inputModalities.length;
-  count += filters.outputModalities.length;
-  count += filters.series.length;
-  count += filters.providers.length;
-  count += filters.supportedParameters.length;
-  count += filters.moderation.length;
+  const addSelectionCount = (selection: MultiSelectFilter) => {
+    count += selection.include.length + selection.exclude.length;
+  };
+
+  addSelectionCount(filters.inputModalities);
+  addSelectionCount(filters.outputModalities);
+  addSelectionCount(filters.series);
+  addSelectionCount(filters.providers);
+  addSelectionCount(filters.supportedParameters);
+  addSelectionCount(filters.moderation);
 
   if (filters.minContext !== null) {
     count += 1;

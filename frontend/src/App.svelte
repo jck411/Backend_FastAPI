@@ -381,6 +381,7 @@
     gap: 1.5rem;
     scroll-padding-top: 4rem;
     scroll-padding-bottom: 4rem;
+    scrollbar-gutter: stable;
   }
   .conversation > * {
     padding: 0 2rem;

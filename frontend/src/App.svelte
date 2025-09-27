@@ -67,9 +67,11 @@
   <!-- ░░ Header ░░ -->
   <header class="topbar">
     <div class="topbar-content">
-      <h1 class="title">Chat&nbsp;Playground</h1>
-
       <div class="controls">
+        <button class="ghost" on:click={() => (explorerOpen = true)}
+          >Explorer</button
+        >
+
         <select
           on:change={handleModelChange}
           bind:value={$chatStore.selectedModel}
@@ -89,9 +91,6 @@
           {/if}
         </select>
 
-        <button class="ghost" on:click={() => (explorerOpen = true)}
-          >Explorer</button
-        >
         <button
           class="ghost"
           on:click={clearConversation}
@@ -307,23 +306,18 @@
     flex-shrink: 0;
     display: flex;
     align-items: center;
-    justify-content: center;
+    justify-content: flex-start;
     background: transparent;
     position: relative;
     z-index: 20;
-  }
-  .topbar-content {
-    width: min(800px, 100%);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
     padding: 0 2rem;
   }
-  .title {
-    margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+  .topbar-content {
+    width: 100%;
+    max-width: 800px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
   }
   .controls {
     display: flex;

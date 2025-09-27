@@ -257,6 +257,48 @@
     );
     color: #f3f5ff;
     overflow: hidden;
+    position: relative;
+  }
+
+  /* Fade overlays for header and footer areas */
+  .chat-app::before,
+  .chat-app::after {
+    content: "";
+    position: fixed;
+    left: 0;
+    right: 0;
+    pointer-events: none;
+    z-index: 10;
+  }
+
+  /* Top fade overlay */
+  .chat-app::before {
+    top: 0;
+    height: calc(var(--header-h) + 2rem);
+    background: linear-gradient(
+      to bottom,
+      rgba(4, 6, 13, 1) 0%,
+      rgba(4, 6, 13, 0.95) 30%,
+      rgba(4, 6, 13, 0.8) 50%,
+      rgba(4, 6, 13, 0.4) 70%,
+      rgba(4, 6, 13, 0.1) 90%,
+      transparent 100%
+    );
+  }
+
+  /* Bottom fade overlay */
+  .chat-app::after {
+    bottom: 0;
+    height: calc(var(--composer-h) + 2rem);
+    background: linear-gradient(
+      to top,
+      rgba(4, 6, 13, 1) 0%,
+      rgba(4, 6, 13, 0.95) 30%,
+      rgba(4, 6, 13, 0.8) 50%,
+      rgba(4, 6, 13, 0.4) 70%,
+      rgba(4, 6, 13, 0.1) 90%,
+      transparent 100%
+    );
   }
 
   /* ==== Header ==== */
@@ -267,6 +309,8 @@
     align-items: center;
     justify-content: center;
     background: transparent;
+    position: relative;
+    z-index: 20;
   }
   .topbar-content {
     width: min(800px, 100%);
@@ -398,6 +442,8 @@
     justify-content: center;
     padding: 1rem 0 1.5rem;
     background: transparent;
+    position: relative;
+    z-index: 20;
   }
   .composer-content {
     width: min(800px, 100%);

@@ -330,19 +330,64 @@
     gap: 0.75rem;
     align-items: center;
   }
-  .controls select,
-  .controls .ghost {
-    padding: 0.625rem 1.25rem;
-    border-radius: 0.75rem;
-    background: rgba(20, 30, 51, 0.4);
-    color: inherit;
-    border: 1px solid rgba(57, 76, 114, 0.6);
+  /* Match Explorer styles for select */
+  .controls select {
+    appearance: none;
+    padding: 0.45rem 2rem 0.45rem 0.75rem;
+    border-radius: 0.5rem;
+    background: rgba(9, 14, 26, 0.9);
+    color: #f2f4f8;
+    border: 1px solid #25314d;
     cursor: pointer;
+    transition:
+      border-color 0.2s ease,
+      background 0.2s ease,
+      color 0.2s ease;
+    background-image: url('data:image/svg+xml,%3Csvg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M7 8l3 3 3-3" stroke="%23d4daee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/%3E%3C/svg%3E');
+    background-repeat: no-repeat;
+    background-position: right 0.65rem center;
+    background-size: 1rem;
+    min-width: 160px;
   }
-  .controls .ghost:hover {
-    border-color: rgba(140, 180, 255, 0.6);
+  .controls select:hover {
+    border-color: #38bdf8;
+    background-color: rgba(12, 19, 34, 0.95);
+    color: #f8fafc;
+  }
+  .controls select:focus {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
+    border-color: #38bdf8;
+    box-shadow: none;
   }
   .controls select:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    background: rgba(9, 14, 26, 0.6);
+  }
+  .controls select option {
+    background: #0a101a;
+    color: #f2f4f8;
+  }
+
+  /* Match Explorer styles for ghost buttons */
+  .controls .ghost {
+    background: none;
+    border: 1px solid #25314d;
+    border-radius: 999px;
+    color: #f2f4f8;
+    padding: 0.55rem 1.1rem;
+    cursor: pointer;
+    transition:
+      border-color 0.2s ease,
+      color 0.2s ease,
+      background 0.2s ease;
+  }
+  .controls .ghost:hover:not(:disabled) {
+    border-color: #38bdf8;
+    color: #38bdf8;
+  }
+  .controls .ghost:disabled {
     opacity: 0.6;
     cursor: not-allowed;
   }

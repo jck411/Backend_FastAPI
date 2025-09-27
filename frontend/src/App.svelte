@@ -155,8 +155,19 @@
           class="icon-button leading"
           aria-label="New prompt"
         >
-          <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M9 2v14M2 9h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 18 18"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M9 2v14M2 9h14"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
           </svg>
         </button>
 
@@ -172,11 +183,7 @@
 
         <div class="composer-actions">
           {#if $chatStore.isStreaming}
-            <button
-              type="button"
-              class="stop-inline"
-              on:click={cancelStream}
-            >
+            <button type="button" class="stop-inline" on:click={cancelStream}>
               <span aria-hidden="true" class="stop-indicator"></span>
               Stop
             </button>
@@ -186,18 +193,41 @@
             class="icon-button"
             aria-label="Toggle microphone"
           >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M9 3a2 2 0 0 1 2 2v4a2 2 0 1 1-4 0V5a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.5" />
-              <path d="M5 8.5a4 4 0 0 0 8 0M9 12.5V15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 18 18"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M9 3a2 2 0 0 1 2 2v4a2 2 0 1 1-4 0V5a2 2 0 0 1 2-2Z"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <path
+                d="M5 8.5a4 4 0 0 0 8 0M9 12.5V15"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
             </svg>
           </button>
-          <button
-            type="button"
-            class="icon-button"
-            aria-label="Attach audio"
-          >
-            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M4 9v-1.5M7 12V6M11 12V6M14 9v-1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+          <button type="button" class="icon-button" aria-label="Attach audio">
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 18 18"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M4 9v-1.5M7 12V6M11 12V6M14 9v-1.5"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
             </svg>
           </button>
         </div>
@@ -244,7 +274,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
-    padding: 0 1.5rem;
+    padding: 0 2rem;
   }
   .title {
     margin: 0;
@@ -258,7 +288,7 @@
   }
   .controls select,
   .controls .ghost {
-    padding: 0.55rem 1rem;
+    padding: 0.625rem 1.25rem;
     border-radius: 0.75rem;
     background: rgba(20, 30, 51, 0.4);
     color: inherit;
@@ -277,8 +307,8 @@
   .suggestions {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.5rem;
-    padding: 0.75rem 1.5rem;
+    gap: 0.75rem;
+    padding: 1.5rem 2rem;
     max-width: min(800px, 100%);
     margin: 0 auto;
     width: 100%;
@@ -286,7 +316,7 @@
   }
   .suggestions button {
     font-size: 0.85rem;
-    padding: 0.4rem 0.9rem;
+    padding: 0.625rem 1.25rem;
     border-radius: 999px;
     background: rgba(20, 30, 51, 0.4);
     border: 1px solid rgba(57, 76, 114, 0.6);
@@ -301,13 +331,15 @@
   .conversation {
     flex: 1 1 auto;
     overflow-y: auto;
-    padding: 1.25rem 0;
+    padding: 2rem 0;
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: 1.5rem;
+    scroll-padding-top: 4rem;
+    scroll-padding-bottom: 4rem;
   }
   .conversation > * {
-    padding: 0 1.5rem;
+    padding: 0 2rem;
     max-width: min(800px, 100%);
     margin: 0 auto;
     width: 100%;
@@ -324,7 +356,7 @@
   }
   .bubble {
     max-width: 75%;
-    padding: 0.85rem 1.15rem;
+    padding: 1rem 1.5rem;
     border-radius: 0.95rem;
     background: rgba(18, 26, 46, 0.85);
     border: 1px solid rgba(58, 77, 120, 0.38);
@@ -333,11 +365,16 @@
   .message.user .bubble {
     background: rgba(38, 50, 88, 0.78);
   }
+  .message.assistant .bubble {
+    background: transparent;
+    border: none;
+    padding: 0.5rem 0;
+  }
   .sender {
     display: block;
     font-size: 0.75rem;
     font-weight: 600;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.5rem;
     color: #7b87a1;
     text-transform: uppercase;
   }
@@ -357,9 +394,9 @@
   /* ==== Composer ==== */
   .composer {
     flex-shrink: 0;
-    min-height: var(--composer-h);
     display: flex;
     justify-content: center;
+    padding: 1rem 0 1.5rem;
     background: transparent;
   }
   .composer-content {
@@ -367,13 +404,14 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    padding: 1rem 1.5rem;
+    justify-content: flex-end;
+    padding: 0 2rem;
   }
   .input-shell {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.65rem 0.85rem;
+    gap: 0.75rem;
+    padding: 0.875rem 1.25rem;
     border-radius: 999px;
     background: rgba(11, 18, 34, 0.82);
     border: 1px solid rgba(57, 82, 124, 0.55);
@@ -385,7 +423,7 @@
     background: transparent;
     border: none;
     color: inherit;
-    padding: 0;
+    padding: 0.25rem 0;
     resize: none;
     font: inherit;
     line-height: 1.55;
@@ -404,19 +442,27 @@
   .stop-inline {
     display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
-    padding: 0 1rem;
-    height: 2.25rem;
+    gap: 0.5rem;
+    padding: 0 1.25rem;
+    height: 2.5rem;
     border-radius: 999px;
     border: 1px solid rgba(254, 63, 94, 0.55);
-    background: linear-gradient(135deg, rgba(65, 15, 26, 0.9), rgba(35, 11, 20, 0.88));
+    background: linear-gradient(
+      135deg,
+      rgba(65, 15, 26, 0.9),
+      rgba(35, 11, 20, 0.88)
+    );
     color: #ffd7dc;
     font-size: 0.85rem;
     font-weight: 600;
     letter-spacing: 0.01em;
     cursor: pointer;
-    box-shadow: 0 0 0 1px rgba(255, 82, 110, 0.25), 0 6px 18px rgba(255, 71, 102, 0.18);
-    transition: border-color 0.2s ease, filter 0.2s ease;
+    box-shadow:
+      0 0 0 1px rgba(255, 82, 110, 0.25),
+      0 6px 18px rgba(255, 71, 102, 0.18);
+    transition:
+      border-color 0.2s ease,
+      filter 0.2s ease;
   }
   .stop-inline:hover {
     border-color: rgba(255, 111, 136, 0.75);
@@ -430,7 +476,12 @@
     width: 0.55rem;
     height: 0.55rem;
     border-radius: 50%;
-    background: radial-gradient(circle at 35% 35%, #ffe7ec 0%, #ff5f7c 60%, #c91b3d 100%);
+    background: radial-gradient(
+      circle at 35% 35%,
+      #ffe7ec 0%,
+      #ff5f7c 60%,
+      #c91b3d 100%
+    );
     box-shadow: 0 0 8px rgba(255, 99, 132, 0.65);
     animation: stopPulse 1.4s ease-in-out infinite;
   }
@@ -449,14 +500,16 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2.25rem;
-    height: 2.25rem;
+    width: 2.5rem;
+    height: 2.5rem;
     border-radius: 999px;
     border: 1px solid rgba(68, 92, 138, 0.65);
     background: rgba(18, 26, 46, 0.9);
     color: #d7e0ff;
     cursor: pointer;
-    transition: border-color 0.2s ease, color 0.2s ease;
+    transition:
+      border-color 0.2s ease,
+      color 0.2s ease;
   }
   .icon-button:hover {
     border-color: rgba(132, 176, 255, 0.75);
@@ -466,6 +519,6 @@
     display: block;
   }
   .icon-button.leading {
-    margin-right: 0.25rem;
+    margin-right: 0.5rem;
   }
 </style>

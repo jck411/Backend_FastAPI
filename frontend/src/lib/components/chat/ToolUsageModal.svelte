@@ -1,5 +1,7 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher } from "svelte";
+  import { renderMarkdown } from "../../utils/markdown";
+  import { copyableCode } from "../../actions/copyableCode";
   import type { ToolUsageEntry } from "./toolUsage.types";
 
   const dispatch = createEventDispatcher<{ close: void }>();
@@ -81,13 +83,17 @@
                   {#if tool.input}
                     <div class="tool-usage-modal-section">
                       <span class="tool-usage-modal-section-label">Input</span>
-                      <pre class="tool-usage-modal-block">{tool.input}</pre>
+                      <div class="tool-usage-modal-block" use:copyableCode>
+                        {@html renderMarkdown(tool.input)}
+                      </div>
                     </div>
                   {/if}
                   {#if tool.result}
                     <div class="tool-usage-modal-section">
                       <span class="tool-usage-modal-section-label">Output</span>
-                      <pre class="tool-usage-modal-block">{tool.result}</pre>
+                      <div class="tool-usage-modal-block" use:copyableCode>
+                        {@html renderMarkdown(tool.result)}
+                      </div>
                     </div>
                   {/if}
                   {#if !tool.input && !tool.result}
@@ -262,13 +268,103 @@
   .tool-usage-modal-block {
     margin: 0;
     font-size: 0.85rem;
-    line-height: 1.4;
-    white-space: pre-wrap;
+    line-height: 1.5;
     background: rgba(15, 22, 38, 0.85);
     border-radius: 0.6rem;
     border: 1px solid rgba(67, 91, 136, 0.35);
-    padding: 0.65rem;
+    padding: 0.75rem 0.85rem;
     color: #dbe9ff;
     overflow-x: auto;
+  }
+  .tool-usage-modal-block :global(p) {
+    margin: 0 0 0.75rem;
+  }
+  .tool-usage-modal-block :global(p:last-child) {
+    margin-bottom: 0;
+  }
+  .tool-usage-modal-block :global(code) {
+    font-family: "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    background: rgba(28, 38, 60, 0.8);
+    border-radius: 0.35rem;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.8rem;
+  }
+  .tool-usage-modal-block :global(pre) {
+    margin: 0 0 0.85rem;
+    background: rgba(13, 20, 34, 0.9);
+    border-radius: 0.5rem;
+    border: 1px solid rgba(67, 91, 136, 0.35);
+    padding: 0.85rem;
+    overflow-x: auto;
+  }
+  .tool-usage-modal-block :global(pre.copy-code-block) {
+    position: relative;
+    padding-top: 2rem;
+  }
+  .tool-usage-modal-block :global(pre:last-child) {
+    margin-bottom: 0;
+  }
+  .tool-usage-modal-block :global(.copy-code-button) {
+    position: absolute;
+    top: 0.55rem;
+    right: 0.6rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 0.45rem;
+    background: rgba(8, 14, 24, 0.85);
+    color: rgba(222, 234, 255, 0.85);
+    cursor: pointer;
+    transition:
+      color 0.14s ease,
+      background 0.14s ease,
+      transform 0.14s ease;
+  }
+  .tool-usage-modal-block :global(.copy-code-button:hover),
+  .tool-usage-modal-block :global(.copy-code-button:focus-visible) {
+    color: #f1f5ff;
+    background: rgba(26, 36, 54, 0.95);
+    transform: translateY(-1px);
+    outline: none;
+  }
+  .tool-usage-modal-block :global(.copy-code-button:active) {
+    transform: translateY(0);
+  }
+  .tool-usage-modal-block :global(.copy-code-button.copied) {
+    color: #34d399;
+  }
+  .tool-usage-modal-block :global(.copy-code-button svg) {
+    width: 0.95rem;
+    height: 0.95rem;
+    display: block;
+  }
+  .tool-usage-modal-block :global(table) {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0 0 0.75rem;
+    font-size: 0.8rem;
+  }
+  .tool-usage-modal-block :global(table:last-child) {
+    margin-bottom: 0;
+  }
+  .tool-usage-modal-block :global(th),
+  .tool-usage-modal-block :global(td) {
+    border: 1px solid rgba(67, 91, 136, 0.45);
+    padding: 0.45rem 0.6rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  .tool-usage-modal-block :global(th) {
+    background: rgba(24, 34, 56, 0.85);
+    font-weight: 600;
+    color: #f1f5ff;
+  }
+  .tool-usage-modal-block :global(a) {
+    color: #7dd3fc;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
   }
 </style>

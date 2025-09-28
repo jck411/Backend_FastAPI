@@ -13,6 +13,22 @@
 
   const dispatch = createEventDispatcher<{ toggle: string }>();
 
+  type PressedState = "true" | "false" | "mixed";
+  type OptionRenderState = {
+    value: string;
+    state: ReturnType<typeof selectionState>;
+    pressed: PressedState;
+  };
+
+  let optionStates: OptionRenderState[] = [];
+
+  $: optionStates = options.map((option) => {
+    const state = selectionState(option);
+    const pressed: PressedState =
+      state === "include" ? "true" : state === "exclude" ? "mixed" : "false";
+    return { value: option, state, pressed };
+  });
+
   function handleToggle(value: string) {
     dispatch("toggle", value);
   }
@@ -45,9 +61,7 @@
     {#if options.length === 0}
       <p class="empty">{emptyMessage}</p>
     {:else}
-      {#each options as option}
-        {@const state = selectionState(option)}
-        {@const pressed = state === "include" ? "true" : state === "exclude" ? "mixed" : "false"}
+      {#each optionStates as { value, state, pressed } (value)}
         <button
           type="button"
           class="pill"
@@ -55,9 +69,9 @@
           class:exclude={state === "exclude"}
           aria-pressed={pressed}
           data-state={state}
-          on:click={() => handleToggle(option)}
+          on:click={() => handleToggle(value)}
         >
-          <span class="label">{option}</span>
+          <span class="label">{value}</span>
           <span class="indicator" aria-hidden="true"></span>
         </button>
       {/each}

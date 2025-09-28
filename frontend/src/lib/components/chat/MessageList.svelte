@@ -65,13 +65,15 @@
           >
             <ClipboardCopy size={16} strokeWidth={1.6} aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            class="message-action"
-            aria-label="Edit message"
-          >
-            <Pencil size={16} strokeWidth={1.6} aria-hidden="true" />
-          </button>
+          {#if message.role === "user"}
+            <button
+              type="button"
+              class="message-action"
+              aria-label="Edit message"
+            >
+              <Pencil size={16} strokeWidth={1.6} aria-hidden="true" />
+            </button>
+          {/if}
           <button
             type="button"
             class="message-action"
@@ -79,13 +81,15 @@
           >
             <RefreshCcw size={16} strokeWidth={1.6} aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            class="message-action"
-            aria-label="View details"
-          >
-            <BarChart size={16} strokeWidth={1.6} aria-hidden="true" />
-          </button>
+          {#if message.role !== "user"}
+            <button
+              type="button"
+              class="message-action"
+              aria-label="View details"
+            >
+              <BarChart size={16} strokeWidth={1.6} aria-hidden="true" />
+            </button>
+          {/if}
           <button
             type="button"
             class="message-action"
@@ -187,7 +191,7 @@
   }
   .message-actions {
     position: absolute;
-    bottom: -1.4rem;
+    bottom: -1.6rem;
     display: flex;
     gap: 0.35rem;
     padding: 0.1rem 0.2rem;
@@ -205,15 +209,15 @@
   }
   /* Position per role: left for assistant, right for user */
   .message.assistant .message-actions {
-    left: 0.25rem;
+    left: 0;
     right: auto;
     justify-content: flex-start;
   }
   .message.user .message-actions {
-    right: 0.25rem;
+    right: 0;
     left: auto;
     justify-content: flex-end;
-    bottom: -1.9rem;
+    bottom: -2.1rem;
   }
   .message-action {
     width: 1.8rem;

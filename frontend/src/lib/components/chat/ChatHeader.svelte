@@ -12,6 +12,7 @@
     clear: void;
     modelChange: { id: string };
     webSearchChange: { settings: Partial<WebSearchSettings> };
+    openModelSettings: void;
   }>();
 
   export let selectableModels: SelectableModel[] = [];
@@ -142,6 +143,10 @@
     dispatch('modelChange', { id: target.value });
   }
 
+  function handleOpenModelSettings(): void {
+    dispatch('openModelSettings');
+  }
+
   let wasWebSearchEnabled = webSearch.enabled;
 
   $: {
@@ -174,6 +179,15 @@
           {/each}
         {/if}
       </select>
+
+      <button
+        class="ghost"
+        type="button"
+        on:click={handleOpenModelSettings}
+        disabled={modelsLoading || !selectedModel}
+      >
+        Model settings
+      </button>
 
       <div
         class="web-search"

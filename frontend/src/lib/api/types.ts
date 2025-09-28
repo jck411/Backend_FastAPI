@@ -172,3 +172,71 @@ export interface GenerationDetailsResponse {
   data: GenerationDetails;
   [key: string]: unknown;
 }
+
+export interface ProviderMaxPrice {
+  prompt?: number | string | null;
+  completion?: number | string | null;
+  image?: number | string | null;
+  audio?: number | string | null;
+  request?: number | string | null;
+  [key: string]: unknown;
+}
+
+export interface ProviderPreferences {
+  allow_fallbacks?: boolean | null;
+  require_parameters?: boolean | null;
+  data_collection?: 'allow' | 'deny' | null;
+  zdr?: boolean | null;
+  order?: string[] | null;
+  only?: string[] | null;
+  ignore?: string[] | null;
+  quantizations?: string[] | null;
+  sort?: 'price' | 'throughput' | 'latency' | null;
+  max_price?: ProviderMaxPrice | null;
+  experimental?: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
+export type ReasoningEffort = 'low' | 'medium' | 'high';
+
+export interface ReasoningConfig {
+  effort?: ReasoningEffort | null;
+  max_tokens?: number | null;
+  exclude?: boolean | null;
+  enabled?: boolean | null;
+  [key: string]: unknown;
+}
+
+export interface ModelHyperparameters {
+  temperature?: number | null;
+  top_p?: number | null;
+  top_k?: number | null;
+  min_p?: number | null;
+  top_a?: number | null;
+  max_tokens?: number | null;
+  frequency_penalty?: number | null;
+  presence_penalty?: number | null;
+  repetition_penalty?: number | null;
+  seed?: number | null;
+  logit_bias?: Record<string, number> | null;
+  stop?: string | string[] | null;
+  top_logprobs?: number | null;
+  parallel_tool_calls?: boolean | null;
+  tool_choice?: string | Record<string, unknown> | null;
+  response_format?: Record<string, unknown> | null;
+  structured_outputs?: boolean | null;
+  reasoning?: ReasoningConfig | null;
+  safe_prompt?: boolean | null;
+  raw_mode?: boolean | null;
+  [key: string]: unknown;
+}
+
+export interface ActiveModelSettingsPayload {
+  model: string;
+  provider?: ProviderPreferences | null;
+  parameters?: ModelHyperparameters | null;
+}
+
+export interface ActiveModelSettingsResponse extends ActiveModelSettingsPayload {
+  updated_at: string;
+}

@@ -5,6 +5,8 @@ import type {
   ChatCompletionRequest,
   DeepgramTokenResponse,
   GenerationDetailsResponse,
+  ActiveModelSettingsPayload,
+  ActiveModelSettingsResponse,
   ModelListResponse,
   SseEvent,
 } from './types';
@@ -57,6 +59,19 @@ export async function fetchGenerationDetails(
 ): Promise<GenerationDetailsResponse> {
   const path = `/api/chat/generation/${encodeURIComponent(generationId)}`;
   return requestJson<GenerationDetailsResponse>(resolveApiPath(path));
+}
+
+export async function fetchModelSettings(): Promise<ActiveModelSettingsResponse> {
+  return requestJson<ActiveModelSettingsResponse>(resolveApiPath('/api/settings/model'));
+}
+
+export async function updateModelSettings(
+  payload: ActiveModelSettingsPayload,
+): Promise<ActiveModelSettingsResponse> {
+  return requestJson<ActiveModelSettingsResponse>(resolveApiPath('/api/settings/model'), {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
 }
 
 export interface ChatStreamCallbacks {

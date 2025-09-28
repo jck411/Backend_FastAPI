@@ -1,16 +1,17 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import ModelExplorer from './lib/components/model-explorer/ModelExplorer.svelte';
-  import ChatHeader from './lib/components/chat/ChatHeader.svelte';
-  import QuickPrompts from './lib/components/chat/QuickPrompts.svelte';
-  import MessageList from './lib/components/chat/MessageList.svelte';
-  import Composer from './lib/components/chat/Composer.svelte';
-  import GenerationDetailsModal from './lib/components/chat/GenerationDetailsModal.svelte';
+import ModelExplorer from './lib/components/model-explorer/ModelExplorer.svelte';
+import ChatHeader from './lib/components/chat/ChatHeader.svelte';
+import QuickPrompts from './lib/components/chat/QuickPrompts.svelte';
+import MessageList from './lib/components/chat/MessageList.svelte';
+import Composer from './lib/components/chat/Composer.svelte';
+import GenerationDetailsModal from './lib/components/chat/GenerationDetailsModal.svelte';
+import ModelSettingsModal from './lib/components/chat/ModelSettingsModal.svelte';
   import { fetchGenerationDetails } from './lib/api/client';
   import { chatStore } from './lib/stores/chat';
   import { modelStore } from './lib/stores/models';
   import { GENERATION_DETAIL_FIELDS } from './lib/chat/constants';
-  import type { GenerationDetails } from './lib/api/types';
+import type { GenerationDetails, ModelRecord } from './lib/api/types';
   import type { GenerationDetailField } from './lib/chat/constants';
 
   const { sendMessage, cancelStream, clearConversation, setModel, updateWebSearch } = chatStore;
@@ -26,6 +27,7 @@
   let prompt = '';
   let explorerOpen = false;
   let generationModalOpen = false;
+  let modelSettingsOpen = false;
   let generationModalLoading = false;
   let generationModalError: string | null = null;
   let generationModalData: GenerationDetails | null = null;
@@ -36,7 +38,10 @@
 
   $: {
     if (typeof document !== 'undefined') {
-      document.body.classList.toggle('modal-open', explorerOpen || generationModalOpen);
+      document.body.classList.toggle(
+        'modal-open',
+        explorerOpen || generationModalOpen || modelSettingsOpen,
+      );
     }
   }
 
@@ -57,6 +62,13 @@
       : [$modelsStore.find((model) => model.id === selected), ...base].filter(
           (model): model is NonNullable<typeof model> => model !== null && model !== undefined,
         );
+  })();
+
+  $: activeModel = (() => {
+    const models = $modelsStore as ModelRecord[] | undefined;
+    if (!models || !models.length) return null;
+    const selected = $chatStore.selectedModel;
+    return models.find((model) => model.id === selected) ?? null;
   })();
 
   function handleModelChange(id: string): void {
@@ -110,6 +122,7 @@
     on:clear={clearConversation}
     on:modelChange={(event) => handleModelChange(event.detail.id)}
     on:webSearchChange={(event) => updateWebSearch(event.detail.settings)}
+    on:openModelSettings={() => (modelSettingsOpen = true)}
   />
 
   {#if !$chatStore.messages.length}
@@ -136,6 +149,13 @@
     data={generationModalData}
     fields={generationDetailFields}
     on:close={closeGenerationDetails}
+  />
+
+  <ModelSettingsModal
+    open={modelSettingsOpen}
+    selectedModel={$chatStore.selectedModel}
+    model={activeModel}
+    on:close={() => (modelSettingsOpen = false)}
   />
 
   <ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />

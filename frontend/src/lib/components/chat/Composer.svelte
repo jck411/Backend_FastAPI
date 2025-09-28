@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher } from "svelte";
 
-  export let prompt = '';
+  export let prompt = "";
   export let isStreaming = false;
 
   const dispatch = createEventDispatcher<{
@@ -12,19 +12,19 @@
   function handleSubmit(): void {
     const trimmed = prompt.trim();
     if (!trimmed) return;
-    dispatch('submit', { text: trimmed });
-    prompt = '';
+    dispatch("submit", { text: trimmed });
+    prompt = "";
   }
 
   function handleKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       handleSubmit();
     }
   }
 
   function handleCancel(): void {
-    dispatch('cancel');
+    dispatch("cancel");
   }
 </script>
 
@@ -39,7 +39,12 @@
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          <path d="M9 2v14M2 9h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+          <path
+            d="M9 2v14M2 9h14"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+          />
         </svg>
       </button>
 
@@ -47,7 +52,7 @@
         rows="1"
         bind:value={prompt}
         on:keydown={handleKeydown}
-        placeholder={isStreaming ? 'Waiting for response…' : 'Type here…'}
+        placeholder={isStreaming ? "Waiting for response…" : "Type here…"}
         aria-disabled={isStreaming}
       ></textarea>
 
@@ -58,7 +63,11 @@
             Stop
           </button>
         {/if}
-        <button type="button" class="icon-button" aria-label="Toggle microphone">
+        <button
+          type="button"
+          class="icon-button"
+          aria-label="Toggle microphone"
+        >
           <svg
             width="18"
             height="18"
@@ -106,7 +115,7 @@
     flex-shrink: 0;
     display: flex;
     justify-content: center;
-    padding: 1rem 0 1.5rem;
+    padding: 0rem 0 1rem;
     background: transparent;
     position: relative;
     z-index: 20;

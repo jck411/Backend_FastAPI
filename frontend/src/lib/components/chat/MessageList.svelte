@@ -1,9 +1,15 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher, onDestroy } from "svelte";
-  import type { ConversationMessage, ConversationRole } from "../../stores/chat";
+  import type {
+    ConversationMessage,
+    ConversationRole,
+    ReasoningSegment,
+    ReasoningStatus,
+  } from "../../stores/chat";
   // Use Lucide icons for consistent, theme-friendly line icons
   import {
     BarChart,
+    Brain,
     Check,
     ClipboardCopy,
     Pencil,
@@ -12,6 +18,7 @@
     Wrench,
   } from "lucide-svelte";
   import ToolUsageModal from "./ToolUsageModal.svelte";
+  import ReasoningModal from "./ReasoningModal.svelte";
   import type { ToolUsageEntry } from "./toolUsage.types";
 
   export let messages: ConversationMessage[] = [];
@@ -25,8 +32,14 @@
   let toolModalOpen = false;
   let toolModalEntries: ToolUsageEntry[] = [];
   let toolModalMessageId: string | null = null;
+  let reasoningModalOpen = false;
+  let reasoningModalSegments: ReasoningSegment[] = [];
+  let reasoningModalMessageId: string | null = null;
+  let reasoningModalStatus: ReasoningStatus | null = null;
   const TOOL_ROLE: ConversationRole = "tool";
   let suppressNextScroll = false;
+  const SCROLL_LOCK_THRESHOLD = 12;
+  let autoScroll = true;
 
   const dispatch = createEventDispatcher<{
     openGenerationDetails: { id: string };
@@ -40,8 +53,20 @@
       suppressNextScroll = false;
       return;
     }
+    if (!autoScroll) {
+      return;
+    }
     container.scrollTop = container.scrollHeight;
   });
+
+  function handleScroll(): void {
+    if (!container) {
+      return;
+    }
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+    autoScroll = distanceFromBottom <= SCROLL_LOCK_THRESHOLD;
+  }
 
   function handleUsageClick(id: string | null | undefined): void {
     if (!id) return;
@@ -294,9 +319,29 @@
     toolModalEntries = [];
     toolModalMessageId = null;
   }
+
+  function handleOpenReasoningModal(message: ConversationMessage): void {
+    reasoningModalMessageId = message.id;
+    reasoningModalSegments = message.details?.reasoning ?? [];
+    reasoningModalStatus = message.details?.reasoningStatus ?? null;
+    reasoningModalOpen = true;
+  }
+
+  function handleCloseReasoningModal(): void {
+    reasoningModalOpen = false;
+    reasoningModalMessageId = null;
+    reasoningModalSegments = [];
+    reasoningModalStatus = null;
+  }
+
+  $: if (reasoningModalOpen && reasoningModalMessageId) {
+    const currentMessage = messages.find((msg) => msg.id === reasoningModalMessageId);
+    reasoningModalSegments = currentMessage?.details?.reasoning ?? [];
+    reasoningModalStatus = currentMessage?.details?.reasoningStatus ?? null;
+  }
 </script>
 
-<section class="conversation" bind:this={container} aria-live="polite">
+<section class="conversation" bind:this={container} aria-live="polite" on:scroll={handleScroll}>
   {#each visibleMessages as message (message.id)}
     <article class={`message ${message.role}`}>
       <div class="bubble">
@@ -304,9 +349,25 @@
           <span class="sender">
             <span class="sender-label">
               {message.role}
-              {#if message.role === "assistant" && message.details?.model}
+              {#if message.role === "assistant"}
                 <span class="sender-model">
-                  — {message.details.model}
+                  {#if message.details?.model}
+                    <span class="sender-model-text">— {message.details.model}</span>
+                  {/if}
+                  {#if ((message.details?.reasoning?.length ?? 0) > 0) || !!message.details?.reasoningStatus}
+                    <button
+                      type="button"
+                      class="sender-reasoning-indicator"
+                      class:streaming={message.details?.reasoningStatus === "streaming"}
+                      aria-label="View reasoning trace"
+                      title={message.details?.reasoningStatus === "streaming"
+                        ? "Reasoning stream in progress"
+                        : "View reasoning trace"}
+                      on:click={() => handleOpenReasoningModal(message)}
+                    >
+                      <Brain size={14} strokeWidth={1.8} aria-hidden="true" />
+                    </button>
+                  {/if}
                   {#if assistantToolUsage[message.id]}
                     <button
                       type="button"
@@ -387,6 +448,14 @@
   on:close={handleCloseToolModal}
 />
 
+<ReasoningModal
+  open={reasoningModalOpen}
+  messageId={reasoningModalMessageId}
+  segments={reasoningModalSegments}
+  status={reasoningModalStatus}
+  on:close={handleCloseReasoningModal}
+/>
+
 <style>
   .conversation {
     flex: 1 1 auto;
@@ -449,6 +518,29 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
+  }
+  .sender-model-text {
+    display: inline-block;
+  }
+  .sender-reasoning-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    color: #c084fc;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .sender-reasoning-indicator.streaming {
+    animation: reasoningPulse 1.25s ease-in-out infinite;
+  }
+  .sender-reasoning-indicator:hover,
+  .sender-reasoning-indicator:focus-visible {
+    color: #e9d5ff;
+    outline: none;
   }
   .sender-tool-indicator {
     display: inline-flex;
@@ -551,6 +643,20 @@
   }
   .message-action.copied {
     color: #34d399;
+  }
+  @keyframes reasoningPulse {
+    0% {
+      transform: scale(1);
+      filter: drop-shadow(0 0 0 rgba(192, 132, 252, 0.35));
+    }
+    50% {
+      transform: scale(1.15);
+      filter: drop-shadow(0 0 6px rgba(192, 132, 252, 0.5));
+    }
+    100% {
+      transform: scale(1);
+      filter: drop-shadow(0 0 0 rgba(192, 132, 252, 0.35));
+    }
   }
   /* Icon rendering handled by lucide-svelte props; buttons inherit color */
 </style>

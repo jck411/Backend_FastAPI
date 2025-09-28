@@ -4,15 +4,145 @@ import type { ChatCompletionRequest } from '../api/types';
 
 export type ConversationRole = 'user' | 'assistant' | 'system' | 'tool';
 
-interface ReasoningSegment {
+export interface ReasoningSegment {
   text: string;
   type?: string;
+}
+
+export type ReasoningStatus = 'streaming' | 'complete';
+
+function toReasoningSegments(value: unknown): ReasoningSegment[] {
+  if (value == null) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => toReasoningSegments(entry));
+  }
+  if (typeof value === 'string') {
+    return value.length > 0 ? [{ text: value }] : [];
+  }
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const text = record.text;
+    const type = record.type;
+    const segments: ReasoningSegment[] = [];
+
+    if (typeof text === 'string' && text.length > 0) {
+      const segment: ReasoningSegment = { text };
+      if (typeof type === 'string' && type.length > 0) {
+        segment.type = type;
+      }
+      segments.push(segment);
+    }
+
+    const nestedKeys = [
+      'segments',
+      'segment',
+      'messages',
+      'message',
+      'content',
+      'contents',
+      'parts',
+      'steps',
+      'items',
+    ];
+
+    for (const key of nestedKeys) {
+      const nested = record[key];
+      if (nested !== undefined) {
+        segments.push(...toReasoningSegments(nested));
+      }
+    }
+
+    return segments;
+  }
+
+  return [];
+}
+
+function collectReasoningSegmentsFromChunk(chunk: unknown): {
+  segments: ReasoningSegment[];
+  hasPayload: boolean;
+} {
+  if (!chunk || typeof chunk !== 'object') {
+    return { segments: [], hasPayload: false };
+  }
+  const choices = (chunk as { choices?: Array<Record<string, unknown>> }).choices;
+  if (!Array.isArray(choices)) {
+    return { segments: [], hasPayload: false };
+  }
+  const segments: ReasoningSegment[] = [];
+  let hasPayload = false;
+  for (const choice of choices) {
+    if (!choice || typeof choice !== 'object') {
+      continue;
+    }
+    const delta = (choice as { delta?: unknown }).delta;
+    if (!delta || typeof delta !== 'object') {
+      continue;
+    }
+    if ('reasoning' in (delta as Record<string, unknown>)) {
+      hasPayload = true;
+      const reasoning = (delta as { reasoning?: unknown }).reasoning;
+      segments.push(...toReasoningSegments(reasoning));
+    }
+  }
+  return { segments, hasPayload };
+}
+
+function mergeReasoningSegments(
+  existing: ReasoningSegment[] | undefined,
+  incoming: ReasoningSegment[],
+): ReasoningSegment[] {
+  const sanitizedIncoming = incoming.filter((segment) => segment.text.length > 0);
+  if (sanitizedIncoming.length === 0) {
+    return existing ?? [];
+  }
+  if (!existing || existing.length === 0) {
+    return sanitizedIncoming;
+  }
+
+  const existingText = existing.map((segment) => segment.text).join('');
+  const incomingText = sanitizedIncoming.map((segment) => segment.text).join('');
+
+  if (incomingText.startsWith(existingText)) {
+    const suffix = incomingText.slice(existingText.length);
+    if (suffix.length === 0) {
+      return existing;
+    }
+    const merged = [...existing];
+    const lastIndex = merged.length - 1;
+    const lastIncoming = sanitizedIncoming[sanitizedIncoming.length - 1];
+    merged[lastIndex] = {
+      text: `${merged[lastIndex].text}${suffix}`,
+      type: lastIncoming.type ?? merged[lastIndex].type,
+    };
+    return merged;
+  }
+
+  const merged = [...existing];
+  for (const segment of sanitizedIncoming) {
+    const alreadyPresent = merged.some(
+      (existingSegment) =>
+        existingSegment.text === segment.text && existingSegment.type === segment.type,
+    );
+    if (alreadyPresent) {
+      continue;
+    }
+    merged.push(segment);
+  }
+  return merged;
+}
+
+function reasoningTextLength(segments: ReasoningSegment[] | undefined | null): number {
+  return segments?.reduce((total, segment) => total + segment.text.length, 0) ?? 0;
 }
 
 interface ConversationMessageDetails {
   model?: string | null;
   finishReason?: string | null;
   reasoning?: ReasoningSegment[];
+  reasoningStatus?: ReasoningStatus | null;
   usage?: Record<string, unknown> | null;
   routing?: Record<string, unknown> | null;
   toolCalls?: Array<Record<string, unknown>> | null;
@@ -111,18 +241,39 @@ function createChatStore() {
           if (eventType === 'message') {
             const deltaText =
               chunk.choices?.map((choice) => choice.delta?.content ?? '').join('') ?? '';
-            if (!deltaText) {
+            const { segments: reasoningSegments, hasPayload: hasReasoningPayload } =
+              collectReasoningSegmentsFromChunk(chunk);
+
+            if (!deltaText && reasoningSegments.length === 0 && !hasReasoningPayload) {
               return;
             }
+
             store.update((value) => {
               const messages = value.messages.map((message) => {
-                if (message.id === assistantMessageId) {
-                  return {
-                    ...message,
-                    content: `${message.content}${deltaText}`,
-                  };
+                if (message.id !== assistantMessageId) {
+                  return message;
                 }
-                return message;
+                const updatedMessage: ConversationMessage = {
+                  ...message,
+                  content: deltaText ? `${message.content}${deltaText}` : message.content,
+                };
+
+                if (reasoningSegments.length > 0 || hasReasoningPayload) {
+                  const existingDetails: ConversationMessageDetails = message.details ?? {};
+                  const nextDetails: ConversationMessageDetails = {
+                    ...existingDetails,
+                    reasoningStatus: 'streaming',
+                  };
+                  if (reasoningSegments.length > 0) {
+                    nextDetails.reasoning = mergeReasoningSegments(
+                      existingDetails.reasoning,
+                      reasoningSegments,
+                    );
+                  }
+                  updatedMessage.details = nextDetails;
+                }
+
+                return updatedMessage;
               });
               return { ...value, messages };
             });
@@ -137,10 +288,22 @@ function createChatStore() {
                   if (message.id !== assistantMessageId) {
                     return message;
                   }
-                  const existingDetails = message.details ?? {};
-                  const reasoning = Array.isArray(metadata.reasoning)
-                    ? (metadata.reasoning as ReasoningSegment[])
-                    : existingDetails.reasoning;
+                  const existingDetails: ConversationMessageDetails = message.details ?? {};
+                  const nextReasoningSegments = toReasoningSegments(metadata.reasoning);
+                  const hasIncomingReasoning = nextReasoningSegments.length > 0;
+                  let reasoning = existingDetails.reasoning;
+                  if (hasIncomingReasoning) {
+                    reasoning =
+                      reasoningTextLength(nextReasoningSegments) >=
+                      reasoningTextLength(existingDetails.reasoning)
+                        ? nextReasoningSegments
+                        : existingDetails.reasoning ?? nextReasoningSegments;
+                  }
+                  const reasoningStatus = hasIncomingReasoning
+                    ? message.pending
+                      ? 'streaming'
+                      : 'complete'
+                    : existingDetails.reasoningStatus ?? null;
                   return {
                     ...message,
                     details: {
@@ -154,6 +317,7 @@ function createChatStore() {
                           ? metadata.finish_reason
                           : existingDetails.finishReason ?? null,
                       reasoning,
+                      reasoningStatus,
                       usage:
                         metadata.usage && typeof metadata.usage === 'object'
                           ? (metadata.usage as Record<string, unknown>)
@@ -253,9 +417,24 @@ function createChatStore() {
           store.update((value) => ({
             ...value,
             isStreaming: false,
-            messages: value.messages.map((message) =>
-              message.id === assistantMessageId ? { ...message, pending: false } : message,
-            ),
+            messages: value.messages.map((message) => {
+              if (message.id !== assistantMessageId) {
+                return message;
+              }
+              const details = message.details
+                ? {
+                    ...message.details,
+                    reasoningStatus: message.details.reasoning
+                      ? 'complete'
+                      : message.details.reasoningStatus ?? null,
+                  }
+                : undefined;
+              return {
+                ...message,
+                pending: false,
+                details,
+              };
+            }),
           }));
         },
         onError(error) {

@@ -186,7 +186,30 @@
         on:click={handleOpenModelSettings}
         disabled={modelsLoading || !selectedModel}
       >
-        Model settings
+        <span>Model</span>
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <path
+            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.89 3.31.876 2.42 2.42a1.724 1.724 0 0 0 1.066 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.572c.89 1.543-.876 3.31-2.42 2.42a1.724 1.724 0 0 0-2.572 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.89-3.31-.876-2.42-2.42a1.724 1.724 0 0 0-1.066-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.572c-.89-1.543.876-3.31 2.42-2.42.965.557 2.185.21 2.573-1.066Z"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
       </button>
 
       <div
@@ -343,11 +366,16 @@
     color: #f2f4f8;
   }
   .controls .ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
     background: none;
     border: 1px solid #25314d;
     border-radius: 999px;
     color: #f2f4f8;
     padding: 0.55rem 1.1rem;
+    white-space: nowrap;
     cursor: pointer;
     transition:
       border-color 0.2s ease,
@@ -369,6 +397,7 @@
     border: 1px solid #25314d;
     border-radius: 999px;
     padding: 0.55rem 1.1rem;
+    white-space: nowrap;
     cursor: pointer;
     background: none;
     color: #f2f4f8;

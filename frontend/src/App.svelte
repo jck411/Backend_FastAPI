@@ -13,7 +13,7 @@
   import type { GenerationDetails } from './lib/api/types';
   import type { GenerationDetailField } from './lib/chat/constants';
 
-  const { sendMessage, cancelStream, clearConversation, setModel } = chatStore;
+  const { sendMessage, cancelStream, clearConversation, setModel, updateWebSearch } = chatStore;
   const {
     loadModels,
     models: modelsStore,
@@ -105,9 +105,11 @@
     modelsLoading={$modelsLoading}
     modelsError={$modelsError}
     hasMessages={$chatStore.messages.length > 0}
+    webSearch={$chatStore.webSearch}
     on:openExplorer={() => (explorerOpen = true)}
     on:clear={clearConversation}
     on:modelChange={(event) => handleModelChange(event.detail.id)}
+    on:webSearchChange={(event) => updateWebSearch(event.detail.settings)}
   />
 
   {#if !$chatStore.messages.length}

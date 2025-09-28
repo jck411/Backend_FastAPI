@@ -13,6 +13,8 @@ export interface ChatCompletionRequest {
   model?: string;
   session_id?: string;
   messages: ChatMessage[];
+  plugins?: Array<Record<string, unknown>>;
+  web_search_options?: Record<string, unknown>;
   temperature?: number;
   top_p?: number;
   top_k?: number;

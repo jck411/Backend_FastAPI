@@ -1,6 +1,6 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher, onDestroy } from "svelte";
-  import type { ConversationMessage } from "../../stores/chat";
+  import type { ConversationMessage, ConversationRole } from "../../stores/chat";
   // Use Lucide icons for consistent, theme-friendly line icons
   import {
     BarChart,
@@ -9,22 +9,37 @@
     Pencil,
     RefreshCcw,
     Trash2,
+    Wrench,
   } from "lucide-svelte";
+  import ToolUsageModal, { type ToolUsageEntry } from "./ToolUsageModal.svelte";
 
   export let messages: ConversationMessage[] = [];
 
   let container: HTMLElement | null = null;
   let copiedMessageId: string | null = null;
   let copyResetTimeout: ReturnType<typeof setTimeout> | null = null;
+  let visibleMessages: ConversationMessage[] = [];
+  let assistantToolUsage: Record<string, boolean> = {};
+  let messageIndexMap: Record<string, number> = {};
+  let toolModalOpen = false;
+  let toolModalEntries: ToolUsageEntry[] = [];
+  let toolModalMessageId: string | null = null;
+  const TOOL_ROLE: ConversationRole = "tool";
+  let suppressNextScroll = false;
 
   const dispatch = createEventDispatcher<{
     openGenerationDetails: { id: string };
   }>();
 
   afterUpdate(() => {
-    if (container) {
-      container.scrollTop = container.scrollHeight;
+    if (!container) {
+      return;
     }
+    if (suppressNextScroll) {
+      suppressNextScroll = false;
+      return;
+    }
+    container.scrollTop = container.scrollHeight;
   });
 
   function handleUsageClick(id: string | null | undefined): void {
@@ -41,10 +56,12 @@
     }
 
     copiedMessageId = message.id;
+    suppressNextScroll = true;
     if (copyResetTimeout) {
       clearTimeout(copyResetTimeout);
     }
     copyResetTimeout = setTimeout(() => {
+      suppressNextScroll = true;
       copiedMessageId = null;
       copyResetTimeout = null;
     }, 2000);
@@ -55,10 +72,231 @@
       clearTimeout(copyResetTimeout);
     }
   });
+
+  $: {
+    const nextVisible: ConversationMessage[] = [];
+    const toolUsage: Record<string, boolean> = {};
+    const indexMap: Record<string, number> = {};
+
+    for (let index = 0; index < messages.length; index += 1) {
+      const message = messages[index];
+      indexMap[message.id] = index;
+
+      if (message.role === "assistant") {
+        const toolCalls = message.details?.toolCalls;
+        const hasMetadataToolCalls = Array.isArray(toolCalls) && toolCalls.length > 0;
+        let usedTool = hasMetadataToolCalls;
+
+        const nextMessage = messages[index + 1];
+        if (nextMessage?.role === TOOL_ROLE) {
+          usedTool = true;
+        }
+
+        toolUsage[message.id] = usedTool;
+      }
+
+      if (message.role !== TOOL_ROLE) {
+        nextVisible.push(message);
+      }
+    }
+
+    visibleMessages = nextVisible;
+    assistantToolUsage = toolUsage;
+    messageIndexMap = indexMap;
+  }
+
+  function isToolMessage(
+    value: ConversationMessage | undefined,
+  ): value is ConversationMessage {
+    return value?.role === TOOL_ROLE;
+  }
+
+  function extractCallName(call: Record<string, unknown> | null | undefined): string | null {
+    if (!call) {
+      return null;
+    }
+    const name = call["name"];
+    if (typeof name === "string" && name.trim().length > 0) {
+      return name;
+    }
+    const fn = call["function"];
+    if (fn && typeof fn === "object") {
+      const functionName = (fn as Record<string, unknown>).name;
+      if (typeof functionName === "string" && functionName.trim().length > 0) {
+        return functionName;
+      }
+    }
+    return null;
+  }
+
+  function extractCallResult(call: Record<string, unknown> | null | undefined): string | null {
+    if (!call) {
+      return null;
+    }
+    const resultValue = call["result"];
+    if (typeof resultValue === "string") {
+      return resultValue;
+    }
+    if (resultValue && typeof resultValue === "object") {
+      try {
+        return JSON.stringify(resultValue, null, 2);
+      } catch (error) {
+        console.warn("Failed to stringify tool result", error);
+      }
+    }
+    const fn = call["function"];
+    if (fn && typeof fn === "object") {
+      const args = (fn as Record<string, unknown>)["arguments"];
+      if (typeof args === "string") {
+        return args;
+      }
+      if (args && typeof args === "object") {
+        try {
+          return JSON.stringify(args, null, 2);
+        } catch (error) {
+          console.warn("Failed to stringify tool arguments", error);
+        }
+      }
+    }
+    return null;
+  }
+
+  function extractCallArguments(call: Record<string, unknown> | null | undefined): string | null {
+    if (!call) {
+      return null;
+    }
+
+    const directArgs = call["arguments"];
+    const normalizedArgs = normalizeArgumentValue(directArgs);
+    if (normalizedArgs) {
+      return normalizedArgs;
+    }
+
+    const fn = call["function"];
+    if (fn && typeof fn === "object") {
+      const functionArgs = normalizeArgumentValue((fn as Record<string, unknown>)["arguments"]);
+      if (functionArgs) {
+        return functionArgs;
+      }
+    }
+
+    return null;
+  }
+
+  function normalizeArgumentValue(value: unknown): string | null {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return null;
+      }
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (typeof parsed === "string") {
+          return parsed;
+        }
+        return JSON.stringify(parsed, null, 2);
+      } catch (error) {
+        return trimmed;
+      }
+    }
+
+    if (value && typeof value === "object") {
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch (error) {
+        console.warn("Failed to stringify tool arguments", error, value);
+      }
+    }
+
+    return null;
+  }
+
+  function deriveToolUsageEntries(messageId: string): ToolUsageEntry[] {
+    const index = messageIndexMap[messageId];
+    if (typeof index !== "number") {
+      return [];
+    }
+
+    const assistantMessage = messages[index];
+    if (!assistantMessage || assistantMessage.role !== "assistant") {
+      return [];
+    }
+
+    const entries: ToolUsageEntry[] = [];
+    const metadataCalls = Array.isArray(assistantMessage.details?.toolCalls)
+      ? (assistantMessage.details?.toolCalls as Array<Record<string, unknown>>)
+      : [];
+
+    let lookaheadIndex = index + 1;
+    while (isToolMessage(messages[lookaheadIndex])) {
+      const toolMessage = messages[lookaheadIndex];
+      const details = toolMessage.details ?? {};
+      const metadataCall = metadataCalls[entries.length];
+      const nameFromDetails = typeof details?.toolName === "string" ? details.toolName : null;
+      const name = nameFromDetails ?? extractCallName(metadataCall) ?? "Tool";
+      const status = typeof details?.toolStatus === "string" ? details.toolStatus : null;
+      const resultFromDetails =
+        typeof details?.toolResult === "string" ? details.toolResult : toolMessage.content ?? null;
+      const result = resultFromDetails ?? extractCallResult(metadataCall);
+      const input = extractCallArguments(metadataCall);
+
+      entries.push({
+        id: toolMessage.id,
+        name,
+        status,
+        input,
+        result,
+      });
+
+      lookaheadIndex += 1;
+    }
+
+    if (entries.length === 0 && metadataCalls.length > 0) {
+      metadataCalls.forEach((call, callIndex) => {
+        entries.push({
+          id: `${assistantMessage.id}-metadata-${callIndex}`,
+          name: extractCallName(call) ?? `Tool ${callIndex + 1}`,
+          status: null,
+          input: extractCallArguments(call),
+          result: extractCallResult(call),
+        });
+      });
+    } else if (entries.length > 0 && metadataCalls.length > 0) {
+      entries.forEach((entry, entryIndex) => {
+        const metadataCall = metadataCalls[entryIndex];
+        if (!metadataCall) {
+          return;
+        }
+        if (!entry.name || entry.name === "Tool") {
+          entry.name = extractCallName(metadataCall) ?? entry.name;
+        }
+        if (!entry.input) {
+          entry.input = extractCallArguments(metadataCall);
+        }
+        if (!entry.result) {
+          entry.result = extractCallResult(metadataCall);
+        }
+      });
+    }
+
+    return entries;
+  }
+
+  function handleOpenToolModal(message: ConversationMessage): void {
+    toolModalEntries = deriveToolUsageEntries(message.id);
+    toolModalMessageId = message.id;
+    toolModalOpen = true;
+  }
+
+  function handleCloseToolModal(): void {
+    toolModalOpen = false;
+    toolModalEntries = [];
+    toolModalMessageId = null;
+  }
 </script>
 
 <section class="conversation" bind:this={container} aria-live="polite">
-  {#each messages as message (message.id)}
+  {#each visibleMessages as message (message.id)}
     <article class={`message ${message.role}`}>
       <div class="bubble">
         {#if message.role !== "user"}
@@ -66,7 +304,20 @@
             <span class="sender-label">
               {message.role}
               {#if message.role === "assistant" && message.details?.model}
-                <span class="sender-model"> — {message.details.model}</span>
+                <span class="sender-model">
+                  — {message.details.model}
+                  {#if assistantToolUsage[message.id]}
+                    <button
+                      type="button"
+                      class="sender-tool-indicator"
+                      aria-label="View tool usage"
+                      title="View tool usage"
+                      on:click={() => handleOpenToolModal(message)}
+                    >
+                      <Wrench size={14} strokeWidth={1.8} aria-hidden="true" />
+                    </button>
+                  {/if}
+                </span>
               {/if}
             </span>
           </span>
@@ -128,6 +379,13 @@
   {/each}
 </section>
 
+<ToolUsageModal
+  open={toolModalOpen}
+  messageId={toolModalMessageId}
+  tools={toolModalEntries}
+  on:close={handleCloseToolModal}
+/>
+
 <style>
   .conversation {
     flex: 1 1 auto;
@@ -187,6 +445,26 @@
   .sender-label .sender-model {
     text-transform: none;
     font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+  .sender-tool-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    color: #38bdf8;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .sender-tool-indicator:hover,
+  .sender-tool-indicator:focus-visible {
+    color: #7dd3fc;
+    outline: none;
   }
   .sender-link {
     text-transform: none;

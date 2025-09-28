@@ -11,7 +11,8 @@
     Trash2,
     Wrench,
   } from "lucide-svelte";
-  import ToolUsageModal, { type ToolUsageEntry } from "./ToolUsageModal.svelte";
+  import ToolUsageModal from "./ToolUsageModal.svelte";
+  import type { ToolUsageEntry } from "./toolUsage.types";
 
   export let messages: ConversationMessage[] = [];
 

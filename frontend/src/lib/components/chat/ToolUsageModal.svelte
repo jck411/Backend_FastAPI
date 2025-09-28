@@ -1,13 +1,6 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher } from "svelte";
-
-  export interface ToolUsageEntry {
-    id: string;
-    name: string;
-    status: string | null;
-    input: string | null;
-    result: string | null;
-  }
+  import type { ToolUsageEntry } from "./toolUsage.types";
 
   const dispatch = createEventDispatcher<{ close: void }>();
 

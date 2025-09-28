@@ -213,19 +213,21 @@
     if (!rawParameters || typeof rawParameters !== 'object') {
       return result;
     }
-    const entries = Object.entries(rawParameters as Record<string, unknown>);
-    for (const [key, value] of entries) {
-      const normalizedKey = normalizeToken(key);
-      if (!normalizedKey) continue;
-      if (!value || typeof value !== 'object') continue;
-      const record = value as Record<string, unknown>;
+
+    function assignSchema(rawKey: string, schemaValue: unknown): void {
+      const normalizedKey = normalizeToken(rawKey);
+      if (!normalizedKey) return;
+      if (!schemaValue || typeof schemaValue !== 'object') {
+        return;
+      }
+      const record = schemaValue as Record<string, unknown>;
       const schema: ParameterSchema = {};
       const rawType = record.type ?? record.datatype ?? record.kind;
       if (typeof rawType === 'string') {
         schema.type = rawType.toLowerCase();
       }
-      const min = record.min ?? record.minimum ?? record.lower_bound;
-      const max = record.max ?? record.maximum ?? record.upper_bound;
+      const min = record.min ?? record.minimum ?? record.lower_bound ?? record.minimum_value;
+      const max = record.max ?? record.maximum ?? record.upper_bound ?? record.maximum_value;
       const step = record.step ?? record.increment ?? record.resolution;
       const minNumber = coerceNumber(min);
       const maxNumber = coerceNumber(max);
@@ -234,7 +236,19 @@
       if (maxNumber !== undefined) schema.max = maxNumber;
       if (stepNumber !== undefined) schema.step = stepNumber;
       result[normalizedKey] = schema;
+
+      const properties = record.properties;
+      if (properties && typeof properties === 'object') {
+        for (const [propertyKey, propertySchema] of Object.entries(properties as Record<string, unknown>)) {
+          assignSchema(`${rawKey}.${propertyKey}`, propertySchema);
+        }
+      }
     }
+
+    for (const [key, value] of Object.entries(rawParameters as Record<string, unknown>)) {
+      assignSchema(key, value);
+    }
+
     return result;
   }
 
@@ -412,8 +426,10 @@
   })();
 
   $: reasoningEffortOptions = ['low', 'medium', 'high'] as ReasoningEffort[];
-  $: reasoningEffortSupported = reasoningSupported && Boolean(reasoningSchemas.effort || availableTokens.has('reasoning_effort'));
-  $: reasoningMaxTokensSupported = reasoningSupported && Boolean(reasoningSchemas.maxTokens || availableTokens.has('reasoning_max_tokens'));
+  $: reasoningEffortHint = Boolean(reasoningSchemas.effort || availableTokens.has('reasoning_effort'));
+  $: reasoningMaxTokensHint = Boolean(reasoningSchemas.maxTokens || availableTokens.has('reasoning_max_tokens'));
+  $: reasoningEffortSupported = reasoningSupported && (reasoningEffortHint || !reasoningMaxTokensHint);
+  $: reasoningMaxTokensSupported = reasoningSupported && (reasoningMaxTokensHint || !reasoningEffortHint);
 
   function updateReasoning(mutator: (draft: ReasoningConfig) => void): void {
     const current = (reasoningConfig ? { ...reasoningConfig } : {}) as ReasoningConfig;

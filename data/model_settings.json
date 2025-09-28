@@ -1,5 +1,10 @@
 {
   "model": "openai/gpt-5",
+  "parameters": {
+    "reasoning": {
+      "effort": "high"
+    }
+  },
   "system_prompt": "You are a helpful assistant who follows OpenRouter best practices. Use the provided context from the server, call tools when they improve your answer, and if a tool is unavailable you should continue without it while complying with safety policies.",
-  "updated_at": "2025-09-28T10:36:47.057122+00:00"
+  "updated_at": "2025-09-28T10:44:34.976955+00:00"
 }

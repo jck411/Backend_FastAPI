@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { afterUpdate, createEventDispatcher } from "svelte";
+  import { afterUpdate, createEventDispatcher, onDestroy } from "svelte";
   import type { ConversationMessage } from "../../stores/chat";
   // Use Lucide icons for consistent, theme-friendly line icons
   import {
     BarChart,
+    Check,
     ClipboardCopy,
     Pencil,
     RefreshCcw,
@@ -13,6 +14,8 @@
   export let messages: ConversationMessage[] = [];
 
   let container: HTMLElement | null = null;
+  let copiedMessageId: string | null = null;
+  let copyResetTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const dispatch = createEventDispatcher<{
     openGenerationDetails: { id: string };
@@ -28,6 +31,30 @@
     if (!id) return;
     dispatch("openGenerationDetails", { id });
   }
+
+  async function handleCopyMessage(message: ConversationMessage): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(message.content);
+    } catch (error) {
+      console.error("Failed to copy message", error);
+      return;
+    }
+
+    copiedMessageId = message.id;
+    if (copyResetTimeout) {
+      clearTimeout(copyResetTimeout);
+    }
+    copyResetTimeout = setTimeout(() => {
+      copiedMessageId = null;
+      copyResetTimeout = null;
+    }, 2000);
+  }
+
+  onDestroy(() => {
+    if (copyResetTimeout) {
+      clearTimeout(copyResetTimeout);
+    }
+  });
 </script>
 
 <section class="conversation" bind:this={container} aria-live="polite">
@@ -42,15 +69,6 @@
                 <span class="sender-model"> — {message.details.model}</span>
               {/if}
             </span>
-            {#if message.role === "assistant" && message.details?.generationId}
-              <button
-                type="button"
-                class="sender-link"
-                on:click={() => handleUsageClick(message.details?.generationId)}
-              >
-                View usage
-              </button>
-            {/if}
           </span>
         {/if}
         <p>{message.content}</p>
@@ -61,9 +79,15 @@
           <button
             type="button"
             class="message-action"
-            aria-label="Copy message"
+            class:copied={copiedMessageId === message.id}
+            aria-label={copiedMessageId === message.id ? "Message copied" : "Copy message"}
+            on:click={() => handleCopyMessage(message)}
           >
-            <ClipboardCopy size={16} strokeWidth={1.6} aria-hidden="true" />
+            {#if copiedMessageId === message.id}
+              <Check size={16} strokeWidth={1.6} aria-hidden="true" />
+            {:else}
+              <ClipboardCopy size={16} strokeWidth={1.6} aria-hidden="true" />
+            {/if}
           </button>
           {#if message.role === "user"}
             <button
@@ -81,11 +105,12 @@
           >
             <RefreshCcw size={16} strokeWidth={1.6} aria-hidden="true" />
           </button>
-          {#if message.role !== "user"}
+          {#if message.role === "assistant" && message.details?.generationId}
             <button
               type="button"
               class="message-action"
-              aria-label="View details"
+              aria-label="View usage details"
+              on:click={() => handleUsageClick(message.details?.generationId)}
             >
               <BarChart size={16} strokeWidth={1.6} aria-hidden="true" />
             </button>
@@ -231,6 +256,7 @@
     justify-content: center;
     padding: 0;
     cursor: pointer;
+    position: relative;
     transition:
       color 0.12s ease,
       transform 0.12s ease;
@@ -243,6 +269,9 @@
   }
   .message-action:active {
     transform: translateY(0);
+  }
+  .message-action.copied {
+    color: #34d399;
   }
   /* Icon rendering handled by lucide-svelte props; buttons inherit color */
 </style>

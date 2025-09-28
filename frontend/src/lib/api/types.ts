@@ -134,3 +134,39 @@ export interface DeepgramTokenResponse {
   access_token: string;
   expires_in?: number | null;
 }
+
+export interface GenerationDetails {
+  id?: string;
+  total_cost?: number | null;
+  created_at?: string | null;
+  model?: string | null;
+  origin?: string | null;
+  usage?: number | null;
+  is_byok?: boolean | null;
+  upstream_id?: string | null;
+  cache_discount?: number | null;
+  upstream_inference_cost?: number | null;
+  app_id?: number | null;
+  streamed?: boolean | null;
+  cancelled?: boolean | null;
+  provider_name?: string | null;
+  latency?: number | null;
+  moderation_latency?: number | null;
+  generation_time?: number | null;
+  finish_reason?: string | null;
+  native_finish_reason?: string | null;
+  tokens_prompt?: number | null;
+  tokens_completion?: number | null;
+  native_tokens_prompt?: number | null;
+  native_tokens_completion?: number | null;
+  native_tokens_reasoning?: number | null;
+  num_media_prompt?: number | null;
+  num_media_completion?: number | null;
+  num_search_results?: number | null;
+  [key: string]: unknown;
+}
+
+export interface GenerationDetailsResponse {
+  data: GenerationDetails;
+  [key: string]: unknown;
+}

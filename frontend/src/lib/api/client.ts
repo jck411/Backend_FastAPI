@@ -4,6 +4,7 @@ import type {
   ChatCompletionChunk,
   ChatCompletionRequest,
   DeepgramTokenResponse,
+  GenerationDetailsResponse,
   ModelListResponse,
   SseEvent,
 } from './types';
@@ -49,6 +50,13 @@ export async function requestDeepgramToken(): Promise<DeepgramTokenResponse> {
     method: 'POST',
     body: JSON.stringify({}),
   });
+}
+
+export async function fetchGenerationDetails(
+  generationId: string,
+): Promise<GenerationDetailsResponse> {
+  const path = `/api/chat/generation/${encodeURIComponent(generationId)}`;
+  return requestJson<GenerationDetailsResponse>(resolveApiPath(path));
 }
 
 export interface ChatStreamCallbacks {

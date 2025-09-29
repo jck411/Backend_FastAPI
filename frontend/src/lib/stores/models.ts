@@ -64,6 +64,14 @@ interface ModelState {
   facets: ModelFacets;
 }
 
+type SelectableModelsSelector = (
+  selectedModelId: string | null | undefined,
+) => ModelRecord[];
+
+type ActiveModelSelector = (
+  selectedModelId: string | null | undefined,
+) => ModelRecord | null;
+
 function createEmptyMultiSelect(): MultiSelectFilter {
   return { include: [], exclude: [] };
 }
@@ -416,6 +424,47 @@ function hasAnyFilters(filters: ModelFilters): boolean {
   );
 }
 
+function ensureSelectableModels(
+  base: ModelRecord[] | undefined,
+  allModels: ModelRecord[],
+  selectedModelId: string | null | undefined,
+): ModelRecord[] {
+  if (!Array.isArray(base) || base.length === 0) {
+    return [];
+  }
+
+  if (!selectedModelId) {
+    return base;
+  }
+
+  if (base.some((model) => model.id === selectedModelId)) {
+    return base;
+  }
+
+  const selectedModel = allModels.find((model) => model.id === selectedModelId);
+  if (!selectedModel) {
+    return base;
+  }
+
+  return [selectedModel, ...base];
+}
+
+function findModelById(
+  models: ModelRecord[] | undefined,
+  selectedModelId: string | null | undefined,
+): ModelRecord | null {
+  if (!Array.isArray(models) || models.length === 0) {
+    return null;
+  }
+
+  if (!selectedModelId) {
+    return null;
+  }
+
+  const current = models.find((model) => model.id === selectedModelId);
+  return current ?? null;
+}
+
 function createModelStore() {
   const store = writable<ModelState>({ ...initialState });
 
@@ -583,6 +632,17 @@ function createModelStore() {
   const facets = derived(store, (state) => state.facets);
   const filtered = derived(store, (state) => filterAndSortModels(state));
   const activeFilters = derived(store, (state) => hasAnyFilters(state.filters));
+  const selectable = derived<[typeof filtered, typeof models, typeof activeFilters], SelectableModelsSelector>(
+    [filtered, models, activeFilters],
+    ([$filtered, $models, $activeFilters]) => {
+      const base = $activeFilters ? $filtered : $models;
+      return (selectedModelId) => ensureSelectableModels(base, $models, selectedModelId);
+    },
+  );
+
+  const activeFor = derived<typeof models, ActiveModelSelector>(models, ($models) => {
+    return (selectedModelId) => findModelById($models, selectedModelId);
+  });
 
   return {
     subscribe: store.subscribe,
@@ -607,6 +667,8 @@ function createModelStore() {
     facets,
     filtered,
     activeFilters,
+    selectable,
+    activeFor,
   };
 }
 
@@ -616,4 +678,9 @@ export const __filterInternals = {
   matchesMultiSelect,
   cycleMultiSelect,
   applySelectionState,
+};
+
+export const __selectorInternals = {
+  ensureSelectableModels,
+  findModelById,
 };

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { __filterInternals, type MultiSelectFilter } from './models';
+import { __filterInternals, __selectorInternals, type MultiSelectFilter } from './models';
+
+import type { ModelRecord } from '../api/types';
 
 const { cycleMultiSelect, matchesMultiSelect, applySelectionState } = __filterInternals;
+const { ensureSelectableModels, findModelById } = __selectorInternals;
 
 function emptySelection(): MultiSelectFilter {
   return { include: [], exclude: [] };
@@ -24,6 +27,55 @@ describe('cycleMultiSelect', () => {
     const initial = emptySelection();
     const result = cycleMultiSelect(initial, '   ');
     expect(result).toBe(initial);
+  });
+});
+
+describe('ensureSelectableModels', () => {
+  const allModels: ModelRecord[] = [
+    { id: 'model-a', name: 'Model A' },
+    { id: 'model-b', name: 'Model B' },
+    { id: 'model-c', name: 'Model C' },
+  ];
+
+  it('returns the base list when no model is selected', () => {
+    const base = allModels.slice(1);
+    const result = ensureSelectableModels(base, allModels, null);
+    expect(result).toBe(base);
+  });
+
+  it('prepends the selected model when it is not part of the base list', () => {
+    const base = allModels.slice(1);
+    const result = ensureSelectableModels(base, allModels, 'model-a');
+    expect(result[0].id).toBe('model-a');
+    expect(result.slice(1)).toEqual(base);
+  });
+
+  it('ignores unknown model ids', () => {
+    const base = allModels.slice(0, 2);
+    const result = ensureSelectableModels(base, allModels, 'does-not-exist');
+    expect(result).toBe(base);
+  });
+
+  it('returns an empty list when the base list is empty', () => {
+    const result = ensureSelectableModels([], allModels, 'model-a');
+    expect(result).toEqual([]);
+  });
+});
+
+describe('findModelById', () => {
+  const inventory: ModelRecord[] = [
+    { id: 'x' },
+    { id: 'y' },
+  ];
+
+  it('finds the model matching the provided id', () => {
+    const result = findModelById(inventory, 'y');
+    expect(result).toBe(inventory[1]);
+  });
+
+  it('returns null when the id is missing or not found', () => {
+    expect(findModelById(inventory, null)).toBeNull();
+    expect(findModelById(inventory, 'z')).toBeNull();
   });
 });
 

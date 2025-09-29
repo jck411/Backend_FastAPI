@@ -20,8 +20,8 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     models: modelsStore,
     loading: modelsLoading,
     error: modelsError,
-    filtered: filteredModels,
-    activeFilters,
+    selectable,
+    activeFor,
   } = modelStore;
 
   let prompt = '';
@@ -32,6 +32,8 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
   let generationModalError: string | null = null;
   let generationModalData: GenerationDetails | null = null;
   let generationModalId: string | null = null;
+  let selectableModels: ModelRecord[] = [];
+  let activeModel: ModelRecord | null = null;
   const generationDetailFields: GenerationDetailField[] = GENERATION_DETAIL_FIELDS;
 
   onMount(loadModels);
@@ -51,25 +53,9 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     }
   });
 
-  $: selectableModels = (() => {
-    const active = $activeFilters;
-    const base = active ? $filteredModels : $modelsStore;
-    if (!base?.length) return [];
-    const selected = $chatStore.selectedModel;
-    if (!selected) return base;
-    return base.some((model) => model.id === selected)
-      ? base
-      : [$modelsStore.find((model) => model.id === selected), ...base].filter(
-          (model): model is NonNullable<typeof model> => model !== null && model !== undefined,
-        );
-  })();
+  $: selectableModels = $selectable($chatStore.selectedModel);
 
-  $: activeModel = (() => {
-    const models = $modelsStore as ModelRecord[] | undefined;
-    if (!models || !models.length) return null;
-    const selected = $chatStore.selectedModel;
-    return models.find((model) => model.id === selected) ?? null;
-  })();
+  $: activeModel = $activeFor($chatStore.selectedModel);
 
   function handleModelChange(id: string): void {
     setModel(id);

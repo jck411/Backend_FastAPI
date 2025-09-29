@@ -5,13 +5,22 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Iterable
+from typing import Any, AsyncGenerator, Iterable, Protocol
 
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..repository import ChatRepository
 from ..services.model_settings import ModelSettingsService
 from ..schemas.chat import ChatCompletionRequest
-from .mcp_client import MCPToolClient
+
+
+class ToolExecutor(Protocol):
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any] | None = None
+    ) -> Any: ...
+
+    def get_openai_tools(self) -> list[dict[str, Any]]: ...
+
+    def format_tool_result(self, result: Any) -> str: ...
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +56,7 @@ class StreamingHandler:
         self,
         client: OpenRouterClient,
         repository: ChatRepository,
-        tool_client: MCPToolClient,
+        tool_client: ToolExecutor,
         *,
         default_model: str,
         tool_hop_limit: int = 3,

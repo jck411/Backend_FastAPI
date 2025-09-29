@@ -74,6 +74,35 @@ npm run dev
 
 Set `VITE_API_BASE_URL` in `frontend/.env` if you need to target a remote backend instead of the local proxy.
 
+## MCP server aggregation
+
+The chat orchestrator can launch multiple MCP servers and expose their tools via OpenRouter. Server definitions live in `data/mcp_servers.json` and can be enabled or disabled without code changes.
+
+```json
+{
+  "servers": [
+    {
+      "id": "local-calculator",
+      "module": "backend.mcp_server"
+    },
+    {
+      "id": "google-workspace",
+      "command": ["uvx", "google-workspace-mcp"],
+      "enabled": true
+    },
+    {
+      "id": "test-toolkit",
+      "module": "backend.mcp_servers.sample_server",
+      "enabled": false
+    }
+  ]
+}
+```
+
+Each entry must supply either a Python module (`module`) launched with `python -m`, or an explicit `command` array. Set `enabled` to `false` to keep a definition available without starting it. When multiple servers expose tools with the same name, the orchestrator automatically prefixes them with the server id to keep them unique.
+
+The built-in `test-toolkit` server exposes two simple tools (`test_echo` and `current_time`) that are useful for validating aggregation end-to-end. Toggle `enabled` to `true` in `data/mcp_servers.json` to include it alongside the calculator or third-party MCP servers.
+
 ## Run the MCP server
 
 The MCP server exposes a `chat.completions` tool that mirrors the OpenRouter request schema and returns the final assistant message (including any streamed tool call arguments).

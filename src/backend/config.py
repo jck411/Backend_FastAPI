@@ -63,6 +63,10 @@ class Settings(BaseSettings):
         default_factory=lambda: Path("data/model_settings.json"),
         validation_alias=AliasChoices("MODEL_SETTINGS_PATH", "model_settings_path"),
     )
+    mcp_servers_path: Path = Field(
+        default_factory=lambda: Path("data/mcp_servers.json"),
+        validation_alias=AliasChoices("MCP_SERVERS_PATH", "mcp_servers_path"),
+    )
     request_timeout: float = Field(
         default=120.0,
         validation_alias=AliasChoices("OPENROUTER_TIMEOUT", "timeout"),

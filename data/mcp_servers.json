@@ -1,0 +1,13 @@
+{
+  "servers": [
+    {
+      "id": "local-calculator",
+      "module": "backend.mcp_server"
+    },
+    {
+      "id": "test-toolkit",
+      "module": "backend.mcp_servers.sample_server",
+      "enabled": true
+    }
+  ]
+}

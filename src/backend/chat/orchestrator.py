@@ -15,7 +15,7 @@ from ..openrouter import OpenRouterClient
 from ..services.model_settings import ModelSettingsService
 from ..repository import ChatRepository
 from ..schemas.chat import ChatCompletionRequest
-from .mcp_client import MCPToolClient
+from .mcp_registry import MCPToolAggregator, load_server_configs
 from .streaming import SseEvent, StreamingHandler
 
 logger = logging.getLogger(__name__)
@@ -40,10 +40,27 @@ class ChatOrchestrator:
 
         self._repo = ChatRepository(db_path)
         self._client = OpenRouterClient(settings)
-        self._mcp_client = MCPToolClient(
-            "backend.mcp_server",
-            cwd=project_root,
-            env=env,
+        servers_path = settings.mcp_servers_path
+        if not servers_path.is_absolute():
+            servers_path = project_root / servers_path
+
+        default_servers = [
+            {
+                "id": "local-calculator",
+                "module": "backend.mcp_server",
+            },
+            {
+                "id": "test-toolkit",
+                "module": "backend.mcp_servers.sample_server",
+                "enabled": True,
+            },
+        ]
+        server_configs = load_server_configs(servers_path, fallback=default_servers)
+
+        self._mcp_client = MCPToolAggregator(
+            server_configs,
+            base_env=env,
+            default_cwd=project_root,
         )
         self._model_settings = model_settings
         self._streaming = StreamingHandler(

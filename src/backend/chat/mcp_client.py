@@ -8,7 +8,7 @@ import logging
 import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -22,18 +22,40 @@ class MCPToolClient:
 
     def __init__(
         self,
-        server_module: str,
+        server_module: str | None = None,
         *,
+        command: Sequence[str] | None = None,
+        server_id: str | None = None,
         cwd: Path | None = None,
         env: dict[str, str] | None = None,
     ):
-        self._server_module = server_module
+        if (server_module is None) == (command is None):  # pragma: no cover - defensive
+            raise ValueError("Provide exactly one of 'server_module' or 'command'")
+
+        launch_command: list[str] | None = None
+        launch_module: str | None = None
+        if command is not None:
+            if not command:
+                raise ValueError("Command must contain at least one argument")
+            launch_command = list(command)
+        else:
+            launch_module = server_module
+
+        self._server_module = launch_module
+        self._launch_command = launch_command
+        self._server_id = server_id or (
+            launch_module or (launch_command[0] if launch_command else "mcp-server")
+        )
         self._cwd = cwd
         self._env = env
         self._exit_stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
         self._tools: list[Tool] = []
         self._lock = asyncio.Lock()
+
+    @property
+    def server_id(self) -> str:
+        return self._server_id
 
     async def connect(self) -> None:
         """Spawn the MCP server and initialize the client session."""
@@ -43,14 +65,24 @@ class MCPToolClient:
                 return
 
             exit_stack = AsyncExitStack()
-            params = StdioServerParameters(
-                command=sys.executable,
-                args=["-m", self._server_module],
-                cwd=str(self._cwd) if self._cwd is not None else None,
-                env=self._env,
-            )
+            if self._launch_command is not None:
+                params = StdioServerParameters(
+                    command=self._launch_command[0],
+                    args=self._launch_command[1:],
+                    cwd=str(self._cwd) if self._cwd is not None else None,
+                    env=self._env,
+                )
+                log_target = "command %s" % " ".join(self._launch_command)
+            else:
+                params = StdioServerParameters(
+                    command=sys.executable,
+                    args=["-m", self._server_module],
+                    cwd=str(self._cwd) if self._cwd is not None else None,
+                    env=self._env,
+                )
+                log_target = f"module '{self._server_module}'"
 
-            logger.info("Starting MCP server for module '%s'", self._server_module)
+            logger.info("Starting MCP server %s (id=%s)", log_target, self._server_id)
             read_stream, write_stream = await exit_stack.enter_async_context(stdio_client(params))
 
             session = ClientSession(read_stream, write_stream)

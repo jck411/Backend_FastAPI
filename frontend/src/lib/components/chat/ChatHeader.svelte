@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from "svelte";
-  import type { WebSearchSettings } from "../../chat/webSearch";
+  import { webSearchStore } from "../../chat/webSearchStore";
 
   interface SelectableModel {
     id: string;
@@ -14,7 +14,6 @@
     openExplorer: void;
     clear: void;
     modelChange: { id: string };
-    webSearchChange: { settings: Partial<WebSearchSettings> };
     openModelSettings: void;
   }>();
 
@@ -23,14 +22,6 @@
   export let modelsLoading = false;
   export let modelsError: string | null = null;
   export let hasMessages = false;
-  export let webSearch: WebSearchSettings = {
-    enabled: false,
-    engine: null,
-    maxResults: null,
-    searchPrompt: "",
-    contextSize: null,
-  };
-
   let ModelPicker: ModelPickerComponent | null = null;
   let WebSearchMenu: WebSearchMenuComponent | null = null;
   let modelPickerLoading = false;
@@ -82,12 +73,6 @@
   function forwardOpenModelSettings(): void {
     dispatch("openModelSettings");
   }
-
-  function forwardWebSearchChange(
-    event: CustomEvent<{ settings: Partial<WebSearchSettings> }>
-  ): void {
-    dispatch("webSearchChange", event.detail);
-  }
 </script>
 
 <header class="topbar chat-header">
@@ -121,14 +106,14 @@
       {#if WebSearchMenu}
         <svelte:component
           this={WebSearchMenu}
-          webSearch={webSearch}
-          on:webSearchChange={forwardWebSearchChange}
         />
       {:else}
         <div class="web-search-loading" data-loading={webSearchMenuLoading} aria-hidden="true">
           <button class="ghost web-search-summary" type="button" disabled>
             <span>Web search</span>
-            <span class="status" data-enabled={false}>Off</span>
+            <span class="status" data-enabled={$webSearchStore.enabled}>
+              {$webSearchStore.enabled ? "On" : "Off"}
+            </span>
           </button>
         </div>
       {/if}

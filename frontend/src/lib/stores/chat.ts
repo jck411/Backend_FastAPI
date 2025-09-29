@@ -7,12 +7,9 @@ import {
   reasoningTextLength,
   toReasoningSegments,
 } from '../chat/reasoning';
-import {
-  DEFAULT_WEB_SEARCH_SETTINGS,
-  normalizeWebSearchSettings,
-  type WebSearchSettings,
-} from '../chat/webSearch';
 import { startChatStream } from '../chat/streaming';
+import type { WebSearchSettings } from '../chat/webSearch';
+import { webSearchStore } from '../chat/webSearchStore';
 
 export type ConversationRole = 'user' | 'assistant' | 'system' | 'tool';
 
@@ -44,7 +41,6 @@ interface ChatState {
   isStreaming: boolean;
   error: string | null;
   selectedModel: string;
-  webSearch: WebSearchSettings;
 }
 
 const initialState: ChatState = {
@@ -53,14 +49,13 @@ const initialState: ChatState = {
   isStreaming: false,
   error: null,
   selectedModel: 'openrouter/auto',
-  webSearch: { ...DEFAULT_WEB_SEARCH_SETTINGS },
 };
 
 function createId(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function toChatPayload(state: ChatState, prompt: string): ChatCompletionRequest {
+function toChatPayload(state: ChatState, prompt: string, webSearch: WebSearchSettings): ChatCompletionRequest {
   const payload: ChatCompletionRequest = {
     model: state.selectedModel,
     session_id: state.sessionId ?? undefined,
@@ -72,22 +67,22 @@ function toChatPayload(state: ChatState, prompt: string): ChatCompletionRequest 
     ],
   };
 
-  if (state.webSearch.enabled) {
+  if (webSearch.enabled) {
     const plugin: Record<string, unknown> = { id: 'web' };
-    if (state.webSearch.engine) {
-      plugin.engine = state.webSearch.engine;
+    if (webSearch.engine) {
+      plugin.engine = webSearch.engine;
     }
-    if (state.webSearch.maxResults !== null && state.webSearch.maxResults !== undefined) {
-      plugin.max_results = state.webSearch.maxResults;
+    if (webSearch.maxResults !== null && webSearch.maxResults !== undefined) {
+      plugin.max_results = webSearch.maxResults;
     }
-    const trimmedPrompt = state.webSearch.searchPrompt.trim();
+    const trimmedPrompt = webSearch.searchPrompt.trim();
     if (trimmedPrompt) {
       plugin.search_prompt = trimmedPrompt;
     }
     payload.plugins = [plugin];
 
-    if (state.webSearch.contextSize) {
-      payload.web_search_options = { search_context_size: state.webSearch.contextSize };
+    if (webSearch.contextSize) {
+      payload.web_search_options = { search_context_size: webSearch.contextSize };
     }
   }
 
@@ -111,7 +106,7 @@ function createChatStore() {
     const userMessageId = createId('user');
     const assistantMessageId = createId('assistant');
 
-    const payload = toChatPayload(state, prompt);
+    const payload = toChatPayload(state, prompt, webSearchStore.current);
     
     store.update((value) => ({
       ...value,
@@ -365,22 +360,11 @@ function createChatStore() {
     store.update((value) => ({
       ...initialState,
       selectedModel: value.selectedModel,
-      webSearch: { ...value.webSearch },
     }));
   }
 
   function setModel(model: string): void {
     store.update((value) => ({ ...value, selectedModel: model }));
-  }
-
-  function updateWebSearch(settings: Partial<WebSearchSettings>): void {
-    if (!settings || typeof settings !== 'object') {
-      return;
-    }
-    store.update((value) => ({
-      ...value,
-      webSearch: normalizeWebSearchSettings(settings, value.webSearch),
-    }));
   }
 
   return {
@@ -389,7 +373,6 @@ function createChatStore() {
     cancelStream,
     clearConversation,
     setModel,
-    updateWebSearch,
   };
 }
 

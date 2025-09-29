@@ -1,34 +1,15 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy, onMount } from "svelte";
-  import type { WebSearchSettings } from "../../chat/webSearch";
+  import { onDestroy, onMount } from "svelte";
+  import { webSearchStore } from "../../chat/webSearchStore";
 
-  const dispatch = createEventDispatcher<{
-    webSearchChange: { settings: Partial<WebSearchSettings> };
-  }>();
-
-  export let webSearch: WebSearchSettings = {
-    enabled: false,
-    engine: null,
-    maxResults: null,
-    searchPrompt: "",
-    contextSize: null,
-  };
-
-  let engineValue: "" | "native" | "exa" = webSearch.engine ?? "";
-  let contextValue: "" | "low" | "medium" | "high" = webSearch.contextSize ?? "";
-  let maxResultsValue: number | "" | null = webSearch.maxResults ?? null;
-  let promptValue = webSearch.searchPrompt ?? "";
+  const webSearch = webSearchStore;
 
   let menuOpen = false;
   let closeTimeout: ReturnType<typeof setTimeout> | null = null;
-  let wasEnabled = webSearch.enabled;
+  let wasEnabled = false;
   let menuEl: HTMLElement | null = null;
   let buttonEl: HTMLButtonElement | null = null;
   let containerEl: HTMLElement | null = null;
-
-  function sendChange(settings: Partial<WebSearchSettings>): void {
-    dispatch("webSearchChange", { settings });
-  }
 
   function cancelClose(): void {
     if (!closeTimeout) return;
@@ -38,7 +19,7 @@
 
   function openMenu(force = false): void {
     cancelClose();
-    if (!force && !webSearch.enabled) return;
+    if (!force && !webSearch.current.enabled) return;
     menuOpen = true;
     queueMicrotask(() => {
       const first = menuEl?.querySelector<HTMLElement>(
@@ -65,54 +46,48 @@
   }
 
   function openIfEnabled(): void {
-    if (!webSearch.enabled) return;
+    if (!webSearch.current.enabled) return;
     openMenu();
   }
 
   function handleButtonClick(): void {
-    if (webSearch.enabled) {
-      sendChange({ enabled: false });
+    if (webSearch.current.enabled) {
+      webSearch.setEnabled(false);
       closeMenu();
     } else {
-      sendChange({ enabled: true });
+      webSearch.setEnabled(true);
       openMenu(true);
     }
   }
 
-  function commitEngine(): void {
-    if (engineValue === "native" || engineValue === "exa") {
-      sendChange({ engine: engineValue });
-    } else {
-      sendChange({ engine: null });
-    }
+  function commitEngine(event: Event): void {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    webSearch.update({ engine: value === "native" || value === "exa" ? value : null });
   }
 
-  function commitContext(): void {
-    if (contextValue === "low" || contextValue === "medium" || contextValue === "high") {
-      sendChange({ contextSize: contextValue });
-    } else {
-      sendChange({ contextSize: null });
-    }
+  function commitContext(event: Event): void {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    webSearch.update({
+      contextSize: value === "low" || value === "medium" || value === "high" ? value : null,
+    });
   }
 
-  function commitMaxResults(): void {
-    if (maxResultsValue === "" || maxResultsValue == null) {
-      maxResultsValue = null;
-      sendChange({ maxResults: null });
+  function commitMaxResults(event: Event): void {
+    const input = event.currentTarget as HTMLInputElement;
+    if (input.value === "") {
+      webSearch.update({ maxResults: null });
       return;
     }
-    let n = Math.trunc(Number(maxResultsValue));
+    let n = Math.trunc(Number(input.value));
     if (!Number.isFinite(n)) return;
     if (n < 1) n = 1;
     if (n > 25) n = 25;
-    if (n !== maxResultsValue) {
-      maxResultsValue = n;
-    }
-    sendChange({ maxResults: n });
+    webSearch.update({ maxResults: n });
   }
 
-  function commitPrompt(): void {
-    sendChange({ searchPrompt: promptValue });
+  function commitPrompt(event: Event): void {
+    const value = (event.currentTarget as HTMLTextAreaElement).value;
+    webSearch.update({ searchPrompt: value });
   }
 
   function handleFocusOut(event: FocusEvent): void {
@@ -165,36 +140,16 @@
     document.removeEventListener("pointerdown", onDocPointerDown);
   });
 
-  $: {
-    const next = webSearch.engine ?? "";
-    if (next !== engineValue) engineValue = next;
-  }
-
-  $: {
-    const next = webSearch.contextSize ?? "";
-    if (next !== contextValue) contextValue = next;
-  }
-
-  $: {
-    const next = webSearch.maxResults ?? null;
-    if (next !== maxResultsValue) maxResultsValue = next;
-  }
-
-  $: {
-    const next = webSearch.searchPrompt ?? "";
-    if (next !== promptValue) promptValue = next;
-  }
-
-  $: if (!webSearch.enabled && wasEnabled) {
+  $: if (!$webSearch.enabled && wasEnabled) {
     closeMenu();
   }
 
-  $: wasEnabled = webSearch.enabled;
+  $: wasEnabled = $webSearch.enabled;
 </script>
 
 <div
   class="web-search"
-  data-enabled={webSearch.enabled}
+  data-enabled={$webSearch.enabled}
   data-open={menuOpen}
   role="group"
   aria-label="Web search settings"
@@ -205,7 +160,7 @@
     type="button"
     class="ghost web-search-summary"
     aria-haspopup="true"
-    aria-expanded={webSearch.enabled && menuOpen}
+    aria-expanded={$webSearch.enabled && menuOpen}
     aria-controls="webSearchMenu"
     on:click={handleButtonClick}
     on:mouseenter={openIfEnabled}
@@ -216,18 +171,19 @@
     <span>Web search</span>
     <span
       class="status"
-      data-enabled={webSearch.enabled}
-      aria-label={webSearch.enabled ? "Web search on" : "Web search off"}
+      data-enabled={$webSearch.enabled}
+      aria-label={$webSearch.enabled ? "Web search on" : "Web search off"}
     >
-      {webSearch.enabled ? "On" : "Off"}
+      {$webSearch.enabled ? "On" : "Off"}
     </span>
   </button>
 
-  {#if menuOpen && webSearch.enabled}
+  {#if menuOpen && $webSearch.enabled}
     <div
       class="web-search-menu"
       id="webSearchMenu"
-      aria-disabled={!webSearch.enabled}
+      role="dialog"
+      tabindex="-1"
       bind:this={menuEl}
       on:mouseenter={cancelClose}
       on:mouseleave={scheduleClose}
@@ -238,7 +194,11 @@
       <div class="web-search-fields">
         <label>
           <span>Engine</span>
-          <select bind:value={engineValue} disabled={!webSearch.enabled} on:change={commitEngine}>
+          <select
+            value={$webSearch.engine ?? ""}
+            disabled={!$webSearch.enabled}
+            on:change={commitEngine}
+          >
             <option value="">Auto</option>
             <option value="native">Native</option>
             <option value="exa">Exa</option>
@@ -247,7 +207,11 @@
 
         <label>
           <span>Context</span>
-          <select bind:value={contextValue} disabled={!webSearch.enabled} on:change={commitContext}>
+          <select
+            value={$webSearch.contextSize ?? ""}
+            disabled={!$webSearch.enabled}
+            on:change={commitContext}
+          >
             <option value="">Default</option>
             <option value="low">Low</option>
             <option value="medium">Medium</option>
@@ -262,8 +226,8 @@
             min="1"
             max="25"
             step="1"
-            bind:value={maxResultsValue}
-            disabled={!webSearch.enabled}
+            value={$webSearch.maxResults ?? ""}
+            disabled={!$webSearch.enabled}
             on:change={commitMaxResults}
             on:blur={commitMaxResults}
             inputmode="numeric"
@@ -275,8 +239,8 @@
           <span>Search prompt</span>
           <textarea
             rows="2"
-            bind:value={promptValue}
-            disabled={!webSearch.enabled}
+            value={$webSearch.searchPrompt ?? ""}
+            disabled={!$webSearch.enabled}
             placeholder="Use default prompt"
             on:input={commitPrompt}
           ></textarea>

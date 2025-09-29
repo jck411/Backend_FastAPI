@@ -14,7 +14,7 @@ import ModelSettingsModal from './lib/components/chat/ModelSettingsModal.svelte'
 import type { GenerationDetails, ModelRecord } from './lib/api/types';
   import type { GenerationDetailField } from './lib/chat/constants';
 
-  const { sendMessage, cancelStream, clearConversation, setModel, updateWebSearch } = chatStore;
+  const { sendMessage, cancelStream, clearConversation, setModel } = chatStore;
   const {
     loadModels,
     models: modelsStore,
@@ -117,11 +117,9 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     modelsLoading={$modelsLoading}
     modelsError={$modelsError}
     hasMessages={$chatStore.messages.length > 0}
-    webSearch={$chatStore.webSearch}
     on:openExplorer={() => (explorerOpen = true)}
     on:clear={clearConversation}
     on:modelChange={(event) => handleModelChange(event.detail.id)}
-    on:webSearchChange={(event) => updateWebSearch(event.detail.settings)}
     on:openModelSettings={() => (modelSettingsOpen = true)}
   />
 

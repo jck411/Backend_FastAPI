@@ -1,11 +1,7 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher, onDestroy } from "svelte";
-  import type {
-    ConversationMessage,
-    ConversationRole,
-    ReasoningSegment,
-    ReasoningStatus,
-  } from "../../stores/chat";
+  import type { ConversationMessage, ConversationRole } from "../../stores/chat";
+  import type { ReasoningSegment, ReasoningStatus } from "../../chat/reasoning";
   import ToolUsageModal from "./ToolUsageModal.svelte";
   import ReasoningModal from "./ReasoningModal.svelte";
   import type { ToolUsageEntry } from "./toolUsage.types";

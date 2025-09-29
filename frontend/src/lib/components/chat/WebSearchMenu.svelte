@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from "svelte";
-  import type { WebSearchSettings } from "../../stores/chat";
+  import { createEventDispatcher, onDestroy, onMount } from "svelte";
+  import type { WebSearchSettings } from "../../chat/webSearch";
 
   const dispatch = createEventDispatcher<{
     webSearchChange: { settings: Partial<WebSearchSettings> };
@@ -14,9 +14,17 @@
     contextSize: null,
   };
 
+  let engineValue: "" | "native" | "exa" = webSearch.engine ?? "";
+  let contextValue: "" | "low" | "medium" | "high" = webSearch.contextSize ?? "";
+  let maxResultsValue: number | "" | null = webSearch.maxResults ?? null;
+  let promptValue = webSearch.searchPrompt ?? "";
+
   let menuOpen = false;
   let closeTimeout: ReturnType<typeof setTimeout> | null = null;
   let wasEnabled = webSearch.enabled;
+  let menuEl: HTMLElement | null = null;
+  let buttonEl: HTMLButtonElement | null = null;
+  let containerEl: HTMLElement | null = null;
 
   function sendChange(settings: Partial<WebSearchSettings>): void {
     dispatch("webSearchChange", { settings });
@@ -28,14 +36,22 @@
     closeTimeout = null;
   }
 
-  function openMenu(): void {
+  function openMenu(force = false): void {
     cancelClose();
+    if (!force && !webSearch.enabled) return;
     menuOpen = true;
+    queueMicrotask(() => {
+      const first = menuEl?.querySelector<HTMLElement>(
+        'select, input, textarea, button, [href], [tabindex]:not([tabindex="-1"])'
+      );
+      first?.focus();
+    });
   }
 
   function scheduleClose(): void {
     cancelClose();
     closeTimeout = setTimeout(() => {
+      if (!menuOpen) return;
       menuOpen = false;
       closeTimeout = null;
     }, 250);
@@ -43,7 +59,9 @@
 
   function closeMenu(): void {
     cancelClose();
+    if (!menuOpen) return;
     menuOpen = false;
+    buttonEl?.focus();
   }
 
   function openIfEnabled(): void {
@@ -57,70 +75,121 @@
       closeMenu();
     } else {
       sendChange({ enabled: true });
-      openMenu();
+      openMenu(true);
     }
   }
 
-  function handleEngine(event: Event): void {
-    const target = event.currentTarget as HTMLSelectElement | null;
-    if (!target) return;
-    const value = target.value;
-    if (value === "native" || value === "exa") {
-      sendChange({ engine: value });
+  function commitEngine(): void {
+    if (engineValue === "native" || engineValue === "exa") {
+      sendChange({ engine: engineValue });
     } else {
       sendChange({ engine: null });
     }
   }
 
-  function handleContext(event: Event): void {
-    const target = event.currentTarget as HTMLSelectElement | null;
-    if (!target) return;
-    const value = target.value;
-    if (value === "low" || value === "medium" || value === "high") {
-      sendChange({ contextSize: value });
+  function commitContext(): void {
+    if (contextValue === "low" || contextValue === "medium" || contextValue === "high") {
+      sendChange({ contextSize: contextValue });
     } else {
       sendChange({ contextSize: null });
     }
   }
 
-  function handleMaxResults(event: Event): void {
-    const target = event.currentTarget as HTMLInputElement | null;
-    if (!target) return;
-    const raw = target.value.trim();
-    if (!raw) {
+  function commitMaxResults(): void {
+    if (maxResultsValue === "" || maxResultsValue == null) {
+      maxResultsValue = null;
       sendChange({ maxResults: null });
       return;
     }
-    sendChange({ maxResults: Number(raw) });
+    let n = Math.trunc(Number(maxResultsValue));
+    if (!Number.isFinite(n)) return;
+    if (n < 1) n = 1;
+    if (n > 25) n = 25;
+    if (n !== maxResultsValue) {
+      maxResultsValue = n;
+    }
+    sendChange({ maxResults: n });
   }
 
-  function handlePrompt(event: Event): void {
-    const target = event.currentTarget as HTMLTextAreaElement | null;
-    if (!target) return;
-    sendChange({ searchPrompt: target.value });
+  function commitPrompt(): void {
+    sendChange({ searchPrompt: promptValue });
   }
 
   function handleFocusOut(event: FocusEvent): void {
-    const container = event.currentTarget as HTMLElement | null;
     const nextTarget = event.relatedTarget as Node | null;
-    if (!container || !nextTarget || !container.contains(nextTarget)) {
-      closeMenu();
+    if (containerEl && nextTarget && containerEl.contains(nextTarget)) {
+      return;
     }
+    closeMenu();
   }
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
       event.preventDefault();
       closeMenu();
+      return;
     }
+    if (event.key === "Tab" && menuOpen) {
+      const focusables = Array.from(
+        menuEl?.querySelectorAll<HTMLElement>(
+          'select, input, textarea, button, [href], [tabindex]:not([tabindex="-1"])'
+        ) ?? []
+      ).filter((el) => !el.hasAttribute("disabled"));
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
+  function onDocPointerDown(event: PointerEvent): void {
+    if (!menuOpen) return;
+    const target = event.target as Node;
+    if (menuEl?.contains(target) || buttonEl?.contains(target)) return;
+    closeMenu();
+  }
+
+  onMount(() => {
+    document.addEventListener("pointerdown", onDocPointerDown);
+  });
+
+  onDestroy(() => {
+    cancelClose();
+    document.removeEventListener("pointerdown", onDocPointerDown);
+  });
+
+  $: {
+    const next = webSearch.engine ?? "";
+    if (next !== engineValue) engineValue = next;
+  }
+
+  $: {
+    const next = webSearch.contextSize ?? "";
+    if (next !== contextValue) contextValue = next;
+  }
+
+  $: {
+    const next = webSearch.maxResults ?? null;
+    if (next !== maxResultsValue) maxResultsValue = next;
+  }
+
+  $: {
+    const next = webSearch.searchPrompt ?? "";
+    if (next !== promptValue) promptValue = next;
   }
 
   $: if (!webSearch.enabled && wasEnabled) {
     closeMenu();
   }
-  $: wasEnabled = webSearch.enabled;
 
-  onDestroy(cancelClose);
+  $: wasEnabled = webSearch.enabled;
 </script>
 
 <div
@@ -129,52 +198,63 @@
   data-open={menuOpen}
   role="group"
   aria-label="Web search settings"
-  on:mouseenter={openIfEnabled}
-  on:mouseleave={scheduleClose}
-  on:focusin={openIfEnabled}
-  on:focusout={handleFocusOut}
+  bind:this={containerEl}
 >
   <button
+    bind:this={buttonEl}
     type="button"
     class="ghost web-search-summary"
     aria-haspopup="true"
     aria-expanded={webSearch.enabled && menuOpen}
-    on:keydown={handleKeydown}
+    aria-controls="webSearchMenu"
     on:click={handleButtonClick}
+    on:mouseenter={openIfEnabled}
+    on:focus={openIfEnabled}
+    on:mouseleave={scheduleClose}
+    on:keydown={handleKeydown}
   >
     <span>Web search</span>
-    <span class="status" data-enabled={webSearch.enabled}>
+    <span
+      class="status"
+      data-enabled={webSearch.enabled}
+      aria-label={webSearch.enabled ? "Web search on" : "Web search off"}
+    >
       {webSearch.enabled ? "On" : "Off"}
     </span>
   </button>
+
   {#if menuOpen && webSearch.enabled}
-    <div class="web-search-menu">
-      <div class="web-search-fields" aria-disabled={!webSearch.enabled}>
+    <div
+      class="web-search-menu"
+      id="webSearchMenu"
+      aria-disabled={!webSearch.enabled}
+      bind:this={menuEl}
+      on:mouseenter={cancelClose}
+      on:mouseleave={scheduleClose}
+      on:focusin={cancelClose}
+      on:focusout={handleFocusOut}
+      on:keydown={handleKeydown}
+    >
+      <div class="web-search-fields">
         <label>
           <span>Engine</span>
-          <select
-            value={webSearch.engine ?? ""}
-            disabled={!webSearch.enabled}
-            on:change={handleEngine}
-          >
+          <select bind:value={engineValue} disabled={!webSearch.enabled} on:change={commitEngine}>
             <option value="">Auto</option>
             <option value="native">Native</option>
             <option value="exa">Exa</option>
           </select>
         </label>
+
         <label>
           <span>Context</span>
-          <select
-            value={webSearch.contextSize ?? ""}
-            disabled={!webSearch.enabled}
-            on:change={handleContext}
-          >
+          <select bind:value={contextValue} disabled={!webSearch.enabled} on:change={commitContext}>
             <option value="">Default</option>
             <option value="low">Low</option>
             <option value="medium">Medium</option>
             <option value="high">High</option>
           </select>
         </label>
+
         <label>
           <span>Max results</span>
           <input
@@ -182,19 +262,23 @@
             min="1"
             max="25"
             step="1"
-            value={webSearch.maxResults ?? ""}
+            bind:value={maxResultsValue}
             disabled={!webSearch.enabled}
-            on:input={handleMaxResults}
+            on:change={commitMaxResults}
+            on:blur={commitMaxResults}
+            inputmode="numeric"
+            pattern="\\d*"
           />
         </label>
+
         <label class="prompt">
           <span>Search prompt</span>
           <textarea
             rows="2"
-            value={webSearch.searchPrompt}
+            bind:value={promptValue}
             disabled={!webSearch.enabled}
             placeholder="Use default prompt"
-            on:input={handlePrompt}
+            on:input={commitPrompt}
           ></textarea>
         </label>
       </div>
@@ -243,14 +327,6 @@
     flex-direction: column;
     gap: 0.75rem;
   }
-  .web-search-menu::before {
-    content: "";
-    position: absolute;
-    top: -0.25rem;
-    left: 0;
-    right: 0;
-    height: 0.25rem;
-  }
   .web-search[data-open="true"] .web-search-menu {
     display: flex;
   }
@@ -284,5 +360,13 @@
   .web-search-fields textarea:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  .web-search *:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
+  }
+  .web-search *:focus {
+    outline: none;
   }
 </style>

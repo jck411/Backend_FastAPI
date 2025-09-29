@@ -1,6 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from "svelte";
-  import type { WebSearchSettings } from "../../stores/chat";
+  import type { WebSearchSettings } from "../../chat/webSearch";
 
   interface SelectableModel {
     id: string;

@@ -1,203 +1,20 @@
 import { get, writable } from 'svelte/store';
-import { streamChat } from '../api/client';
 import type { ChatCompletionRequest } from '../api/types';
+import {
+  mergeReasoningSegments,
+  type ReasoningSegment,
+  type ReasoningStatus,
+  reasoningTextLength,
+  toReasoningSegments,
+} from '../chat/reasoning';
+import {
+  DEFAULT_WEB_SEARCH_SETTINGS,
+  normalizeWebSearchSettings,
+  type WebSearchSettings,
+} from '../chat/webSearch';
+import { startChatStream } from '../chat/streaming';
 
 export type ConversationRole = 'user' | 'assistant' | 'system' | 'tool';
-
-export interface ReasoningSegment {
-  text: string;
-  type?: string;
-}
-
-export type ReasoningStatus = 'streaming' | 'complete';
-
-export type WebSearchEngine = 'native' | 'exa';
-export type WebSearchContextSize = 'low' | 'medium' | 'high';
-
-export interface WebSearchSettings {
-  enabled: boolean;
-  engine: WebSearchEngine | null;
-  maxResults: number | null;
-  searchPrompt: string;
-  contextSize: WebSearchContextSize | null;
-}
-
-function toReasoningSegments(value: unknown): ReasoningSegment[] {
-  if (value == null) {
-    return [];
-  }
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => toReasoningSegments(entry));
-  }
-  if (typeof value === 'string') {
-    return value.length > 0 ? [{ text: value }] : [];
-  }
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    const text = record.text;
-    const type = record.type;
-    const segments: ReasoningSegment[] = [];
-
-    if (typeof text === 'string' && text.length > 0) {
-      const segment: ReasoningSegment = { text };
-      if (typeof type === 'string' && type.length > 0) {
-        segment.type = type;
-      }
-      segments.push(segment);
-    }
-
-    const nestedKeys = [
-      'segments',
-      'segment',
-      'messages',
-      'message',
-      'content',
-      'contents',
-      'parts',
-      'steps',
-      'items',
-    ];
-
-    for (const key of nestedKeys) {
-      const nested = record[key];
-      if (nested !== undefined) {
-        segments.push(...toReasoningSegments(nested));
-      }
-    }
-
-    return segments;
-  }
-
-  return [];
-}
-
-function collectReasoningSegmentsFromChunk(chunk: unknown): {
-  segments: ReasoningSegment[];
-  hasPayload: boolean;
-} {
-  if (!chunk || typeof chunk !== 'object') {
-    return { segments: [], hasPayload: false };
-  }
-  const choices = (chunk as { choices?: Array<Record<string, unknown>> }).choices;
-  if (!Array.isArray(choices)) {
-    return { segments: [], hasPayload: false };
-  }
-  const segments: ReasoningSegment[] = [];
-  let hasPayload = false;
-  for (const choice of choices) {
-    if (!choice || typeof choice !== 'object') {
-      continue;
-    }
-    const delta = (choice as { delta?: unknown }).delta;
-    if (!delta || typeof delta !== 'object') {
-      continue;
-    }
-    if ('reasoning' in (delta as Record<string, unknown>)) {
-      hasPayload = true;
-      const reasoning = (delta as { reasoning?: unknown }).reasoning;
-      segments.push(...toReasoningSegments(reasoning));
-    }
-  }
-  return { segments, hasPayload };
-}
-
-function mergeReasoningSegments(
-  existing: ReasoningSegment[] | undefined,
-  incoming: ReasoningSegment[],
-): ReasoningSegment[] {
-  const sanitizedIncoming = incoming.filter((segment) => segment.text.length > 0);
-  if (sanitizedIncoming.length === 0) {
-    return existing ?? [];
-  }
-  if (!existing || existing.length === 0) {
-    return sanitizedIncoming;
-  }
-
-  const existingText = existing.map((segment) => segment.text).join('');
-  const incomingText = sanitizedIncoming.map((segment) => segment.text).join('');
-
-  if (incomingText.startsWith(existingText)) {
-    const suffix = incomingText.slice(existingText.length);
-    if (suffix.length === 0) {
-      return existing;
-    }
-    const merged = [...existing];
-    const lastIndex = merged.length - 1;
-    const lastIncoming = sanitizedIncoming[sanitizedIncoming.length - 1];
-    merged[lastIndex] = {
-      text: `${merged[lastIndex].text}${suffix}`,
-      type: lastIncoming.type ?? merged[lastIndex].type,
-    };
-    return merged;
-  }
-
-  const merged = [...existing];
-  for (const segment of sanitizedIncoming) {
-    const alreadyPresent = merged.some(
-      (existingSegment) =>
-        existingSegment.text === segment.text && existingSegment.type === segment.type,
-    );
-    if (alreadyPresent) {
-      continue;
-    }
-    merged.push(segment);
-  }
-  return merged;
-}
-
-function reasoningTextLength(segments: ReasoningSegment[] | undefined | null): number {
-  return segments?.reduce((total, segment) => total + segment.text.length, 0) ?? 0;
-}
-
-const DEFAULT_WEB_SEARCH_SETTINGS: WebSearchSettings = {
-  enabled: false,
-  engine: null,
-  maxResults: 5,
-  searchPrompt: '',
-  contextSize: null,
-};
-
-function normalizeWebSearchSettings(
-  update: Partial<WebSearchSettings>,
-  current: WebSearchSettings,
-): WebSearchSettings {
-  const next: WebSearchSettings = { ...current };
-
-  if (Object.prototype.hasOwnProperty.call(update, 'enabled')) {
-    next.enabled = Boolean(update.enabled);
-  }
-
-  if (Object.prototype.hasOwnProperty.call(update, 'engine')) {
-    const value = update.engine;
-    next.engine = value === 'native' || value === 'exa' ? value : null;
-  }
-
-  if (Object.prototype.hasOwnProperty.call(update, 'maxResults')) {
-    const raw = update.maxResults;
-    if (raw === null || raw === undefined) {
-      next.maxResults = null;
-    } else {
-      const numeric = Number(raw);
-      if (Number.isFinite(numeric) && numeric > 0) {
-        next.maxResults = Math.min(Math.round(numeric), 25);
-      } else {
-        next.maxResults = current.maxResults;
-      }
-    }
-  }
-
-  if (Object.prototype.hasOwnProperty.call(update, 'searchPrompt')) {
-    const value = update.searchPrompt;
-    next.searchPrompt = typeof value === 'string' ? value : current.searchPrompt;
-  }
-
-  if (Object.prototype.hasOwnProperty.call(update, 'contextSize')) {
-    const value = update.contextSize;
-    next.contextSize = value === 'low' || value === 'medium' || value === 'high' ? value : null;
-  }
-
-  return next;
-}
 
 interface ConversationMessageDetails {
   model?: string | null;
@@ -312,187 +129,160 @@ function createChatStore() {
     const toolMessageIds = new Map<string, string>();
 
     try {
-      await streamChat(payload, {
+      await startChatStream(payload, {
         signal: abortController.signal,
         onSession(sessionId) {
           store.update((value) => ({ ...value, sessionId }));
         },
-        onChunk(chunk, rawEvent) {
-          const eventType = rawEvent?.event ?? 'message';
+        onMessageDelta({ text: deltaText, reasoningSegments, hasReasoningPayload }) {
+          store.update((value) => {
+            const messages = value.messages.map((message) => {
+              if (message.id !== assistantMessageId) {
+                return message;
+              }
+              const updatedMessage: ConversationMessage = {
+                ...message,
+                content: deltaText ? `${message.content}${deltaText}` : message.content,
+              };
 
-          if (eventType === 'message') {
-            const deltaText =
-              chunk.choices?.map((choice) => choice.delta?.content ?? '').join('') ?? '';
-            const { segments: reasoningSegments, hasPayload: hasReasoningPayload } =
-              collectReasoningSegmentsFromChunk(chunk);
+              if (reasoningSegments.length > 0 || hasReasoningPayload) {
+                const existingDetails: ConversationMessageDetails = message.details ?? {};
+                const nextDetails: ConversationMessageDetails = {
+                  ...existingDetails,
+                  reasoningStatus: 'streaming',
+                };
+                if (reasoningSegments.length > 0) {
+                  nextDetails.reasoning = mergeReasoningSegments(
+                    existingDetails.reasoning,
+                    reasoningSegments,
+                  );
+                }
+                updatedMessage.details = nextDetails;
+              }
 
-            if (!deltaText && reasoningSegments.length === 0 && !hasReasoningPayload) {
-              return;
-            }
+              return updatedMessage;
+            });
+            return { ...value, messages };
+          });
+        },
+        onMetadata(metadata) {
+          store.update((value) => {
+            const messages = value.messages.map((message) => {
+              if (message.id !== assistantMessageId) {
+                return message;
+              }
+              const existingDetails: ConversationMessageDetails = message.details ?? {};
+              const nextReasoningSegments = toReasoningSegments(metadata.reasoning);
+              const hasIncomingReasoning = nextReasoningSegments.length > 0;
+              let reasoning = existingDetails.reasoning;
+              if (hasIncomingReasoning) {
+                reasoning =
+                  reasoningTextLength(nextReasoningSegments) >=
+                  reasoningTextLength(existingDetails.reasoning)
+                    ? nextReasoningSegments
+                    : existingDetails.reasoning ?? nextReasoningSegments;
+              }
+              const reasoningStatus = hasIncomingReasoning
+                ? message.pending
+                  ? 'streaming'
+                  : 'complete'
+                : existingDetails.reasoningStatus ?? null;
+              return {
+                ...message,
+                details: {
+                  ...existingDetails,
+                  model:
+                    typeof metadata.model === 'string'
+                      ? metadata.model
+                      : existingDetails.model ?? null,
+                  finishReason:
+                    typeof metadata.finish_reason === 'string'
+                      ? metadata.finish_reason
+                      : existingDetails.finishReason ?? null,
+                  reasoning,
+                  reasoningStatus,
+                  usage:
+                    metadata.usage && typeof metadata.usage === 'object'
+                      ? (metadata.usage as Record<string, unknown>)
+                      : existingDetails.usage ?? null,
+                  routing:
+                    metadata.routing && typeof metadata.routing === 'object'
+                      ? (metadata.routing as Record<string, unknown>)
+                      : existingDetails.routing ?? null,
+                  toolCalls:
+                    Array.isArray(metadata.tool_calls)
+                      ? (metadata.tool_calls as Array<Record<string, unknown>>)
+                      : existingDetails.toolCalls ?? null,
+                  generationId:
+                    typeof metadata.generation_id === 'string'
+                      ? metadata.generation_id
+                      : existingDetails.generationId ?? null,
+                },
+              };
+            });
+            return { ...value, messages };
+          });
+        },
+        onToolEvent(payload) {
+          const callId = typeof payload.call_id === 'string' ? payload.call_id : createId('tool');
+          const status = typeof payload.status === 'string' ? payload.status : 'started';
+          const toolName = typeof payload.name === 'string' ? payload.name : 'tool';
+          const result = payload.result;
+          const toolResult =
+            typeof result === 'string'
+              ? result
+              : result && typeof result === 'object'
+                ? JSON.stringify(result)
+                : null;
 
+          let messageId = toolMessageIds.get(callId);
+          if (!messageId) {
+            messageId = createId('tool');
+            toolMessageIds.set(callId, messageId);
+            store.update((value) => ({
+              ...value,
+              messages: [
+                ...value.messages,
+                {
+                  id: messageId as string,
+                  role: 'tool',
+                  content: status === 'started'
+                    ? `Running ${toolName}…`
+                    : toolResult ?? `Tool ${toolName} responded.`,
+                  pending: status === 'started',
+                  details: {
+                    toolName,
+                    toolStatus: status,
+                    toolResult: toolResult ?? null,
+                  },
+                },
+              ],
+            }));
+          } else {
             store.update((value) => {
               const messages = value.messages.map((message) => {
-                if (message.id !== assistantMessageId) {
+                if (message.id !== messageId) {
                   return message;
                 }
-                const updatedMessage: ConversationMessage = {
-                  ...message,
-                  content: deltaText ? `${message.content}${deltaText}` : message.content,
+                const details = {
+                  ...(message.details ?? {}),
+                  toolName,
+                  toolStatus: status,
+                  toolResult: toolResult ?? (message.details?.toolResult ?? null),
                 };
-
-                if (reasoningSegments.length > 0 || hasReasoningPayload) {
-                  const existingDetails: ConversationMessageDetails = message.details ?? {};
-                  const nextDetails: ConversationMessageDetails = {
-                    ...existingDetails,
-                    reasoningStatus: 'streaming',
-                  };
-                  if (reasoningSegments.length > 0) {
-                    nextDetails.reasoning = mergeReasoningSegments(
-                      existingDetails.reasoning,
-                      reasoningSegments,
-                    );
-                  }
-                  updatedMessage.details = nextDetails;
-                }
-
-                return updatedMessage;
+                return {
+                  ...message,
+                  content:
+                    toolResult ??
+                    (status === 'started'
+                      ? `Running ${toolName}…`
+                      : `Tool ${toolName} ${status}.`),
+                  pending: status === 'started',
+                  details,
+                };
               });
               return { ...value, messages };
             });
-            return;
-          }
-
-          if (eventType === 'metadata' && rawEvent?.data) {
-            try {
-              const metadata = JSON.parse(rawEvent.data) as Record<string, unknown>;
-              store.update((value) => {
-                const messages = value.messages.map((message) => {
-                  if (message.id !== assistantMessageId) {
-                    return message;
-                  }
-                  const existingDetails: ConversationMessageDetails = message.details ?? {};
-                  const nextReasoningSegments = toReasoningSegments(metadata.reasoning);
-                  const hasIncomingReasoning = nextReasoningSegments.length > 0;
-                  let reasoning = existingDetails.reasoning;
-                  if (hasIncomingReasoning) {
-                    reasoning =
-                      reasoningTextLength(nextReasoningSegments) >=
-                      reasoningTextLength(existingDetails.reasoning)
-                        ? nextReasoningSegments
-                        : existingDetails.reasoning ?? nextReasoningSegments;
-                  }
-                  const reasoningStatus = hasIncomingReasoning
-                    ? message.pending
-                      ? 'streaming'
-                      : 'complete'
-                    : existingDetails.reasoningStatus ?? null;
-                  return {
-                    ...message,
-                    details: {
-                      ...existingDetails,
-                      model:
-                        typeof metadata.model === 'string'
-                          ? metadata.model
-                          : existingDetails.model ?? null,
-                      finishReason:
-                        typeof metadata.finish_reason === 'string'
-                          ? metadata.finish_reason
-                          : existingDetails.finishReason ?? null,
-                      reasoning,
-                      reasoningStatus,
-                      usage:
-                        metadata.usage && typeof metadata.usage === 'object'
-                          ? (metadata.usage as Record<string, unknown>)
-                          : existingDetails.usage ?? null,
-                      routing:
-                        metadata.routing && typeof metadata.routing === 'object'
-                          ? (metadata.routing as Record<string, unknown>)
-                          : existingDetails.routing ?? null,
-                      toolCalls:
-                        Array.isArray(metadata.tool_calls)
-                          ? (metadata.tool_calls as Array<Record<string, unknown>>)
-                          : existingDetails.toolCalls ?? null,
-                      generationId:
-                        typeof metadata.generation_id === 'string'
-                          ? metadata.generation_id
-                          : existingDetails.generationId ?? null,
-                    },
-                  };
-                });
-                return { ...value, messages };
-              });
-            } catch (error) {
-              console.warn('Failed to parse metadata payload', error, rawEvent.data);
-            }
-            return;
-          }
-
-          if (eventType === 'tool' && rawEvent?.data) {
-            try {
-              const payload = JSON.parse(rawEvent.data) as Record<string, unknown>;
-              const callId = typeof payload.call_id === 'string' ? payload.call_id : createId('tool');
-              const status = typeof payload.status === 'string' ? payload.status : 'started';
-              const toolName = typeof payload.name === 'string' ? payload.name : 'tool';
-              const result = payload.result;
-              const toolResult =
-                typeof result === 'string'
-                  ? result
-                  : result && typeof result === 'object'
-                    ? JSON.stringify(result)
-                    : null;
-
-              let messageId = toolMessageIds.get(callId);
-              if (!messageId) {
-                messageId = createId('tool');
-                toolMessageIds.set(callId, messageId);
-                store.update((value) => ({
-                  ...value,
-                  messages: [
-                    ...value.messages,
-                    {
-                      id: messageId as string,
-                      role: 'tool',
-                      content: status === 'started'
-                        ? `Running ${toolName}…`
-                        : toolResult ?? `Tool ${toolName} responded.`,
-                      pending: status === 'started',
-                      details: {
-                        toolName,
-                        toolStatus: status,
-                        toolResult: toolResult ?? null,
-                      },
-                    },
-                  ],
-                }));
-              } else {
-                store.update((value) => {
-                  const messages = value.messages.map((message) => {
-                    if (message.id !== messageId) {
-                      return message;
-                    }
-                    const details = {
-                      ...(message.details ?? {}),
-                      toolName,
-                      toolStatus: status,
-                      toolResult: toolResult ?? (message.details?.toolResult ?? null),
-                    };
-                    return {
-                      ...message,
-                      content:
-                        toolResult ??
-                        (status === 'started'
-                          ? `Running ${toolName}…`
-                          : `Tool ${toolName} ${status}.`),
-                      pending: status === 'started',
-                      details,
-                    };
-                  });
-                  return { ...value, messages };
-                });
-              }
-            } catch (error) {
-              console.warn('Failed to parse tool payload', error, rawEvent.data);
-            }
           }
         },
         onDone() {

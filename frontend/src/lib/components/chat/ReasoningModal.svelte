@@ -1,6 +1,6 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher } from "svelte";
-  import type { ReasoningSegment, ReasoningStatus } from "../../stores/chat";
+  import type { ReasoningSegment, ReasoningStatus } from "../../chat/reasoning";
 
   const dispatch = createEventDispatcher<{ close: void }>();
 

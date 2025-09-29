@@ -1,12 +1,12 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher, onDestroy } from "svelte";
   import type { ConversationMessage, ConversationRole } from "../../stores/chat";
-  import type { ReasoningSegment, ReasoningStatus } from "../../chat/reasoning";
   import ToolUsageModal from "./ToolUsageModal.svelte";
   import ReasoningModal from "./ReasoningModal.svelte";
-  import type { ToolUsageEntry } from "./toolUsage.types";
   import MessageItem from "./MessageItem.svelte";
-  import { computeMessagePresentation, deriveToolUsageEntries } from "./toolUsage.helpers";
+  import { computeMessagePresentation } from "./toolUsage.helpers";
+  import { createToolUsageModalStore } from "../../stores/chatModals/toolUsageModal";
+  import { createReasoningModalStore } from "../../stores/chatModals/reasoningModal";
 
   export let messages: ConversationMessage[] = [];
 
@@ -16,17 +16,13 @@
   let visibleMessages: ConversationMessage[] = [];
   let assistantToolUsage: Record<string, boolean> = {};
   let messageIndexMap: Record<string, number> = {};
-  let toolModalOpen = false;
-  let toolModalEntries: ToolUsageEntry[] = [];
-  let toolModalMessageId: string | null = null;
-  let reasoningModalOpen = false;
-  let reasoningModalSegments: ReasoningSegment[] = [];
-  let reasoningModalMessageId: string | null = null;
-  let reasoningModalStatus: ReasoningStatus | null = null;
   const TOOL_ROLE: ConversationRole = "tool";
   let suppressNextScroll = false;
   const SCROLL_LOCK_THRESHOLD = 12;
   let autoScroll = true;
+
+  const toolUsageModal = createToolUsageModalStore();
+  const reasoningModal = createReasoningModalStore();
 
   const dispatch = createEventDispatcher<{
     openGenerationDetails: { id: string };
@@ -94,36 +90,23 @@
   }
 
   function handleOpenToolModal(message: ConversationMessage): void {
-    toolModalEntries = deriveToolUsageEntries(messages, messageIndexMap, message.id, TOOL_ROLE);
-    toolModalMessageId = message.id;
-    toolModalOpen = true;
+    toolUsageModal.openForMessage(messages, messageIndexMap, message.id, TOOL_ROLE);
   }
 
   function handleCloseToolModal(): void {
-    toolModalOpen = false;
-    toolModalEntries = [];
-    toolModalMessageId = null;
+    toolUsageModal.close();
   }
 
   function handleOpenReasoningModal(message: ConversationMessage): void {
-    reasoningModalMessageId = message.id;
-    reasoningModalSegments = message.details?.reasoning ?? [];
-    reasoningModalStatus = message.details?.reasoningStatus ?? null;
-    reasoningModalOpen = true;
+    reasoningModal.openForMessage(message);
   }
 
   function handleCloseReasoningModal(): void {
-    reasoningModalOpen = false;
-    reasoningModalMessageId = null;
-    reasoningModalSegments = [];
-    reasoningModalStatus = null;
+    reasoningModal.close();
   }
 
-  $: if (reasoningModalOpen && reasoningModalMessageId) {
-    const currentMessage = messages.find((msg) => msg.id === reasoningModalMessageId);
-    reasoningModalSegments = currentMessage?.details?.reasoning ?? [];
-    reasoningModalStatus = currentMessage?.details?.reasoningStatus ?? null;
-  }
+  $: toolUsageModal.syncEntries(messages, messageIndexMap, TOOL_ROLE);
+  $: reasoningModal.syncFromMessages(messages);
 </script>
 
 <section class="conversation" bind:this={container} aria-live="polite" on:scroll={handleScroll}>
@@ -143,17 +126,17 @@
 </section>
 
 <ToolUsageModal
-  open={toolModalOpen}
-  messageId={toolModalMessageId}
-  tools={toolModalEntries}
+  open={$toolUsageModal.open}
+  messageId={$toolUsageModal.messageId}
+  tools={$toolUsageModal.tools}
   on:close={handleCloseToolModal}
 />
 
 <ReasoningModal
-  open={reasoningModalOpen}
-  messageId={reasoningModalMessageId}
-  segments={reasoningModalSegments}
-  status={reasoningModalStatus}
+  open={$reasoningModal.open}
+  messageId={$reasoningModal.messageId}
+  segments={$reasoningModal.segments}
+  status={$reasoningModal.status}
   on:close={handleCloseReasoningModal}
 />
 

@@ -1,5 +1,5 @@
 {
-  "model": "openai/gpt-4o-mini-2024-07-18",
+  "model": "openrouter/auto",
   "system_prompt": "You are a helpful assistant who follows OpenRouter best practices. Use the provided context from the server, call tools when they improve your answer, and if a tool is unavailable you should continue without it while complying with safety policies.",
-  "updated_at": "2025-09-28T16:01:49.463654+00:00"
+  "updated_at": "2025-09-29T04:59:35.505004+00:00"
 }

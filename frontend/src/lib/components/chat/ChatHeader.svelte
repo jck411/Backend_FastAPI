@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-  import type { WebSearchSettings } from '../../stores/chat';
+  import { createEventDispatcher } from "svelte";
+  import type { WebSearchSettings } from "../../stores/chat";
 
   interface SelectableModel {
     id: string;
@@ -16,7 +16,7 @@
   }>();
 
   export let selectableModels: SelectableModel[] = [];
-  export let selectedModel = '';
+  export let selectedModel = "";
   export let modelsLoading = false;
   export let modelsError: string | null = null;
   export let hasMessages = false;
@@ -24,7 +24,7 @@
     enabled: false,
     engine: null,
     maxResults: null,
-    searchPrompt: '',
+    searchPrompt: "",
     contextSize: null,
   };
 
@@ -32,7 +32,7 @@
   let webSearchCloseTimeout: ReturnType<typeof setTimeout> | null = null;
 
   function handleWebSearchChange(settings: Partial<WebSearchSettings>): void {
-    dispatch('webSearchChange', { settings });
+    dispatch("webSearchChange", { settings });
   }
 
   function cancelWebSearchMenuClose(): void {
@@ -79,7 +79,7 @@
     const target = event.currentTarget as HTMLSelectElement | null;
     if (!target) return;
     const value = target.value;
-    if (value === 'native' || value === 'exa') {
+    if (value === "native" || value === "exa") {
       handleWebSearchChange({ engine: value });
     } else {
       handleWebSearchChange({ engine: null });
@@ -90,7 +90,7 @@
     const target = event.currentTarget as HTMLSelectElement | null;
     if (!target) return;
     const value = target.value;
-    if (value === 'low' || value === 'medium' || value === 'high') {
+    if (value === "low" || value === "medium" || value === "high") {
       handleWebSearchChange({ contextSize: value });
     } else {
       handleWebSearchChange({ contextSize: null });
@@ -123,28 +123,28 @@
   }
 
   function handleWebSearchKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Escape') {
+    if (event.key === "Escape") {
       event.preventDefault();
       closeWebSearchMenu();
     }
   }
 
   function handleExplorerClick(): void {
-    dispatch('openExplorer');
+    dispatch("openExplorer");
   }
 
   function handleClear(): void {
-    dispatch('clear');
+    dispatch("clear");
   }
 
   function handleModelChange(event: Event): void {
     const target = event.target as HTMLSelectElement | null;
     if (!target) return;
-    dispatch('modelChange', { id: target.value });
+    dispatch("modelChange", { id: target.value });
   }
 
   function handleOpenModelSettings(): void {
-    dispatch('openModelSettings');
+    dispatch("openModelSettings");
   }
 
   let wasWebSearchEnabled = webSearch.enabled;
@@ -160,7 +160,9 @@
 <header class="topbar">
   <div class="topbar-content">
     <div class="controls">
-      <button class="ghost" type="button" on:click={handleExplorerClick}>Explorer</button>
+      <button class="ghost" type="button" on:click={handleExplorerClick}
+        >Explorer</button
+      >
 
       <select
         on:change={handleModelChange}
@@ -225,7 +227,7 @@
       >
         <button
           type="button"
-          class="web-search-summary"
+          class="ghost web-search-summary"
           aria-haspopup="true"
           aria-expanded={webSearch.enabled && webSearchMenuOpen}
           on:keydown={handleWebSearchKeydown}
@@ -233,7 +235,7 @@
         >
           <span>Web search</span>
           <span class="status" data-enabled={webSearch.enabled}>
-            {webSearch.enabled ? 'On' : 'Off'}
+            {webSearch.enabled ? "On" : "Off"}
           </span>
         </button>
         {#if webSearchMenuOpen && webSearch.enabled}
@@ -242,7 +244,7 @@
               <label>
                 <span>Engine</span>
                 <select
-                  value={webSearch.engine ?? ''}
+                  value={webSearch.engine ?? ""}
                   disabled={!webSearch.enabled}
                   on:change={handleWebSearchEngine}
                 >
@@ -254,7 +256,7 @@
               <label>
                 <span>Context</span>
                 <select
-                  value={webSearch.contextSize ?? ''}
+                  value={webSearch.contextSize ?? ""}
                   disabled={!webSearch.enabled}
                   on:change={handleWebSearchContext}
                 >
@@ -271,7 +273,7 @@
                   min="1"
                   max="25"
                   step="1"
-                  value={webSearch.maxResults ?? ''}
+                  value={webSearch.maxResults ?? ""}
                   disabled={!webSearch.enabled}
                   on:input={handleWebSearchMaxResults}
                 />
@@ -291,7 +293,12 @@
         {/if}
       </div>
 
-      <button class="ghost" type="button" on:click={handleClear} disabled={!hasMessages}>
+      <button
+        class="ghost"
+        type="button"
+        on:click={handleClear}
+        disabled={!hasMessages}
+      >
         Clear
       </button>
     </div>
@@ -390,30 +397,8 @@
     opacity: 0.6;
     cursor: not-allowed;
   }
-  .web-search-summary {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    border: 1px solid #25314d;
-    border-radius: 999px;
-    padding: 0.55rem 1.1rem;
-    white-space: nowrap;
-    cursor: pointer;
-    background: none;
-    color: #f2f4f8;
-    font: inherit;
-    transition:
-      border-color 0.2s ease,
-      color 0.2s ease,
-      background 0.2s ease;
-  }
-  .web-search-summary:hover,
-  .web-search-summary:focus-visible {
-    border-color: #38bdf8;
-    color: #38bdf8;
-    outline: none;
-  }
-  .web-search[data-open='true'] .web-search-summary {
+  /* Inherit base button styling from .controls .ghost to ensure consistent size/font */
+  .web-search[data-open="true"] .web-search-summary {
     border-color: #38bdf8;
     color: #38bdf8;
   }
@@ -426,7 +411,7 @@
     border: 1px solid rgba(62, 90, 140, 0.6);
     color: #9fb3d8;
   }
-  .web-search .status[data-enabled='true'] {
+  .web-search .status[data-enabled="true"] {
     border-color: rgba(56, 189, 248, 0.4);
     color: #7dd3fc;
   }
@@ -446,14 +431,14 @@
     gap: 0.75rem;
   }
   .web-search-menu::before {
-    content: '';
+    content: "";
     position: absolute;
     top: -0.25rem;
     left: 0;
     right: 0;
     height: 0.25rem;
   }
-  .web-search[data-open='true'] .web-search-menu {
+  .web-search[data-open="true"] .web-search-menu {
     display: flex;
   }
   .web-search-fields {

@@ -1,4 +1,5 @@
 import { get, writable } from 'svelte/store';
+import { deleteChatMessage } from '../api/client';
 import type { ChatCompletionRequest } from '../api/types';
 import {
   mergeReasoningSegments,
@@ -25,6 +26,7 @@ interface ConversationMessageDetails {
   toolName?: string | null;
   toolStatus?: string | null;
   toolResult?: string | null;
+  serverMessageId?: number | null;
 }
 
 export interface ConversationMessage {
@@ -77,7 +79,13 @@ function createId(prefix: string): string {
   return `${prefix}_${token.replace(/-/g, '')}`;
 }
 
-function toChatPayload(state: ChatState, prompt: string, webSearch: WebSearchSettings): ChatCompletionRequest {
+function toChatPayload(
+  state: ChatState,
+  prompt: string,
+  webSearch: WebSearchSettings,
+  userMessageId: string,
+  assistantMessageId: string,
+): ChatCompletionRequest {
   const payload: ChatCompletionRequest = {
     model: state.selectedModel,
     session_id: state.sessionId ?? undefined,
@@ -85,8 +93,13 @@ function toChatPayload(state: ChatState, prompt: string, webSearch: WebSearchSet
       {
         role: 'user',
         content: prompt,
+        client_message_id: userMessageId,
       },
     ],
+    metadata: {
+      client_assistant_message_id: assistantMessageId,
+      client_parent_message_id: userMessageId,
+    },
   };
 
   if (webSearch.enabled) {
@@ -128,7 +141,13 @@ function createChatStore() {
     const userMessageId = createId('user');
     const assistantMessageId = createId('assistant');
 
-    const payload = toChatPayload(state, prompt, webSearchStore.current);
+    const payload = toChatPayload(
+      state,
+      prompt,
+      webSearchStore.current,
+      userMessageId,
+      assistantMessageId,
+    );
 
     store.update((value) => ({
       ...value,
@@ -204,6 +223,10 @@ function createChatStore() {
                   ? 'streaming'
                   : 'complete'
                 : existingDetails.reasoningStatus ?? null;
+              const serverMessageId =
+                typeof metadata.message_id === 'number'
+                  ? metadata.message_id
+                  : existingDetails.serverMessageId ?? null;
               return {
                 ...message,
                 details: {
@@ -234,6 +257,7 @@ function createChatStore() {
                     typeof metadata.generation_id === 'string'
                       ? metadata.generation_id
                       : existingDetails.generationId ?? null,
+                  serverMessageId,
                 },
               };
             });
@@ -251,6 +275,8 @@ function createChatStore() {
               : result && typeof result === 'object'
                 ? JSON.stringify(result)
                 : null;
+          const serverMessageId =
+            typeof payload.message_id === 'number' ? payload.message_id : null;
 
           let messageId = toolMessageIds.get(callId);
           if (!messageId) {
@@ -271,6 +297,7 @@ function createChatStore() {
                     toolName,
                     toolStatus: status,
                     toolResult: toolResult ?? null,
+                    serverMessageId,
                   },
                 },
               ],
@@ -286,6 +313,8 @@ function createChatStore() {
                   toolName,
                   toolStatus: status,
                   toolResult: toolResult ?? (message.details?.toolResult ?? null),
+                  serverMessageId:
+                    serverMessageId ?? message.details?.serverMessageId ?? null,
                 };
                 return {
                   ...message,
@@ -385,6 +414,58 @@ function createChatStore() {
     }));
   }
 
+  function pruneMessages(state: ChatState, messageId: string): ChatState {
+    const index = state.messages.findIndex((message) => message.id === messageId);
+    if (index === -1) {
+      return state;
+    }
+
+    const nextMessages = state.messages.slice();
+    const target = nextMessages[index];
+    nextMessages.splice(index, 1);
+
+    if (target.role === 'assistant') {
+      while (index < nextMessages.length && nextMessages[index].role === 'tool') {
+        nextMessages.splice(index, 1);
+      }
+    } else if (target.role === 'user') {
+      while (
+        index < nextMessages.length &&
+        nextMessages[index].role !== 'user' &&
+        nextMessages[index].role !== 'system'
+      ) {
+        nextMessages.splice(index, 1);
+      }
+    }
+
+    return {
+      ...state,
+      messages: nextMessages,
+    };
+  }
+
+  async function deleteMessage(messageId: string): Promise<void> {
+    const state = get(store);
+    if (state.isStreaming) {
+      return;
+    }
+
+    if (state.sessionId) {
+      try {
+        await deleteChatMessage(state.sessionId, messageId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to delete message.';
+        store.update((value) => ({
+          ...value,
+          error: message,
+        }));
+        return;
+      }
+    }
+
+    store.update((value) => pruneMessages(value, messageId));
+  }
+
   function clearError(): void {
     store.update((value) => ({
       ...value,
@@ -401,6 +482,7 @@ function createChatStore() {
     sendMessage,
     cancelStream,
     clearConversation,
+    deleteMessage,
     clearError,
     setModel,
   };

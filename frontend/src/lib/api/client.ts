@@ -48,6 +48,28 @@ async function requestJson<T>(input: RequestInfo, init?: RequestInit): Promise<T
   return (await response.json()) as T;
 }
 
+async function requestVoid(input: RequestInfo, init?: RequestInit): Promise<void> {
+  const response = await fetch(input, {
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...init?.headers,
+    },
+    ...init,
+  });
+
+  if (!response.ok) {
+    let message = response.statusText;
+    try {
+      const data = await response.json();
+      message = data.detail || data.message || JSON.stringify(data);
+    } catch (err) {
+      // ignore JSON parse errors
+    }
+    throw new ApiError(response.status, message);
+  }
+}
+
 export async function fetchModels(): Promise<ModelListResponse> {
   return requestJson<ModelListResponse>(resolveApiPath('/api/models'));
 }
@@ -64,6 +86,16 @@ export async function fetchGenerationDetails(
 ): Promise<GenerationDetailsResponse> {
   const path = `/api/chat/generation/${encodeURIComponent(generationId)}`;
   return requestJson<GenerationDetailsResponse>(resolveApiPath(path));
+}
+
+export async function deleteChatMessage(
+  sessionId: string,
+  clientMessageId: string,
+): Promise<void> {
+  const path = `/api/chat/session/${encodeURIComponent(sessionId)}/messages/${encodeURIComponent(clientMessageId)}`;
+  await requestVoid(resolveApiPath(path), {
+    method: 'DELETE',
+  });
 }
 
 export async function fetchModelSettings(): Promise<ActiveModelSettingsResponse> {

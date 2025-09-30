@@ -200,18 +200,32 @@ class DummyOpenRouterClientWithMetadata(DummyOpenRouterClient):
 
 class DummyRepository:
     def __init__(self) -> None:
-        self.messages: list[tuple[str, str, Any, dict[str, Any] | None]] = []
+        self.messages: list[dict[str, Any]] = []
+        self._counter = 0
 
     async def add_message(
         self,
         session_id: str,
-        *,
         role: str,
         content: Any,
         tool_call_id: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> None:
-        self.messages.append((session_id, role, content, metadata))
+        client_message_id: str | None = None,
+        parent_client_message_id: str | None = None,
+    ) -> int:
+        self._counter += 1
+        record = {
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "tool_call_id": tool_call_id,
+            "metadata": metadata,
+            "client_message_id": client_message_id,
+            "parent_client_message_id": parent_client_message_id,
+            "message_id": self._counter,
+        }
+        self.messages.append(record)
+        return self._counter
 
 
 class DummyToolClient:
@@ -256,6 +270,7 @@ async def test_streaming_applies_provider_sort_from_settings() -> None:
         request,
         conversation,
         [],
+        None,
     ):
         events.append(event)
 
@@ -292,6 +307,7 @@ async def test_streaming_merges_request_provider_preferences() -> None:
         request,
         conversation,
         [],
+        None,
     ):
         pass
 
@@ -318,7 +334,13 @@ async def test_streaming_emits_metadata_event() -> None:
     conversation = [{"role": "user", "content": "Ping"}]
 
     events = []
-    async for event in handler.stream_conversation("session-meta", request, conversation, []):
+    async for event in handler.stream_conversation(
+        "session-meta",
+        request,
+        conversation,
+        [],
+        None,
+    ):
         events.append(event)
 
     metadata_events = [event for event in events if event.get("event") == "metadata"]
@@ -330,10 +352,13 @@ async def test_streaming_emits_metadata_event() -> None:
     assert payload["routing"]["OpenRouter-Provider"] == "test/provider"
     assert payload["meta"]["provider"]["endpoint"] == "test-endpoint"
     assert payload["generation_id"] == "gen-abc123"
+    assert payload["message_id"] == 1
 
     assert repo.messages, "Expected message persisted"
-    _, role, _, metadata = repo.messages[-1]
-    assert role == "assistant"
+    record = repo.messages[-1]
+    assert record["role"] == "assistant"
+    assert record["message_id"] == 1
+    metadata = record["metadata"]
     assert metadata is not None
     assert metadata["usage"]["prompt_tokens"] == 5
     assert metadata["routing"]["OpenRouter-Provider"] == "test/provider"

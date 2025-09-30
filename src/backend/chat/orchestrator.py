@@ -101,6 +101,16 @@ class ChatOrchestrator:
         existing = await self._repo.session_exists(session_id)
         await self._repo.ensure_session(session_id)
 
+        assistant_client_message_id: str | None = None
+        assistant_parent_message_id: str | None = None
+        if isinstance(request.metadata, dict):
+            candidate = request.metadata.get("client_assistant_message_id")
+            if isinstance(candidate, str):
+                assistant_client_message_id = candidate
+            parent_candidate = request.metadata.get("client_parent_message_id")
+            if isinstance(parent_candidate, str):
+                assistant_parent_message_id = parent_candidate
+
         stored_messages = await self._repo.get_messages(session_id)
         has_system_message = any(msg.get("role") == "system" for msg in stored_messages)
         incoming_has_system = any(message.role == "system" for message in incoming_messages)
@@ -129,7 +139,10 @@ class ChatOrchestrator:
             metadata: dict[str, Any] = {}
             if message.name:
                 metadata["name"] = message.name
-            extra = message.model_dump(exclude={"role", "content", "tool_call_id", "name"}, exclude_none=True)
+            extra = message.model_dump(
+                exclude={"role", "content", "tool_call_id", "name", "client_message_id"},
+                exclude_none=True,
+            )
             if extra:
                 metadata.update(extra)
             await self._repo.add_message(
@@ -138,6 +151,7 @@ class ChatOrchestrator:
                 content=content,
                 tool_call_id=message.tool_call_id,
                 metadata=metadata or None,
+                client_message_id=message.client_message_id,
             )
 
         conversation = await self._repo.get_messages(session_id)
@@ -154,6 +168,7 @@ class ChatOrchestrator:
             request,
             conversation,
             tools_payload,
+            assistant_parent_message_id,
         ):
             yield event
 
@@ -161,6 +176,13 @@ class ChatOrchestrator:
         """Remove stored state for a session."""
 
         await self._repo.clear_session(session_id)
+
+    async def delete_message(self, session_id: str, client_message_id: str) -> bool:
+        """Delete a specific message within a session."""
+
+        await self._ready.wait()
+        deleted = await self._repo.delete_message(session_id, client_message_id)
+        return deleted > 0
 
     def get_openrouter_client(self) -> OpenRouterClient:
         """Expose the underlying OpenRouter client."""

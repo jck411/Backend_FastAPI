@@ -9,6 +9,7 @@
   import { createReasoningModalStore } from "../../stores/chatModals/reasoningModal";
 
   export let messages: ConversationMessage[] = [];
+  export let disableDelete = false;
 
   let container: HTMLElement | null = null;
   let copiedMessageId: string | null = null;
@@ -26,6 +27,7 @@
 
   const dispatch = createEventDispatcher<{
     openGenerationDetails: { id: string };
+    deleteMessage: { id: string };
   }>();
 
   afterUpdate(() => {
@@ -105,6 +107,13 @@
     reasoningModal.close();
   }
 
+  function handleDeleteMessage(message: ConversationMessage): void {
+    if (!message) {
+      return;
+    }
+    dispatch('deleteMessage', { id: message.id });
+  }
+
   $: toolUsageModal.syncEntries(messages, messageIndexMap, TOOL_ROLE);
   $: reasoningModal.syncFromMessages(messages);
 </script>
@@ -116,10 +125,12 @@
         {message}
         showToolIndicator={assistantToolUsage[message.id]}
         copied={copiedMessageId === message.id}
+        disableDelete={disableDelete}
         on:copy={(event) => handleCopyMessage(event.detail.message)}
         on:openTool={(event) => handleOpenToolModal(event.detail.message)}
         on:openReasoning={(event) => handleOpenReasoningModal(event.detail.message)}
         on:openUsage={(event) => handleUsageClick(event.detail.id)}
+        on:delete={(event) => handleDeleteMessage(event.detail.message)}
       />
     </div>
   {/each}

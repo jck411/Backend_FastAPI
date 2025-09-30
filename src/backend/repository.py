@@ -69,6 +69,8 @@ class ChatRepository:
                 content TEXT,
                 tool_call_id TEXT,
                 metadata TEXT,
+                client_message_id TEXT,
+                parent_client_message_id TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -81,6 +83,27 @@ class ChatRepository:
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
             """
+        )
+        await self._connection.commit()
+        await self._ensure_column(
+            "messages", "client_message_id", "TEXT"
+        )
+        await self._ensure_column(
+            "messages", "parent_client_message_id", "TEXT"
+        )
+
+    async def _ensure_column(self, table: str, column: str, definition: str) -> None:
+        """Ensure a column exists on a table, adding it if necessary."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(f"PRAGMA table_info({table})")
+        rows = await cursor.fetchall()
+        await cursor.close()
+        existing = {row[1] for row in rows}
+        if column in existing:
+            return
+        await self._connection.execute(
+            f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
         )
         await self._connection.commit()
 
@@ -126,7 +149,9 @@ class ChatRepository:
         *,
         tool_call_id: str | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> None:
+        client_message_id: str | None = None,
+        parent_client_message_id: str | None = None,
+    ) -> int:
         """Persist a single chat message."""
 
         assert self._connection is not None
@@ -140,14 +165,35 @@ class ChatRepository:
         if structured:
             stored_metadata[_CONTENT_JSON_METADATA_KEY] = True
         metadata_json = json.dumps(stored_metadata) if stored_metadata else None
-        await self._connection.execute(
+        cursor = await self._connection.execute(
             """
-            INSERT INTO messages(session_id, role, content, tool_call_id, metadata)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO messages(
+                session_id,
+                role,
+                content,
+                tool_call_id,
+                metadata,
+                client_message_id,
+                parent_client_message_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (session_id, role, serialized_content, tool_call_id, metadata_json),
+            (
+                session_id,
+                role,
+                serialized_content,
+                tool_call_id,
+                metadata_json,
+                client_message_id,
+                parent_client_message_id,
+            ),
         )
         await self._connection.commit()
+        try:
+            inserted_id = cursor.lastrowid
+        finally:
+            await cursor.close()
+        return int(inserted_id)
 
     async def get_messages(self, session_id: str) -> list[MessageRecord]:
         """Return conversation messages ordered by insertion."""
@@ -155,7 +201,14 @@ class ChatRepository:
         assert self._connection is not None
         cursor = await self._connection.execute(
             """
-            SELECT role, content, tool_call_id, metadata
+            SELECT
+                id,
+                role,
+                content,
+                tool_call_id,
+                metadata,
+                client_message_id,
+                parent_client_message_id
             FROM messages
             WHERE session_id = ?
             ORDER BY id ASC
@@ -174,6 +227,7 @@ class ChatRepository:
             message: MessageRecord = {
                 "role": row["role"],
             }
+            message["message_id"] = row["id"]
             content = _decode_content(row["content"], is_structured)
             if content is not None:
                 message["content"] = content
@@ -181,6 +235,12 @@ class ChatRepository:
                 message["tool_call_id"] = row["tool_call_id"]
             if metadata:
                 message.update(metadata)
+            client_message_id = row["client_message_id"]
+            if client_message_id:
+                message["client_message_id"] = client_message_id
+            parent_client_message_id = row["parent_client_message_id"]
+            if parent_client_message_id:
+                message["parent_client_message_id"] = parent_client_message_id
             messages.append(message)
         return messages
 
@@ -203,6 +263,30 @@ class ChatRepository:
             (session_id, request_id, kind, json.dumps(payload)),
         )
         await self._connection.commit()
+
+    async def delete_message(
+        self,
+        session_id: str,
+        client_message_id: str,
+    ) -> int:
+        """Delete a message (and related tool outputs) by client-supplied identifier."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            """
+            DELETE FROM messages
+            WHERE session_id = ?
+              AND (
+                client_message_id = ?
+                OR parent_client_message_id = ?
+              )
+            """,
+            (session_id, client_message_id, client_message_id),
+        )
+        deleted = cursor.rowcount
+        await cursor.close()
+        await self._connection.commit()
+        return deleted
 
 
 __all__ = ["ChatRepository"]

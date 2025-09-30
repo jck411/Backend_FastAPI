@@ -14,6 +14,7 @@ class ChatMessage(BaseModel):
     content: Any
     name: Optional[str] = None
     tool_call_id: Optional[str] = Field(default=None, alias="tool_call_id")
+    client_message_id: Optional[str] = Field(default=None, alias="client_message_id")
 
     model_config = ConfigDict(populate_by_name=True, extra="allow")
 

@@ -71,6 +71,21 @@ async def clear_chat_session(
     return Response(status_code=204)
 
 
+@router.delete("/chat/session/{session_id}/messages/{client_message_id}", status_code=204)
+async def delete_chat_message(
+    session_id: str,
+    client_message_id: str,
+    request: Request,
+) -> Response:
+    """Delete a single message (and related tool outputs) within a session."""
+
+    orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+    deleted = await orchestrator.delete_message(session_id, client_message_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return Response(status_code=204)
+
+
 @router.get("/chat/test-stream", response_model=None, status_code=200)
 async def test_stream() -> EventSourceResponse:
     """Emit a short fake SSE chat stream for debugging the frontend."""

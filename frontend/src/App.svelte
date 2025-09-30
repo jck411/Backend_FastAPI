@@ -15,7 +15,14 @@ import SystemSettingsModal from './lib/components/chat/SystemSettingsModal.svelt
 import type { GenerationDetails, ModelRecord } from './lib/api/types';
   import type { GenerationDetailField } from './lib/chat/constants';
 
-  const { sendMessage, cancelStream, clearConversation, clearError, setModel } = chatStore;
+  const {
+    sendMessage,
+    cancelStream,
+    clearConversation,
+    deleteMessage,
+    clearError,
+    setModel,
+  } = chatStore;
   const {
     loadModels,
     models: modelsStore,
@@ -71,6 +78,13 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     prompt = text;
   }
 
+  function handleDeleteMessage(event: CustomEvent<{ id: string }>): void {
+    if ($chatStore.isStreaming) {
+      return;
+    }
+    void deleteMessage(event.detail.id);
+  }
+
   async function openGenerationDetails(generationId: string): Promise<void> {
     if (!generationId) return;
     generationModalOpen = true;
@@ -119,6 +133,8 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
   <MessageList
     messages={$chatStore.messages}
     on:openGenerationDetails={(event) => openGenerationDetails(event.detail.id)}
+    on:deleteMessage={handleDeleteMessage}
+    disableDelete={$chatStore.isStreaming}
   />
 
   {#if $chatStore.error}

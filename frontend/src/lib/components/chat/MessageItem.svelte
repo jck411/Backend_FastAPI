@@ -8,6 +8,7 @@
   export let message: ConversationMessage;
   export let showToolIndicator = false;
   export let copied = false;
+  export let disableDelete = false;
 
   const dispatch = createEventDispatcher<{
     copy: { message: ConversationMessage };
@@ -53,6 +54,9 @@
   }
 
   function handleDelete(): void {
+    if (disableDelete) {
+      return;
+    }
     dispatch("delete", { message });
   }
 </script>
@@ -133,7 +137,13 @@
           <BarChart size={16} strokeWidth={1.6} aria-hidden="true" />
         </button>
       {/if}
-      <button type="button" class="message-action" aria-label="Delete message" on:click={handleDelete}>
+      <button
+        type="button"
+        class="message-action"
+        aria-label="Delete message"
+        on:click={handleDelete}
+        disabled={disableDelete}
+      >
         <Trash2 size={16} strokeWidth={1.6} aria-hidden="true" />
       </button>
     </div>
@@ -386,6 +396,11 @@
   }
   .message-action.copied {
     color: #34d399;
+  }
+  .message-action:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
   }
   @keyframes reasoningPulse {
     0% {

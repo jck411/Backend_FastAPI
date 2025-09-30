@@ -75,11 +75,17 @@ class StreamingHandler:
         request: ChatCompletionRequest,
         conversation: list[dict[str, Any]],
         tools_payload: list[dict[str, Any]],
+        assistant_parent_message_id: str | None,
     ) -> AsyncGenerator[SseEvent, None]:
         """Yield SSE events while maintaining state and executing tools."""
 
         hop_count = 0
         conversation_state = list(conversation)
+        assistant_client_message_id: str | None = None
+        if isinstance(request.metadata, dict):
+            candidate = request.metadata.get("client_assistant_message_id")
+            if isinstance(candidate, str):
+                assistant_client_message_id = candidate
         tools_available = bool(tools_payload)
         requested_tool_choice = (
             request.tool_choice if isinstance(request.tool_choice, str) else None
@@ -268,12 +274,16 @@ class StreamingHandler:
                 metadata["reasoning"] = assistant_turn.reasoning
             if routing_headers:
                 metadata["routing"] = routing_headers
+            if assistant_client_message_id is not None:
+                metadata.setdefault("client_message_id", assistant_client_message_id)
 
-            await self._repo.add_message(
+            assistant_record_id = await self._repo.add_message(
                 session_id,
                 role="assistant",
                 content=assistant_turn.content,
                 metadata=metadata or None,
+                client_message_id=assistant_client_message_id,
+                parent_client_message_id=assistant_parent_message_id,
             )
             conversation_state.append(assistant_turn.to_message_dict())
 
@@ -288,6 +298,9 @@ class StreamingHandler:
                 "reasoning": assistant_turn.reasoning,
                 "tool_calls": assistant_turn.tool_calls if assistant_turn.tool_calls else None,
             }
+            if assistant_client_message_id is not None:
+                metadata_event_payload["client_message_id"] = assistant_client_message_id
+            metadata_event_payload["message_id"] = assistant_record_id
             yield {
                 "event": "metadata",
                 "data": json.dumps(metadata_event_payload),
@@ -322,12 +335,16 @@ class StreamingHandler:
                         "Tool call missing function name; skipping execution."
                     )
                     logger.warning(warning_text)
-                    await self._repo.add_message(
+                    tool_record_id = await self._repo.add_message(
                         session_id,
                         role="tool",
                         content=warning_text,
                         tool_call_id=tool_id,
-                        metadata={"tool_name": "unknown"},
+                        metadata={
+                            "tool_name": "unknown",
+                            "parent_client_message_id": assistant_client_message_id,
+                        },
+                        parent_client_message_id=assistant_client_message_id,
                     )
                     conversation_state.append(
                         {
@@ -344,6 +361,7 @@ class StreamingHandler:
                                 "name": "unknown",
                                 "call_id": tool_id,
                                 "result": warning_text,
+                                "message_id": tool_record_id,
                             }
                         ),
                     }
@@ -391,12 +409,16 @@ class StreamingHandler:
                             result_text = f"Tool error: {exc}"
                             status = "error"
 
-                await self._repo.add_message(
+                tool_record_id = await self._repo.add_message(
                     session_id,
                     role="tool",
                     content=result_text,
                     tool_call_id=tool_id,
-                    metadata={"tool_name": tool_name},
+                    metadata={
+                        "tool_name": tool_name,
+                        "parent_client_message_id": assistant_client_message_id,
+                    },
+                    parent_client_message_id=assistant_client_message_id,
                 )
 
                 conversation_state.append(
@@ -415,6 +437,7 @@ class StreamingHandler:
                             "name": tool_name,
                             "call_id": tool_id,
                             "result": result_text,
+                            "message_id": tool_record_id,
                         }
                     ),
                 }

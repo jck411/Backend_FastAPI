@@ -5,6 +5,7 @@ export interface ChatMessage {
   content: unknown;
   name?: string;
   tool_call_id?: string;
+  client_message_id?: string;
   // Allow additional provider-specific metadata without breaking type safety.
   [key: string]: unknown;
 }

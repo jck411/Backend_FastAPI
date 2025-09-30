@@ -56,14 +56,19 @@
     </div>
     <textarea
       bind:this={textarea}
-      bind:value={value}
+      bind:value
       rows="3"
       placeholder="Update your message..."
       on:keydown={handleKeydown}
       disabled={saving || disabled}
     ></textarea>
     <div class="editor-actions">
-      <button type="button" class="button secondary" on:click={handleCancel} disabled={saving}>
+      <button
+        type="button"
+        class="button secondary"
+        on:click={handleCancel}
+        disabled={saving}
+      >
         Cancel
       </button>
       <button type="submit" class="button primary" disabled={!canSubmit}>
@@ -83,6 +88,8 @@
     display: flex;
     justify-content: center;
     padding: 0 0 1.25rem;
+    position: relative;
+    z-index: 20;
   }
   .editor-shell {
     width: min(800px, 100%);
@@ -144,7 +151,10 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease,
+      border-color 0.15s ease;
   }
   .button.primary {
     background: rgba(60, 99, 200, 0.85);

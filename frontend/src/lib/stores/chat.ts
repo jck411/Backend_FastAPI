@@ -1,5 +1,5 @@
 import { get, writable } from 'svelte/store';
-import { deleteChatMessage } from '../api/client';
+import { ApiError, deleteChatMessage } from '../api/client';
 import type {
   AttachmentResource,
   ChatCompletionRequest,
@@ -89,6 +89,24 @@ function createId(prefix: string): string {
   }
 
   return `${prefix}_${token.replace(/-/g, '')}`;
+}
+
+function resolveDeletionIdentifiers(message: ConversationMessage): string[] {
+  const identifiers: string[] = [];
+  const seen = new Set<string>();
+
+  const serverMessageId = message.details?.serverMessageId;
+  if (typeof serverMessageId === 'number') {
+    const value = String(serverMessageId);
+    identifiers.push(value);
+    seen.add(value);
+  }
+
+  if (message.id && !seen.has(message.id)) {
+    identifiers.push(message.id);
+  }
+
+  return identifiers;
 }
 
 function toChatPayload(
@@ -488,22 +506,83 @@ function createChatStore() {
     };
   }
 
+  async function deleteMessagesFromServer(
+    sessionId: string,
+    messages: ConversationMessage[],
+  ): Promise<string | null> {
+    let deletionError: string | null = null;
+    const attempted = new Set<string>();
+
+    for (const message of messages) {
+      if (message.role === 'assistant' || message.role === 'tool') {
+        continue;
+      }
+
+      const candidates = resolveDeletionIdentifiers(message);
+      let deleted = false;
+
+      for (const candidate of candidates) {
+        if (!candidate || attempted.has(candidate)) {
+          continue;
+        }
+
+        attempted.add(candidate);
+
+        try {
+          await deleteChatMessage(sessionId, candidate);
+          deleted = true;
+          break;
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 404) {
+            continue;
+          }
+          if (!deletionError) {
+            deletionError =
+              error instanceof Error ? error.message : 'Failed to delete previous message.';
+          }
+          break;
+        }
+      }
+
+    }
+
+    return deletionError;
+  }
+
   async function deleteMessage(messageId: string): Promise<void> {
     const state = get(store);
     if (state.isStreaming) {
       return;
     }
 
+    const target = state.messages.find((message) => message.id === messageId);
+    if (!target) {
+      return;
+    }
+
     if (state.sessionId) {
-      try {
-        await deleteChatMessage(state.sessionId, messageId);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to delete message.';
+      const candidates = resolveDeletionIdentifiers(target);
+      let deletionError: string | null = null;
+
+      for (const candidate of candidates) {
+        try {
+          await deleteChatMessage(state.sessionId, candidate);
+          deletionError = null;
+          break;
+        } catch (error) {
+          if (error instanceof ApiError && error.status === 404) {
+            continue;
+          }
+          deletionError = error instanceof Error ? error.message : 'Failed to delete message.';
+          break;
+        }
+      }
+
+      if (deletionError) {
         store.update((value) => ({
           ...value,
-          error: message,
+          error: deletionError,
         }));
-        return;
       }
     }
 
@@ -538,18 +617,7 @@ function createChatStore() {
     }));
 
     if (state.sessionId) {
-      let deletionError: string | null = null;
-      for (const message of messagesToRemove) {
-        try {
-          await deleteChatMessage(state.sessionId, message.id);
-        } catch (error) {
-          if (!deletionError) {
-            deletionError =
-              error instanceof Error ? error.message : 'Failed to delete previous message.';
-          }
-        }
-      }
-
+      const deletionError = await deleteMessagesFromServer(state.sessionId, messagesToRemove);
       if (deletionError) {
         store.update((value) => ({
           ...value,
@@ -597,18 +665,7 @@ function createChatStore() {
     }));
 
     if (state.sessionId) {
-      let deletionError: string | null = null;
-      for (const message of messagesToRemove) {
-        try {
-          await deleteChatMessage(state.sessionId, message.id);
-        } catch (error) {
-          if (!deletionError) {
-            deletionError =
-              error instanceof Error ? error.message : 'Failed to delete previous message.';
-          }
-        }
-      }
-
+      const deletionError = await deleteMessagesFromServer(state.sessionId, messagesToRemove);
       if (deletionError) {
         store.update((value) => ({
           ...value,

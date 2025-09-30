@@ -449,19 +449,43 @@ class ChatRepository:
         session_id: str,
         client_message_id: str,
     ) -> int:
-        """Delete a message (and related tool outputs) by client-supplied identifier."""
+        """Delete a message and recursively remove dependent children."""
 
         assert self._connection is not None
+
+        numeric_identifier: int | None
+        try:
+            numeric_identifier = int(client_message_id)
+        except (TypeError, ValueError):
+            numeric_identifier = None
+
         cursor = await self._connection.execute(
             """
+            WITH RECURSIVE target_messages AS (
+                SELECT id, client_message_id
+                FROM messages
+                WHERE session_id = ?
+                  AND (
+                    client_message_id = ?
+                    OR (? IS NOT NULL AND id = ?)
+                  )
+                UNION ALL
+                SELECT child.id, child.client_message_id
+                FROM messages AS child
+                JOIN target_messages AS parent
+                  ON child.parent_client_message_id = parent.client_message_id
+                WHERE child.session_id = ?
+            )
             DELETE FROM messages
-            WHERE session_id = ?
-              AND (
-                client_message_id = ?
-                OR parent_client_message_id = ?
-              )
+            WHERE id IN (SELECT id FROM target_messages)
             """,
-            (session_id, client_message_id, client_message_id),
+            (
+                session_id,
+                client_message_id,
+                numeric_identifier,
+                numeric_identifier,
+                session_id,
+            ),
         )
         deleted = cursor.rowcount
         await cursor.close()

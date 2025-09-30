@@ -2,7 +2,11 @@
   import { afterUpdate } from 'svelte';
   import { createEventDispatcher } from 'svelte';
   import type { GenerationDetails } from '../../api/types';
-  import { GENERATION_DETAIL_FIELDS, formatGenerationDetailValue } from '../../chat/constants';
+  import {
+    GENERATION_DETAIL_FIELDS,
+    formatGenerationDetailValue,
+    type GenerationDetailDisplayValue,
+  } from '../../chat/constants';
   import type { GenerationDetailField } from '../../chat/constants';
 
   const dispatch = createEventDispatcher<{ close: void }>();
@@ -33,6 +37,20 @@
       handleClose();
     }
   }
+
+  interface FormattedDetail {
+    field: GenerationDetailField;
+    display: GenerationDetailDisplayValue;
+  }
+
+  let formattedDetails: FormattedDetail[] = [];
+
+  $: formattedDetails = data
+    ? fields.map((field) => ({
+        field,
+        display: formatGenerationDetailValue(data?.[field.key]),
+      }))
+    : [];
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
@@ -76,10 +94,16 @@
           <p class="generation-modal-error">{error}</p>
         {:else if data}
           <dl class="generation-modal-details">
-            {#each fields as field (field.key)}
+            {#each formattedDetails as detail (detail.field.key)}
               <div class="generation-detail-row">
-                <dt>{field.label}</dt>
-                <dd>{formatGenerationDetailValue(data?.[field.key])}</dd>
+                <dt>{detail.field.label}</dt>
+                <dd>
+                  {#if detail.display.isMultiline}
+                    <pre>{detail.display.text}</pre>
+                  {:else}
+                    {detail.display.text}
+                  {/if}
+                </dd>
               </div>
             {/each}
           </dl>
@@ -191,6 +215,15 @@
     color: #f3f5ff;
     font-weight: 500;
     word-break: break-word;
+  }
+  .generation-detail-row dd pre {
+    margin: 0;
+    white-space: pre-wrap;
+    font-family: 'Fira Code', 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    background: rgba(12, 18, 32, 0.75);
+    border-radius: 0.55rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid rgba(67, 91, 136, 0.25);
   }
   .generation-modal-status,
   .generation-modal-error {

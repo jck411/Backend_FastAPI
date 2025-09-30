@@ -52,7 +52,29 @@ const initialState: ChatState = {
 };
 
 function createId(prefix: string): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+  let token: string | null = null;
+
+  const cryptoInstance = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+
+  if (cryptoInstance?.randomUUID) {
+    try {
+      token = cryptoInstance.randomUUID();
+    } catch (error) {
+      console.warn('Failed to generate UUID via crypto.randomUUID', error);
+    }
+  }
+
+  if (!token && cryptoInstance?.getRandomValues) {
+    const bytes = new Uint32Array(4);
+    cryptoInstance.getRandomValues(bytes);
+    token = Array.from(bytes, (value) => value.toString(16).padStart(8, '0')).join('');
+  }
+
+  if (!token) {
+    token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+  }
+
+  return `${prefix}_${token.replace(/-/g, '')}`;
 }
 
 function toChatPayload(state: ChatState, prompt: string, webSearch: WebSearchSettings): ChatCompletionRequest {
@@ -107,7 +129,7 @@ function createChatStore() {
     const assistantMessageId = createId('assistant');
 
     const payload = toChatPayload(state, prompt, webSearchStore.current);
-    
+
     store.update((value) => ({
       ...value,
       messages: [
@@ -363,6 +385,13 @@ function createChatStore() {
     }));
   }
 
+  function clearError(): void {
+    store.update((value) => ({
+      ...value,
+      error: null,
+    }));
+  }
+
   function setModel(model: string): void {
     store.update((value) => ({ ...value, selectedModel: model }));
   }
@@ -372,6 +401,7 @@ function createChatStore() {
     sendMessage,
     cancelStream,
     clearConversation,
+    clearError,
     setModel,
   };
 }

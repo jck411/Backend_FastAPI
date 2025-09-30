@@ -1,5 +1,5 @@
 {
-  "model": "meta-llama/llama-3-8b-instruct",
+  "model": "openrouter/auto",
   "system_prompt": "You are a helpful but funny assistant",
-  "updated_at": "2025-09-30T02:07:25.826520+00:00"
+  "updated_at": "2025-09-30T03:10:25.633797+00:00"
 }

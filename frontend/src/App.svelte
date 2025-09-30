@@ -15,7 +15,7 @@ import SystemSettingsModal from './lib/components/chat/SystemSettingsModal.svelt
 import type { GenerationDetails, ModelRecord } from './lib/api/types';
   import type { GenerationDetailField } from './lib/chat/constants';
 
-  const { sendMessage, cancelStream, clearConversation, setModel } = chatStore;
+  const { sendMessage, cancelStream, clearConversation, clearError, setModel } = chatStore;
   const {
     loadModels,
     models: modelsStore,
@@ -121,6 +121,13 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     on:openGenerationDetails={(event) => openGenerationDetails(event.detail.id)}
   />
 
+  {#if $chatStore.error}
+    <div class="chat-error" role="alert">
+      <span>{$chatStore.error}</span>
+      <button type="button" on:click={clearError}>Dismiss</button>
+    </div>
+  {/if}
+
   <Composer
     bind:prompt
     isStreaming={$chatStore.isStreaming}
@@ -207,5 +214,33 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
       rgba(4, 6, 13, 0.1) 90%,
       transparent 100%
     );
+  }
+  .chat-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0 auto 1.25rem;
+    padding: 0.9rem 1.25rem;
+    width: min(800px, calc(100% - 4rem));
+    border-radius: 0.75rem;
+    border: 1px solid rgba(248, 113, 113, 0.4);
+    background: rgba(69, 20, 20, 0.6);
+    color: #fecaca;
+    backdrop-filter: blur(4px);
+  }
+  .chat-error button {
+    border: 1px solid rgba(248, 113, 113, 0.6);
+    border-radius: 999px;
+    background: transparent;
+    color: inherit;
+    padding: 0.3rem 0.9rem;
+    cursor: pointer;
+  }
+  .chat-error button:hover,
+  .chat-error button:focus-visible {
+    border-color: #fca5a5;
+    color: #fca5a5;
+    outline: none;
   }
 </style>

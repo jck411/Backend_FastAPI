@@ -5,6 +5,11 @@ export interface GenerationDetailField {
   label: string;
 }
 
+export interface GenerationDetailDisplayValue {
+  text: string;
+  isMultiline: boolean;
+}
+
 export const GENERATION_DETAIL_FIELDS: GenerationDetailField[] = [
   { key: 'total_cost', label: 'Total cost' },
   { key: 'created_at', label: 'Created' },
@@ -31,15 +36,31 @@ export const GENERATION_DETAIL_FIELDS: GenerationDetailField[] = [
   { key: 'num_search_results', label: 'Search results' },
 ];
 
-export function formatGenerationDetailValue(value: unknown): string {
+export function formatGenerationDetailValue(value: unknown): GenerationDetailDisplayValue {
   if (value === null || value === undefined || value === '') {
-    return '—';
+    return { text: '—', isMultiline: false };
   }
+
   if (typeof value === 'boolean') {
-    return value ? 'Yes' : 'No';
+    return { text: value ? 'Yes' : 'No', isMultiline: false };
   }
+
   if (typeof value === 'number') {
-    return Number.isFinite(value) ? value.toString() : String(value);
+    const text = Number.isFinite(value) ? value.toString() : String(value);
+    return { text, isMultiline: false };
   }
-  return String(value);
+
+  if (typeof value === 'object') {
+    try {
+      const serialized = JSON.stringify(value, null, 2);
+      return { text: serialized, isMultiline: serialized.includes('\n') };
+    } catch (error) {
+      console.warn('Failed to stringify generation detail value', error, value);
+      const fallback = String(value);
+      return { text: fallback, isMultiline: fallback.includes('\n') };
+    }
+  }
+
+  const text = String(value);
+  return { text, isMultiline: text.includes('\n') };
 }

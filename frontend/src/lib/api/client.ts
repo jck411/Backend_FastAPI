@@ -8,6 +8,11 @@ import type {
   ActiveModelSettingsPayload,
   ActiveModelSettingsResponse,
   ModelListResponse,
+  SystemPromptPayload,
+  SystemPromptResponse,
+  McpServersResponse,
+  McpServerUpdatePayload,
+  McpServersCollectionPayload,
   SseEvent,
 } from './types';
 
@@ -71,6 +76,50 @@ export async function updateModelSettings(
   return requestJson<ActiveModelSettingsResponse>(resolveApiPath('/api/settings/model'), {
     method: 'PUT',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchSystemPrompt(): Promise<SystemPromptResponse> {
+  return requestJson<SystemPromptResponse>(resolveApiPath('/api/settings/system-prompt'));
+}
+
+export async function updateSystemPrompt(
+  payload: SystemPromptPayload,
+): Promise<SystemPromptResponse> {
+  return requestJson<SystemPromptResponse>(resolveApiPath('/api/settings/system-prompt'), {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchMcpServers(): Promise<McpServersResponse> {
+  return requestJson<McpServersResponse>(resolveApiPath('/api/mcp/servers/'));
+}
+
+export async function replaceMcpServers(
+  payload: McpServersCollectionPayload,
+): Promise<McpServersResponse> {
+  return requestJson<McpServersResponse>(resolveApiPath('/api/mcp/servers/'), {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function patchMcpServer(
+  serverId: string,
+  payload: McpServerUpdatePayload,
+): Promise<McpServersResponse> {
+  const path = `/api/mcp/servers/${encodeURIComponent(serverId)}`;
+  return requestJson<McpServersResponse>(resolveApiPath(path), {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function refreshMcpServers(): Promise<McpServersResponse> {
+  return requestJson<McpServersResponse>(resolveApiPath('/api/mcp/servers/refresh'), {
+    method: 'POST',
+    body: JSON.stringify({}),
   });
 }
 

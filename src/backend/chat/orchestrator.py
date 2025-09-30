@@ -8,14 +8,15 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Sequence
 
 from ..config import Settings
 from ..openrouter import OpenRouterClient
 from ..services.model_settings import ModelSettingsService
+from ..services.mcp_server_settings import MCPServerSettingsService
 from ..repository import ChatRepository
 from ..schemas.chat import ChatCompletionRequest
-from .mcp_registry import MCPToolAggregator, load_server_configs
+from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,12 @@ logger = logging.getLogger(__name__)
 class ChatOrchestrator:
     """High-level coordination for chat sessions."""
 
-    def __init__(self, settings: Settings, model_settings: ModelSettingsService):
+    def __init__(
+        self,
+        settings: Settings,
+        model_settings: ModelSettingsService,
+        mcp_settings: MCPServerSettingsService,
+    ):
         src_dir = Path(__file__).resolve().parents[2]
         project_root = src_dir.parent
 
@@ -40,29 +46,13 @@ class ChatOrchestrator:
 
         self._repo = ChatRepository(db_path)
         self._client = OpenRouterClient(settings)
-        servers_path = settings.mcp_servers_path
-        if not servers_path.is_absolute():
-            servers_path = project_root / servers_path
-
-        default_servers = [
-            {
-                "id": "local-calculator",
-                "module": "backend.mcp_server",
-            },
-            {
-                "id": "test-toolkit",
-                "module": "backend.mcp_servers.sample_server",
-                "enabled": True,
-            },
-        ]
-        server_configs = load_server_configs(servers_path, fallback=default_servers)
-
         self._mcp_client = MCPToolAggregator(
-            server_configs,
+            [],
             base_env=env,
             default_cwd=project_root,
         )
         self._model_settings = model_settings
+        self._mcp_settings = mcp_settings
         self._streaming = StreamingHandler(
             self._client,
             self._repo,
@@ -82,6 +72,8 @@ class ChatOrchestrator:
                 return
 
             await self._repo.initialize()
+            configs = await self._mcp_settings.get_configs()
+            await self._mcp_client.apply_configs(configs)
             await self._mcp_client.connect()
             self._ready.set()
             logger.info("Chat orchestrator ready: %d tool(s) available", len(self._mcp_client.tools))
@@ -174,5 +166,22 @@ class ChatOrchestrator:
         """Expose the underlying OpenRouter client."""
 
         return self._client
+
+    async def apply_mcp_configs(
+        self, configs: Sequence[MCPServerConfig]
+    ) -> None:
+        """Apply MCP configuration updates to the running aggregator."""
+
+        await self._mcp_client.apply_configs(configs)
+
+    def describe_mcp_servers(self) -> list[dict[str, Any]]:
+        """Return runtime snapshot of MCP servers."""
+
+        return self._mcp_client.describe_servers()
+
+    async def refresh_mcp_tools(self) -> None:
+        """Trigger a manual refresh of tool catalogs."""
+
+        await self._mcp_client.refresh()
 
 __all__ = ["ChatOrchestrator"]

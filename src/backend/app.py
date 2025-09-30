@@ -12,8 +12,10 @@ from fastapi.responses import Response
 from .chat import ChatOrchestrator
 from .config import get_settings
 from .routers.chat import router as chat_router
+from .routers.mcp_servers import router as mcp_router
 from .routers.settings import router as settings_router
 from .routers.stt import router as stt_router
+from .services.mcp_server_settings import MCPServerSettingsService
 from .services.model_settings import ModelSettingsService
 
 
@@ -31,7 +33,32 @@ def create_app() -> FastAPI:
         default_system_prompt=settings.openrouter_system_prompt,
     )
 
-    orchestrator = ChatOrchestrator(settings, model_settings_service)
+    mcp_servers_path = settings.mcp_servers_path
+    if not mcp_servers_path.is_absolute():
+        mcp_servers_path = project_root / mcp_servers_path
+
+    default_mcp_servers = [
+        {
+            "id": "local-calculator",
+            "module": "backend.mcp_server",
+        },
+        {
+            "id": "test-toolkit",
+            "module": "backend.mcp_servers.sample_server",
+            "enabled": True,
+        },
+    ]
+
+    mcp_settings_service = MCPServerSettingsService(
+        mcp_servers_path,
+        fallback=default_mcp_servers,
+    )
+
+    orchestrator = ChatOrchestrator(
+        settings,
+        model_settings_service,
+        mcp_settings_service,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -50,6 +77,7 @@ def create_app() -> FastAPI:
 
     app.state.model_settings_service = model_settings_service
     app.state.chat_orchestrator = orchestrator
+    app.state.mcp_server_settings_service = mcp_settings_service
 
     app.add_middleware(
         CORSMiddleware,
@@ -61,6 +89,7 @@ def create_app() -> FastAPI:
 
     app.include_router(chat_router)
     app.include_router(settings_router)
+    app.include_router(mcp_router)
     app.include_router(stt_router)
 
     @app.get("/favicon.ico", include_in_schema=False)

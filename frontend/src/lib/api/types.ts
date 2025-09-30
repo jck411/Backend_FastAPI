@@ -240,3 +240,59 @@ export interface ActiveModelSettingsPayload {
 export interface ActiveModelSettingsResponse extends ActiveModelSettingsPayload {
   updated_at: string;
 }
+
+export interface SystemPromptResponse {
+  system_prompt: string | null;
+}
+
+export type SystemPromptPayload = SystemPromptResponse;
+
+export interface McpServerToolStatus {
+  name: string;
+  qualified_name: string;
+  enabled: boolean;
+}
+
+export interface McpServerStatus {
+  id: string;
+  enabled: boolean;
+  connected: boolean;
+  module?: string | null;
+  command?: string[] | null;
+  cwd?: string | null;
+  env?: Record<string, string>;
+  tool_prefix?: string | null;
+  disabled_tools: string[];
+  tool_count: number;
+  tools: McpServerToolStatus[];
+}
+
+export interface McpServersResponse {
+  servers: McpServerStatus[];
+  updated_at?: string | null;
+}
+
+export interface McpServerDefinition {
+  id: string;
+  enabled?: boolean;
+  module?: string | null;
+  command?: string[] | null;
+  cwd?: string | null;
+  env?: Record<string, string>;
+  tool_prefix?: string | null;
+  disabled_tools?: string[];
+}
+
+export interface McpServersCollectionPayload {
+  servers: McpServerDefinition[];
+}
+
+export interface McpServerUpdatePayload {
+  enabled?: boolean;
+  disabled_tools?: string[];
+  module?: string | null;
+  command?: string[] | null;
+  cwd?: string | null;
+  env?: Record<string, string> | null;
+  tool_prefix?: string | null;
+}

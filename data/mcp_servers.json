@@ -1,13 +1,18 @@
 {
   "servers": [
     {
+      "disabled_tools": [],
+      "enabled": true,
+      "env": {},
       "id": "local-calculator",
       "module": "backend.mcp_server"
     },
     {
+      "disabled_tools": [],
+      "enabled": true,
+      "env": {},
       "id": "test-toolkit",
-      "module": "backend.mcp_servers.sample_server",
-      "enabled": true
+      "module": "backend.mcp_servers.sample_server"
     }
   ]
 }

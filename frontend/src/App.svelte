@@ -7,6 +7,7 @@ import MessageList from './lib/components/chat/MessageList.svelte';
 import Composer from './lib/components/chat/Composer.svelte';
 import GenerationDetailsModal from './lib/components/chat/GenerationDetailsModal.svelte';
 import ModelSettingsModal from './lib/components/chat/ModelSettingsModal.svelte';
+import SystemSettingsModal from './lib/components/chat/SystemSettingsModal.svelte';
   import { fetchGenerationDetails } from './lib/api/client';
   import { chatStore } from './lib/stores/chat';
   import { modelStore } from './lib/stores/models';
@@ -28,6 +29,7 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
   let explorerOpen = false;
   let generationModalOpen = false;
   let modelSettingsOpen = false;
+  let systemSettingsOpen = false;
   let generationModalLoading = false;
   let generationModalError: string | null = null;
   let generationModalData: GenerationDetails | null = null;
@@ -42,7 +44,7 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     if (typeof document !== 'undefined') {
       document.body.classList.toggle(
         'modal-open',
-        explorerOpen || generationModalOpen || modelSettingsOpen,
+        explorerOpen || generationModalOpen || modelSettingsOpen || systemSettingsOpen,
       );
     }
   }
@@ -107,6 +109,7 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     on:clear={clearConversation}
     on:modelChange={(event) => handleModelChange(event.detail.id)}
     on:openModelSettings={() => (modelSettingsOpen = true)}
+    on:openSystemSettings={() => (systemSettingsOpen = true)}
   />
 
   {#if !$chatStore.messages.length}
@@ -140,6 +143,11 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     selectedModel={$chatStore.selectedModel}
     model={activeModel}
     on:close={() => (modelSettingsOpen = false)}
+  />
+
+  <SystemSettingsModal
+    open={systemSettingsOpen}
+    on:close={() => (systemSettingsOpen = false)}
   />
 
   <ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />

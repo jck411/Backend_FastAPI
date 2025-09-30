@@ -519,6 +519,62 @@ function createChatStore() {
     }
   }
 
+  async function editMessage(messageId: string, nextContent: string): Promise<void> {
+    const trimmed = nextContent.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    const state = get(store);
+    const index = state.messages.findIndex((message) => message.id === messageId);
+    if (index === -1) {
+      return;
+    }
+
+    const target = state.messages[index];
+    if (target.role !== 'user') {
+      return;
+    }
+
+    if (state.isStreaming) {
+      currentAbort?.abort();
+      currentAbort = null;
+    }
+
+    const messagesToRemove = state.messages.slice(index);
+    const preservedMessages = state.messages.slice(0, index);
+
+    store.update((value) => ({
+      ...value,
+      messages: preservedMessages,
+      isStreaming: false,
+      error: null,
+    }));
+
+    if (state.sessionId) {
+      let deletionError: string | null = null;
+      for (const message of messagesToRemove) {
+        try {
+          await deleteChatMessage(state.sessionId, message.id);
+        } catch (error) {
+          if (!deletionError) {
+            deletionError =
+              error instanceof Error ? error.message : 'Failed to delete previous message.';
+          }
+        }
+      }
+
+      if (deletionError) {
+        store.update((value) => ({
+          ...value,
+          error: deletionError,
+        }));
+      }
+    }
+
+    await sendMessage(trimmed);
+  }
+
   function clearError(): void {
     store.update((value) => ({
       ...value,
@@ -537,6 +593,7 @@ function createChatStore() {
     clearConversation,
     deleteMessage,
     retryMessage,
+    editMessage,
     clearError,
     setModel,
   };

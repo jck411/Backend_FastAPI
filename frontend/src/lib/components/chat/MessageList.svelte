@@ -29,6 +29,7 @@
     openGenerationDetails: { id: string };
     deleteMessage: { id: string };
     retryMessage: { id: string };
+    editMessage: { id: string };
   }>();
 
   afterUpdate(() => {
@@ -122,6 +123,13 @@
     dispatch('retryMessage', { id: message.id });
   }
 
+  function handleEditMessage(message: ConversationMessage): void {
+    if (!message) {
+      return;
+    }
+    dispatch('editMessage', { id: message.id });
+  }
+
   $: toolUsageModal.syncEntries(messages, messageIndexMap, TOOL_ROLE);
   $: reasoningModal.syncFromMessages(messages);
 </script>
@@ -140,6 +148,7 @@
         on:openUsage={(event) => handleUsageClick(event.detail.id)}
         on:delete={(event) => handleDeleteMessage(event.detail.message)}
         on:retry={(event) => handleRetryMessage(event.detail.message)}
+        on:edit={(event) => handleEditMessage(event.detail.message)}
       />
     </div>
   {/each}

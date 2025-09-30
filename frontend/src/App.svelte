@@ -1,18 +1,19 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-import ModelExplorer from './lib/components/model-explorer/ModelExplorer.svelte';
-import ChatHeader from './lib/components/chat/ChatHeader.svelte';
-import QuickPrompts from './lib/components/chat/QuickPrompts.svelte';
-import MessageList from './lib/components/chat/MessageList.svelte';
-import Composer from './lib/components/chat/Composer.svelte';
-import GenerationDetailsModal from './lib/components/chat/GenerationDetailsModal.svelte';
-import ModelSettingsModal from './lib/components/chat/ModelSettingsModal.svelte';
-import SystemSettingsModal from './lib/components/chat/SystemSettingsModal.svelte';
+  import ModelExplorer from './lib/components/model-explorer/ModelExplorer.svelte';
+  import ChatHeader from './lib/components/chat/ChatHeader.svelte';
+  import QuickPrompts from './lib/components/chat/QuickPrompts.svelte';
+  import MessageList from './lib/components/chat/MessageList.svelte';
+  import Composer from './lib/components/chat/Composer.svelte';
+  import MessageEditor from './lib/components/chat/MessageEditor.svelte';
+  import GenerationDetailsModal from './lib/components/chat/GenerationDetailsModal.svelte';
+  import ModelSettingsModal from './lib/components/chat/ModelSettingsModal.svelte';
+  import SystemSettingsModal from './lib/components/chat/SystemSettingsModal.svelte';
   import { fetchGenerationDetails } from './lib/api/client';
   import { chatStore } from './lib/stores/chat';
   import { modelStore } from './lib/stores/models';
   import { GENERATION_DETAIL_FIELDS } from './lib/chat/constants';
-import type { GenerationDetails, ModelRecord } from './lib/api/types';
+  import type { GenerationDetails, ModelRecord } from './lib/api/types';
   import type { GenerationDetailField } from './lib/chat/constants';
 
   const {
@@ -21,6 +22,7 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     clearConversation,
     deleteMessage,
     retryMessage,
+    editMessage: applyMessageEdit,
     clearError,
     setModel,
   } = chatStore;
@@ -45,6 +47,10 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
   let selectableModels: ModelRecord[] = [];
   let activeModel: ModelRecord | null = null;
   const generationDetailFields: GenerationDetailField[] = GENERATION_DETAIL_FIELDS;
+  let editingMessageId: string | null = null;
+  let editingText = '';
+  let editingOriginalText = '';
+  let editingSaving = false;
 
   onMount(loadModels);
 
@@ -88,6 +94,53 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
 
   function handleRetryMessage(id: string): void {
     void retryMessage(id);
+  }
+
+  function beginEditingMessage(id: string): void {
+    const message = $chatStore.messages.find((item) => item.id === id && item.role === 'user');
+    if (!message) {
+      return;
+    }
+    editingSaving = false;
+    editingMessageId = id;
+    editingText = message.content;
+    editingOriginalText = message.content;
+  }
+
+  function resetEditingState(): void {
+    editingMessageId = null;
+    editingText = '';
+    editingOriginalText = '';
+  }
+
+  function cancelEditing(): void {
+    if (editingSaving) {
+      return;
+    }
+    resetEditingState();
+  }
+
+  function handleEditorCancel(): void {
+    cancelEditing();
+  }
+
+  function handleEditorSubmit(text: string): void {
+    if (!editingMessageId) {
+      return;
+    }
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+    const targetId = editingMessageId;
+    editingSaving = true;
+    resetEditingState();
+    const editPromise = applyMessageEdit(targetId, trimmed);
+    editPromise.catch((error) => {
+      console.error('Failed to apply message edit', error);
+    }).finally(() => {
+      editingSaving = false;
+    });
   }
 
   async function openGenerationDetails(generationId: string): Promise<void> {
@@ -140,6 +193,7 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     on:openGenerationDetails={(event) => openGenerationDetails(event.detail.id)}
     on:deleteMessage={handleDeleteMessage}
     on:retryMessage={(event) => handleRetryMessage(event.detail.id)}
+    on:editMessage={(event) => beginEditingMessage(event.detail.id)}
     disableDelete={$chatStore.isStreaming}
   />
 
@@ -150,12 +204,23 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     </div>
   {/if}
 
-  <Composer
-    bind:prompt
-    isStreaming={$chatStore.isStreaming}
-    on:submit={(event) => sendMessage(event.detail.text)}
-    on:cancel={cancelStream}
-  />
+  {#if editingMessageId}
+    <MessageEditor
+      bind:value={editingText}
+      originalValue={editingOriginalText}
+      saving={editingSaving}
+      disabled={editingSaving}
+      on:cancel={handleEditorCancel}
+      on:submit={(event) => handleEditorSubmit(event.detail.text)}
+    />
+  {:else}
+    <Composer
+      bind:prompt
+      isStreaming={$chatStore.isStreaming}
+      on:submit={(event) => sendMessage(event.detail.text)}
+      on:cancel={cancelStream}
+    />
+  {/if}
 
   <GenerationDetailsModal
     open={generationModalOpen}

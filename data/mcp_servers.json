@@ -1,7 +1,9 @@
 {
   "servers": [
     {
-      "disabled_tools": [],
+      "disabled_tools": [
+        "calculator_evaluate"
+      ],
       "enabled": true,
       "env": {},
       "id": "local-calculator",

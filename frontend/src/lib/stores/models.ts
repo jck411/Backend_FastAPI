@@ -636,12 +636,14 @@ function createModelStore() {
     [filtered, models, activeFilters],
     ([$filtered, $models, $activeFilters]) => {
       const base = $activeFilters ? $filtered : $models;
-      return (selectedModelId) => ensureSelectableModels(base, $models, selectedModelId);
+      return (selectedModelId: string | null | undefined) =>
+        ensureSelectableModels(base, $models, selectedModelId);
     },
   );
 
   const activeFor = derived<typeof models, ActiveModelSelector>(models, ($models) => {
-    return (selectedModelId) => findModelById($models, selectedModelId);
+    return (selectedModelId: string | null | undefined) =>
+      findModelById($models, selectedModelId);
   });
 
   return {

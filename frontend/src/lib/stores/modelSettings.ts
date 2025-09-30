@@ -30,8 +30,6 @@ const INITIAL_STATE: ModelSettingsState = {
   version: 0,
 };
 
-const SAVE_DEBOUNCE_MS = 600;
-
 function sanitizeParameters(
   parameters: ModelHyperparameters | null | undefined,
 ): ModelHyperparameters | undefined {
@@ -70,29 +68,15 @@ function sanitizeParameters(
 
 export function createModelSettingsStore() {
   const store = writable<ModelSettingsState>({ ...INITIAL_STATE });
-
-  let saveTimeout: ReturnType<typeof setTimeout> | null = null;
   let loadSequence = 0;
 
-  function clearSaveTimeout(): void {
-    if (saveTimeout !== null) {
-      clearTimeout(saveTimeout);
-      saveTimeout = null;
-    }
-  }
-
-  function scheduleSave(delay = SAVE_DEBOUNCE_MS): void {
-    clearSaveTimeout();
-    saveTimeout = setTimeout(() => {
-      saveTimeout = null;
-      void flushSave();
-    }, delay);
-  }
-
-  async function flushSave(): Promise<void> {
+  async function flushSave(): Promise<boolean> {
     const snapshot = get(store);
     if (!snapshot.dirty || !snapshot.data) {
-      return;
+      if (snapshot.dirty) {
+        store.update((state) => ({ ...state, dirty: false }));
+      }
+      return true;
     }
 
     const version = snapshot.version;
@@ -132,14 +116,15 @@ export function createModelSettingsStore() {
           lastSavedAt: now,
         };
       });
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to save model settings.';
       store.update((state) => ({ ...state, saving: false, saveError: message }));
+      return false;
     }
   }
 
   async function load(selectedModel: string): Promise<void> {
-    clearSaveTimeout();
     const sequence = ++loadSequence;
     store.set({ ...INITIAL_STATE, loading: true });
 
@@ -201,7 +186,6 @@ export function createModelSettingsStore() {
         version: state.version + 1,
       };
     });
-    scheduleSave();
   }
 
   function setModel(model: string): void {
@@ -221,7 +205,6 @@ export function createModelSettingsStore() {
         version: state.version + 1,
       };
     });
-    scheduleSave();
   }
 
   function resetToDefaults(): void {
@@ -241,7 +224,6 @@ export function createModelSettingsStore() {
         version: state.version + 1,
       };
     });
-    scheduleSave(100);
   }
 
   function clearErrors(): void {

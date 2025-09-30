@@ -15,7 +15,7 @@
   let dialogEl: HTMLElement | null = null;
   let hasInitialized = false;
   let wasOpen = false;
-  let editingPrompt = false;
+  let closing = false;
 
   $: {
     if (open && !hasInitialized) {
@@ -23,7 +23,6 @@
       void initialize();
     } else if (!open && hasInitialized) {
       hasInitialized = false;
-      editingPrompt = false;
       systemPrompt.reset();
     }
   }
@@ -43,15 +42,39 @@
     await Promise.all([systemPrompt.load(), mcpServers.load()]);
   }
 
-  function closeModal(): void {
-    editingPrompt = false;
-    systemPrompt.reset();
-    dispatch('close');
+  async function flushSystemPrompt(): Promise<boolean> {
+    const state = get(systemPrompt);
+    if (!state.dirty) {
+      return true;
+    }
+    await systemPrompt.save();
+    const latest = get(systemPrompt);
+    return !latest.saveError;
+  }
+
+  async function closeModal(): Promise<void> {
+    if (closing || $systemPrompt.saving || $mcpServers.saving) {
+      return;
+    }
+
+    closing = true;
+
+    const promptSaved = await flushSystemPrompt();
+    const serversSaved = promptSaved ? await mcpServers.flushPending() : false;
+
+    const promptState = get(systemPrompt);
+    const serversState = get(mcpServers);
+
+    if (promptSaved && serversSaved && !promptState.saveError && !serversState.saveError) {
+      dispatch('close');
+    }
+
+    closing = false;
   }
 
   function handleBackdrop(event: MouseEvent): void {
     if (event.target === event.currentTarget) {
-      closeModal();
+      void closeModal();
     }
   }
 
@@ -59,44 +82,34 @@
     if (!open) return;
     if (event.key === 'Escape') {
       event.preventDefault();
-      closeModal();
+      void closeModal();
     }
-  }
-
-  function startEditing(): void {
-    editingPrompt = true;
-  }
-
-  function cancelEditing(): void {
-    systemPrompt.reset();
-    editingPrompt = false;
   }
 
   function handlePromptInput(event: Event): void {
-    if (!editingPrompt) {
-      return;
-    }
     const target = event.target as HTMLTextAreaElement | null;
     systemPrompt.updateValue(target?.value ?? '');
   }
 
-  async function savePrompt(): Promise<void> {
-    await systemPrompt.save();
-    const state = get(systemPrompt);
-    if (!state.saveError) {
-      editingPrompt = false;
-    }
-  }
-
   function toggleServer(serverId: string, enabled: boolean): void {
-    void mcpServers.setServerEnabled(serverId, enabled);
+    if ($mcpServers.saving) {
+      return;
+    }
+    mcpServers.setServerEnabled(serverId, enabled);
   }
 
   function toggleTool(serverId: string, tool: string, enabled: boolean): void {
-    void mcpServers.setToolEnabled(serverId, tool, enabled);
+    if ($mcpServers.saving) {
+      return;
+    }
+    mcpServers.setToolEnabled(serverId, tool, enabled);
   }
 
   function refreshServers(): void {
+    const snapshot = get(mcpServers);
+    if (snapshot.dirty || snapshot.saving) {
+      return;
+    }
     void mcpServers.refresh();
   }
 
@@ -146,7 +159,13 @@
           <p class="model-settings-subtitle">Configure orchestration defaults and MCP servers.</p>
         </div>
         <div class="model-settings-actions">
-          <button type="button" class="modal-close" on:click={closeModal} aria-label="Close">
+          <button
+            type="button"
+            class="modal-close"
+            on:click={() => void closeModal()}
+            aria-label="Close"
+            disabled={$systemPrompt.saving || $mcpServers.saving}
+          >
             Close
           </button>
         </div>
@@ -160,33 +179,14 @@
               <p class="system-card-caption">Applied to new chat sessions when no custom prompt is present.</p>
             </div>
             <div class="system-card-actions">
-              {#if editingPrompt}
-                <button
-                  type="button"
-                  class="ghost"
-                  on:click={cancelEditing}
-                  disabled={$systemPrompt.saving}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  class="primary"
-                  on:click={savePrompt}
-                  disabled={!$systemPrompt.dirty || $systemPrompt.saving}
-                >
-                  {$systemPrompt.saving ? 'Saving…' : 'Save'}
-                </button>
-              {:else}
-                <button
-                  type="button"
-                  class="ghost"
-                  on:click={startEditing}
-                  disabled={$systemPrompt.loading || Boolean($systemPrompt.error)}
-                >
-                  Edit
-                </button>
-              {/if}
+              <button
+                type="button"
+                class="ghost"
+                on:click={() => systemPrompt.reset()}
+                disabled={!$systemPrompt.dirty || $systemPrompt.saving || $mcpServers.saving}
+              >
+                Reset
+              </button>
             </div>
           </header>
 
@@ -202,18 +202,14 @@
                 bind:value={$systemPrompt.value}
                 on:input={handlePromptInput}
                 placeholder="Provide guidance for the assistant to follow at the start of new conversations."
-                readonly={!editingPrompt}
+                disabled={$systemPrompt.saving}
               ></textarea>
               {#if $systemPrompt.saveError}
                 <p class="status error">{$systemPrompt.saveError}</p>
-              {:else if editingPrompt}
-                {#if $systemPrompt.dirty}
-                  <p class="status">Unsaved changes</p>
-                {:else}
-                  <p class="status muted">Edit the prompt, then save to apply.</p>
-                {/if}
+              {:else if $systemPrompt.dirty}
+                <p class="status">Pending changes; closing this modal will save.</p>
               {:else}
-                <p class="status muted">Select edit to modify the current prompt.</p>
+                <p class="status muted">Changes save when you close this modal.</p>
               {/if}
             {/if}
           </div>
@@ -236,7 +232,7 @@
                 type="button"
                 class="ghost"
                 on:click={refreshServers}
-                disabled={$mcpServers.refreshing}
+                disabled={$mcpServers.refreshing || $mcpServers.saving || $mcpServers.dirty}
               >
                 {$mcpServers.refreshing ? 'Refreshing…' : 'Refresh'}
               </button>
@@ -258,6 +254,7 @@
                       class="server-row"
                       data-connected={server.connected}
                       data-pending={$mcpServers.pending[server.id] ? 'true' : 'false'}
+                      data-dirty={$mcpServers.pendingChanges[server.id] ? 'true' : 'false'}
                     >
                       <div class="server-row-header">
                         <div class="server-heading">
@@ -279,7 +276,7 @@
                           <input
                             type="checkbox"
                             checked={server.enabled}
-                            disabled={$mcpServers.pending[server.id]}
+                            disabled={$mcpServers.pending[server.id] || $mcpServers.saving}
                             on:change={(event) => toggleServer(server.id, (event.target as HTMLInputElement).checked)}
                           />
                           <span>{server.enabled ? 'Enabled' : 'Disabled'}</span>
@@ -303,7 +300,11 @@
                                   <input
                                     type="checkbox"
                                     checked={tool.enabled}
-                                    disabled={!server.enabled || $mcpServers.pending[server.id]}
+                                    disabled={
+                                      !server.enabled ||
+                                      $mcpServers.pending[server.id] ||
+                                      $mcpServers.saving
+                                    }
                                     on:change={(event) => toggleTool(server.id, tool.name, (event.target as HTMLInputElement).checked)}
                                   />
                                   <span>{tool.enabled ? 'Enabled' : 'Disabled'}</span>
@@ -326,7 +327,10 @@
                 </ul>
               {/if}
               {#if $mcpServers.saveError}
-                <p class="status error">{$mcpServers.saveError}</p>
+               <p class="status error">{$mcpServers.saveError}</p>
+              {/if}
+              {#if $mcpServers.dirty}
+                <p class="status warning">Pending changes save when you close this modal.</p>
               {/if}
             {/if}
           </div>
@@ -334,9 +338,15 @@
       </section>
 
       <footer class="model-settings-footer system-settings-footer">
-        <p class="status">
-          Changes apply immediately to new tool calls once the server acknowledges the update.
-        </p>
+        {#if $mcpServers.saveError || $systemPrompt.saveError}
+          <p class="status error">Resolve the errors above before closing.</p>
+        {:else if $systemPrompt.saving || $mcpServers.saving}
+          <p class="status">Saving changes…</p>
+        {:else if $systemPrompt.dirty || $mcpServers.dirty}
+          <p class="status">Pending changes; closing this modal will save.</p>
+        {:else}
+          <p class="status">Changes save when you close this modal.</p>
+        {/if}
       </footer>
     </div>
   </div>

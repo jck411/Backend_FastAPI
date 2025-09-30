@@ -13,21 +13,27 @@ import type {
 interface McpServersState {
   loading: boolean;
   refreshing: boolean;
+  saving: boolean;
+  dirty: boolean;
   error: string | null;
   saveError: string | null;
   servers: McpServerStatus[];
   updatedAt: string | null;
   pending: Record<string, boolean>;
+  pendingChanges: Record<string, McpServerUpdatePayload>;
 }
 
 const INITIAL_STATE: McpServersState = {
   loading: false,
   refreshing: false,
+  saving: false,
+  dirty: false,
   error: null,
   saveError: null,
   servers: [],
   updatedAt: null,
   pending: {},
+  pendingChanges: {},
 };
 
 function mergeResponse(state: McpServersState, payload: McpServersResponse): McpServersState {
@@ -63,53 +69,72 @@ export function createMcpServersStore() {
     }
   }
 
-  async function applyPatch(serverId: string, payload: McpServerUpdatePayload): Promise<void> {
-    store.update((state) => ({
-      ...state,
-      pending: { ...state.pending, [serverId]: true },
-      saveError: null,
-    }));
-    try {
-      const response = await patchMcpServer(serverId, payload);
-      store.update((state) => {
-        const nextPending = { ...state.pending };
-        delete nextPending[serverId];
-        return {
-          ...mergeResponse(state, response),
-          pending: nextPending,
-        };
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update MCP server.';
-      store.update((state) => {
-        const nextPending = { ...state.pending };
-        delete nextPending[serverId];
-        return {
-          ...state,
-          pending: nextPending,
-          saveError: message,
-        };
-      });
-    }
+  function setServerEnabled(serverId: string, enabled: boolean): void {
+    store.update((state) => {
+      const servers = state.servers.map((server) =>
+        server.id === serverId ? { ...server, enabled } : server,
+      );
+      const pendingChanges = {
+        ...state.pendingChanges,
+        [serverId]: {
+          ...(state.pendingChanges[serverId] ?? {}),
+          enabled,
+        },
+      };
+      return {
+        ...state,
+        servers,
+        dirty: true,
+        saveError: null,
+        pendingChanges,
+      };
+    });
   }
 
-  async function setServerEnabled(serverId: string, enabled: boolean): Promise<void> {
-    await applyPatch(serverId, { enabled });
-  }
+  function setToolEnabled(serverId: string, tool: string, enabled: boolean): void {
+    store.update((state) => {
+      const target = state.servers.find((item) => item.id === serverId);
+      if (!target) {
+        return state;
+      }
 
-  async function setToolEnabled(serverId: string, tool: string, enabled: boolean): Promise<void> {
-    const snapshot = get(store);
-    const target = snapshot.servers.find((item) => item.id === serverId);
-    if (!target) {
-      return;
-    }
-    const disabled = new Set(target.disabled_tools ?? []);
-    if (enabled) {
-      disabled.delete(tool);
-    } else {
-      disabled.add(tool);
-    }
-    await applyPatch(serverId, { disabled_tools: Array.from(disabled).sort() });
+      const disabled = new Set(target.disabled_tools ?? []);
+      if (enabled) {
+        disabled.delete(tool);
+      } else {
+        disabled.add(tool);
+      }
+      const disabledList = Array.from(disabled).sort();
+
+      const servers = state.servers.map((server) => {
+        if (server.id !== serverId) {
+          return server;
+        }
+        return {
+          ...server,
+          disabled_tools: disabledList,
+          tools: server.tools.map((item) =>
+            item.name === tool ? { ...item, enabled } : item,
+          ),
+        };
+      });
+
+      const pendingChanges = {
+        ...state.pendingChanges,
+        [serverId]: {
+          ...(state.pendingChanges[serverId] ?? {}),
+          disabled_tools: disabledList,
+        },
+      };
+
+      return {
+        ...state,
+        servers,
+        dirty: true,
+        saveError: null,
+        pendingChanges,
+      };
+    });
   }
 
   async function refresh(): Promise<void> {
@@ -144,15 +169,82 @@ export function createMcpServersStore() {
     return Boolean(snapshot.pending[serverId]);
   }
 
+  async function flushPending(): Promise<boolean> {
+    const snapshot = get(store);
+    if (!snapshot.dirty) {
+      return true;
+    }
+
+    const entries = Object.entries(snapshot.pendingChanges);
+    if (!entries.length) {
+      store.update((state) => ({ ...state, dirty: false }));
+      return true;
+    }
+
+    store.update((state) => ({ ...state, saving: true, saveError: null }));
+
+    let success = true;
+
+    for (const [serverId, payload] of entries) {
+      store.update((state) => ({
+        ...state,
+        pending: { ...state.pending, [serverId]: true },
+      }));
+
+      try {
+        const response = await patchMcpServer(serverId, payload);
+        store.update((state) => {
+          const nextPending = { ...state.pending };
+          delete nextPending[serverId];
+
+          const nextChanges = { ...state.pendingChanges };
+          delete nextChanges[serverId];
+
+          const merged = mergeResponse(state, response);
+          const dirty = Object.keys(nextChanges).length > 0;
+
+          return {
+            ...merged,
+            pending: nextPending,
+            pendingChanges: nextChanges,
+            dirty,
+          };
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to update MCP server.';
+        store.update((state) => {
+          const nextPending = { ...state.pending };
+          delete nextPending[serverId];
+          return {
+            ...state,
+            pending: nextPending,
+            saving: false,
+            saveError: message,
+          };
+        });
+        success = false;
+        break;
+      }
+    }
+
+    if (success) {
+      store.update((state) => ({ ...state, saving: false, dirty: false }));
+      return true;
+    }
+
+    store.update((state) => ({ ...state, saving: false, dirty: true }));
+    return false;
+  }
+
   return {
     subscribe: store.subscribe,
     load,
     refresh,
     setServerEnabled,
     setToolEnabled,
-    applyPatch,
     getServer,
     isPending,
+    flushPending,
   };
 }
 

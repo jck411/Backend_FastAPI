@@ -72,7 +72,7 @@ export interface ModelSettingsController {
   parameterHandlers: ParameterHandlers;
   reasoningHandlers: ReasoningHandlers;
   resetToDefaults: () => void;
-  flushSave: () => Promise<void>;
+  flushSave: () => Promise<boolean>;
   sync: (state: { open: boolean; selectedModel: string; model: ModelRecord | null }) => void;
 }
 
@@ -409,4 +409,3 @@ export type ParametersStore = ReturnType<typeof createParametersStore>;
 export type FieldsStore = ReturnType<typeof createFieldsStore>;
 export type HasCustomParametersStore = ReturnType<typeof createHasCustomParametersStore>;
 export type ReasoningStore = ReturnType<typeof createReasoningStore>;
-

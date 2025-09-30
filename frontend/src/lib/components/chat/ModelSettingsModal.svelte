@@ -26,6 +26,7 @@
   } = useModelSettings();
 
   let dialogEl: HTMLElement | null = null;
+  let closing = false;
 
   $: sync({ open, selectedModel, model });
 
@@ -35,13 +36,21 @@
     }
   });
 
-  function closeModal(): void {
-    void flushSave().finally(() => dispatch('close'));
+  async function closeModal(): Promise<void> {
+    if (closing || $settingsState.saving) {
+      return;
+    }
+    closing = true;
+    const success = await flushSave();
+    if (success) {
+      dispatch('close');
+    }
+    closing = false;
   }
 
   function handleBackdrop(event: MouseEvent): void {
     if (event.target === event.currentTarget) {
-      closeModal();
+      void closeModal();
     }
   }
 
@@ -49,7 +58,7 @@
     if (!open) return;
     if (event.key === 'Escape') {
       event.preventDefault();
-      closeModal();
+      void closeModal();
     }
   }
 </script>
@@ -128,11 +137,11 @@
         {#if $settingsState.saveError}
           <span class="status error">{$settingsState.saveError}</span>
         {:else if $settingsState.saving}
-          <span class="status">Saving…</span>
+          <span class="status">Saving changes…</span>
         {:else if $settingsState.dirty}
-          <span class="status">Pending changes…</span>
+          <span class="status">Pending changes; closing this modal will save.</span>
         {:else}
-          <span class="status">Changes are saved automatically.</span>
+          <span class="status">Changes save when you close this modal.</span>
         {/if}
       </footer>
     </div>

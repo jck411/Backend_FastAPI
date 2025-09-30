@@ -1,12 +1,5 @@
 {
-  "model": "mistralai/mistral-7b-instruct:free",
-  "parameters": {
-    "frequency_penalty": 0.35,
-    "temperature": 1.4,
-    "top_a": 0.74,
-    "top_k": 252,
-    "top_p": 0.61
-  },
-  "system_prompt": "You are a helpful but funny assistant who has access to tools",
-  "updated_at": "2025-09-30T00:06:44.255084+00:00"
+  "model": "meta-llama/llama-3-8b-instruct",
+  "system_prompt": "You are a helpful but funny assistant",
+  "updated_at": "2025-09-30T02:07:25.826520+00:00"
 }

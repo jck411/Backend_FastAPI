@@ -103,8 +103,8 @@
     }
     editingSaving = false;
     editingMessageId = id;
-    editingText = message.content;
-    editingOriginalText = message.content;
+    editingText = message.text;
+    editingOriginalText = message.text;
   }
 
   function resetEditingState(): void {
@@ -217,7 +217,7 @@
     <Composer
       bind:prompt
       isStreaming={$chatStore.isStreaming}
-      on:submit={(event) => sendMessage(event.detail.text)}
+      on:submit={(event) => sendMessage(event.detail)}
       on:cancel={cancelStream}
     />
   {/if}

@@ -77,6 +77,34 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CHAT_DATABASE_PATH", "chat_db"),
     )
 
+    attachments_dir: Path = Field(
+        default_factory=lambda: Path("data/uploads"),
+        validation_alias=AliasChoices("ATTACHMENTS_DIR", "attachments_dir"),
+    )
+    attachments_max_size_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1,
+        validation_alias=AliasChoices(
+            "ATTACHMENTS_MAX_SIZE_BYTES",
+            "attachments_max_size_bytes",
+        ),
+    )
+    attachments_retention_days: int = Field(
+        default=7,
+        ge=0,
+        validation_alias=AliasChoices(
+            "ATTACHMENTS_RETENTION_DAYS",
+            "attachments_retention_days",
+        ),
+    )
+    attachments_public_base_url: Optional[AnyHttpUrl] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "ATTACHMENTS_PUBLIC_BASE_URL",
+            "attachments_public_base_url",
+        ),
+    )
+
     # Deepgram (optional, only needed if using browser STT)
     deepgram_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("DEEPGRAM_API_KEY")

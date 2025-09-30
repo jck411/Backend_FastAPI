@@ -8,7 +8,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any, AsyncGenerator, Sequence
+from typing import Any, AsyncGenerator, Iterable, Sequence
 
 from ..config import Settings
 from ..openrouter import OpenRouterClient
@@ -20,6 +20,18 @@ from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 
 logger = logging.getLogger(__name__)
+
+
+def _iter_attachment_ids(content: Any) -> Iterable[str]:
+    if isinstance(content, list):
+        for item in content:
+            if not isinstance(item, dict):
+                continue
+            metadata = item.get("metadata")
+            if isinstance(metadata, dict):
+                candidate = metadata.get("attachment_id")
+                if isinstance(candidate, str):
+                    yield candidate
 
 
 class ChatOrchestrator:
@@ -84,6 +96,17 @@ class ChatOrchestrator:
         await self._mcp_client.close()
         await self._repo.close()
         self._ready.clear()
+
+    async def wait_until_ready(self) -> None:
+        """Block until initialization has completed."""
+
+        await self._ready.wait()
+
+    @property
+    def repository(self) -> ChatRepository:
+        """Expose the underlying repository for shared services."""
+
+        return self._repo
 
     async def process_stream(
         self,
@@ -153,6 +176,9 @@ class ChatOrchestrator:
                 metadata=metadata or None,
                 client_message_id=message.client_message_id,
             )
+            attachment_ids = list(dict.fromkeys(_iter_attachment_ids(content)))
+            if attachment_ids:
+                await self._repo.mark_attachments_used(session_id, attachment_ids)
 
         conversation = await self._repo.get_messages(session_id)
         tools_payload = self._mcp_client.get_openai_tools()

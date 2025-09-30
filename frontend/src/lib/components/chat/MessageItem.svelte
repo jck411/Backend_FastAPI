@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
+  import type { AttachmentResource } from "../../api/types";
   import type { ConversationMessage } from "../../stores/chat";
   import { BarChart, Brain, Check, ClipboardCopy, Pencil, RefreshCcw, Trash2, Wrench } from "lucide-svelte";
   import { renderMarkdown } from "../../utils/markdown";
@@ -59,6 +60,21 @@
     }
     dispatch("delete", { message });
   }
+
+  function attachmentFilename(attachment: AttachmentResource): string | null {
+    const value = attachment.metadata?.filename;
+    return typeof value === "string" && value.trim() ? value : null;
+  }
+
+  function attachmentLabel(attachment: AttachmentResource): string {
+    const filename = attachmentFilename(attachment);
+    return filename ? `Open attachment ${filename}` : 'Open attachment';
+  }
+
+  function attachmentAlt(attachment: AttachmentResource): string {
+    const filename = attachmentFilename(attachment);
+    return filename ?? 'Attachment preview';
+  }
 </script>
 
 <article class={`message ${message.role}`}>
@@ -103,7 +119,29 @@
       </span>
     {/if}
     <div class="message-content" use:copyableCode>
-      {@html renderMarkdown(message.content)}
+      {#if message.text}
+        {@html renderMarkdown(message.text)}
+      {/if}
+      {#if message.attachments?.length}
+        <div class="message-attachments">
+          {#each message.attachments as attachment (attachment.id ?? attachment.displayUrl ?? attachment.deliveryUrl)}
+            <figure class="attachment-card">
+              <a
+                href={attachment.displayUrl || attachment.deliveryUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label={attachmentLabel(attachment)}
+              >
+                <img
+                  src={attachment.displayUrl || attachment.deliveryUrl}
+                  alt={attachmentAlt(attachment)}
+                  loading="lazy"
+                />
+              </a>
+            </figure>
+          {/each}
+        </div>
+      {/if}
     </div>
     <div class="message-actions">
       <button
@@ -343,6 +381,38 @@
     color: #7dd3fc;
     text-decoration: underline;
     text-decoration-thickness: 1px;
+  }
+  .message-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 0.85rem;
+  }
+  .message-attachments .attachment-card {
+    margin: 0;
+  }
+  .message-attachments .attachment-card a {
+    display: block;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(16, 24, 40, 0.45);
+    transition: transform 0.12s ease, border-color 0.12s ease;
+  }
+  .message.user .message-attachments .attachment-card a {
+    background: rgba(42, 59, 96, 0.6);
+  }
+  .message-attachments .attachment-card a:hover,
+  .message-attachments .attachment-card a:focus-visible {
+    border-color: rgba(147, 197, 253, 0.65);
+    transform: translateY(-1px);
+    outline: none;
+  }
+  .message-attachments .attachment-card img {
+    display: block;
+    max-width: 220px;
+    max-height: 220px;
+    object-fit: cover;
   }
   .message-actions {
     position: absolute;

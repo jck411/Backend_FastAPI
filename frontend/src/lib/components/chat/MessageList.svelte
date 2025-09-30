@@ -62,7 +62,7 @@
 
   async function handleCopyMessage(message: ConversationMessage): Promise<void> {
     try {
-      await navigator.clipboard.writeText(message.content);
+      await navigator.clipboard.writeText(message.text ?? '');
     } catch (error) {
       console.error("Failed to copy message", error);
       return;

@@ -1,6 +1,10 @@
 import { get, writable } from 'svelte/store';
 import { deleteChatMessage } from '../api/client';
-import type { ChatCompletionRequest } from '../api/types';
+import type {
+  AttachmentResource,
+  ChatCompletionRequest,
+  ChatMessageContent,
+} from '../api/types';
 import {
   mergeReasoningSegments,
   type ReasoningSegment,
@@ -8,6 +12,7 @@ import {
   reasoningTextLength,
   toReasoningSegments,
 } from '../chat/reasoning';
+import { buildChatContent, normalizeMessageContent } from '../chat/content';
 import { startChatStream } from '../chat/streaming';
 import type { WebSearchSettings } from '../chat/webSearch';
 import { webSearchStore } from '../chat/webSearchStore';
@@ -32,9 +37,16 @@ interface ConversationMessageDetails {
 export interface ConversationMessage {
   id: string;
   role: ConversationRole;
-  content: string;
+  content: ChatMessageContent;
+  text: string;
+  attachments: AttachmentResource[];
   pending?: boolean;
   details?: ConversationMessageDetails;
+}
+
+interface OutgoingMessageDraft {
+  text: string;
+  attachments: AttachmentResource[];
 }
 
 interface ChatState {
@@ -81,7 +93,7 @@ function createId(prefix: string): string {
 
 function toChatPayload(
   state: ChatState,
-  prompt: string,
+  content: ChatMessageContent,
   webSearch: WebSearchSettings,
   userMessageId: string,
   assistantMessageId: string,
@@ -92,7 +104,7 @@ function toChatPayload(
     messages: [
       {
         role: 'user',
-        content: prompt,
+        content,
         client_message_id: userMessageId,
       },
     ],
@@ -110,9 +122,9 @@ function toChatPayload(
     if (webSearch.maxResults !== null && webSearch.maxResults !== undefined) {
       plugin.max_results = webSearch.maxResults;
     }
-    const trimmedPrompt = webSearch.searchPrompt.trim();
-    if (trimmedPrompt) {
-      plugin.search_prompt = trimmedPrompt;
+    const trimmedSearchPrompt = webSearch.searchPrompt.trim();
+    if (trimmedSearchPrompt) {
+      plugin.search_prompt = trimmedSearchPrompt;
     }
     payload.plugins = [plugin];
 
@@ -128,8 +140,10 @@ function createChatStore() {
   const store = writable<ChatState>({ ...initialState });
   let currentAbort: AbortController | null = null;
 
-  async function sendMessage(prompt: string): Promise<void> {
-    if (!prompt.trim()) {
+  async function sendMessage(draft: OutgoingMessageDraft): Promise<void> {
+    const text = draft.text.trim();
+    const attachments = draft.attachments ?? [];
+    if (!text && attachments.length === 0) {
       return;
     }
 
@@ -141,9 +155,13 @@ function createChatStore() {
     const userMessageId = createId('user');
     const assistantMessageId = createId('assistant');
 
+    const messageContent = buildChatContent(draft.text, attachments);
+    const normalized = normalizeMessageContent(messageContent);
+    const userAttachments = attachments.map((item) => ({ ...item }));
+
     const payload = toChatPayload(
       state,
-      prompt,
+      messageContent,
       webSearchStore.current,
       userMessageId,
       assistantMessageId,
@@ -153,8 +171,21 @@ function createChatStore() {
       ...value,
       messages: [
         ...value.messages,
-        { id: userMessageId, role: 'user', content: prompt },
-        { id: assistantMessageId, role: 'assistant', content: '', pending: true },
+        {
+          id: userMessageId,
+          role: 'user',
+          content: messageContent,
+          text: normalized.text,
+          attachments: userAttachments,
+        },
+        {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: '',
+          text: '',
+          attachments: [],
+          pending: true,
+        },
       ],
       isStreaming: true,
       error: null,
@@ -176,9 +207,13 @@ function createChatStore() {
               if (message.id !== assistantMessageId) {
                 return message;
               }
+              const previousText =
+                typeof message.content === 'string' ? message.content : message.text;
+              const nextText = deltaText ? `${previousText}${deltaText}` : previousText;
               const updatedMessage: ConversationMessage = {
                 ...message,
-                content: deltaText ? `${message.content}${deltaText}` : message.content,
+                content: nextText,
+                text: nextText,
               };
 
               if (reasoningSegments.length > 0 || hasReasoningPayload) {
@@ -289,9 +324,15 @@ function createChatStore() {
                 {
                   id: messageId as string,
                   role: 'tool',
-                  content: status === 'started'
-                    ? `Running ${toolName}…`
-                    : toolResult ?? `Tool ${toolName} responded.`,
+                  content:
+                    status === 'started'
+                      ? `Running ${toolName}…`
+                      : toolResult ?? `Tool ${toolName} responded.`,
+                  text:
+                    status === 'started'
+                      ? `Running ${toolName}…`
+                      : toolResult ?? `Tool ${toolName} responded.`,
+                  attachments: [],
                   pending: status === 'started',
                   details: {
                     toolName,
@@ -316,13 +357,16 @@ function createChatStore() {
                   serverMessageId:
                     serverMessageId ?? message.details?.serverMessageId ?? null,
                 };
+                const nextText =
+                  toolResult ??
+                  (status === 'started'
+                    ? `Running ${toolName}…`
+                    : `Tool ${toolName} ${status}.`);
                 return {
                   ...message,
-                  content:
-                    toolResult ??
-                    (status === 'started'
-                      ? `Running ${toolName}…`
-                      : `Tool ${toolName} ${status}.`),
+                  content: nextText,
+                  text: nextText,
+                  attachments: message.attachments ?? [],
                   pending: status === 'started',
                   details,
                 };
@@ -397,7 +441,7 @@ function createChatStore() {
         messages: value.messages.filter(
           (message) =>
             !(
-              (message.role === 'assistant' && message.pending && !message.content) ||
+              (message.role === 'assistant' && message.pending && !message.text) ||
               (message.role === 'tool' && message.pending)
             ),
         ),
@@ -514,9 +558,10 @@ function createChatStore() {
       }
     }
 
-    if (target.content.trim()) {
-      await sendMessage(target.content);
-    }
+    await sendMessage({
+      text: target.text,
+      attachments: (target.attachments ?? []).map((item) => ({ ...item })),
+    });
   }
 
   async function editMessage(messageId: string, nextContent: string): Promise<void> {
@@ -572,7 +617,10 @@ function createChatStore() {
       }
     }
 
-    await sendMessage(trimmed);
+    await sendMessage({
+      text: trimmed,
+      attachments: (target.attachments ?? []).map((item) => ({ ...item })),
+    });
   }
 
   function clearError(): void {
@@ -586,6 +634,16 @@ function createChatStore() {
     store.update((value) => ({ ...value, selectedModel: model }));
   }
 
+  function ensureSessionId(): string {
+    const state = get(store);
+    if (state.sessionId) {
+      return state.sessionId;
+    }
+    const sessionId = createId('session');
+    store.update((value) => ({ ...value, sessionId }));
+    return sessionId;
+  }
+
   return {
     subscribe: store.subscribe,
     sendMessage,
@@ -596,6 +654,7 @@ function createChatStore() {
     editMessage,
     clearError,
     setModel,
+    ensureSessionId,
   };
 }
 

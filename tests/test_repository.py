@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
 
 from src.backend.repository import ChatRepository
@@ -54,3 +56,36 @@ async def test_string_content_preserved(repository):
     messages = await repository.get_messages("session-1")
 
     assert messages[0]["content"] == "plain text"
+
+
+@pytest.mark.anyio
+async def test_attachment_roundtrip(repository):
+    record = await repository.add_attachment(
+        attachment_id="att-1",
+        session_id="session-1",
+        storage_path="session-1/image.png",
+        mime_type="image/png",
+        size_bytes=128,
+        display_url="https://example.com/uploads/att-1",
+        delivery_url="https://example.com/uploads/att-1",
+        metadata={"filename": "image.png"},
+        expires_at=datetime.utcnow() + timedelta(days=1),
+    )
+
+    fetched = await repository.get_attachment("att-1")
+
+    assert fetched is not None
+    assert fetched["attachment_id"] == "att-1"
+    assert fetched["session_id"] == "session-1"
+    assert fetched["mime_type"] == "image/png"
+    assert fetched["size_bytes"] == 128
+    assert fetched["metadata"]["filename"] == "image.png"
+
+    await repository.mark_attachments_used("session-1", ["att-1"])
+    refreshed = await repository.get_attachment("att-1")
+    assert refreshed is not None
+    assert refreshed["last_used_at"] != record["last_used_at"]
+
+    removed = await repository.delete_attachment("att-1")
+    assert removed is True
+    assert await repository.get_attachment("att-1") is None

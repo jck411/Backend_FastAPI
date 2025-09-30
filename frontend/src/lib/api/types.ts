@@ -1,8 +1,24 @@
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
 
+export type ChatContentFragment =
+  | { type: 'text'; text: string }
+  | {
+      type: 'image_url';
+      image_url: {
+        url: string;
+        detail?: 'auto' | 'low' | 'high';
+        [key: string]: unknown;
+      };
+      metadata?: Record<string, unknown>;
+      [key: string]: unknown;
+    }
+  | { type: string; [key: string]: unknown };
+
+export type ChatMessageContent = string | ChatContentFragment[];
+
 export interface ChatMessage {
   role: ChatRole;
-  content: unknown;
+  content: ChatMessageContent;
   name?: string;
   tool_call_id?: string;
   client_message_id?: string;
@@ -76,6 +92,22 @@ export interface SseEvent {
   event: string;
   data?: string;
   id?: string;
+}
+
+export interface AttachmentResource {
+  id: string;
+  sessionId: string;
+  mimeType: string;
+  sizeBytes: number;
+  displayUrl: string;
+  deliveryUrl: string;
+  uploadedAt: string;
+  expiresAt: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface AttachmentUploadResponse {
+  attachment: AttachmentResource;
 }
 
 type ModelPriceValue = number | string | null | undefined;

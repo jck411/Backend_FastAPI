@@ -15,6 +15,8 @@ from .routers.chat import router as chat_router
 from .routers.mcp_servers import router as mcp_router
 from .routers.settings import router as settings_router
 from .routers.stt import router as stt_router
+from .routers.uploads import router as uploads_router
+from .services.attachments import AttachmentService
 from .services.mcp_server_settings import MCPServerSettingsService
 from .services.model_settings import ModelSettingsService
 
@@ -60,6 +62,22 @@ def create_app() -> FastAPI:
         mcp_settings_service,
     )
 
+    attachments_dir = settings.attachments_dir
+    if not attachments_dir.is_absolute():
+        attachments_dir = project_root / attachments_dir
+
+    attachment_service = AttachmentService(
+        orchestrator.repository,
+        attachments_dir,
+        max_size_bytes=settings.attachments_max_size_bytes,
+        retention_days=settings.attachments_retention_days,
+        public_base_url=(
+            str(settings.attachments_public_base_url)
+            if settings.attachments_public_base_url
+            else None
+        ),
+    )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         await orchestrator.initialize()
@@ -78,6 +96,7 @@ def create_app() -> FastAPI:
     app.state.model_settings_service = model_settings_service
     app.state.chat_orchestrator = orchestrator
     app.state.mcp_server_settings_service = mcp_settings_service
+    app.state.attachment_service = attachment_service
 
     app.add_middleware(
         CORSMiddleware,
@@ -91,6 +110,7 @@ def create_app() -> FastAPI:
     app.include_router(settings_router)
     app.include_router(mcp_router)
     app.include_router(stt_router)
+    app.include_router(uploads_router)
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> Response:

@@ -14,6 +14,7 @@ import type {
   McpServerUpdatePayload,
   McpServersCollectionPayload,
   SseEvent,
+  AttachmentUploadResponse,
 } from './types';
 
 class ApiError extends Error {
@@ -153,6 +154,33 @@ export async function refreshMcpServers(): Promise<McpServersResponse> {
     method: 'POST',
     body: JSON.stringify({}),
   });
+}
+
+export async function uploadAttachment(
+  file: File,
+  sessionId: string,
+): Promise<AttachmentUploadResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('session_id', sessionId);
+
+  const response = await fetch(resolveApiPath('/api/uploads'), {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let message = response.statusText || 'Upload failed';
+    try {
+      const data = await response.json();
+      message = (data?.detail as string) ?? message;
+    } catch (error) {
+      // ignore parse errors
+    }
+    throw new ApiError(response.status || 0, message);
+  }
+
+  return (await response.json()) as AttachmentUploadResponse;
 }
 
 export interface ChatStreamCallbacks {

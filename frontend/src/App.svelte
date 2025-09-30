@@ -20,6 +20,7 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     cancelStream,
     clearConversation,
     deleteMessage,
+    retryMessage,
     clearError,
     setModel,
   } = chatStore;
@@ -85,6 +86,10 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     void deleteMessage(event.detail.id);
   }
 
+  function handleRetryMessage(id: string): void {
+    void retryMessage(id);
+  }
+
   async function openGenerationDetails(generationId: string): Promise<void> {
     if (!generationId) return;
     generationModalOpen = true;
@@ -134,6 +139,7 @@ import type { GenerationDetails, ModelRecord } from './lib/api/types';
     messages={$chatStore.messages}
     on:openGenerationDetails={(event) => openGenerationDetails(event.detail.id)}
     on:deleteMessage={handleDeleteMessage}
+    on:retryMessage={(event) => handleRetryMessage(event.detail.id)}
     disableDelete={$chatStore.isStreaming}
   />
 

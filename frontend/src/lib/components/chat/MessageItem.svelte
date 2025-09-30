@@ -123,10 +123,15 @@
         <button type="button" class="message-action" aria-label="Edit message" on:click={handleEdit}>
           <Pencil size={16} strokeWidth={1.6} aria-hidden="true" />
         </button>
+        <button
+          type="button"
+          class="message-action"
+          aria-label="Retry message"
+          on:click={handleRetry}
+        >
+          <RefreshCcw size={16} strokeWidth={1.6} aria-hidden="true" />
+        </button>
       {/if}
-      <button type="button" class="message-action" aria-label="Retry message" on:click={handleRetry}>
-        <RefreshCcw size={16} strokeWidth={1.6} aria-hidden="true" />
-      </button>
       {#if message.role === "assistant" && message.details?.generationId}
         <button
           type="button"

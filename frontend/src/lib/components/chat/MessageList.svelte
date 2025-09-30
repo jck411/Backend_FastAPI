@@ -28,6 +28,7 @@
   const dispatch = createEventDispatcher<{
     openGenerationDetails: { id: string };
     deleteMessage: { id: string };
+    retryMessage: { id: string };
   }>();
 
   afterUpdate(() => {
@@ -114,6 +115,13 @@
     dispatch('deleteMessage', { id: message.id });
   }
 
+  function handleRetryMessage(message: ConversationMessage): void {
+    if (!message) {
+      return;
+    }
+    dispatch('retryMessage', { id: message.id });
+  }
+
   $: toolUsageModal.syncEntries(messages, messageIndexMap, TOOL_ROLE);
   $: reasoningModal.syncFromMessages(messages);
 </script>
@@ -131,6 +139,7 @@
         on:openReasoning={(event) => handleOpenReasoningModal(event.detail.message)}
         on:openUsage={(event) => handleUsageClick(event.detail.id)}
         on:delete={(event) => handleDeleteMessage(event.detail.message)}
+        on:retry={(event) => handleRetryMessage(event.detail.message)}
       />
     </div>
   {/each}

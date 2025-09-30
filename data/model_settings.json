@@ -1,5 +1,5 @@
 {
-  "model": "openrouter/auto",
+  "model": "mistralai/mixtral-8x22b-instruct",
   "system_prompt": "You are a helpful but funny assistant",
-  "updated_at": "2025-09-30T03:10:25.633797+00:00"
+  "updated_at": "2025-09-30T05:31:49.181550+00:00"
 }

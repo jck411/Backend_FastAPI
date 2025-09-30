@@ -1,10 +1,19 @@
 <script lang="ts">
+  import {
+    BarChart,
+    Brain,
+    Check,
+    ClipboardCopy,
+    Pencil,
+    RefreshCcw,
+    Trash2,
+    Wrench,
+  } from "lucide-svelte";
   import { createEventDispatcher } from "svelte";
+  import { copyableCode } from "../../actions/copyableCode";
   import type { AttachmentResource } from "../../api/types";
   import type { ConversationMessage } from "../../stores/chat";
-  import { BarChart, Brain, Check, ClipboardCopy, Pencil, RefreshCcw, Trash2, Wrench } from "lucide-svelte";
   import { renderMarkdown } from "../../utils/markdown";
-  import { copyableCode } from "../../actions/copyableCode";
 
   export let message: ConversationMessage;
   export let showToolIndicator = false;
@@ -24,7 +33,8 @@
   let hasReasoningSegments = false;
 
   $: hasReasoningSegments =
-    (message.details?.reasoning?.length ?? 0) > 0 || Boolean(message.details?.reasoningStatus);
+    (message.details?.reasoning?.length ?? 0) > 0 ||
+    Boolean(message.details?.reasoningStatus);
 
   function handleCopy(): void {
     dispatch("copy", { message });
@@ -68,12 +78,12 @@
 
   function attachmentLabel(attachment: AttachmentResource): string {
     const filename = attachmentFilename(attachment);
-    return filename ? `Open attachment ${filename}` : 'Open attachment';
+    return filename ? `Open attachment ${filename}` : "Open attachment";
   }
 
   function attachmentAlt(attachment: AttachmentResource): string {
     const filename = attachmentFilename(attachment);
-    return filename ?? 'Attachment preview';
+    return filename ?? "Attachment preview";
   }
 </script>
 
@@ -92,7 +102,8 @@
                 <button
                   type="button"
                   class="sender-reasoning-indicator"
-                  class:streaming={message.details?.reasoningStatus === "streaming"}
+                  class:streaming={message.details?.reasoningStatus ===
+                    "streaming"}
                   aria-label="View reasoning trace"
                   title={message.details?.reasoningStatus === "streaming"
                     ? "Reasoning stream in progress"
@@ -158,7 +169,12 @@
         {/if}
       </button>
       {#if message.role === "user"}
-        <button type="button" class="message-action" aria-label="Edit message" on:click={handleEdit}>
+        <button
+          type="button"
+          class="message-action"
+          aria-label="Edit message"
+          on:click={handleEdit}
+        >
           <Pencil size={16} strokeWidth={1.6} aria-hidden="true" />
         </button>
         <button
@@ -291,7 +307,8 @@
     margin-bottom: 0;
   }
   .message-content :global(code) {
-    font-family: "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-family: "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas,
+      "Liberation Mono", "Courier New", monospace;
     background: rgba(24, 34, 56, 0.8);
     border-radius: 0.35rem;
     padding: 0.15rem 0.35rem;
@@ -397,7 +414,9 @@
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.12);
     background: rgba(16, 24, 40, 0.45);
-    transition: transform 0.12s ease, border-color 0.12s ease;
+    transition:
+      transform 0.12s ease,
+      border-color 0.12s ease;
   }
   .message.user .message-attachments .attachment-card a {
     background: rgba(42, 59, 96, 0.6);
@@ -428,7 +447,8 @@
     z-index: 5;
   }
   .message:hover .message-actions,
-  .message:focus-within .message-actions {
+  .message:focus-within .message-actions,
+  .message-actions:hover {
     opacity: 1;
     pointer-events: auto;
   }

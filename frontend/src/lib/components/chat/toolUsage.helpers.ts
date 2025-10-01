@@ -76,8 +76,9 @@ export function deriveToolUsageEntries(
     const name = nameFromDetails ?? extractCallName(metadataCall) ?? "Tool";
     const status = typeof details?.toolStatus === "string" ? details.toolStatus : null;
     const resultFromDetails =
-      typeof details?.toolResult === "string" ? details.toolResult : toolMessage.content ?? null;
-    const result = resultFromDetails ?? extractCallResult(metadataCall);
+      typeof details?.toolResult === "string" ? details.toolResult : null;
+    const contentResult = typeof toolMessage.content === "string" ? toolMessage.content : null;
+    const result = resultFromDetails ?? contentResult ?? extractCallResult(metadataCall);
     const input = extractCallArguments(metadataCall);
 
     entries.push({

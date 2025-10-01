@@ -64,6 +64,10 @@
   gap: 0.5rem;
 }
 
+.model-settings-actions button {
+  white-space: nowrap;
+}
+
 .model-settings-body {
   padding: 1.25rem 1.5rem 1.5rem;
   overflow-y: auto;

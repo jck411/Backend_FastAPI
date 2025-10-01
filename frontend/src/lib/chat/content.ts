@@ -7,18 +7,18 @@ import type {
 export type MessageContentPart =
   | { type: 'text'; text: string }
   | {
-      type: 'image';
-      attachmentId?: string;
-      url: string;
-      displayUrl: string;
-      mimeType?: string;
-      sizeBytes?: number;
-      fileName?: string;
-      sessionId?: string;
-      expiresAt?: string | null;
-      uploadedAt?: string;
-      metadata?: Record<string, unknown> | null;
-    };
+    type: 'image';
+    attachmentId?: string;
+    url: string;
+    displayUrl: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    fileName?: string;
+    sessionId?: string;
+    expiresAt?: string | null;
+    uploadedAt?: string;
+    metadata?: Record<string, unknown> | null;
+  };
 
 export interface NormalizedMessageContent {
   parts: MessageContentPart[];
@@ -68,10 +68,10 @@ export function buildChatContent(
   }
 
   if (fragments.length === 1 && fragments[0].type === 'text') {
-    return fragments[0].text;
+    return fragments[0].text as ChatMessageContent;
   }
 
-  return fragments.length > 0 ? fragments : '';
+  return (fragments.length > 0 ? fragments : '') as ChatMessageContent;
 }
 
 export function normalizeMessageContent(content: ChatMessageContent): NormalizedMessageContent {
@@ -93,8 +93,8 @@ export function normalizeMessageContent(content: ChatMessageContent): Normalized
       textParts.push(value);
       continue;
     }
-    if (fragment?.type === 'image_url') {
-      const image = fragment.image_url;
+    if (fragment?.type === 'image_url' && 'image_url' in fragment) {
+      const image = fragment.image_url as { url: string;[key: string]: unknown };
       if (!image || typeof image.url !== 'string') {
         continue;
       }
@@ -143,7 +143,7 @@ export function normalizeMessageContent(content: ChatMessageContent): Normalized
         sessionId,
         uploadedAt,
         expiresAt,
-        metadata: fragment.metadata ?? null,
+        metadata: (fragment.metadata ?? null) as Record<string, unknown> | null,
       });
     }
   }

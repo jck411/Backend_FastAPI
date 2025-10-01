@@ -9,6 +9,16 @@
   import GenerationDetailsModal from './lib/components/chat/GenerationDetailsModal.svelte';
   import ModelSettingsModal from './lib/components/chat/ModelSettingsModal.svelte';
   import SystemSettingsModal from './lib/components/chat/SystemSettingsModal.svelte';
+  import SpeechSettingsModal from './lib/components/chat/SpeechSettingsModal.svelte';
+  import {
+    speechState,
+    startDictation,
+    startConversationMode,
+    clearPendingSubmit,
+    notifyAssistantStreamingStarted,
+    notifyAssistantStreamingFinished,
+    stopSpeech,
+  } from './lib/speech/speechController';
   import { fetchGenerationDetails } from './lib/api/client';
   import { chatStore } from './lib/stores/chat';
   import { modelStore } from './lib/stores/models';
@@ -40,6 +50,9 @@
   let generationModalOpen = false;
   let modelSettingsOpen = false;
   let systemSettingsOpen = false;
+  let speechSettingsOpen = false;
+  let lastSpeechPromptVersion = 0;
+  let lastStreaming = false;
   let generationModalLoading = false;
   let generationModalError: string | null = null;
   let generationModalData: GenerationDetails | null = null;
@@ -58,7 +71,11 @@
     if (typeof document !== 'undefined') {
       document.body.classList.toggle(
         'modal-open',
-        explorerOpen || generationModalOpen || modelSettingsOpen || systemSettingsOpen,
+        explorerOpen ||
+          generationModalOpen ||
+          modelSettingsOpen ||
+          systemSettingsOpen ||
+          speechSettingsOpen,
       );
     }
   }
@@ -75,6 +92,14 @@
 
   function handleModelChange(id: string): void {
     setModel(id);
+  }
+
+  function handleStartDictation(): void {
+    void startDictation();
+  }
+
+  function handleStartConversationMode(): void {
+    void startConversationMode();
   }
 
   function handleExplorerSelect(event: CustomEvent<{ id: string }>): void {
@@ -168,6 +193,45 @@
     generationModalData = null;
     generationModalError = null;
   }
+
+  async function handleSpeechAutoSubmit(text: string): Promise<void> {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return;
+    }
+    prompt = trimmed;
+    try {
+      await sendMessage({ text: trimmed, attachments: [] });
+      prompt = '';
+    } catch (error) {
+      console.error('Failed to send speech transcription', error);
+    }
+  }
+
+  $: if ($speechState.promptVersion !== lastSpeechPromptVersion) {
+    lastSpeechPromptVersion = $speechState.promptVersion;
+    prompt = $speechState.promptText;
+  }
+
+  $: if ($speechState.pendingSubmit && !$chatStore.isStreaming) {
+    const submission = clearPendingSubmit();
+    if (submission) {
+      void handleSpeechAutoSubmit(submission.text);
+    }
+  }
+
+  $: if ($chatStore.isStreaming !== lastStreaming) {
+    if ($chatStore.isStreaming) {
+      notifyAssistantStreamingStarted();
+    } else {
+      void notifyAssistantStreamingFinished();
+    }
+    lastStreaming = $chatStore.isStreaming;
+  }
+
+  $: if (editingMessageId) {
+    stopSpeech();
+  }
 </script>
 
 <main class="chat-app">
@@ -182,6 +246,7 @@
     on:modelChange={(event) => handleModelChange(event.detail.id)}
     on:openModelSettings={() => (modelSettingsOpen = true)}
     on:openSystemSettings={() => (systemSettingsOpen = true)}
+    on:openSpeechSettings={() => (speechSettingsOpen = true)}
   />
 
   {#if !$chatStore.messages.length}
@@ -219,6 +284,8 @@
       isStreaming={$chatStore.isStreaming}
       on:submit={(event) => sendMessage(event.detail)}
       on:cancel={cancelStream}
+      on:startDictation={handleStartDictation}
+      on:startConversationMode={handleStartConversationMode}
     />
   {/if}
 
@@ -243,6 +310,8 @@
     open={systemSettingsOpen}
     on:close={() => (systemSettingsOpen = false)}
   />
+
+  <SpeechSettingsModal open={speechSettingsOpen} on:close={() => (speechSettingsOpen = false)} />
 
   <ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />
 </main>

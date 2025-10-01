@@ -3,6 +3,7 @@
   import { uploadAttachment } from '../../api/client';
   import type { AttachmentResource } from '../../api/types';
   import { chatStore } from '../../stores/chat';
+  import { speechState } from '../../speech/speechController';
 
   export let prompt = '';
   export let isStreaming = false;
@@ -21,6 +22,8 @@
   const dispatch = createEventDispatcher<{
     submit: { text: string; attachments: AttachmentResource[] };
     cancel: void;
+    startDictation: void;
+    startConversationMode: void;
   }>();
 
   const ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
@@ -74,6 +77,33 @@
   function handleCancel(): void {
     dispatch('cancel');
   }
+
+  function handleDictationClick(): void {
+    if (isStreaming && $speechState.mode !== 'dictation') {
+      return;
+    }
+    if ($speechState.connecting && !$speechState.recording && $speechState.mode !== 'dictation') {
+      return;
+    }
+    dispatch('startDictation');
+  }
+
+  function handleConversationClick(): void {
+    const conversationActive = $speechState.conversationActive;
+    if (isStreaming && !conversationActive) {
+      return;
+    }
+    if ($speechState.connecting && !$speechState.recording && !conversationActive) {
+      return;
+    }
+    dispatch('startConversationMode');
+  }
+
+  $: dictationActive =
+    $speechState.mode === 'dictation' && ($speechState.recording || $speechState.connecting);
+  $: conversationActive = $speechState.conversationActive;
+  $: speechBusy = $speechState.connecting && !$speechState.recording;
+  $: speechError = $speechState.error;
 
   function openFileDialog(): void {
     if (isStreaming) {
@@ -198,6 +228,9 @@
     {#if composerError}
       <div class="composer-error" role="alert">{composerError}</div>
     {/if}
+    {#if speechError}
+      <div class="composer-error voice" role="alert">{speechError}</div>
+    {/if}
 
     <div class="input-shell">
       <button
@@ -247,7 +280,16 @@
             Stop
           </button>
         {/if}
-        <button type="button" class="icon-button" aria-label="Toggle microphone">
+        <button
+          type="button"
+          class="icon-button"
+          aria-label="Start dictation"
+          title="Start dictation"
+          on:click={handleDictationClick}
+          disabled={(isStreaming && !dictationActive) || (speechBusy && !dictationActive)}
+          aria-pressed={dictationActive ? 'true' : 'false'}
+          data-active={dictationActive ? 'true' : 'false'}
+        >
           <svg
             width="18"
             height="18"
@@ -268,7 +310,16 @@
             />
           </svg>
         </button>
-        <button type="button" class="icon-button" aria-label="Attach audio">
+        <button
+          type="button"
+          class="icon-button"
+          aria-label="Start conversation mode"
+          title="Start conversation mode"
+          on:click={handleConversationClick}
+          disabled={(isStreaming && !conversationActive) || (speechBusy && !conversationActive)}
+          aria-pressed={conversationActive ? 'true' : 'false'}
+          data-active={conversationActive ? 'true' : 'false'}
+        >
           <svg
             width="18"
             height="18"
@@ -371,6 +422,11 @@
     padding: 0.45rem 0.75rem;
     border-radius: 0.65rem;
   }
+  .composer-error.voice {
+    color: #fbbf24;
+    background: rgba(92, 62, 12, 0.6);
+    border-color: rgba(251, 191, 36, 0.4);
+  }
   .input-shell {
     display: flex;
     align-items: center;
@@ -418,6 +474,14 @@
   .icon-button:focus {
     background: rgba(46, 64, 101, 0.9);
     outline: none;
+  }
+  .icon-button[data-active='true'] {
+    background: rgba(79, 70, 229, 0.85);
+    color: #f8f9ff;
+  }
+  .icon-button[data-active='true']:hover,
+  .icon-button[data-active='true']:focus {
+    background: rgba(99, 102, 241, 0.9);
   }
   .icon-button:disabled {
     opacity: 0.45;

@@ -45,6 +45,29 @@
       "name": "open",
       "system_prompt": "You are a helpful but funny assistant",
       "updated_at": "2025-10-10T13:55:19.113657Z"
+    },
+    {
+      "created_at": "2025-10-10T14:28:38.234992Z",
+      "mcp_servers": [
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "local-calculator",
+          "module": "backend.mcp_server"
+        },
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "test-toolkit",
+          "module": "backend.mcp_servers.sample_server"
+        }
+      ],
+      "model": "openai/gpt-4o-mini-2024-07-18",
+      "name": "GPT 4o mini",
+      "system_prompt": "You are a helpful but funny assistant",
+      "updated_at": "2025-10-10T14:28:38.234992Z"
     }
   ]
 }

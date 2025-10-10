@@ -91,18 +91,9 @@ if (msg.type === 'UtteranceEnd') {
 #### 2. Speech Final Handling
 ```javascript
 if (speechFinal) {
-  // Mark that definitive detection occurred
   speechFinalReceived = true;
-
-  // Clear backup timer since we have definitive detection
-  if (utteranceEndTimer) {
-    clearTimeout(utteranceEndTimer);
-  }
-
-// Schedule auto-submit after the configured delay
-  if (autoSubmit) {
-    stopVoiceInput(autoSubmit);
-  }
+  clearUtteranceTimer();
+  handleSpeechEnd(accumulatedTranscript || lastInterim || transcript);
 }
 ```
 
@@ -111,14 +102,16 @@ if (speechFinal) {
 ### Speech Settings
 The auto-submit behavior is controlled by the Speech Settings panel:
 
-- **Auto-submit on speech end**: Enable/Disable
-- **Auto-submit delay**: Milliseconds to wait before submitting when auto-submit is enabled
-- **Provider**: Deepgram (configured for optimal detection)
-- **Model**: nova-3 (recommended for accuracy)
-- **Interim results**: Enabled (for real-time feedback)
-- **VAD events**: Enabled (for SpeechStarted detection)
-- **Utterance end**: 1000ms (timing for UtteranceEnd)
-- **Endpointing**: 1000ms (timing for speech_final)
+- **Auto-submit on speech end**: Enable/Disable (defaults to enabled)
+- **Auto-submit delay**: Milliseconds to wait before submitting; defaults to `0`, but you can choose any value from `0–20000`
+- **Provider**: Deepgram (currently the only provider surfaced)
+- **Model**: select from the Deepgram presets (e.g. `nova-3-general`, `nova-3-medical`, etc.). Blank values now fall back to the default model automatically.
+- **Interim results**: Enabled by default for real-time feedback
+- **VAD events**: Enabled by default for voice-activity detection hooks
+- **Utterance end**: Defaults to `1500ms`, but user selections in the `500–5000ms` range are fully respected
+- **Endpointing**: Defaults to `1200ms`, with user-selectable values in the `300–5000ms` range
+
+The client enforces only the minimum thresholds Deepgram documents (`endpointing ≥ 300ms`, `utterance_end_ms ≥ 500ms`). Any higher values configured through the UI are sent unchanged.
 
 #### Other Deepgram Parameters
 - **Language & tier** (`language`, `tier`): default to Deepgram’s auto values. Expose these if you need non-English transcripts or premium tiers.
@@ -138,13 +131,16 @@ Additions should be coordinated with the backend token request so the selected o
 
 ### Deepgram Parameters
 ```javascript
+const utteranceEndMs = Math.max(settings.stt.utteranceEndMs, 500);
+const endpointingMs = Math.max(settings.stt.endpointing, 300);
+
 const params = new URLSearchParams({
-  model: 'nova-3',
-  interim_results: 'true',
-  smart_format: 'true',
-  vad_events: 'true',
-  utterance_end_ms: '1000',
-  endpointing: '1000',
+  model: settings.stt.model,
+  interim_results: String(settings.stt.interimResults !== false),
+  smart_format: String(settings.stt.smartFormat !== false),
+  vad_events: String(settings.stt.vadEvents !== false),
+  utterance_end_ms: String(utteranceEndMs),
+  endpointing: String(endpointingMs),
   encoding: 'opus'
 });
 ```

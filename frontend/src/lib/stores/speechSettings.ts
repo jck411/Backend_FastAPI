@@ -128,15 +128,15 @@ function sanitizeSpeechSettings(input: unknown): SpeechSettings {
   const sttRaw = data.stt ?? data['stt'];
   if (sttRaw && typeof sttRaw === 'object') {
     const stt = sttRaw as Record<string, unknown>;
-    const model = typeof stt.model === 'string' && stt.model.trim()
-      ? stt.model.trim()
-      : typeof stt.model === 'string'
+    const modelValue =
+      typeof stt.model === 'string'
         ? stt.model
-        : typeof stt['model'] === 'string' && stt['model'].trim()
-          ? (stt['model'] as string).trim()
-          : defaults.stt.model;
+        : typeof stt['model'] === 'string'
+          ? (stt['model'] as string)
+          : null;
+    const trimmedModel = modelValue ? modelValue.trim() : '';
     result.stt.provider = 'deepgram';
-    result.stt.model = model;
+    result.stt.model = trimmedModel || defaults.stt.model;
     result.stt.interimResults = toBoolean(stt.interimResults ?? stt['interim_results'], defaults.stt.interimResults);
     result.stt.vadEvents = toBoolean(stt.vadEvents ?? stt['vad_events'], defaults.stt.vadEvents);
 

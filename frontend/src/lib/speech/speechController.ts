@@ -242,6 +242,9 @@ async function startListening(mode: SpeechMode): Promise<void> {
 
   const stt = settings.stt;
 
+  const utteranceEndMs = Math.max(stt.utteranceEndMs, 500);
+  const endpointingMs = Math.max(stt.endpointing, 300);
+
   const params = new URLSearchParams({
     model: stt.model,
     interim_results: String(stt.interimResults !== false),
@@ -251,8 +254,8 @@ async function startListening(mode: SpeechMode): Promise<void> {
     numerals: String(stt.numerals !== false),
     filler_words: String(stt.fillerWords === true),
     profanity_filter: String(stt.profanityFilter === true),
-    utterance_end_ms: String(Math.max(stt.utteranceEndMs, 1000)),
-    endpointing: String(Math.max(stt.endpointing, 800)),
+    utterance_end_ms: String(utteranceEndMs),
+    endpointing: String(endpointingMs),
     encoding,
     no_delay: 'false',
     multichannel: 'false',

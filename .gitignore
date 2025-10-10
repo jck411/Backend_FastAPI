@@ -45,6 +45,7 @@ data/chat_sessions.db
 *token*.json
 google_tasks_credentials.json
 google_tasks_token.json
+credentials/
 
 # Node modules
 node_modules/

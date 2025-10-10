@@ -46,7 +46,6 @@
     return {
       ...current,
       stt: { ...current.stt },
-      conversation: { ...current.conversation },
     };
   }
 
@@ -95,20 +94,6 @@
     markDirty();
   }
 
-  function updateConversation<K extends keyof SpeechSettings['conversation']>(
-    key: K,
-    value: SpeechSettings['conversation'][K],
-  ): void {
-    draft = {
-      ...draft,
-      conversation: {
-        ...draft.conversation,
-        [key]: value,
-      },
-    };
-    markDirty();
-  }
-
   function handleNumberInput(
     event: Event,
     updater: (value: number) => void,
@@ -132,10 +117,7 @@
         ...draft.stt,
         utteranceEndMs: preset.stt.utteranceEndMs,
         endpointing: preset.stt.endpointing,
-      },
-      conversation: {
-        ...draft.conversation,
-        timeoutMs: preset.conversation.timeoutMs,
+        autoSubmitDelayMs: preset.stt.autoSubmitDelayMs,
       },
     };
     markDirty(`${preset.label} preset applied; closing will save.`, 'pending');
@@ -155,7 +137,6 @@
       draft = {
         ...saved,
         stt: { ...saved.stt },
-        conversation: { ...saved.conversation },
       };
       dirty = false;
       statusMessage = 'Saved';
@@ -201,7 +182,7 @@
       <header class="model-settings-header">
         <div class="model-settings-heading">
           <h2 id="speech-settings-title">Speech settings</h2>
-          <p class="model-settings-subtitle">Configure Deepgram speech-to-text for dictation and conversation mode.</p>
+          <p class="model-settings-subtitle">Configure Deepgram speech-to-text dictation settings.</p>
         </div>
         <div class="model-settings-actions">
           <button type="button" class="ghost small" on:click={handleReset} disabled={saving}>
@@ -216,19 +197,11 @@
       <section class="model-settings-body speech-settings-body">
         <div class="speech-card">
           <div class="speech-card-header">
-            <h3>Speech-to-text</h3>
-            <p>Applies to manual dictation and conversation mode.</p>
+            <h3>Deepgram model</h3>
+            <p>Choose the speech-to-text engine and helper features.</p>
           </div>
 
-          <div class="speech-presets" aria-label="Timing presets">
-            {#each Object.entries(SPEECH_TIMING_PRESETS) as [key, preset]}
-              <button type="button" on:click={() => applyPreset(key as SpeechTimingPresetKey)}>
-                {preset.label}
-              </button>
-            {/each}
-          </div>
-
-          <div class="speech-grid grid-2">
+          <div class="model-presets-row">
             <div class="speech-field">
               <span class="field-label">Model</span>
               <select
@@ -240,45 +213,18 @@
                 {/each}
               </select>
             </div>
-            <div class="speech-field">
-              <span class="field-label">Endpointing (ms)</span>
-              <input
-                type="number"
-                min="300"
-                max="5000"
-                step="50"
-                value={draft.stt.endpointing}
-                on:change={(event) => handleNumberInput(event, (value) => updateStt('endpointing', value))}
-              />
-              <p class="speech-hint">Silence needed before Deepgram finalizes speech.</p>
-            </div>
-            <div class="speech-field">
-              <span class="field-label">Utterance end (ms)</span>
-              <input
-                type="number"
-                min="500"
-                max="5000"
-                step="50"
-                value={draft.stt.utteranceEndMs}
-                on:change={(event) => handleNumberInput(event, (value) => updateStt('utteranceEndMs', value))}
-              />
-              <p class="speech-hint">Gap between words before Deepgram marks an utterance complete.</p>
-            </div>
-            <div class="speech-field">
-              <span class="field-label">Auto-submit</span>
-              <label class="speech-checkbox">
-                <input
-                  type="checkbox"
-                  checked={draft.stt.autoSubmit}
-                  on:change={(event) => updateStt('autoSubmit', (event.target as HTMLInputElement).checked)}
-                />
-                <span>Send message automatically when speech ends</span>
-              </label>
+            <div class="speech-field presets-field">
+              <span class="field-label">Speech timing presets</span>
+              <div class="speech-presets" aria-label="Timing presets">
+                <button type="button" on:click={() => applyPreset('fast')}>Fast</button>
+                <button type="button" on:click={() => applyPreset('normal')}>Normal</button>
+                <button type="button" on:click={() => applyPreset('slow')}>Slow</button>
+              </div>
             </div>
           </div>
 
-          <div class="speech-grid grid-2">
-            <label class="speech-checkbox">
+          <div class="toggle-grid">
+            <label class="toggle-item">
               <input
                 type="checkbox"
                 checked={draft.stt.interimResults}
@@ -286,7 +232,7 @@
               />
               <span>Interim transcripts</span>
             </label>
-            <label class="speech-checkbox">
+            <label class="toggle-item">
               <input
                 type="checkbox"
                 checked={draft.stt.vadEvents}
@@ -294,7 +240,7 @@
               />
               <span>VAD events</span>
             </label>
-            <label class="speech-checkbox">
+            <label class="toggle-item">
               <input
                 type="checkbox"
                 checked={draft.stt.smartFormat}
@@ -302,7 +248,7 @@
               />
               <span>Smart formatting</span>
             </label>
-            <label class="speech-checkbox">
+            <label class="toggle-item">
               <input
                 type="checkbox"
                 checked={draft.stt.punctuate}
@@ -310,7 +256,7 @@
               />
               <span>Punctuation</span>
             </label>
-            <label class="speech-checkbox">
+            <label class="toggle-item">
               <input
                 type="checkbox"
                 checked={draft.stt.numerals}
@@ -318,7 +264,7 @@
               />
               <span>Numerals</span>
             </label>
-            <label class="speech-checkbox">
+            <label class="toggle-item">
               <input
                 type="checkbox"
                 checked={draft.stt.fillerWords}
@@ -326,7 +272,7 @@
               />
               <span>Keep filler words</span>
             </label>
-            <label class="speech-checkbox">
+            <label class="toggle-item">
               <input
                 type="checkbox"
                 checked={draft.stt.profanityFilter}
@@ -339,21 +285,61 @@
 
         <div class="speech-card">
           <div class="speech-card-header">
-            <h3>Conversation mode</h3>
-            <p>Controls the silence timeout when the conversation mic is active.</p>
+            <h3>Timing & auto-submit</h3>
+            <p>Tune silence detection and message submission.</p>
           </div>
-          <div class="speech-grid">
+
+          <div class="timing-grid">
             <div class="speech-field">
-              <span class="field-label">Silence timeout (ms)</span>
+              <span class="field-label">Endpointing window (ms)</span>
               <input
                 type="number"
-                min="3000"
-                max="120000"
-                step="500"
-                value={draft.conversation.timeoutMs}
-                on:change={(event) => handleNumberInput(event, (value) => updateConversation('timeoutMs', value))}
+                min="300"
+                max="5000"
+                step="50"
+                value={draft.stt.endpointing}
+                on:change={(event) => handleNumberInput(event, (value) => updateStt('endpointing', value))}
               />
-              <p class="speech-hint">Listening stops after this many milliseconds of inactivity.</p>
+              <p class="speech-hint">How long Deepgram waits after silence before finalizing the transcript.</p>
+            </div>
+            <div class="speech-field">
+              <span class="field-label">Utterance gap (ms)</span>
+              <input
+                type="number"
+                min="500"
+                max="5000"
+                step="50"
+                value={draft.stt.utteranceEndMs}
+                on:change={(event) => handleNumberInput(event, (value) => updateStt('utteranceEndMs', value))}
+              />
+              <p class="speech-hint">Silence between words before Deepgram starts a new interim segment.</p>
+            </div>
+          </div>
+
+          <div class="auto-submit-block">
+            <div class="auto-submit-row">
+              <label class="inline-checkbox">
+                <input
+                  type="checkbox"
+                  checked={draft.stt.autoSubmit}
+                  on:change={(event) => updateStt('autoSubmit', (event.target as HTMLInputElement).checked)}
+                />
+                <span class="field-label">Auto-submit</span>
+              </label>
+              <p class="speech-hint">Send automatically when speech ends. Delay waits after endpointing.</p>
+            </div>
+            <div class="delay-inline">
+              <label class="delay-label" for="auto-submit-delay-input">Delay (ms)</label>
+              <input
+                id="auto-submit-delay-input"
+                type="number"
+                min="0"
+                max="20000"
+                step="50"
+                value={draft.stt.autoSubmitDelayMs}
+                disabled={!draft.stt.autoSubmit}
+                on:change={(event) => handleNumberInput(event, (value) => updateStt('autoSubmitDelayMs', value))}
+              />
             </div>
           </div>
         </div>

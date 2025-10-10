@@ -22,13 +22,13 @@ Based on Deepgram's documentation, we implement a robust approach using **both**
 - **Most reliable** when available
 - Deepgram is confident the speaker has finished
 - Takes precedence over other methods
-- Triggers immediate auto-submit
+- Triggers auto-submit (after configurable delay)
 
 ### 2. Backup Detection: `UtteranceEnd` Events
 - **Noise-resistant** fallback method
 - Based on word timing patterns, not audio levels
 - Ignores background noise (music, TV, phones)
-- Only triggers if no `speech_final=true` was received
+- Only triggers if no `speech_final=true` was received (delay still applies)
 
 ## Implementation Details
 
@@ -55,18 +55,20 @@ Path A (Preferred):
    speech_final=true received
    → Set speechFinalReceived = true
    → Clear any pending UtteranceEnd timer
-   → Trigger auto-submit immediately
+   → Schedule auto-submit after configured delay
 
 Path B (Backup):
    UtteranceEnd received + speechFinalReceived = false
    → Check: no speech_final was received for this utterance
-   → Trigger auto-submit
+   → Schedule auto-submit after configured delay
    → Set timer to reset speechFinalReceived flag
 
 Both paths:
    → Check auto_submit setting
    → Submit form if enabled
 ```
+
+> The auto-submit delay is configurable in the speech settings panel. A value of `0` retains the previous immediate submission behavior.
 
 ### Key Code Sections
 
@@ -97,7 +99,7 @@ if (speechFinal) {
     clearTimeout(utteranceEndTimer);
   }
 
-  // Trigger auto-submit immediately
+// Schedule auto-submit after the configured delay
   if (autoSubmit) {
     stopVoiceInput(autoSubmit);
   }
@@ -110,12 +112,29 @@ if (speechFinal) {
 The auto-submit behavior is controlled by the Speech Settings panel:
 
 - **Auto-submit on speech end**: Enable/Disable
+- **Auto-submit delay**: Milliseconds to wait before submitting when auto-submit is enabled
 - **Provider**: Deepgram (configured for optimal detection)
 - **Model**: nova-3 (recommended for accuracy)
 - **Interim results**: Enabled (for real-time feedback)
 - **VAD events**: Enabled (for SpeechStarted detection)
 - **Utterance end**: 1000ms (timing for UtteranceEnd)
 - **Endpointing**: 1000ms (timing for speech_final)
+
+#### Other Deepgram Parameters
+- **Language & tier** (`language`, `tier`): default to Deepgram’s auto values. Expose these if you need non-English transcripts or premium tiers.
+- **Diarization** (`diarize`), **paragraphs**, **topics**, **summaries**, **sentiment**, **redaction**: Advanced analytics features not used in the chat UI today.
+- **Search & replace** (`search`, `replace`), **keywords**, **detect_language**: Useful for vertical-specific use cases; currently omitted to keep the interface focused on dictation.
+- **Channel options** (`multichannel`, `channel_count`): Hard-coded to the single-channel microphone flow.
+
+**Recommended next candidates to surface in the UI**
+- `keywords`: highlight domain-specific terms in interim output; low overhead when the vocabulary is tight.
+- `summaries` / `topics`: can auto-generate high-level recaps for meeting-style dictation; good to expose as a post-processing toggle paired with higher-tier models.
+- `redaction`: helpful when transcripts may contain PII; worth exposing if compliance is a concern.
+- `diarize`: separates speakers when using multi-mic inputs or uploaded recordings; less relevant for single-speaker dictation but valuable if we later support call transcripts.
+
+These options require verifying the Deepgram project’s plan supports them and, in some cases, coordinating backend changes to persist extra metadata.
+
+Additions should be coordinated with the backend token request so the selected options are allowed in Deepgram projects and pricing plans.
 
 ### Deepgram Parameters
 ```javascript
@@ -132,9 +151,14 @@ const params = new URLSearchParams({
 
 ## Event Types from Deepgram
 
+### Endpointing vs Utterance vs Auto-Submit
+
+- **Endpointing window (`endpointing`)** – Deepgram waits this many milliseconds of silence before it finalizes the *current* stream and emits a `speech_final` result. Shorter values produce faster final transcripts but can misfire in noisy rooms.
+- **Utterance gap (`utterance_end_ms`)** – Controls how Deepgram chunks interim transcripts. When silence exceeds this gap it starts a new interim "utterance" while continuing to listen.
+- **Auto-submit delay** – Our client-side buffer that waits after Deepgram finalizes before sending the message. This gives the user time to cancel or append text after endpointing has triggered.
+
 ### 1. SpeechStarted
 - Indicates user began speaking
-- Resets conversation mode timeout (if enabled)
 - No auto-submit action
 
 ### 2. Results (Interim)
@@ -150,12 +174,12 @@ const params = new URLSearchParams({
 ### 4. Results (Speech Final)
 - `is_final: true, speech_final: true`
 - **Definitive end-of-speech detection**
-- **Triggers auto-submit** (primary method)
+- **Triggers auto-submit** (primary method, respects configurable delay)
 
 ### 5. UtteranceEnd
 - Separate event type (not in Results)
 - **Backup end-of-speech detection**
-- **Triggers auto-submit** only if no speech_final was received
+- **Triggers auto-submit** only if no speech_final was received (after configurable delay)
 
 ## Noise Resilience Features
 

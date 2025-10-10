@@ -13,10 +13,7 @@
   import {
     speechState,
     startDictation,
-    startConversationMode,
     clearPendingSubmit,
-    notifyAssistantStreamingStarted,
-    notifyAssistantStreamingFinished,
     stopSpeech,
   } from './lib/speech/speechController';
   import { fetchGenerationDetails } from './lib/api/client';
@@ -52,7 +49,6 @@
   let systemSettingsOpen = false;
   let speechSettingsOpen = false;
   let lastSpeechPromptVersion = 0;
-  let lastStreaming = false;
   let generationModalLoading = false;
   let generationModalError: string | null = null;
   let generationModalData: GenerationDetails | null = null;
@@ -96,10 +92,6 @@
 
   function handleStartDictation(): void {
     void startDictation();
-  }
-
-  function handleStartConversationMode(): void {
-    void startConversationMode();
   }
 
   function handleExplorerSelect(event: CustomEvent<{ id: string }>): void {
@@ -220,15 +212,6 @@
     }
   }
 
-  $: if ($chatStore.isStreaming !== lastStreaming) {
-    if ($chatStore.isStreaming) {
-      notifyAssistantStreamingStarted();
-    } else {
-      void notifyAssistantStreamingFinished();
-    }
-    lastStreaming = $chatStore.isStreaming;
-  }
-
   $: if (editingMessageId) {
     stopSpeech();
   }
@@ -285,7 +268,6 @@
       on:submit={(event) => sendMessage(event.detail)}
       on:cancel={cancelStream}
       on:startDictation={handleStartDictation}
-      on:startConversationMode={handleStartConversationMode}
     />
   {/if}
 

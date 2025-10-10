@@ -23,7 +23,6 @@
     submit: { text: string; attachments: AttachmentResource[] };
     cancel: void;
     startDictation: void;
-    startConversationMode: void;
   }>();
 
   const ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
@@ -88,20 +87,8 @@
     dispatch('startDictation');
   }
 
-  function handleConversationClick(): void {
-    const conversationActive = $speechState.conversationActive;
-    if (isStreaming && !conversationActive) {
-      return;
-    }
-    if ($speechState.connecting && !$speechState.recording && !conversationActive) {
-      return;
-    }
-    dispatch('startConversationMode');
-  }
-
   $: dictationActive =
     $speechState.mode === 'dictation' && ($speechState.recording || $speechState.connecting);
-  $: conversationActive = $speechState.conversationActive;
   $: speechBusy = $speechState.connecting && !$speechState.recording;
   $: speechError = $speechState.error;
 
@@ -307,32 +294,6 @@
               stroke="currentColor"
               stroke-width="1.5"
               stroke-linecap="round"
-            />
-          </svg>
-        </button>
-        <button
-          type="button"
-          class="icon-button"
-          aria-label="Start conversation mode"
-          title="Start conversation mode"
-          on:click={handleConversationClick}
-          disabled={(isStreaming && !conversationActive) || (speechBusy && !conversationActive)}
-          aria-pressed={conversationActive ? 'true' : 'false'}
-          data-active={conversationActive ? 'true' : 'false'}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 18 18"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d="M4 9v-1.5M7 12V6M11 12V6M14 9v-1.5"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
             />
           </svg>
         </button>

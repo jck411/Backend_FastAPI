@@ -10,6 +10,7 @@ export interface SpeechSttSettings {
   utteranceEndMs: number;
   endpointing: number;
   autoSubmit: boolean;
+  autoSubmitDelayMs: number;
   smartFormat: boolean;
   punctuate: boolean;
   numerals: boolean;
@@ -17,13 +18,8 @@ export interface SpeechSttSettings {
   profanityFilter: boolean;
 }
 
-export interface SpeechConversationSettings {
-  timeoutMs: number;
-}
-
 export interface SpeechSettings {
   stt: SpeechSttSettings;
-  conversation: SpeechConversationSettings;
   updatedAt: string | null;
 }
 
@@ -31,8 +27,7 @@ export type SpeechTimingPresetKey = 'fast' | 'normal' | 'slow';
 
 export interface SpeechTimingPreset {
   label: string;
-  stt: Pick<SpeechSttSettings, 'utteranceEndMs' | 'endpointing'>;
-  conversation: Pick<SpeechConversationSettings, 'timeoutMs'>;
+  stt: Pick<SpeechSttSettings, 'utteranceEndMs' | 'endpointing' | 'autoSubmitDelayMs'>;
 }
 
 export const SPEECH_TIMING_PRESETS: Record<SpeechTimingPresetKey, SpeechTimingPreset> = {
@@ -41,9 +36,7 @@ export const SPEECH_TIMING_PRESETS: Record<SpeechTimingPresetKey, SpeechTimingPr
     stt: {
       utteranceEndMs: 1000,
       endpointing: 800,
-    },
-    conversation: {
-      timeoutMs: 5000,
+      autoSubmitDelayMs: 100,
     },
   },
   normal: {
@@ -51,9 +44,7 @@ export const SPEECH_TIMING_PRESETS: Record<SpeechTimingPresetKey, SpeechTimingPr
     stt: {
       utteranceEndMs: 1500,
       endpointing: 1200,
-    },
-    conversation: {
-      timeoutMs: 6000,
+      autoSubmitDelayMs: 400,
     },
   },
   slow: {
@@ -61,9 +52,7 @@ export const SPEECH_TIMING_PRESETS: Record<SpeechTimingPresetKey, SpeechTimingPr
     stt: {
       utteranceEndMs: 2500,
       endpointing: 2000,
-    },
-    conversation: {
-      timeoutMs: 8000,
+      autoSubmitDelayMs: 800,
     },
   },
 };
@@ -84,14 +73,12 @@ const DEFAULT_SPEECH_SETTINGS: SpeechSettings = {
     utteranceEndMs: 1500,
     endpointing: 1200,
     autoSubmit: true,
+    autoSubmitDelayMs: 0,
     smartFormat: true,
     punctuate: true,
     numerals: true,
     fillerWords: false,
     profanityFilter: false,
-  },
-  conversation: {
-    timeoutMs: 6000,
   },
   updatedAt: null,
 };
@@ -129,7 +116,6 @@ function sanitizeSpeechSettings(input: unknown): SpeechSettings {
   const defaults = getDefaultSpeechSettings();
   const result: SpeechSettings = {
     stt: { ...defaults.stt },
-    conversation: { ...defaults.conversation },
     updatedAt: defaults.updatedAt,
   };
 
@@ -165,6 +151,10 @@ function sanitizeSpeechSettings(input: unknown): SpeechSettings {
     }
 
     result.stt.autoSubmit = toBoolean(stt.autoSubmit ?? stt['auto_submit'], defaults.stt.autoSubmit);
+    const autoSubmitDelay = readNumber(stt.autoSubmitDelayMs ?? stt['auto_submit_delay_ms']);
+    if (autoSubmitDelay !== null) {
+      result.stt.autoSubmitDelayMs = clampNumber(autoSubmitDelay, 0, 20000);
+    }
     result.stt.smartFormat = toBoolean(stt.smartFormat ?? stt['smart_format'], defaults.stt.smartFormat);
     result.stt.punctuate = toBoolean(stt.punctuate, defaults.stt.punctuate);
     result.stt.numerals = toBoolean(stt.numerals, defaults.stt.numerals);
@@ -173,15 +163,6 @@ function sanitizeSpeechSettings(input: unknown): SpeechSettings {
       stt.profanityFilter ?? stt['profanity_filter'],
       defaults.stt.profanityFilter,
     );
-  }
-
-  const conversationRaw = data.conversation ?? data['conversation'];
-  if (conversationRaw && typeof conversationRaw === 'object') {
-    const conversation = conversationRaw as Record<string, unknown>;
-    const timeout = readNumber(conversation.timeoutMs ?? conversation['timeout_ms']);
-    if (timeout !== null) {
-      result.conversation.timeoutMs = clampNumber(timeout, 3000, 120000);
-    }
   }
 
   const updatedAtRaw = data.updatedAt ?? data['updated_at'];
@@ -227,7 +208,6 @@ function createSpeechSettingsStore() {
     const withTimestamp: SpeechSettings = {
       ...sanitized,
       stt: { ...sanitized.stt },
-      conversation: { ...sanitized.conversation },
       updatedAt: new Date().toISOString(),
     };
     store.set(withTimestamp);
@@ -240,15 +220,11 @@ function createSpeechSettingsStore() {
     const merged: SpeechSettings = {
       ...current,
       stt: { ...current.stt },
-      conversation: { ...current.conversation },
       updatedAt: current.updatedAt,
     };
 
     if (partial.stt) {
       merged.stt = { ...merged.stt, ...partial.stt };
-    }
-    if (partial.conversation) {
-      merged.conversation = { ...merged.conversation, ...partial.conversation };
     }
     if (partial.updatedAt !== undefined) {
       merged.updatedAt = partial.updatedAt;

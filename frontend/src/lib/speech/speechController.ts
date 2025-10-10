@@ -2,7 +2,7 @@ import { get, writable } from 'svelte/store';
 import { requestDeepgramToken } from '../api/client';
 import { speechSettingsStore } from '../stores/speechSettings';
 
-type SpeechMode = 'idle' | 'dictation' | 'conversation';
+type SpeechMode = 'idle' | 'dictation';
 
 interface PendingSubmit {
   text: string;
@@ -13,9 +13,6 @@ interface SpeechStoreState {
   recording: boolean;
   connecting: boolean;
   error: string | null;
-  conversationActive: boolean;
-  awaitingReply: boolean;
-  countdownSeconds: number | null;
   promptText: string;
   promptVersion: number;
   keepPromptSynced: boolean;
@@ -27,9 +24,6 @@ const initialState: SpeechStoreState = {
   recording: false,
   connecting: false,
   error: null,
-  conversationActive: false,
-  awaitingReply: false,
-  countdownSeconds: null,
   promptText: '',
   promptVersion: 0,
   keepPromptSynced: false,
@@ -47,8 +41,16 @@ let accumulatedTranscript = '';
 let lastInterim = '';
 let speechFinalReceived = false;
 let utteranceEndTimer: ReturnType<typeof setTimeout> | null = null;
-let listeningTimeoutId: ReturnType<typeof setTimeout> | null = null;
-let countdownIntervalId: ReturnType<typeof setInterval> | null = null;
+let autoSubmitTimer: ReturnType<typeof setTimeout> | null = null;
+let autoSubmitSequence = 0;
+
+function clearAutoSubmitTimer(): void {
+  if (autoSubmitTimer) {
+    clearTimeout(autoSubmitTimer);
+    autoSubmitTimer = null;
+  }
+  autoSubmitSequence++;
+}
 
 function updatePrompt(text: string, keepSynced: boolean): void {
   state.update((value) => ({
@@ -70,48 +72,6 @@ function clearUtteranceTimer(): void {
     clearTimeout(utteranceEndTimer);
     utteranceEndTimer = null;
   }
-}
-
-function clearListeningTimeout(): void {
-  if (listeningTimeoutId) {
-    clearTimeout(listeningTimeoutId);
-    listeningTimeoutId = null;
-  }
-  if (countdownIntervalId) {
-    clearInterval(countdownIntervalId);
-    countdownIntervalId = null;
-  }
-  state.update((value) => ({ ...value, countdownSeconds: null }));
-}
-
-function scheduleConversationTimeout(timeoutMs: number): void {
-  clearListeningTimeout();
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
-    return;
-  }
-
-  state.update((value) => ({ ...value, countdownSeconds: Math.ceil(timeoutMs / 1000) }));
-
-  listeningTimeoutId = setTimeout(() => {
-    listeningTimeoutId = null;
-    handleConversationTimeout();
-  }, timeoutMs);
-
-  countdownIntervalId = setInterval(() => {
-    state.update((value) => {
-      if (value.countdownSeconds === null) {
-        return value;
-      }
-      const next = Math.max(value.countdownSeconds - 1, 0);
-      return { ...value, countdownSeconds: next };
-    });
-  }, 1000);
-}
-
-function resetConversationTimeout(): void {
-  const settings = speechSettingsStore.current;
-  const timeoutMs = settings?.conversation.timeoutMs ?? 6000;
-  scheduleConversationTimeout(timeoutMs);
 }
 
 function ensureSocketClosed(): void {
@@ -147,15 +107,12 @@ function ensureMediaStopped(): void {
 
 interface StopOptions {
   submitText?: string | null;
-  deactivateConversation?: boolean;
-  resetAwaitingReply?: boolean;
 }
 
 function stopListening(options: StopOptions = {}): void {
   ensureMediaStopped();
   ensureSocketClosed();
   clearUtteranceTimer();
-  clearListeningTimeout();
 
   state.update((value) => ({
     ...value,
@@ -163,22 +120,8 @@ function stopListening(options: StopOptions = {}): void {
     connecting: false,
     keepPromptSynced: false,
     pendingSubmit: options.submitText ? { text: options.submitText } : null,
-    conversationActive: options.deactivateConversation ? false : value.conversationActive,
-    awaitingReply: options.resetAwaitingReply ? false : value.awaitingReply,
-    mode: value.conversationActive && !options.deactivateConversation ? 'conversation' : 'idle',
+    mode: 'idle',
   }));
-}
-
-function handleConversationTimeout(): void {
-  const settings = speechSettingsStore.current;
-  const autoSubmit = settings?.stt.autoSubmit ?? true;
-  const text = accumulatedTranscript.trim() || lastInterim.trim();
-
-  if (text && autoSubmit) {
-    stopListening({ submitText: text });
-  } else {
-    stopListening({ deactivateConversation: true, resetAwaitingReply: true });
-  }
 }
 
 function setError(message: string): void {
@@ -188,8 +131,6 @@ function setError(message: string): void {
     recording: false,
     connecting: false,
     keepPromptSynced: false,
-    conversationActive: false,
-    awaitingReply: false,
     mode: 'idle',
   }));
 }
@@ -198,6 +139,9 @@ function handleSpeechEnd(finalText: string): void {
   const trimmed = finalText.trim();
   const settings = speechSettingsStore.current;
   const autoSubmit = settings?.stt.autoSubmit ?? true;
+  const autoSubmitDelay = Math.max(settings?.stt.autoSubmitDelayMs ?? 0, 0);
+
+  clearAutoSubmitTimer();
 
   if (!trimmed) {
     stopListening({ submitText: null });
@@ -205,7 +149,23 @@ function handleSpeechEnd(finalText: string): void {
   }
 
   if (autoSubmit) {
-    stopListening({ submitText: trimmed });
+    if (autoSubmitDelay <= 0) {
+      stopListening({ submitText: trimmed });
+      return;
+    }
+
+    stopListening();
+    updatePrompt(trimmed, false);
+    const token = ++autoSubmitSequence;
+    autoSubmitTimer = setTimeout(() => {
+      if (token !== autoSubmitSequence) {
+        return;
+      }
+      state.update((value) => ({
+        ...value,
+        pendingSubmit: { text: trimmed },
+      }));
+    }, autoSubmitDelay);
   } else {
     stopListening();
     updatePrompt(trimmed, false);
@@ -217,6 +177,7 @@ async function startListening(mode: SpeechMode): Promise<void> {
   if (current.connecting || current.recording) {
     stopListening();
   }
+  clearAutoSubmitTimer();
 
   const settings = speechSettingsStore.current;
   if (!settings) {
@@ -236,8 +197,6 @@ async function startListening(mode: SpeechMode): Promise<void> {
     error: null,
     keepPromptSynced: true,
     pendingSubmit: null,
-    conversationActive: mode === 'conversation' ? true : current.conversationActive,
-    awaitingReply: mode === 'conversation' ? false : current.awaitingReply,
   });
 
   let token: string;
@@ -251,7 +210,7 @@ async function startListening(mode: SpeechMode): Promise<void> {
     if (sessionId !== currentSession) {
       return;
     }
-    stopListening({ deactivateConversation: true, resetAwaitingReply: true });
+    stopListening();
     const message = error instanceof Error ? error.message : 'Failed to get Deepgram token';
     setError(message);
     return;
@@ -264,7 +223,7 @@ async function startListening(mode: SpeechMode): Promise<void> {
     if (sessionId !== currentSession) {
       return;
     }
-    stopListening({ deactivateConversation: true, resetAwaitingReply: true });
+    stopListening();
     const message = error instanceof Error ? error.message : 'Microphone access denied';
     setError(message);
     return;
@@ -320,10 +279,6 @@ async function startListening(mode: SpeechMode): Promise<void> {
       error: null,
       keepPromptSynced: true,
     }));
-
-    if (mode === 'conversation') {
-      resetConversationTimeout();
-    }
 
     try {
       mediaRecorder = new MediaRecorder(stream, selectedMime ? { mimeType: selectedMime } : undefined);
@@ -390,10 +345,7 @@ async function startListening(mode: SpeechMode): Promise<void> {
       return;
     }
     ensureMediaStopped();
-    clearListeningTimeout();
-    if (mode !== 'conversation') {
-      state.update((value) => ({ ...value, recording: false, connecting: false, keepPromptSynced: false }));
-    }
+    state.update((value) => ({ ...value, recording: false, connecting: false, keepPromptSynced: false }));
   });
 }
 
@@ -436,9 +388,6 @@ function handleDeepgramMessage(raw: Record<string, unknown>, mode: SpeechMode, s
       : transcript;
     lastInterim = interimCombined;
     updatePrompt(interimCombined, true);
-    if (mode === 'conversation') {
-      resetConversationTimeout();
-    }
   }
 
   const isFinal = message.is_final === true;
@@ -458,6 +407,7 @@ function handleDeepgramMessage(raw: Record<string, unknown>, mode: SpeechMode, s
 }
 
 export async function startDictation(): Promise<void> {
+  clearAutoSubmitTimer();
   const current = get(state);
   const activeDictation = current.mode === 'dictation' && (current.recording || current.connecting);
   if (activeDictation) {
@@ -466,26 +416,14 @@ export async function startDictation(): Promise<void> {
     return;
   }
 
-  state.update((value) => ({ ...value, mode: 'dictation', conversationActive: false, awaitingReply: false }));
+  state.update((value) => ({ ...value, mode: 'dictation' }));
   await startListening('dictation');
 }
 
-export async function startConversationMode(): Promise<void> {
-  const current = get(state);
-  const active = current.conversationActive;
-  if (active) {
-    stopListening({ deactivateConversation: true, resetAwaitingReply: true });
-    state.update((value) => ({ ...value, mode: 'idle', conversationActive: false, awaitingReply: false }));
-    return;
-  }
-
-  state.update((value) => ({ ...value, conversationActive: true, awaitingReply: false }));
-  await startListening('conversation');
-}
-
 export function stopSpeech(): void {
-  stopListening({ deactivateConversation: true, resetAwaitingReply: true });
-  state.update((value) => ({ ...value, mode: 'idle', conversationActive: false, awaitingReply: false }));
+  clearAutoSubmitTimer();
+  stopListening();
+  state.update((value) => ({ ...value, mode: 'idle' }));
 }
 
 export function clearPendingSubmit(): PendingSubmit | null {
@@ -496,21 +434,6 @@ export function clearPendingSubmit(): PendingSubmit | null {
   const submission = current.pendingSubmit;
   state.update((value) => ({ ...value, pendingSubmit: null }));
   return submission;
-}
-
-export function notifyAssistantStreamingStarted(): void {
-  state.update((value) => ({ ...value, awaitingReply: true }));
-}
-
-export async function notifyAssistantStreamingFinished(): Promise<void> {
-  const current = get(state);
-  if (!current.conversationActive || current.recording || current.connecting) {
-    state.update((value) => ({ ...value, awaitingReply: false }));
-    return;
-  }
-
-  state.update((value) => ({ ...value, awaitingReply: false }));
-  await startListening('conversation');
 }
 
 export const speechState = { subscribe: state.subscribe };

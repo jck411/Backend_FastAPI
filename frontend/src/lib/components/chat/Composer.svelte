@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy } from 'svelte';
+  import { Send } from 'lucide-svelte';
   import { uploadAttachment } from '../../api/client';
   import type { AttachmentResource } from '../../api/types';
   import { chatStore } from '../../stores/chat';
@@ -314,19 +315,7 @@
           disabled={sendDisabled}
         >
           <span class="send-label">Send</span>
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 18 18"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
-          >
-            <path
-              d="m3.75 8.598 10.107-4.233a.3.3 0 0 1 .392.392L10.016 14.86a.3.3 0 0 1-.56-.03l-1.06-3.55a.3.3 0 0 1 .079-.3l2.302-2.303a.12.12 0 0 0-.085-.205l-3.29.042a.3.3 0 0 1-.29-.212l-.99-3.35a.3.3 0 0 1 .29-.384Z"
-              fill="currentColor"
-            />
-          </svg>
+          <Send size={16} aria-hidden="true" stroke-width={2} />
         </button>
       </div>
     </div>
@@ -516,10 +505,6 @@
     opacity: 0.7;
     background: rgba(60, 99, 200, 0.5);
     color: rgba(218, 222, 238, 0.9);
-  }
-  .send-button svg {
-    width: 1rem;
-    height: 1rem;
   }
   .stop-inline {
     display: inline-flex;

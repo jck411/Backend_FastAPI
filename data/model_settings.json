@@ -1,5 +1,5 @@
 {
-  "model": "openrouter/auto",
+  "model": "google/gemma-2-9b-it:free",
   "system_prompt": "You are a helpful but funny assistant",
-  "updated_at": "2025-10-10T01:39:17.838336+00:00"
+  "updated_at": "2025-10-10T03:17:55.522727+00:00"
 }

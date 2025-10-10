@@ -33,6 +33,13 @@
   let composerError: string | null = null;
   let fileInput: HTMLInputElement | null = null;
 
+  $: trimmedPrompt = prompt.trim();
+  $: hasUploading = attachments.some((item) => item.status === 'uploading');
+  $: hasErrored = attachments.some((item) => item.status === 'error');
+  $: hasReadyAttachments = attachments.some((item) => item.status === 'ready');
+  $: sendDisabled =
+    isStreaming || hasUploading || hasErrored || (!trimmedPrompt && !hasReadyAttachments);
+
   function createLocalId(): string {
     if (globalThis.crypto?.randomUUID) {
       return `attachment_${globalThis.crypto.randomUUID().replace(/-/g, '')}`;
@@ -41,6 +48,9 @@
   }
 
   function handleSubmit(): void {
+    if (isStreaming) {
+      return;
+    }
     const trimmed = prompt.trim();
     const hasUploading = attachments.some((item) => item.status === 'uploading');
     if (hasUploading) {
@@ -297,6 +307,27 @@
             />
           </svg>
         </button>
+        <button
+          type="submit"
+          class="send-button"
+          title="Send message"
+          disabled={sendDisabled}
+        >
+          <span class="send-label">Send</span>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 18 18"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="m3.75 8.598 10.107-4.233a.3.3 0 0 1 .392.392L10.016 14.86a.3.3 0 0 1-.56-.03l-1.06-3.55a.3.3 0 0 1 .079-.3l2.302-2.303a.12.12 0 0 0-.085-.205l-3.29.042a.3.3 0 0 1-.29-.212l-.99-3.35a.3.3 0 0 1 .29-.384Z"
+              fill="currentColor"
+            />
+          </svg>
+        </button>
       </div>
     </div>
   </div>
@@ -452,6 +483,43 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+  }
+  .send-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    height: 2.25rem;
+    padding: 0 1.15rem;
+    border-radius: 999px;
+    border: none;
+    background: rgba(60, 99, 200, 0.85);
+    color: #f3f5ff;
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 0.01em;
+    cursor: pointer;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease;
+  }
+  .send-button .send-label {
+    line-height: 1;
+  }
+  .send-button:hover,
+  .send-button:focus-visible {
+    background: rgba(86, 132, 232, 0.95);
+    outline: none;
+  }
+  .send-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.7;
+    background: rgba(60, 99, 200, 0.5);
+    color: rgba(218, 222, 238, 0.9);
+  }
+  .send-button svg {
+    width: 1rem;
+    height: 1rem;
   }
   .stop-inline {
     display: inline-flex;

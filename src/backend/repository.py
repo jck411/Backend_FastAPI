@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Iterable
 
 import aiosqlite
@@ -98,15 +98,18 @@ class ChatRepository:
                 payload TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             );
+
+            -- Performance indexes
+            CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
+            CREATE INDEX IF NOT EXISTS idx_messages_client_message_id ON messages(client_message_id);
+            CREATE INDEX IF NOT EXISTS idx_messages_parent_client_message_id ON messages(parent_client_message_id);
+            CREATE INDEX IF NOT EXISTS idx_attachments_session_id ON attachments(session_id);
+            CREATE INDEX IF NOT EXISTS idx_attachments_last_used_at ON attachments(last_used_at);
             """
         )
         await self._connection.commit()
-        await self._ensure_column(
-            "messages", "client_message_id", "TEXT"
-        )
-        await self._ensure_column(
-            "messages", "parent_client_message_id", "TEXT"
-        )
+        await self._ensure_column("messages", "client_message_id", "TEXT")
+        await self._ensure_column("messages", "parent_client_message_id", "TEXT")
 
     async def _ensure_column(self, table: str, column: str, definition: str) -> None:
         """Ensure a column exists on a table, adding it if necessary."""
@@ -154,7 +157,9 @@ class ChatRepository:
         """Remove all messages and events for the given session."""
 
         assert self._connection is not None
-        await self._connection.execute("DELETE FROM conversations WHERE session_id = ?", (session_id,))
+        await self._connection.execute(
+            "DELETE FROM conversations WHERE session_id = ?", (session_id,)
+        )
         await self._connection.commit()
 
     async def add_message(
@@ -209,6 +214,8 @@ class ChatRepository:
             inserted_id = cursor.lastrowid
         finally:
             await cursor.close()
+        if inserted_id is None:  # pragma: no cover - defensive
+            raise RuntimeError("Insert failed: lastrowid is None")
         return int(inserted_id)
 
     async def get_messages(self, session_id: str) -> list[MessageRecord]:
@@ -315,7 +322,9 @@ class ChatRepository:
         assert self._connection is not None
         metadata_json = json.dumps(metadata) if metadata else None
         expires_value = (
-            expires_at.isoformat(timespec="seconds") if isinstance(expires_at, datetime) else None
+            expires_at.isoformat(timespec="seconds")
+            if isinstance(expires_at, datetime)
+            else None
         )
         await self._connection.execute(
             """

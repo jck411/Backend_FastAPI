@@ -5,6 +5,7 @@ import type {
   ChatCompletionRequest,
   ChatMessageContent,
 } from '../api/types';
+import { buildChatContent, normalizeMessageContent } from '../chat/content';
 import {
   mergeReasoningSegments,
   type ReasoningSegment,
@@ -12,10 +13,10 @@ import {
   reasoningTextLength,
   toReasoningSegments,
 } from '../chat/reasoning';
-import { buildChatContent, normalizeMessageContent } from '../chat/content';
 import { startChatStream } from '../chat/streaming';
 import type { WebSearchSettings } from '../chat/webSearch';
 import { webSearchStore } from '../chat/webSearchStore';
+import { modelSettingsStore } from './modelSettings';
 
 export type ConversationRole = 'user' | 'assistant' | 'system' | 'tool';
 
@@ -267,7 +268,7 @@ function createChatStore() {
               if (hasIncomingReasoning) {
                 reasoning =
                   reasoningTextLength(nextReasoningSegments) >=
-                  reasoningTextLength(existingDetails.reasoning)
+                    reasoningTextLength(existingDetails.reasoning)
                     ? nextReasoningSegments
                     : existingDetails.reasoning ?? nextReasoningSegments;
               }
@@ -403,11 +404,11 @@ function createChatStore() {
               }
               const details = message.details
                 ? {
-                    ...message.details,
-                    reasoningStatus: message.details.reasoning
-                      ? 'complete'
-                      : message.details.reasoningStatus ?? null,
-                  }
+                  ...message.details,
+                  reasoningStatus: message.details.reasoning
+                    ? 'complete'
+                    : message.details.reasoningStatus ?? null,
+                }
                 : undefined;
               return {
                 ...message,
@@ -688,7 +689,16 @@ function createChatStore() {
   }
 
   function setModel(model: string): void {
+    // Update the UI-selected model immediately
     store.update((value) => ({ ...value, selectedModel: model }));
+    // Persist selection to backend active model settings so presets capture the correct model
+    try {
+      modelSettingsStore.clearErrors();
+      // load() will update backend to selectedModel if it differs
+      void modelSettingsStore.load(model);
+    } catch {
+      // no-op
+    }
   }
 
   function ensureSessionId(): string {

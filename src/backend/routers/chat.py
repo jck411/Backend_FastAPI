@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api", tags=["chat"])
 _MODELS_CACHE_TTL_SECONDS = 60
 _models_cache: dict[str, Any] | None = None
 _models_cache_expiry: float = 0.0
-_models_cache_lock: asyncio.Lock | None = None
+_models_cache_lock: asyncio.Lock = asyncio.Lock()
 
 
 def get_openrouter_client(
@@ -71,7 +71,9 @@ async def clear_chat_session(
     return Response(status_code=204)
 
 
-@router.delete("/chat/session/{session_id}/messages/{client_message_id}", status_code=204)
+@router.delete(
+    "/chat/session/{session_id}/messages/{client_message_id}", status_code=204
+)
 async def delete_chat_message(
     session_id: str,
     client_message_id: str,
@@ -120,9 +122,6 @@ async def _get_models_payload(client: OpenRouterClient) -> dict[str, Any]:
     now = time.monotonic()
     if _models_cache is not None and now < _models_cache_expiry:
         return _models_cache
-
-    if _models_cache_lock is None:
-        _models_cache_lock = asyncio.Lock()
 
     async with _models_cache_lock:
         if _models_cache is not None and now < _models_cache_expiry:

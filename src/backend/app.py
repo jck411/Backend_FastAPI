@@ -13,21 +13,31 @@ from .chat import ChatOrchestrator
 from .config import get_settings
 from .routers.chat import router as chat_router
 from .routers.mcp_servers import router as mcp_router
+from .routers.presets import router as presets_router
 from .routers.settings import router as settings_router
 from .routers.stt import router as stt_router
 from .routers.uploads import router as uploads_router
 from .services.attachments import AttachmentService
 from .services.mcp_server_settings import MCPServerSettingsService
 from .services.model_settings import ModelSettingsService
+from .services.presets import PresetService
 
 
 def create_app() -> FastAPI:
     settings = get_settings()
 
     project_root = Path(__file__).resolve().parent.parent.parent
-    model_settings_path = settings.model_settings_path
-    if not model_settings_path.is_absolute():
-        model_settings_path = project_root / model_settings_path
+
+    def _resolve_under(base: Path, p: Path) -> Path:
+        # Allow absolute paths as-is (useful for tests and external mounts).
+        if p.is_absolute():
+            return p.resolve()
+        resolved = (base / p).resolve()
+        if not resolved.is_relative_to(base):
+            raise ValueError(f"Configured path {resolved} escapes project root {base}")
+        return resolved
+
+    model_settings_path = _resolve_under(project_root, settings.model_settings_path)
 
     model_settings_service = ModelSettingsService(
         model_settings_path,
@@ -35,9 +45,7 @@ def create_app() -> FastAPI:
         default_system_prompt=settings.openrouter_system_prompt,
     )
 
-    mcp_servers_path = settings.mcp_servers_path
-    if not mcp_servers_path.is_absolute():
-        mcp_servers_path = project_root / mcp_servers_path
+    mcp_servers_path = _resolve_under(project_root, settings.mcp_servers_path)
 
     default_mcp_servers = [
         {
@@ -56,15 +64,21 @@ def create_app() -> FastAPI:
         fallback=default_mcp_servers,
     )
 
+    presets_path = _resolve_under(project_root, settings.presets_path)
+
+    preset_service = PresetService(
+        presets_path,
+        model_settings_service,
+        mcp_settings_service,
+    )
+
     orchestrator = ChatOrchestrator(
         settings,
         model_settings_service,
         mcp_settings_service,
     )
 
-    attachments_dir = settings.attachments_dir
-    if not attachments_dir.is_absolute():
-        attachments_dir = project_root / attachments_dir
+    attachments_dir = _resolve_under(project_root, settings.attachments_dir)
 
     attachment_service = AttachmentService(
         orchestrator.repository,
@@ -96,18 +110,20 @@ def create_app() -> FastAPI:
     app.state.model_settings_service = model_settings_service
     app.state.chat_orchestrator = orchestrator
     app.state.mcp_server_settings_service = mcp_settings_service
+    app.state.preset_service = preset_service
     app.state.attachment_service = attachment_service
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     app.include_router(chat_router)
     app.include_router(settings_router)
+    app.include_router(presets_router)
     app.include_router(mcp_router)
     app.include_router(stt_router)
     app.include_router(uploads_router)

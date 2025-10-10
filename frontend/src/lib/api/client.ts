@@ -1,20 +1,25 @@
 import { resolveApiPath } from './config';
 import { parseSsePayload } from './sse';
 import type {
+  ActiveModelSettingsPayload,
+  ActiveModelSettingsResponse,
+  AttachmentUploadResponse,
   ChatCompletionChunk,
   ChatCompletionRequest,
   DeepgramTokenResponse,
   GenerationDetailsResponse,
-  ActiveModelSettingsPayload,
-  ActiveModelSettingsResponse,
-  ModelListResponse,
-  SystemPromptPayload,
-  SystemPromptResponse,
+  McpServersCollectionPayload,
   McpServersResponse,
   McpServerUpdatePayload,
-  McpServersCollectionPayload,
+  ModelListResponse,
+  PresetConfig,
+  PresetCreatePayload,
+  // Presets
+  PresetListItem,
+  PresetSaveSnapshotPayload,
   SseEvent,
-  AttachmentUploadResponse,
+  SystemPromptPayload,
+  SystemPromptResponse,
 } from './types';
 
 class ApiError extends Error {
@@ -313,6 +318,50 @@ export async function streamChat(
   } finally {
     reader.releaseLock();
   }
+}
+
+/* Preset API */
+
+export async function fetchPresets(): Promise<PresetListItem[]> {
+  return requestJson<PresetListItem[]>(resolveApiPath('/api/presets/'));
+}
+
+export async function fetchPreset(name: string): Promise<PresetConfig> {
+  const path = `/api/presets/${encodeURIComponent(name)}`;
+  return requestJson<PresetConfig>(resolveApiPath(path));
+}
+
+export async function createPreset(payload: PresetCreatePayload): Promise<PresetConfig> {
+  return requestJson<PresetConfig>(resolveApiPath('/api/presets/'), {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function savePresetSnapshot(
+  name: string,
+  payload?: PresetSaveSnapshotPayload | null,
+): Promise<PresetConfig> {
+  const path = `/api/presets/${encodeURIComponent(name)}`;
+  return requestJson<PresetConfig>(resolveApiPath(path), {
+    method: 'PUT',
+    body: JSON.stringify(payload ?? {}),
+  });
+}
+
+export async function deletePreset(name: string): Promise<{ deleted: boolean }> {
+  const path = `/api/presets/${encodeURIComponent(name)}`;
+  return requestJson<{ deleted: boolean }>(resolveApiPath(path), {
+    method: 'DELETE',
+  });
+}
+
+export async function applyPreset(name: string): Promise<PresetConfig> {
+  const path = `/api/presets/${encodeURIComponent(name)}/apply`;
+  return requestJson<PresetConfig>(resolveApiPath(path), {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 export { ApiError };

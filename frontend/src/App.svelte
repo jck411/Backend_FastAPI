@@ -1,27 +1,28 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
-  import ModelExplorer from './lib/components/model-explorer/ModelExplorer.svelte';
-  import ChatHeader from './lib/components/chat/ChatHeader.svelte';
-  import QuickPrompts from './lib/components/chat/QuickPrompts.svelte';
-  import MessageList from './lib/components/chat/MessageList.svelte';
-  import Composer from './lib/components/chat/Composer.svelte';
-  import MessageEditor from './lib/components/chat/MessageEditor.svelte';
-  import GenerationDetailsModal from './lib/components/chat/GenerationDetailsModal.svelte';
-  import ModelSettingsModal from './lib/components/chat/ModelSettingsModal.svelte';
-  import SystemSettingsModal from './lib/components/chat/SystemSettingsModal.svelte';
-  import SpeechSettingsModal from './lib/components/chat/SpeechSettingsModal.svelte';
+  import { onDestroy, onMount } from "svelte";
+  import { fetchGenerationDetails } from "./lib/api/client";
+  import type { GenerationDetails, ModelRecord } from "./lib/api/types";
+  import type { GenerationDetailField } from "./lib/chat/constants";
+  import { GENERATION_DETAIL_FIELDS } from "./lib/chat/constants";
+  import ChatHeader from "./lib/components/chat/ChatHeader.svelte";
+  import Composer from "./lib/components/chat/Composer.svelte";
+  import GenerationDetailsModal from "./lib/components/chat/GenerationDetailsModal.svelte";
+  import MessageEditor from "./lib/components/chat/MessageEditor.svelte";
+  import MessageList from "./lib/components/chat/MessageList.svelte";
+  import ModelSettingsModal from "./lib/components/chat/ModelSettingsModal.svelte";
+  import PresetsModal from "./lib/components/chat/PresetsModal.svelte";
+  import QuickPrompts from "./lib/components/chat/QuickPrompts.svelte";
+  import SpeechSettingsModal from "./lib/components/chat/SpeechSettingsModal.svelte";
+  import SystemSettingsModal from "./lib/components/chat/SystemSettingsModal.svelte";
+  import ModelExplorer from "./lib/components/model-explorer/ModelExplorer.svelte";
   import {
+    clearPendingSubmit,
     speechState,
     startDictation,
-    clearPendingSubmit,
     stopSpeech,
-  } from './lib/speech/speechController';
-  import { fetchGenerationDetails } from './lib/api/client';
-  import { chatStore } from './lib/stores/chat';
-  import { modelStore } from './lib/stores/models';
-  import { GENERATION_DETAIL_FIELDS } from './lib/chat/constants';
-  import type { GenerationDetails, ModelRecord } from './lib/api/types';
-  import type { GenerationDetailField } from './lib/chat/constants';
+  } from "./lib/speech/speechController";
+  import { chatStore } from "./lib/stores/chat";
+  import { modelStore } from "./lib/stores/models";
 
   const {
     sendMessage,
@@ -42,12 +43,13 @@
     activeFor,
   } = modelStore;
 
-  let prompt = '';
+  let prompt = "";
   let explorerOpen = false;
   let generationModalOpen = false;
   let modelSettingsOpen = false;
   let systemSettingsOpen = false;
   let speechSettingsOpen = false;
+  let presetsOpen = false;
   let lastSpeechPromptVersion = 0;
   let generationModalLoading = false;
   let generationModalError: string | null = null;
@@ -55,18 +57,19 @@
   let generationModalId: string | null = null;
   let selectableModels: ModelRecord[] = [];
   let activeModel: ModelRecord | null = null;
-  const generationDetailFields: GenerationDetailField[] = GENERATION_DETAIL_FIELDS;
+  const generationDetailFields: GenerationDetailField[] =
+    GENERATION_DETAIL_FIELDS;
   let editingMessageId: string | null = null;
-  let editingText = '';
-  let editingOriginalText = '';
+  let editingText = "";
+  let editingOriginalText = "";
   let editingSaving = false;
 
   onMount(loadModels);
 
   $: {
-    if (typeof document !== 'undefined') {
+    if (typeof document !== "undefined") {
       document.body.classList.toggle(
-        'modal-open',
+        "modal-open",
         explorerOpen ||
           generationModalOpen ||
           modelSettingsOpen ||
@@ -77,8 +80,8 @@
   }
 
   onDestroy(() => {
-    if (typeof document !== 'undefined') {
-      document.body.classList.remove('modal-open');
+    if (typeof document !== "undefined") {
+      document.body.classList.remove("modal-open");
     }
   });
 
@@ -114,7 +117,9 @@
   }
 
   function beginEditingMessage(id: string): void {
-    const message = $chatStore.messages.find((item) => item.id === id && item.role === 'user');
+    const message = $chatStore.messages.find(
+      (item) => item.id === id && item.role === "user",
+    );
     if (!message) {
       return;
     }
@@ -126,8 +131,8 @@
 
   function resetEditingState(): void {
     editingMessageId = null;
-    editingText = '';
-    editingOriginalText = '';
+    editingText = "";
+    editingOriginalText = "";
   }
 
   function cancelEditing(): void {
@@ -153,11 +158,13 @@
     editingSaving = true;
     resetEditingState();
     const editPromise = applyMessageEdit(targetId, trimmed);
-    editPromise.catch((error) => {
-      console.error('Failed to apply message edit', error);
-    }).finally(() => {
-      editingSaving = false;
-    });
+    editPromise
+      .catch((error) => {
+        console.error("Failed to apply message edit", error);
+      })
+      .finally(() => {
+        editingSaving = false;
+      });
   }
 
   async function openGenerationDetails(generationId: string): Promise<void> {
@@ -172,7 +179,8 @@
       const response = await fetchGenerationDetails(generationId);
       generationModalData = response?.data ?? null;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to load details.';
+      const message =
+        error instanceof Error ? error.message : "Failed to load details.";
       generationModalError = message;
     } finally {
       generationModalLoading = false;
@@ -194,9 +202,9 @@
     prompt = trimmed;
     try {
       await sendMessage({ text: trimmed, attachments: [] });
-      prompt = '';
+      prompt = "";
     } catch (error) {
-      console.error('Failed to send speech transcription', error);
+      console.error("Failed to send speech transcription", error);
     }
   }
 
@@ -219,7 +227,7 @@
 
 <main class="chat-app">
   <ChatHeader
-    selectableModels={selectableModels}
+    {selectableModels}
     selectedModel={$chatStore.selectedModel}
     modelsLoading={$modelsLoading}
     modelsError={$modelsError}
@@ -230,10 +238,13 @@
     on:openModelSettings={() => (modelSettingsOpen = true)}
     on:openSystemSettings={() => (systemSettingsOpen = true)}
     on:openSpeechSettings={() => (speechSettingsOpen = true)}
+    on:openPresets={() => (presetsOpen = true)}
   />
 
   {#if !$chatStore.messages.length}
-    <QuickPrompts on:select={(event) => handlePromptSelect(event.detail.text)} />
+    <QuickPrompts
+      on:select={(event) => handlePromptSelect(event.detail.text)}
+    />
   {/if}
 
   <MessageList
@@ -293,7 +304,11 @@
     on:close={() => (systemSettingsOpen = false)}
   />
 
-  <SpeechSettingsModal open={speechSettingsOpen} on:close={() => (speechSettingsOpen = false)} />
+  <SpeechSettingsModal
+    open={speechSettingsOpen}
+    on:close={() => (speechSettingsOpen = false)}
+  />
+  <PresetsModal open={presetsOpen} on:close={() => (presetsOpen = false)} />
 
   <ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />
 </main>
@@ -320,7 +335,7 @@
   }
   .chat-app::before,
   .chat-app::after {
-    content: '';
+    content: "";
     position: fixed;
     left: 0;
     right: 0;

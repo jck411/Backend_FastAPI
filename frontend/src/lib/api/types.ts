@@ -3,16 +3,16 @@ export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
 export type ChatContentFragment =
   | { type: 'text'; text: string }
   | {
-      type: 'image_url';
-      image_url: {
-        url: string;
-        detail?: 'auto' | 'low' | 'high';
-        [key: string]: unknown;
-      };
-      metadata?: Record<string, unknown>;
+    type: 'image_url';
+    image_url: {
+      url: string;
+      detail?: 'auto' | 'low' | 'high';
       [key: string]: unknown;
-    }
-  | { type: string; [key: string]: unknown };
+    };
+    metadata?: Record<string, unknown>;
+    [key: string]: unknown;
+  }
+  | { type: string;[key: string]: unknown };
 
 export type ChatMessageContent = string | ChatContentFragment[];
 
@@ -328,4 +328,32 @@ export interface McpServerUpdatePayload {
   cwd?: string | null;
   env?: Record<string, string> | null;
   tool_prefix?: string | null;
+}
+
+/* Presets */
+
+export interface PresetListItem {
+  name: string;
+  model: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PresetConfig {
+  name: string;
+  model: string;
+  provider?: ProviderPreferences | null;
+  parameters?: ModelHyperparameters | null;
+  system_prompt?: string | null;
+  mcp_servers?: McpServerDefinition[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PresetCreatePayload {
+  name: string;
+}
+
+export interface PresetSaveSnapshotPayload {
+  note?: string | null;
 }

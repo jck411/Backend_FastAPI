@@ -1,5 +1,8 @@
 {
-  "model": "google/gemma-2-9b-it:free",
+  "model": "meta-llama/llama-3-8b-instruct",
+  "parameters": {
+    "temperature": 0.8
+  },
   "system_prompt": "You are a helpful but funny assistant",
-  "updated_at": "2025-10-10T03:17:55.522727+00:00"
+  "updated_at": "2025-10-10T10:03:42.424887+00:00"
 }

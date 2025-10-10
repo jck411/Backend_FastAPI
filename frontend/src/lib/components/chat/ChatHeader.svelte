@@ -17,6 +17,7 @@
     openModelSettings: void;
     openSystemSettings: void;
     openSpeechSettings: void;
+    openPresets: void;
   }>();
 
   export let selectableModels: SelectableModel[] = [];
@@ -83,6 +84,10 @@
   function forwardOpenSpeechSettings(): void {
     dispatch("openSpeechSettings");
   }
+
+  function forwardOpenPresets(): void {
+    dispatch("openPresets");
+  }
 </script>
 
 <header class="topbar chat-header">
@@ -95,14 +100,18 @@
       {#if ModelPicker}
         <svelte:component
           this={ModelPicker}
-          selectableModels={selectableModels}
-          selectedModel={selectedModel}
-          modelsLoading={modelsLoading}
-          modelsError={modelsError}
+          {selectableModels}
+          {selectedModel}
+          {modelsLoading}
+          {modelsError}
           on:modelChange={forwardModelChange}
         />
       {:else}
-        <div class="model-picker-loading" data-loading={modelPickerLoading} aria-hidden="true">
+        <div
+          class="model-picker-loading"
+          data-loading={modelPickerLoading}
+          aria-hidden="true"
+        >
           <select disabled>
             <option>Loading…</option>
           </select>
@@ -110,11 +119,13 @@
       {/if}
 
       {#if WebSearchMenu}
-        <svelte:component
-          this={WebSearchMenu}
-        />
+        <svelte:component this={WebSearchMenu} />
       {:else}
-        <div class="web-search-loading" data-loading={webSearchMenuLoading} aria-hidden="true">
+        <div
+          class="web-search-loading"
+          data-loading={webSearchMenuLoading}
+          aria-hidden="true"
+        >
           <button class="ghost web-search-summary" type="button" disabled>
             <span>Web search</span>
             <span class="status" data-enabled={$webSearchStore.enabled}>
@@ -156,6 +167,16 @@
             stroke-linejoin="round"
           />
         </svg>
+      </button>
+
+      <button
+        class="ghost"
+        type="button"
+        on:click={forwardOpenPresets}
+        aria-label="Presets"
+        title="Presets"
+      >
+        <span>Presets</span>
       </button>
 
       <button
@@ -224,7 +245,12 @@
         </svg>
       </button>
 
-      <button class="ghost" type="button" on:click={handleClear} disabled={!hasMessages}>
+      <button
+        class="ghost"
+        type="button"
+        on:click={handleClear}
+        disabled={!hasMessages}
+      >
         Clear
       </button>
     </div>

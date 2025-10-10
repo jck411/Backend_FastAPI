@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from "svelte";
   import { webSearchStore } from "../../chat/webSearchStore";
+  import { presetsStore } from "../../stores/presets";
 
   interface SelectableModel {
     id: string;
@@ -179,6 +180,32 @@
         <span>Presets</span>
       </button>
 
+      {#if $presetsStore.applying}
+        <button
+          class="preset-badge applying"
+          type="button"
+          on:click={forwardOpenPresets}
+          aria-live="polite"
+          title={`Applying ${$presetsStore.applying}… (click to manage presets)`}
+        >
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="label">Preset</span>
+          <span class="name" title={$presetsStore.applying}>{$presetsStore.applying}</span>
+        </button>
+      {:else if $presetsStore.lastApplied}
+        <button
+          class="preset-badge"
+          type="button"
+          on:click={forwardOpenPresets}
+          aria-live="polite"
+          title={`Active preset: ${$presetsStore.lastApplied} (click to manage)`}
+        >
+          <span class="dot" aria-hidden="true"></span>
+          <span class="label">Preset</span>
+          <span class="name" title={$presetsStore.lastApplied}>{$presetsStore.lastApplied}</span>
+        </button>
+      {/if}
+
       <button
         class="ghost system-settings"
         type="button"
@@ -280,6 +307,66 @@
     display: flex;
     gap: 0.75rem;
     align-items: center;
+  }
+  .preset-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: 999px;
+    border: 1px solid #25314d;
+    background: rgba(12, 19, 34, 0.7);
+    color: #c8d6ef;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      border-color 0.2s ease,
+      background 0.2s ease,
+      color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+  .preset-badge:hover,
+  .preset-badge:focus-visible {
+    border-color: #38bdf8;
+    color: #f2f6ff;
+    background: rgba(12, 22, 40, 0.85);
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+  }
+  .preset-badge .label {
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    color: #9fb3d8;
+  }
+  .preset-badge .name {
+    max-width: 14ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #e5edff;
+  }
+  /* Small indicator dot for active state */
+  .preset-badge .dot {
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 999px;
+    background: #22c55e;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15);
+  }
+  /* Spinner when applying */
+  .preset-badge.applying .spinner {
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 999px;
+    border: 2px solid rgba(148, 187, 233, 0.25);
+    border-top-color: #38bdf8;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
   :global(.chat-header .controls select) {
     appearance: none;

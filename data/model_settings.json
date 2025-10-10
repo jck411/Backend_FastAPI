@@ -1,8 +1,5 @@
 {
-  "model": "meta-llama/llama-3-8b-instruct",
-  "parameters": {
-    "temperature": 0.8
-  },
+  "model": "openrouter/auto",
   "system_prompt": "You are a helpful but funny assistant",
-  "updated_at": "2025-10-10T10:03:42.424887+00:00"
+  "updated_at": "2025-10-10T10:29:20.031023+00:00"
 }

@@ -10,6 +10,7 @@ from src.backend.chat.streaming import (
     _finalize_tool_calls,
     _merge_tool_calls,
 )
+from src.backend.openrouter import OpenRouterError
 from src.backend.schemas.chat import ChatCompletionRequest, ChatMessage
 
 
@@ -198,6 +199,22 @@ class DummyOpenRouterClientWithMetadata(DummyOpenRouterClient):
         yield {"data": "[DONE]"}
 
 
+class ToolUnsupportedClient:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def stream_chat_raw(self, payload: dict[str, Any]):
+        async def _generator():
+            self.calls += 1
+            raise OpenRouterError(
+                404,
+                {"error": "Tool use is not supported for this model"},
+            )
+            yield  # pragma: no cover - required for async generator typing
+
+        return _generator()
+
+
 class DummyRepository:
     def __init__(self) -> None:
         self.messages: list[dict[str, Any]] = []
@@ -364,3 +381,44 @@ async def test_streaming_emits_metadata_event() -> None:
     assert metadata["routing"]["OpenRouter-Provider"] == "test/provider"
     assert metadata["meta"]["provider"]["name"] == "Meta Test Provider"
     assert metadata["generation_id"] == "gen-abc123"
+
+
+@pytest.mark.anyio("asyncio")
+async def test_structured_tool_choice_does_not_retry_without_tools() -> None:
+    client = ToolUnsupportedClient()
+    handler = StreamingHandler(
+        client,
+        DummyRepository(),
+        DummyToolClient(),
+        default_model="openrouter/auto",
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Require tool")],
+        tool_choice={
+            "type": "function",
+            "function": {"name": "calculator_evaluate"},
+        },
+    )
+    conversation = [{"role": "user", "content": "Require tool"}]
+    tools_payload = [
+        {
+            "type": "function",
+            "function": {
+                "name": "calculator_evaluate",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+    ]
+
+    with pytest.raises(OpenRouterError):
+        async for _ in handler.stream_conversation(
+            "session-tools",
+            request,
+            conversation,
+            tools_payload,
+            None,
+        ):
+            pass
+
+    assert client.calls == 1

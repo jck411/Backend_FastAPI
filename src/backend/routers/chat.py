@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api", tags=["chat"])
 _MODELS_CACHE_TTL_SECONDS = 60
 _models_cache: dict[str, Any] | None = None
 _models_cache_expiry: float = 0.0
-_models_cache_lock = asyncio.Lock()
+_models_cache_lock: asyncio.Lock | None = None
 
 
 def get_openrouter_client(
@@ -115,11 +115,14 @@ async def get_generation_details(
 
 
 async def _get_models_payload(client: OpenRouterClient) -> dict[str, Any]:
-    global _models_cache, _models_cache_expiry
+    global _models_cache, _models_cache_expiry, _models_cache_lock
 
     now = time.monotonic()
     if _models_cache is not None and now < _models_cache_expiry:
         return _models_cache
+
+    if _models_cache_lock is None:
+        _models_cache_lock = asyncio.Lock()
 
     async with _models_cache_lock:
         if _models_cache is not None and now < _models_cache_expiry:

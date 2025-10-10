@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -127,8 +127,11 @@ async def download_attachment(
             expires_dt = datetime.fromisoformat(expires_at)
         except ValueError:
             expires_dt = None
-        if expires_dt and expires_dt < datetime.utcnow():
-            raise HTTPException(status_code=410, detail="Attachment expired")
+        if expires_dt:
+            if expires_dt.tzinfo is None:
+                expires_dt = expires_dt.replace(tzinfo=timezone.utc)
+            if expires_dt < datetime.now(timezone.utc):
+                raise HTTPException(status_code=410, detail="Attachment expired")
 
     session_id = record.get("session_id")
     if isinstance(session_id, str):

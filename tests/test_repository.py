@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -69,7 +69,7 @@ async def test_attachment_roundtrip(repository):
         display_url="https://example.com/uploads/att-1",
         delivery_url="https://example.com/uploads/att-1",
         metadata={"filename": "image.png"},
-        expires_at=datetime.utcnow() + timedelta(days=1),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
     )
 
     fetched = await repository.get_attachment("att-1")
@@ -80,6 +80,11 @@ async def test_attachment_roundtrip(repository):
     assert fetched["mime_type"] == "image/png"
     assert fetched["size_bytes"] == 128
     assert fetched["metadata"]["filename"] == "image.png"
+
+    # Add a small delay to ensure timestamp difference
+    import asyncio
+
+    await asyncio.sleep(1.1)  # SQLite CURRENT_TIMESTAMP has 1-second resolution
 
     await repository.mark_attachments_used("session-1", ["att-1"])
     refreshed = await repository.get_attachment("att-1")

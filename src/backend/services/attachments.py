@@ -6,7 +6,7 @@ import logging
 import mimetypes
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -116,7 +116,7 @@ class AttachmentService:
 
         original_url = str(request.url_for("download_attachment", attachment_id=attachment_id))
         delivery_url = self._apply_public_base(original_url)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expires_at = now + self._retention if self._retention.total_seconds() > 0 else None
         metadata: dict[str, Any] = {}
         if upload.filename:

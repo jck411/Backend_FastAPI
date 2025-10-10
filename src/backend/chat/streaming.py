@@ -87,11 +87,15 @@ class StreamingHandler:
             if isinstance(candidate, str):
                 assistant_client_message_id = candidate
         tools_available = bool(tools_payload)
+        tool_choice_value = request.tool_choice
         requested_tool_choice = (
-            request.tool_choice if isinstance(request.tool_choice, str) else None
+            tool_choice_value if isinstance(tool_choice_value, str) else None
         )
         tools_disabled = requested_tool_choice == "none" or not tools_available
-        can_retry_without_tools = requested_tool_choice in (None, "auto")
+        has_structured_tool_choice = isinstance(tool_choice_value, dict)
+        can_retry_without_tools = (
+            requested_tool_choice in (None, "auto") and not has_structured_tool_choice
+        )
 
         while True:
             routing_headers: dict[str, Any] | None = None

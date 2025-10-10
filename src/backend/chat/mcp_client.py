@@ -74,6 +74,11 @@ class MCPToolClient:
                 )
                 log_target = "command %s" % " ".join(self._launch_command)
             else:
+                # Type guard: _server_module is guaranteed to be str in this branch
+                if self._server_module is None:  # pragma: no cover - defensive
+                    raise RuntimeError(
+                        "Server module must be set when command is not provided"
+                    )
                 params = StdioServerParameters(
                     command=sys.executable,
                     args=["-m", self._server_module],
@@ -83,7 +88,9 @@ class MCPToolClient:
                 log_target = f"module '{self._server_module}'"
 
             logger.info("Starting MCP server %s (id=%s)", log_target, self._server_id)
-            read_stream, write_stream = await exit_stack.enter_async_context(stdio_client(params))
+            read_stream, write_stream = await exit_stack.enter_async_context(
+                stdio_client(params)
+            )
 
             session = ClientSession(read_stream, write_stream)
             await exit_stack.enter_async_context(session)
@@ -100,7 +107,13 @@ class MCPToolClient:
         async with self._lock:
             if self._exit_stack is not None:
                 logger.info("Closing MCP session")
-                await self._exit_stack.aclose()
+                try:
+                    # Add timeout to prevent hanging on shutdown
+                    await asyncio.wait_for(self._exit_stack.aclose(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    logger.warning("MCP session close timed out after 2s")
+                except Exception as exc:
+                    logger.warning("Error closing MCP session: %s", exc)
             self._exit_stack = None
             self._session = None
             self._tools = []
@@ -127,7 +140,9 @@ class MCPToolClient:
 
         self._tools = tools
 
-    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> CallToolResult:
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any] | None = None
+    ) -> CallToolResult:
         """Execute a tool by name with optional JSON arguments."""
 
         if self._session is None:
@@ -147,7 +162,8 @@ class MCPToolClient:
                 "function": {
                     "name": tool.name,
                     "description": description,
-                    "parameters": tool.inputSchema or {"type": "object", "properties": {}},
+                    "parameters": tool.inputSchema
+                    or {"type": "object", "properties": {}},
                 },
             }
             formatted.append(entry)

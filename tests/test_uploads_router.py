@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -11,16 +12,29 @@ from src.backend.config import get_settings
 
 
 @pytest.fixture
-def upload_client(monkeypatch, tmp_path) -> TestClient:
+def upload_client(monkeypatch, tmp_path) -> Generator[TestClient, None, None]:
+    """Fixture providing a test client for upload endpoints."""
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
     monkeypatch.setenv("CHAT_DATABASE_PATH", str(tmp_path / "chat.db"))
     monkeypatch.setenv("MODEL_SETTINGS_PATH", str(tmp_path / "model_settings.json"))
     monkeypatch.setenv("MCP_SERVERS_PATH", str(tmp_path / "mcp_servers.json"))
     monkeypatch.setenv("ATTACHMENTS_DIR", str(tmp_path / "uploads"))
     get_settings.cache_clear()
+
+    # Disable default MCP servers to prevent them from starting
+    mcp_file = tmp_path / "mcp_servers.json"
+    mcp_file.write_text("""{
+        "servers": [
+            {"id": "local-calculator", "module": "backend.mcp_server", "enabled": false},
+            {"id": "test-toolkit", "module": "backend.mcp_servers.sample_server", "enabled": false}
+        ]
+    }""")
+
     app = create_app()
+
     with TestClient(app) as client:
         yield client
+
     get_settings.cache_clear()
 
 

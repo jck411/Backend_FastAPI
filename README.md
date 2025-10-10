@@ -74,6 +74,10 @@ npm run dev
 
 Set `VITE_API_BASE_URL` in `frontend/.env` if you need to target a remote backend instead of the local proxy.
 
+## Documentation
+
+- Models, Active Settings, and Presets: [docs/MODELS_AND_PRESETS.md](docs/MODELS_AND_PRESETS.md)
+
 ## MCP server aggregation
 
 The chat orchestrator can launch multiple MCP servers and expose their tools via OpenRouter. Server definitions live in `data/mcp_servers.json` and can be enabled or disabled without code changes.

@@ -1,5 +1,5 @@
 {
-  "model": "openrouter/auto",
+  "model": "anthropic/claude-3-opus",
   "system_prompt": "You are a helpful but funny assistant",
-  "updated_at": "2025-10-10T10:29:20.031023+00:00"
+  "updated_at": "2025-10-10T13:43:43.116407+00:00"
 }

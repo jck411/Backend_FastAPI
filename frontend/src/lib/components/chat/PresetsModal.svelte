@@ -4,12 +4,12 @@
     import { chatStore } from "../../stores/chat";
     import { modelSettingsStore } from "../../stores/modelSettings";
     import { presetsStore } from "../../stores/presets";
+    import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
 
     export let open = false;
 
     const dispatch = createEventDispatcher<{ close: void }>();
 
-    let dialogEl: HTMLElement | null = null;
     let creatingName = "";
     let confirmingDelete: string | null = null;
     let nameInputEl: HTMLInputElement | null = null;
@@ -35,18 +35,8 @@
         initialFocusDone = false;
     }
 
-    function handleBackdrop(event: MouseEvent): void {
-        if (event.target === event.currentTarget) {
-            dispatch("close");
-        }
-    }
-
-    function handleKeydown(event: KeyboardEvent): void {
-        if (!open) return;
-        if (event.key === "Escape") {
-            event.preventDefault();
-            dispatch("close");
-        }
+    function requestClose(): void {
+        dispatch("close");
     }
 
     async function handleCreate(): Promise<void> {
@@ -90,242 +80,137 @@
     }
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
-
 {#if open}
-    <div class="presets-layer">
-        <button
-            type="button"
-            class="presets-backdrop"
-            aria-label="Close presets"
-            on:click={handleBackdrop}
-        ></button>
+    <ModelSettingsDialog
+        {open}
+        labelledBy="presets-title"
+        modalClass="presets-modal"
+        bodyClass="presets-body"
+        closeLabel="Close presets"
+        on:close={requestClose}
+    >
+        <svelte:fragment slot="heading">
+            <h2 id="presets-title">Presets</h2>
+            <p class="model-settings-subtitle">
+                Save and manage snapshots of the current configuration.
+            </p>
+        </svelte:fragment>
 
-        <div
-            class="presets-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="presets-title"
-            tabindex="-1"
-            bind:this={dialogEl}
-        >
-            <header class="presets-header">
-                <div class="presets-heading">
-                    <h2 id="presets-title">Presets</h2>
-                    <p class="presets-subtitle">
-                        Save and manage snapshots of the current configuration.
-                    </p>
-                </div>
-                <div class="presets-actions">
-                    <button
-                        type="button"
-                        class="modal-close"
-                        on:click={() => dispatch("close")}
-                        aria-label="Close"
-                    >
-                        Close
-                    </button>
-                </div>
-            </header>
-
-            <section class="presets-body">
-                <!-- Create new preset -->
-                <div class="create-row">
-                    <input
-                        type="text"
-                        placeholder="Preset name"
-                        bind:value={creatingName}
-                        aria-label="Preset name"
-                        bind:this={nameInputEl}
-                        on:keydown={(e) =>
-                            e.key === "Enter" ? handleCreate() : null}
-                    />
-                    <button
-                        type="button"
-                        class="primary"
-                        on:click={handleCreate}
-                        disabled={!creatingName.trim() ||
-                            $presetsStore.creating}
-                        aria-busy={$presetsStore.creating}
-                    >
-                        {$presetsStore.creating
-                            ? "Creating…"
-                            : "Create from current"}
-                    </button>
-                </div>
-
-                {#if $presetsStore.error}
-                    <p class="status error">{$presetsStore.error}</p>
-                {/if}
-
-                {#if $presetsStore.loading}
-                    <p class="status">Loading presets…</p>
-                {:else if !$presetsStore.items.length}
-                    <p class="status">No presets saved yet.</p>
-                {:else}
-                    <ul class="preset-list" aria-live="polite">
-                        {#each $presetsStore.items as item (item.name)}
-                            <li class="preset-item">
-                                <div class="meta">
-                                    <div class="name">{item.name}</div>
-                                    <div class="details">
-                                        <span class="model">{item.model}</span>
-                                        <span class="timestamps">
-                                            <span title="Created at"
-                                                >{new Date(
-                                                    item.created_at,
-                                                ).toLocaleString()}</span
-                                            >
-                                            <span aria-hidden="true">·</span>
-                                            <span title="Updated at"
-                                                >{new Date(
-                                                    item.updated_at,
-                                                ).toLocaleString()}</span
-                                            >
-                                        </span>
-                                    </div>
-                                </div>
-                                <div class="actions">
-                                    <button
-                                        type="button"
-                                        class="ghost small"
-                                        on:click={() => handleApply(item)}
-                                        disabled={$presetsStore.applying ===
-                                            item.name}
-                                        aria-busy={$presetsStore.applying ===
-                                            item.name}
-                                        title="Apply this preset (model, settings, system prompt, MCP servers)"
-                                    >
-                                        {$presetsStore.applying === item.name
-                                            ? "Applying…"
-                                            : "Apply"}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="ghost small"
-                                        on:click={() =>
-                                            handleSaveSnapshot(item)}
-                                        disabled={$presetsStore.saving}
-                                        aria-busy={$presetsStore.saving}
-                                        title="Overwrite preset with current configuration"
-                                    >
-                                        {$presetsStore.saving
-                                            ? "Saving…"
-                                            : "Save snapshot"}
-                                    </button>
-                                    <button
-                                        type="button"
-                                        class="danger small"
-                                        on:click={() => handleDelete(item)}
-                                        disabled={$presetsStore.deleting ===
-                                            item.name}
-                                        aria-busy={$presetsStore.deleting ===
-                                            item.name}
-                                        title="Delete preset"
-                                    >
-                                        {confirmingDelete === item.name
-                                            ? "Confirm delete"
-                                            : $presetsStore.deleting ===
-                                                item.name
-                                              ? "Deleting…"
-                                              : "Delete"}
-                                    </button>
-                                </div>
-                            </li>
-                        {/each}
-                    </ul>
-                {/if}
-            </section>
-
-            <footer class="presets-footer">
-                {#if $presetsStore.lastApplied}
-                    <span class="status"
-                        >Applied preset: {$presetsStore.lastApplied}</span
-                    >
-                {:else if $presetsStore.lastResult}
-                    <span class="status"
-                        >Saved: {$presetsStore.lastResult.name}</span
-                    >
-                {:else}
-                    <span class="status"
-                        >Create, update, or apply a preset.</span
-                    >
-                {/if}
-            </footer>
+        <div class="create-row">
+            <input
+                type="text"
+                placeholder="Preset name"
+                bind:value={creatingName}
+                aria-label="Preset name"
+                bind:this={nameInputEl}
+                on:keydown={(e) => (e.key === "Enter" ? handleCreate() : null)}
+            />
+            <button
+                type="button"
+                class="primary"
+                on:click={handleCreate}
+                disabled={!creatingName.trim() || $presetsStore.creating}
+                aria-busy={$presetsStore.creating}
+            >
+                {$presetsStore.creating ? "Creating…" : "Create from current"}
+            </button>
         </div>
-    </div>
+
+        {#if $presetsStore.error}
+            <p class="status error">{$presetsStore.error}</p>
+        {/if}
+
+        {#if $presetsStore.loading}
+            <p class="status">Loading presets…</p>
+        {:else if !$presetsStore.items.length}
+            <p class="status">No presets saved yet.</p>
+        {:else}
+            <ul class="preset-list" aria-live="polite">
+                {#each $presetsStore.items as item (item.name)}
+                    <li class="preset-item">
+                        <div class="meta">
+                            <div class="name">{item.name}</div>
+                            <div class="details">
+                                <span class="model">{item.model}</span>
+                                <span class="timestamps">
+                                    <span title="Created at"
+                                        >{new Date(item.created_at).toLocaleString()}</span
+                                    >
+                                    <span aria-hidden="true">·</span>
+                                    <span title="Updated at"
+                                        >{new Date(item.updated_at).toLocaleString()}</span
+                                    >
+                                </span>
+                            </div>
+                        </div>
+                        <div class="actions">
+                            <button
+                                type="button"
+                                class="ghost small"
+                                on:click={() => handleApply(item)}
+                                disabled={$presetsStore.applying === item.name}
+                                aria-busy={$presetsStore.applying === item.name}
+                                title="Apply this preset (model, settings, system prompt, MCP servers)"
+                            >
+                                {$presetsStore.applying === item.name
+                                    ? "Applying…"
+                                    : "Apply"}
+                            </button>
+                            <button
+                                type="button"
+                                class="ghost small"
+                                on:click={() => handleSaveSnapshot(item)}
+                                disabled={$presetsStore.saving}
+                                aria-busy={$presetsStore.saving}
+                                title="Overwrite preset with current configuration"
+                            >
+                                {$presetsStore.saving ? "Saving…" : "Save snapshot"}
+                            </button>
+                            <button
+                                type="button"
+                                class="danger small"
+                                on:click={() => handleDelete(item)}
+                                disabled={$presetsStore.deleting === item.name}
+                                aria-busy={$presetsStore.deleting === item.name}
+                                title="Delete preset"
+                            >
+                                {confirmingDelete === item.name
+                                    ? "Confirm delete"
+                                    : $presetsStore.deleting === item.name
+                                      ? "Deleting…"
+                                      : "Delete"}
+                            </button>
+                        </div>
+                    </li>
+                {/each}
+            </ul>
+        {/if}
+
+        <footer slot="footer" class="model-settings-footer">
+            {#if $presetsStore.lastApplied}
+                <span class="status">Applied preset: {$presetsStore.lastApplied}</span>
+            {:else if $presetsStore.lastResult}
+                <span class="status">Saved: {$presetsStore.lastResult.name}</span>
+            {:else}
+                <span class="status">Create, update, or apply a preset.</span>
+            {/if}
+        </footer>
+    </ModelSettingsDialog>
 {/if}
 
 <style>
-    .presets-layer {
-        position: fixed;
-        inset: 0;
-        z-index: 40;
-    }
-    .presets-backdrop {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(2, 6, 12, 0.6);
-        border: none;
-    }
-    .presets-modal {
-        position: absolute;
-        inset: 6% 0 auto 0;
-        margin: 0 auto;
+:global(.presets-modal) {
         width: min(820px, calc(100% - 2rem));
-        border-radius: 0.75rem;
-        border: 1px solid rgba(37, 49, 77, 0.9);
-        background: rgba(9, 14, 26, 0.95);
-        color: #e8ecf8;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        max-height: min(80vh, 720px);
+    }
+:global(.presets-body) {
         display: flex;
         flex-direction: column;
-        outline: none;
-    }
-    .presets-header,
-    .presets-footer {
-        padding: 0.9rem 1.25rem;
-        border-bottom: 1px solid rgba(37, 49, 77, 0.6);
-    }
-    .presets-footer {
-        border-top: 1px solid rgba(37, 49, 77, 0.6);
-        border-bottom: none;
-    }
-    .presets-heading h2 {
-        margin: 0 0 0.25rem;
-        font-size: 1.1rem;
-    }
-    .presets-subtitle {
-        margin: 0;
-        color: #9fb3d8;
-        font-size: 0.9rem;
-    }
-    .presets-actions {
-        margin-left: auto;
-        display: flex;
-        gap: 0.5rem;
-    }
-    .modal-close {
-        background: none;
-        border: 1px solid #25314d;
-        border-radius: 999px;
-        color: #f2f4f8;
-        padding: 0.4rem 0.9rem;
-        cursor: pointer;
-    }
-    .modal-close:hover {
-        border-color: #38bdf8;
-        color: #38bdf8;
-    }
-    .presets-body {
-        padding: 1rem 1.25rem;
+        gap: 1.25rem;
     }
     .create-row {
         display: flex;
         gap: 0.5rem;
-        margin-bottom: 1rem;
     }
     .create-row input[type="text"] {
         flex: 1;
@@ -386,38 +271,24 @@
         display: inline-flex;
         gap: 0.4rem;
     }
-    .ghost.small,
-    .danger.small {
+    .preset-item .actions button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
         gap: 0.35rem;
-        background: none;
-        border: 1px solid #25314d;
-        border-radius: 999px;
-        color: #f2f4f8;
-        padding: 0.35rem 0.7rem;
         white-space: nowrap;
-        cursor: pointer;
         font: inherit;
     }
-    .ghost.small:hover {
-        border-color: #38bdf8;
-        color: #38bdf8;
-    }
     .danger.small {
-        border-color: rgba(139, 35, 35, 0.6);
+        background: none;
+        border: 1px solid rgba(139, 35, 35, 0.6);
+        border-radius: 999px;
+        padding: 0.35rem 0.7rem;
         color: #fecaca;
+        cursor: pointer;
     }
     .danger.small:hover {
         border-color: rgba(200, 55, 55, 0.85);
         color: #ffb4b4;
-    }
-    .status {
-        font-size: 0.85rem;
-        color: #9fb3d8;
-    }
-    .status.error {
-        color: #fca5a5;
     }
 </style>

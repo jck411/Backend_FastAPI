@@ -1,3 +1,27 @@
 {
-  "presets": []
+  "presets": [
+    {
+      "created_at": "2025-10-10T13:11:30.688032Z",
+      "mcp_servers": [
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "local-calculator",
+          "module": "backend.mcp_server"
+        },
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "test-toolkit",
+          "module": "backend.mcp_servers.sample_server"
+        }
+      ],
+      "model": "anthropic/claude-3-opus",
+      "name": "new",
+      "system_prompt": "You are a helpful but funny assistant",
+      "updated_at": "2025-10-10T13:11:30.688032Z"
+    }
+  ]
 }

@@ -185,30 +185,19 @@
   color: #8094bb;
 }
 
-.speech-footer {
-  display: flex;
-  justify-content: flex-start;
-  padding-top: 0.25rem;
-}
-
-.speech-footer .status {
+.model-settings-footer .status {
   font-size: 0.78rem;
 }
 
-.speech-footer .status[data-variant='success'] {
+.model-settings-footer .status[data-variant='success'] {
   color: #34d399;
 }
 
-.speech-footer .status[data-variant='info'],
-.speech-footer .status:not([data-variant]) {
-  color: #9fb3d8;
-}
-
-.speech-footer .status[data-variant='error'] {
+.model-settings-footer .status[data-variant='error'] {
   color: #f87171;
 }
 
-.speech-footer .status[data-variant='pending'] {
+.model-settings-footer .status[data-variant='pending'] {
   color: #facc15;
 }
 

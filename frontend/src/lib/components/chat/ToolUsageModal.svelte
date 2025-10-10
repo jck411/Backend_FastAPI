@@ -1,8 +1,9 @@
 <script lang="ts">
-  import { afterUpdate, createEventDispatcher } from "svelte";
+  import { createEventDispatcher } from "svelte";
   import { renderMarkdown } from "../../utils/markdown";
   import { copyableCode } from "../../actions/copyableCode";
   import type { ToolUsageEntry } from "./toolUsage.types";
+  import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -10,183 +11,75 @@
   export let messageId: string | null = null;
   export let tools: ToolUsageEntry[] = [];
 
-  let dialogEl: HTMLElement | null = null;
-
-  afterUpdate(() => {
-    if (open && dialogEl) {
-      dialogEl.focus();
-    }
-  });
-
   function handleClose(): void {
     dispatch("close");
   }
-
-  function handleKeydown(event: KeyboardEvent): void {
-    if (!open) return;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      handleClose();
-    }
-  }
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
-
 {#if open}
-  <div class="tool-usage-modal-layer">
-    <button
-      type="button"
-      class="tool-usage-modal-backdrop"
-      aria-label="Close tool usage details"
-      on:click={handleClose}
-    ></button>
-    <div
-      class="tool-usage-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="tool-usage-modal-title"
-      tabindex="-1"
-      bind:this={dialogEl}
-    >
-      <header class="tool-usage-modal-header">
-        <div>
-          <h2 id="tool-usage-modal-title">Tools used</h2>
-          {#if messageId}
-            <p class="tool-usage-modal-subtitle">Message ID: {messageId}</p>
-          {/if}
-        </div>
-        <button
-          type="button"
-          class="modal-close"
-          on:click={handleClose}
-          aria-label="Close tool usage details"
-        >
-          Close
-        </button>
-      </header>
-      <section class="tool-usage-modal-body">
-        {#if tools.length === 0}
-          <p class="tool-usage-modal-status">No tool activity recorded.</p>
-        {:else}
-          <ul class="tool-usage-modal-list">
-            {#each tools as tool (tool.id)}
-              <li class="tool-usage-modal-item">
-                <div class="tool-usage-modal-item-header">
-                  <span class="tool-usage-modal-name">{tool.name}</span>
-                  {#if tool.status}
-                    <span class="tool-usage-modal-status-pill">{tool.status}</span>
-                  {/if}
+  <ModelSettingsDialog
+    {open}
+    labelledBy="tool-usage-modal-title"
+    modalClass="tool-usage-modal"
+    bodyClass="tool-usage-body"
+    closeLabel="Close tool usage details"
+    on:close={handleClose}
+  >
+    <svelte:fragment slot="heading">
+      <h2 id="tool-usage-modal-title">Tools used</h2>
+      {#if messageId}
+        <p class="model-settings-subtitle">Message ID: {messageId}</p>
+      {/if}
+    </svelte:fragment>
+
+    {#if tools.length === 0}
+      <p class="status">No tool activity recorded.</p>
+    {:else}
+      <ul class="tool-usage-modal-list">
+        {#each tools as tool (tool.id)}
+          <li class="tool-usage-modal-item">
+            <div class="tool-usage-modal-item-header">
+              <span class="tool-usage-modal-name">{tool.name}</span>
+              {#if tool.status}
+                <span class="tool-usage-modal-status-pill">{tool.status}</span>
+              {/if}
+            </div>
+            <details class="tool-usage-modal-details">
+              <summary class="tool-usage-modal-summary">Show input &amp; output</summary>
+              {#if tool.input}
+                <div class="tool-usage-modal-section">
+                  <span class="tool-usage-modal-section-label">Input</span>
+                  <div class="tool-usage-modal-block" use:copyableCode>
+                    {@html renderMarkdown(tool.input)}
+                  </div>
                 </div>
-                <details class="tool-usage-modal-details">
-                  <summary class="tool-usage-modal-summary">Show input &amp; output</summary>
-                  {#if tool.input}
-                    <div class="tool-usage-modal-section">
-                      <span class="tool-usage-modal-section-label">Input</span>
-                      <div class="tool-usage-modal-block" use:copyableCode>
-                        {@html renderMarkdown(tool.input)}
-                      </div>
-                    </div>
-                  {/if}
-                  {#if tool.result}
-                    <div class="tool-usage-modal-section">
-                      <span class="tool-usage-modal-section-label">Output</span>
-                      <div class="tool-usage-modal-block" use:copyableCode>
-                        {@html renderMarkdown(tool.result)}
-                      </div>
-                    </div>
-                  {/if}
-                  {#if !tool.input && !tool.result}
-                    <p class="tool-usage-modal-status">No details provided.</p>
-                  {/if}
-                </details>
-              </li>
-            {/each}
-          </ul>
-        {/if}
-      </section>
-    </div>
-  </div>
+              {/if}
+              {#if tool.result}
+                <div class="tool-usage-modal-section">
+                  <span class="tool-usage-modal-section-label">Output</span>
+                  <div class="tool-usage-modal-block" use:copyableCode>
+                    {@html renderMarkdown(tool.result)}
+                  </div>
+                </div>
+              {/if}
+              {#if !tool.input && !tool.result}
+                <p class="status tool-usage-status">No details provided.</p>
+              {/if}
+            </details>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </ModelSettingsDialog>
 {/if}
 
 <style>
-  .tool-usage-modal-layer {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem;
-    z-index: 130;
-  }
-  .tool-usage-modal-backdrop {
-    position: absolute;
-    inset: 0;
-    background: rgba(4, 8, 20, 0.6);
-    border: none;
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
-  }
-  .tool-usage-modal-backdrop:focus-visible {
-    outline: 2px solid #38bdf8;
-  }
-  .tool-usage-modal {
-    position: relative;
-    width: min(480px, 100%);
+:global(.tool-usage-modal) {
+    width: min(520px, 100%);
     max-height: min(75vh, 600px);
-    background: rgba(10, 16, 28, 0.95);
-    border: 1px solid rgba(67, 91, 136, 0.6);
-    border-radius: 1rem;
-    box-shadow: 0 18px 48px rgba(3, 8, 20, 0.55);
-    backdrop-filter: blur(12px);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    z-index: 1;
   }
-  .tool-usage-modal-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 1.25rem 1.5rem 1rem;
-    border-bottom: 1px solid rgba(67, 91, 136, 0.45);
-  }
-  .tool-usage-modal-header h2 {
-    margin: 0;
-    font-size: 1.05rem;
-    font-weight: 600;
-  }
-  .tool-usage-modal-subtitle {
-    margin: 0.35rem 0 0;
-    font-size: 0.75rem;
-    color: #8ea7d2;
-    word-break: break-all;
-  }
-  .modal-close {
-    background: none;
-    border: 1px solid rgba(71, 99, 150, 0.6);
-    border-radius: 999px;
-    color: #f3f5ff;
-    padding: 0.35rem 0.9rem;
-    cursor: pointer;
-    font-size: 0.75rem;
-  }
-  .modal-close:hover,
-  .modal-close:focus-visible {
-    border-color: #38bdf8;
-    color: #38bdf8;
-    outline: none;
-  }
-  .tool-usage-modal-body {
-    padding: 1.25rem 1.5rem 1.5rem;
-    overflow-y: auto;
-  }
-  .tool-usage-modal-status {
-    margin: 0;
-    font-size: 0.9rem;
-    color: #9fb3d8;
+:global(.tool-usage-body) {
+    padding-bottom: 1.5rem;
   }
   .tool-usage-modal-list {
     list-style: none;
@@ -366,5 +259,8 @@
     color: #7dd3fc;
     text-decoration: underline;
     text-decoration-thickness: 1px;
+  }
+  .tool-usage-status {
+    font-size: 0.78rem;
   }
 </style>

@@ -1,0 +1,133 @@
+INFO:     Started server process [10366]
+INFO:     Waiting for application startup.
+[10/10/25 21:14:43] INFO     Processing request of type            server.py:623
+                             ListToolsRequest                                   
+[TOOLS] [32mConfiguration loaded from /home/jack/.cache/uv/archive-v0/PccyiFkA7QtS8D1dLoF8I/lib/python3.13/site-packages/core/tool_tiers.yaml[0m
+[TOOLS] [32mTool tier 'complete' loaded: 5 tools across 1 services [['calendar']][0m
+[AUTH] [32mScope management configured for tools: ['calendar'][0m
+[REGISTRY] [32mTool filtering complete: 5 tools enabled (1 filtered out)[0m
+[UTILS] [32mCredentials directory verified: /home/jack/.google_workspace_mcp/credentials[0m
+[INFO] [32mTransport: stdio[0m
+[INFO] [32mCreating minimal OAuth server instance for http://localhost:8000[0m
+[INFO] [32mStarting minimal OAuth server for stdio mode[0m
+[ERROR] [31mPort 8000 is already in use on localhost. Cannot start minimal OAuth server.[0m
+[ERROR] [31mFailed to start minimal OAuth server on http://localhost:8000: Port 8000 is already in use on localhost. Cannot start minimal OAuth server.[0m
+
+
+╭────────────────────────────────────────────────────────────────────────────╮
+│                                                                            │
+│        _ __ ___  _____           __  __  _____________    ____    ____     │
+│       _ __ ___ .'____/___ ______/ /_/  |/  / ____/ __ \  |___ \  / __ \    │
+│      _ __ ___ / /_  / __ `/ ___/ __/ /|_/ / /   / /_/ /  ___/ / / / / /    │
+│     _ __ ___ / __/ / /_/ (__  ) /_/ /  / / /___/ ____/  /  __/_/ /_/ /     │
+│    _ __ ___ /_/    \____/____/\__/_/  /_/\____/_/      /_____(*)____/      │
+│                                                                            │
+│                                                                            │
+│                                FastMCP  2.0                                │
+│                                                                            │
+│                                                                            │
+│                 🖥️  Server name:     google_workspace                       │
+│                 📦 Transport:       STDIO                                  │
+│                                                                            │
+│                 🏎️  FastMCP version: 2.12.4                                 │
+│                 🤝 MCP SDK version: 1.17.0                                 │
+│                                                                            │
+│                 📚 Docs:            https://gofastmcp.com                  │
+│                 🚀 Deploy:          https://fastmcp.cloud                  │
+│                                                                            │
+╰────────────────────────────────────────────────────────────────────────────╯
+
+
+[10/10/25 21:14:48] INFO     Starting MCP server                  server.py:1502
+                             'google_workspace' with transport                  
+                             'stdio'                                            
+[INFO] [32mProcessing request of type ListToolsRequest[0m
+[10/10/25 21:14:53] INFO     Processing request of type            server.py:623
+                             ListToolsRequest                                   
+[10/10/25 21:14:53] INFO     Processing request of type            server.py:623
+                             ListToolsRequest                                   
+[INFO] [32mProcessing request of type ListToolsRequest[0m
+                    INFO     Processing request of type            server.py:623
+                             ListToolsRequest                                   
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('127.0.0.1', 8010): address already in use
+INFO:     Waiting for application shutdown.
+Error closing MCP session: Attempted to exit a cancel scope that isn't the current tasks's current cancel scope
+Error closing MCP session: Attempted to exit a cancel scope that isn't the current tasks's current cancel scope
+ERROR:    Traceback (most recent call last):
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/starlette/routing.py", line 694, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 134, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ~~~~~~~~~~~~~~~~^^^^^
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 134, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ~~~~~~~~~~~~~~~~^^^^^
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 134, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ~~~~~~~~~~~~~~~~^^^^^
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 134, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ~~~~~~~~~~~~~~~~^^^^^
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 134, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ~~~~~~~~~~~~~~~~^^^^^
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/fastapi/routing.py", line 134, in merged_lifespan
+    async with original_context(app) as maybe_original_state:
+               ~~~~~~~~~~~~~~~~^^^^^
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "/home/jack/Backend_FastAPI/src/backend/app.py", line 101, in lifespan
+    await orchestrator.shutdown()
+  File "/home/jack/Backend_FastAPI/src/backend/chat/orchestrator.py", line 96, in shutdown
+    await self._mcp_client.close()
+  File "/home/jack/Backend_FastAPI/src/backend/chat/mcp_registry.py", line 359, in close
+    await client.close()
+  File "/home/jack/Backend_FastAPI/src/backend/chat/mcp_client.py", line 112, in close
+    await asyncio.wait_for(self._exit_stack.aclose(), timeout=2.0)
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/asyncio/tasks.py", line 507, in wait_for
+    return await fut
+           ^^^^^^^^^
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 705, in aclose
+    await self.__aexit__(None, None, None)
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 768, in __aexit__
+    raise exc
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 751, in __aexit__
+    cb_suppress = await cb(*exc_details)
+                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/contextlib.py", line 221, in __aexit__
+    await anext(self.gen)
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/mcp/client/stdio/__init__.py", line 182, in stdio_client
+    anyio.create_task_group() as tg,
+    ~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 776, in __aexit__
+    raise exc_val
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/mcp/client/stdio/__init__.py", line 183, in stdio_client
+    process,
+    ^^^^^^^
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/anyio/abc/_resources.py", line 29, in __aexit__
+    await self.aclose()
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 1074, in aclose
+    await self.wait()
+  File "/home/jack/Backend_FastAPI/.venv/lib/python3.13/site-packages/anyio/_backends/_asyncio.py", line 1082, in wait
+    return await self._process.wait()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jack/snap/code-insiders/2129/.local/share/uv/python/cpython-3.13.5-linux-x86_64-gnu/lib/python3.13/asyncio/subprocess.py", line 137, in wait
+    return await self._transport._wait()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+asyncio.exceptions.CancelledError: Cancelled by cancel scope 7523a1f99370
+
+ERROR:    Application shutdown failed. Exiting.

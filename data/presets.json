@@ -1,7 +1,7 @@
 {
   "presets": [
     {
-      "created_at": "2025-10-10T13:11:30.688032Z",
+      "created_at": "2025-10-11T01:35:03.984497Z",
       "mcp_servers": [
         {
           "disabled_tools": [],
@@ -11,50 +11,18 @@
           "module": "backend.mcp_server"
         },
         {
+          "command": [
+            "uvx",
+            "workspace-mcp",
+            "--tools",
+            "calendar",
+            "--tool-tier",
+            "complete"
+          ],
           "disabled_tools": [],
           "enabled": true,
           "env": {},
-          "id": "test-toolkit",
-          "module": "backend.mcp_servers.sample_server"
-        }
-      ],
-      "model": "anthropic/claude-3-opus",
-      "name": "new",
-      "system_prompt": "You are a helpful but funny assistant",
-      "updated_at": "2025-10-10T13:11:30.688032Z"
-    },
-    {
-      "created_at": "2025-10-10T13:55:19.113657Z",
-      "mcp_servers": [
-        {
-          "disabled_tools": [],
-          "enabled": true,
-          "env": {},
-          "id": "local-calculator",
-          "module": "backend.mcp_server"
-        },
-        {
-          "disabled_tools": [],
-          "enabled": true,
-          "env": {},
-          "id": "test-toolkit",
-          "module": "backend.mcp_servers.sample_server"
-        }
-      ],
-      "model": "openai/gpt-4o:extended",
-      "name": "open",
-      "system_prompt": "You are a helpful but funny assistant",
-      "updated_at": "2025-10-10T13:55:19.113657Z"
-    },
-    {
-      "created_at": "2025-10-10T14:28:38.234992Z",
-      "mcp_servers": [
-        {
-          "disabled_tools": [],
-          "enabled": true,
-          "env": {},
-          "id": "local-calculator",
-          "module": "backend.mcp_server"
+          "id": "google-workspace"
         },
         {
           "disabled_tools": [],
@@ -65,9 +33,9 @@
         }
       ],
       "model": "openai/gpt-4o-mini-2024-07-18",
-      "name": "GPT 4o mini",
+      "name": "mini4o",
       "system_prompt": "You are a helpful but funny assistant",
-      "updated_at": "2025-10-10T14:28:38.234992Z"
+      "updated_at": "2025-10-11T01:35:03.984497Z"
     }
   ]
 }

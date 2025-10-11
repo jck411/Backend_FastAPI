@@ -1,5 +1,5 @@
 {
-  "model": "openai/gpt-4o:extended",
+  "model": "openai/gpt-4o-mini-2024-07-18",
   "system_prompt": "You are a helpful but funny assistant",
-  "updated_at": "2025-10-10T13:55:24.306204+00:00"
+  "updated_at": "2025-10-11T09:12:25.927728+00:00"
 }

@@ -12,6 +12,7 @@ from fastapi.responses import Response
 from .chat import ChatOrchestrator
 from .config import get_settings
 from .routers.chat import router as chat_router
+from .routers.google_auth import router as google_auth_router
 from .routers.mcp_servers import router as mcp_router
 from .routers.presets import router as presets_router
 from .routers.settings import router as settings_router
@@ -50,11 +51,16 @@ def create_app() -> FastAPI:
     default_mcp_servers = [
         {
             "id": "local-calculator",
-            "module": "backend.mcp_server",
+            "module": "backend.mcp_servers.calculator_server",
         },
         {
             "id": "test-toolkit",
             "module": "backend.mcp_servers.sample_server",
+            "enabled": True,
+        },
+        {
+            "id": "custom-calendar",
+            "module": "backend.mcp_servers.calendar_server",
             "enabled": True,
         },
     ]
@@ -127,6 +133,11 @@ def create_app() -> FastAPI:
     app.include_router(mcp_router)
     app.include_router(stt_router)
     app.include_router(uploads_router)
+    app.include_router(
+        google_auth_router,
+        prefix="/api/google-auth",
+        tags=["google-auth"],
+    )
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> Response:

@@ -10,8 +10,11 @@ from typing import Any
 import pytest
 from mcp.types import CallToolResult, Tool
 
-from backend.chat.mcp_registry import MCPServerConfig, MCPToolAggregator, load_server_configs
-
+from backend.chat.mcp_registry import (
+    MCPServerConfig,
+    MCPToolAggregator,
+    load_server_configs,
+)
 
 pytestmark = pytest.mark.anyio
 
@@ -38,7 +41,10 @@ def build_tool_definition(name: str, description: str) -> tuple[Tool, dict[str, 
     return tool, spec
 
 
-def make_fake_client_factory(tool_map: dict[str, list[tuple[Tool, dict[str, Any]]]], created: dict[str, "FakeClient"]):
+def make_fake_client_factory(
+    tool_map: dict[str, list[tuple[Tool, dict[str, Any]]]],
+    created: dict[str, "FakeClient"],
+):
     class FakeClient:
         def __init__(
             self,
@@ -105,13 +111,13 @@ def make_fake_client_factory(tool_map: dict[str, list[tuple[Tool, dict[str, Any]
 
 def test_load_server_configs_uses_fallback(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"
-    fallback = [{"id": "local", "module": "backend.mcp_server"}]
+    fallback = [{"id": "local", "module": "backend.mcp_servers.calculator_server"}]
 
     configs = load_server_configs(path, fallback=fallback)
 
     assert len(configs) == 1
     assert configs[0].id == "local"
-    assert configs[0].module == "backend.mcp_server"
+    assert configs[0].module == "backend.mcp_servers.calculator_server"
 
 
 def test_load_server_configs_overrides_fallback(tmp_path: Path) -> None:
@@ -131,7 +137,7 @@ def test_load_server_configs_overrides_fallback(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    fallback = [{"id": "local", "module": "backend.mcp_server"}]
+    fallback = [{"id": "local", "module": "backend.mcp_servers.calculator_server"}]
     configs = load_server_configs(path, fallback=fallback)
 
     assert len(configs) == 1
@@ -139,7 +145,9 @@ def test_load_server_configs_overrides_fallback(tmp_path: Path) -> None:
     assert configs[0].enabled is False
 
 
-async def test_aggregator_preserves_unique_names(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_aggregator_preserves_unique_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     tool_map = {
         "server_a": [build_tool_definition("alpha", "Alpha tool")],
         "server_b": [build_tool_definition("beta", "Beta tool")],
@@ -168,7 +176,9 @@ async def test_aggregator_preserves_unique_names(monkeypatch: pytest.MonkeyPatch
     assert created["server_b"].closed is True
 
 
-async def test_aggregator_prefixes_duplicate_tool_names(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_aggregator_prefixes_duplicate_tool_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     tool_map = {
         "server_a": [build_tool_definition("shared", "Primary shared tool")],
         "server_b": [build_tool_definition("shared", "Secondary shared tool")],

@@ -6,7 +6,16 @@ FastAPI backend that proxies streaming chat completions from OpenRouter and expo
 
 - Python 3.13+
 - [`uv`](https://github.com/astral-sh/uv) for dependency and task management
-- `.env` file populated with at least `OPENROUTER_API_KEY` (see `.env` in the repository root for an example)
+- Local `.env` file (copy from `.env.example` and fill in secrets)
+
+## Environment configuration
+
+1. Duplicate `.env.example` to `.env` and populate the required keys (at minimum `OPENROUTER_API_KEY`).
+2. In the Google Cloud Console create an **OAuth client ID** of type **Web application**.
+   - Authorized redirect URI must include `http://localhost:8000/api/google-auth/callback`.
+   - Add whichever test users should be allowed to authenticate on the OAuth consent screen.
+   - Download the JSON and drop it into the `credentials/` folder (gitignored).
+3. Tokens saved during the flow will appear under `data/tokens/` (also gitignored).
 
 ## Install dependencies
 
@@ -87,11 +96,11 @@ The chat orchestrator can launch multiple MCP servers and expose their tools via
   "servers": [
     {
       "id": "local-calculator",
-      "module": "backend.mcp_server"
+      "module": "backend.mcp_servers.calculator_server"
     },
     {
-      "id": "google-workspace",
-      "command": ["uvx", "google-workspace-mcp"],
+      "id": "custom-calendar",
+      "module": "backend.mcp_servers.calendar_server",
       "enabled": true
     },
     {
@@ -112,7 +121,7 @@ The built-in `test-toolkit` server exposes two simple tools (`test_echo` and `cu
 The MCP server exposes a `chat.completions` tool that mirrors the OpenRouter request schema and returns the final assistant message (including any streamed tool call arguments).
 
 ```bash
-uv run python -m backend.mcp_server
+uv run python -m backend.mcp_servers.calculator_server
 ```
 
 Note: This repo uses a `src/` layout. When using uvicorn or the FastAPI CLI, pass `--app-dir src`. If you run Python directly, ensure `PYTHONPATH` includes `src` (uv/pytest already do):
@@ -126,6 +135,27 @@ Factory-style alternative (optional):
 ```bash
 uv run uvicorn backend.app:create_app --reload --factory --app-dir src
 ```
+
+### Google Calendar MCP tools
+
+The `custom-calendar` server exposes calendar-centric tools without requiring the full Google Workspace MCP package:
+
+- `calendar_generate_auth_url` — build a consent URL (set `force=true` to re-consent).
+- `calendar_auth_status` — check whether a user has valid stored credentials.
+- `calendar_list_calendars` — enumerate accessible calendars with IDs and roles.
+- `calendar_get_events`, `calendar_create_event`, `calendar_update_event`, `calendar_delete_event` — wrappers over Google Calendar API operations.
+
+To authorize a new user:
+
+1. Start the backend (`uv run uvicorn backend.app:app --reload --app-dir src`).
+2. Call the tool via the chat UI or run the helper script:
+
+   ```bash
+   uv run python authorize_calendar.py
+   ```
+
+3. Google may warn that the app is unverified; choose **Advanced → Continue** for accounts listed under Test users.
+4. After consent completes, `data/tokens/<user>.json` is created and `calendar_auth_status` will report the expiry time.
 
 ## Testing
 

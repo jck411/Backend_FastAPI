@@ -17,6 +17,20 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # Base URL for the frontend (for redirects)
+    frontend_url: AnyHttpUrl = Field(
+        default_factory=lambda: AnyHttpUrl("http://localhost:5173"),
+        validation_alias=AliasChoices("FRONTEND_URL", "frontend_url"),
+    )
+
+    # Google OAuth settings
+    google_oauth_redirect_uri: str = Field(
+        default="http://localhost:8000/api/google-auth/callback",
+        validation_alias=AliasChoices(
+            "GOOGLE_OAUTH_REDIRECT_URI", "google_oauth_redirect_uri"
+        ),
+    )
+
     openrouter_api_key: SecretStr = Field(
         ..., validation_alias=AliasChoices("OPENROUTER_API_KEY")
     )

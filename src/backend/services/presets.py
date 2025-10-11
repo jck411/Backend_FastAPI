@@ -170,13 +170,22 @@ class PresetService:
 
         # Apply MCP server configs if present
         if preset.mcp_servers is not None:
+            # Get current configs to preserve servers not in the preset
+            current_configs = await self._mcp_settings.get_configs()
+            preset_ids = {cfg.id for cfg in preset.mcp_servers}
+
+            # Keep servers from current config that aren't in the preset
+            # This preserves fallback servers and any servers added outside presets
+            preserved = [cfg for cfg in current_configs if cfg.id not in preset_ids]
+
+            # Combine preserved servers with preset servers
+            merged_configs = preserved + [
+                MCPServerConfig.model_validate(cfg.model_dump())
+                for cfg in preset.mcp_servers
+            ]
+
             # Persist to disk and update service
-            await self._mcp_settings.replace_configs(
-                [
-                    MCPServerConfig.model_validate(cfg.model_dump())
-                    for cfg in preset.mcp_servers
-                ]
-            )
+            await self._mcp_settings.replace_configs(merged_configs)
 
         # Return a copy of the applied preset
         return await self.get_preset(name)

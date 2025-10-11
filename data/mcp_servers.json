@@ -4,8 +4,15 @@
       "disabled_tools": [],
       "enabled": true,
       "env": {},
+      "id": "custom-calendar",
+      "module": "backend.mcp_servers.calendar_server"
+    },
+    {
+      "disabled_tools": [],
+      "enabled": true,
+      "env": {},
       "id": "local-calculator",
-      "module": "backend.mcp_server"
+      "module": "backend.mcp_servers.calculator_server"
     },
     {
       "disabled_tools": [],

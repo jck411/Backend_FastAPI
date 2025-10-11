@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from backend.mcp_server import evaluate
+from backend.mcp_servers.calculator_server import evaluate
 
 
 def test_calculator_addition() -> None:

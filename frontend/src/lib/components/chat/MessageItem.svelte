@@ -85,6 +85,110 @@
     const filename = attachmentFilename(attachment);
     return filename ?? "Attachment preview";
   }
+
+type TimestampInfo = {
+  iso: string;
+  display: string;
+  tooltip: string;
+} | null;
+
+const EDT_TIMEZONE = "America/New_York";
+
+function formatUtcTooltip(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    weekday: "short",
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const lookup = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  const weekday = lookup("weekday");
+  const month = lookup("month");
+  const day = lookup("day");
+  const year = lookup("year");
+  const hour = lookup("hour");
+  const minute = lookup("minute");
+  const second = lookup("second");
+  return `${weekday} ${month} ${day} ${year} ${hour}:${minute}:${second} UTC`.replace(
+    /\s+/g,
+    " ",
+  );
+}
+
+function computeTimestampInfo(
+  value: string | null | undefined,
+  utcValue: string | null | undefined,
+): TimestampInfo {
+  if (!value) {
+    return null;
+  }
+  const candidate = typeof value === "string" && value ? value : String(value);
+  const date = new Date(candidate);
+  if (Number.isNaN(date.getTime())) {
+    return {
+      iso: candidate,
+      display: candidate,
+      tooltip: candidate,
+    };
+  }
+  try {
+    const partsFormatter = new Intl.DateTimeFormat([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+      timeZone: EDT_TIMEZONE,
+      timeZoneName: "short",
+    });
+    const parts = partsFormatter.formatToParts(date);
+    const lookup = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((part) => part.type === type)?.value ?? "";
+    const hour = lookup("hour");
+    const minute = lookup("minute");
+    const second = lookup("second");
+    const dayPeriod = lookup("dayPeriod");
+    const tzName = lookup("timeZoneName");
+    const display = `${hour}:${minute} ${dayPeriod}${tzName ? ` ${tzName}` : ""}`.trim();
+    const tooltipTime = `${hour}:${minute}:${second} ${dayPeriod}${tzName ? ` ${tzName}` : ""}`.trim();
+    const tooltipFormatter = new Intl.DateTimeFormat([], {
+      dateStyle: "long",
+      timeStyle: "medium",
+      timeZone: EDT_TIMEZONE,
+      timeZoneName: "short",
+    });
+    const utcTooltip = formatUtcTooltip(utcValue ?? value);
+    const tooltipBase = `${tooltipFormatter.format(date)} (${tooltipTime})`;
+    const tooltip = utcTooltip ? `${tooltipBase}\n${utcTooltip}` : tooltipBase;
+    return {
+      iso: candidate,
+      display,
+      tooltip,
+    };
+  } catch (error) {
+    console.warn("Failed to format timestamp", error);
+    const utcTooltip = formatUtcTooltip(utcValue ?? value);
+    return {
+      iso: candidate,
+      display: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      tooltip: utcTooltip ?? candidate,
+    };
+  }
+}
+
+$: timestampInfo = computeTimestampInfo(message.createdAt, message.createdAtUtc);
 </script>
 
 <article class={`message ${message.role}`}>
@@ -154,6 +258,13 @@
         </div>
       {/if}
     </div>
+    {#if timestampInfo}
+      <div class="message-meta">
+        <time datetime={timestampInfo.iso} title={timestampInfo.tooltip}>
+          {timestampInfo.display}
+        </time>
+      </div>
+    {/if}
     <div class="message-actions">
       <button
         type="button"
@@ -234,6 +345,21 @@
     background: transparent;
     border: none;
     padding: 0.5rem 0;
+  }
+  .message-meta {
+    margin-top: 0.35rem;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.65);
+    display: flex;
+  }
+  .message.assistant .message-meta {
+    justify-content: flex-start;
+  }
+  .message.user .message-meta {
+    justify-content: flex-end;
+  }
+  .message-meta time {
+    letter-spacing: 0.02em;
   }
   .sender {
     display: flex;

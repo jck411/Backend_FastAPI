@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Iterable, Protocol
 
 from ..openrouter import OpenRouterClient, OpenRouterError
-from ..repository import ChatRepository
+from ..repository import ChatRepository, format_timestamp_for_client
 from ..services.model_settings import ModelSettingsService
 from ..schemas.chat import ChatCompletionRequest
 
@@ -37,6 +37,8 @@ class AssistantTurn:
     meta: dict[str, Any] | None
     generation_id: str | None
     reasoning: list[dict[str, Any]] | None
+    created_at: str | None = None
+    created_at_utc: str | None = None
 
     def to_message_dict(self) -> dict[str, Any]:
         message: dict[str, Any] = {
@@ -46,6 +48,10 @@ class AssistantTurn:
             message["content"] = self.content
         if self.tool_calls:
             message["tool_calls"] = self.tool_calls
+        if self.created_at is not None:
+            message["created_at"] = self.created_at
+        if self.created_at_utc is not None:
+            message["created_at_utc"] = self.created_at_utc
         return message
 
 
@@ -281,7 +287,7 @@ class StreamingHandler:
             if assistant_client_message_id is not None:
                 metadata.setdefault("client_message_id", assistant_client_message_id)
 
-            assistant_record_id = await self._repo.add_message(
+            assistant_record_id, assistant_created_at = await self._repo.add_message(
                 session_id,
                 role="assistant",
                 content=assistant_turn.content,
@@ -289,6 +295,9 @@ class StreamingHandler:
                 client_message_id=assistant_client_message_id,
                 parent_client_message_id=assistant_parent_message_id,
             )
+            edt_iso, utc_iso = format_timestamp_for_client(assistant_created_at)
+            assistant_turn.created_at = edt_iso or assistant_created_at
+            assistant_turn.created_at_utc = utc_iso or assistant_created_at
             conversation_state.append(assistant_turn.to_message_dict())
 
             metadata_event_payload = {
@@ -305,6 +314,10 @@ class StreamingHandler:
             if assistant_client_message_id is not None:
                 metadata_event_payload["client_message_id"] = assistant_client_message_id
             metadata_event_payload["message_id"] = assistant_record_id
+            if assistant_turn.created_at is not None:
+                metadata_event_payload["created_at"] = assistant_turn.created_at
+            if assistant_turn.created_at_utc is not None:
+                metadata_event_payload["created_at_utc"] = assistant_turn.created_at_utc
             yield {
                 "event": "metadata",
                 "data": json.dumps(metadata_event_payload),
@@ -339,7 +352,7 @@ class StreamingHandler:
                         "Tool call missing function name; skipping execution."
                     )
                     logger.warning(warning_text)
-                    tool_record_id = await self._repo.add_message(
+                    tool_record_id, tool_created_at = await self._repo.add_message(
                         session_id,
                         role="tool",
                         content=warning_text,
@@ -350,13 +363,17 @@ class StreamingHandler:
                         },
                         parent_client_message_id=assistant_client_message_id,
                     )
-                    conversation_state.append(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tool_id,
-                            "content": warning_text,
-                        }
-                    )
+                    tool_message = {
+                        "role": "tool",
+                        "tool_call_id": tool_id,
+                        "content": warning_text,
+                    }
+                    edt_iso, utc_iso = format_timestamp_for_client(tool_created_at)
+                    if edt_iso is not None:
+                        tool_message["created_at"] = edt_iso
+                    if utc_iso is not None:
+                        tool_message["created_at_utc"] = utc_iso
+                    conversation_state.append(tool_message)
                     yield {
                         "event": "tool",
                         "data": json.dumps(
@@ -366,6 +383,8 @@ class StreamingHandler:
                                 "call_id": tool_id,
                                 "result": warning_text,
                                 "message_id": tool_record_id,
+                                "created_at": edt_iso or tool_created_at,
+                                "created_at_utc": utc_iso or tool_created_at,
                             }
                         ),
                     }
@@ -413,7 +432,7 @@ class StreamingHandler:
                             result_text = f"Tool error: {exc}"
                             status = "error"
 
-                tool_record_id = await self._repo.add_message(
+                tool_record_id, tool_created_at = await self._repo.add_message(
                     session_id,
                     role="tool",
                     content=result_text,
@@ -425,13 +444,17 @@ class StreamingHandler:
                     parent_client_message_id=assistant_client_message_id,
                 )
 
-                conversation_state.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_id,
-                        "content": result_text,
-                    }
-                )
+                tool_message = {
+                    "role": "tool",
+                    "tool_call_id": tool_id,
+                    "content": result_text,
+                }
+                edt_iso, utc_iso = format_timestamp_for_client(tool_created_at)
+                if edt_iso is not None:
+                    tool_message["created_at"] = edt_iso
+                if utc_iso is not None:
+                    tool_message["created_at_utc"] = utc_iso
+                conversation_state.append(tool_message)
 
                 yield {
                     "event": "tool",
@@ -442,6 +465,8 @@ class StreamingHandler:
                             "call_id": tool_id,
                             "result": result_text,
                             "message_id": tool_record_id,
+                            "created_at": edt_iso or tool_created_at,
+                            "created_at_utc": utc_iso or tool_created_at,
                         }
                     ),
                 }

@@ -94,3 +94,20 @@ async def test_attachment_roundtrip(repository):
     removed = await repository.delete_attachment("att-1")
     assert removed is True
     assert await repository.get_attachment("att-1") is None
+
+
+@pytest.mark.anyio
+async def test_message_timestamp_details(repository):
+    await repository.add_message("session-1", role="user", content="hello")
+
+    messages = await repository.get_messages("session-1")
+
+    assert messages, "expected at least one message"
+    message = messages[0]
+
+    created_at = message.get("created_at")
+    created_at_utc = message.get("created_at_utc")
+    assert isinstance(created_at, str)
+    assert isinstance(created_at_utc, str)
+    assert created_at.endswith(("-04:00", "-05:00"))
+    assert created_at_utc.endswith("+00:00")

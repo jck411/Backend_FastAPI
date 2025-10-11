@@ -133,7 +133,6 @@ class ChatOrchestrator:
             parent_candidate = request.metadata.get("client_parent_message_id")
             if isinstance(parent_candidate, str):
                 assistant_parent_message_id = parent_candidate
-
         stored_messages = await self._repo.get_messages(session_id)
         has_system_message = any(msg.get("role") == "system" for msg in stored_messages)
         incoming_has_system = any(message.role == "system" for message in incoming_messages)

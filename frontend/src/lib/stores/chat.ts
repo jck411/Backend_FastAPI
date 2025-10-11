@@ -43,6 +43,8 @@ export interface ConversationMessage {
   attachments: AttachmentResource[];
   pending?: boolean;
   details?: ConversationMessageDetails;
+  createdAt?: string | null;
+  createdAtUtc?: string | null;
 }
 
 interface OutgoingMessageDraft {
@@ -159,6 +161,15 @@ function createChatStore() {
   const store = writable<ChatState>({ ...initialState });
   let currentAbort: AbortController | null = null;
 
+  function coalesceTimestamp(...values: Array<unknown>): string | null {
+    for (const value of values) {
+      if (typeof value === 'string' && value) {
+        return value;
+      }
+    }
+    return null;
+  }
+
   async function sendMessage(draft: OutgoingMessageDraft): Promise<void> {
     const text = draft.text.trim();
     const attachments = draft.attachments ?? [];
@@ -185,6 +196,7 @@ function createChatStore() {
       userMessageId,
       assistantMessageId,
     );
+    const nowIso = new Date().toISOString();
 
     store.update((value) => ({
       ...value,
@@ -196,6 +208,8 @@ function createChatStore() {
           content: messageContent,
           text: normalized.text,
           attachments: userAttachments,
+          createdAt: nowIso,
+          createdAtUtc: nowIso,
         },
         {
           id: assistantMessageId,
@@ -204,6 +218,8 @@ function createChatStore() {
           text: '',
           attachments: [],
           pending: true,
+          createdAt: null,
+          createdAtUtc: null,
         },
       ],
       isStreaming: true,
@@ -281,6 +297,15 @@ function createChatStore() {
                 typeof metadata.message_id === 'number'
                   ? metadata.message_id
                   : existingDetails.serverMessageId ?? null;
+              const createdAt = coalesceTimestamp(
+                metadata.created_at,
+                metadata.created_at_utc,
+                message.createdAt ?? null,
+              );
+              const createdAtUtc = coalesceTimestamp(
+                metadata.created_at_utc,
+                message.createdAtUtc ?? null,
+              );
               return {
                 ...message,
                 details: {
@@ -313,6 +338,8 @@ function createChatStore() {
                       : existingDetails.generationId ?? null,
                   serverMessageId,
                 },
+                createdAt,
+                createdAtUtc,
               };
             });
             return { ...value, messages };
@@ -336,6 +363,16 @@ function createChatStore() {
           if (!messageId) {
             messageId = createId('tool');
             toolMessageIds.set(callId, messageId);
+            const fallbackCreatedAt = new Date().toISOString();
+            const createdAt = coalesceTimestamp(
+              payload.created_at,
+              payload.created_at_utc,
+              fallbackCreatedAt,
+            );
+            const createdAtUtc = coalesceTimestamp(
+              payload.created_at_utc,
+              createdAt ?? fallbackCreatedAt,
+            );
             store.update((value) => ({
               ...value,
               messages: [
@@ -359,6 +396,8 @@ function createChatStore() {
                     toolResult: toolResult ?? null,
                     serverMessageId,
                   },
+                  createdAt,
+                  createdAtUtc,
                 },
               ],
             }));
@@ -381,6 +420,15 @@ function createChatStore() {
                   (status === 'started'
                     ? `Running ${toolName}…`
                     : `Tool ${toolName} ${status}.`);
+                const nextCreatedAt = coalesceTimestamp(
+                  payload.created_at,
+                  payload.created_at_utc,
+                  message.createdAt ?? null,
+                );
+                const nextCreatedAtUtc = coalesceTimestamp(
+                  payload.created_at_utc,
+                  message.createdAtUtc ?? null,
+                );
                 return {
                   ...message,
                   content: nextText,
@@ -388,6 +436,9 @@ function createChatStore() {
                   attachments: message.attachments ?? [],
                   pending: status === 'started',
                   details,
+                  createdAt: nextCreatedAt,
+                  createdAtUtc:
+                    nextCreatedAtUtc ?? nextCreatedAt ?? message.createdAtUtc ?? null,
                 };
               });
               return { ...value, messages };
@@ -404,16 +455,20 @@ function createChatStore() {
               }
               const details = message.details
                 ? {
-                  ...message.details,
-                  reasoningStatus: message.details.reasoning
-                    ? 'complete'
-                    : message.details.reasoningStatus ?? null,
-                }
+                    ...message.details,
+                    reasoningStatus: message.details.reasoning
+                      ? 'complete'
+                      : message.details.reasoningStatus ?? null,
+                  }
                 : undefined;
+              const fallbackIso = new Date().toISOString();
+              const finalizedCreatedAt = message.createdAt ?? fallbackIso;
               return {
                 ...message,
                 pending: false,
                 details,
+                createdAt: finalizedCreatedAt,
+                createdAtUtc: message.createdAtUtc ?? finalizedCreatedAt,
               };
             }),
           }));

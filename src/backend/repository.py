@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+from zoneinfo import ZoneInfo
 
 import aiosqlite
 
@@ -13,6 +15,41 @@ MessageRecord = dict[str, Any]
 AttachmentRecord = dict[str, Any]
 
 _CONTENT_JSON_METADATA_KEY = "__structured_content__"
+_EDT_ZONE = ZoneInfo("America/New_York")
+
+
+def _normalize_db_timestamp(value: str | None) -> str | None:
+    """Convert SQLite timestamp strings to ISO8601 in UTC."""
+
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed.isoformat()
+
+
+def format_timestamp_for_client(value: str | None) -> tuple[str | None, str | None]:
+    """Return EDT and UTC ISO strings for a stored timestamp."""
+
+    if value is None:
+        return None, None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None, None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+
+    edt_iso = parsed.astimezone(_EDT_ZONE).isoformat()
+    return edt_iso, parsed.isoformat()
 
 
 def _encode_content(value: Any) -> tuple[str | None, bool]:
@@ -61,7 +98,8 @@ class ChatRepository:
             """
             CREATE TABLE IF NOT EXISTS conversations (
                 session_id TEXT PRIMARY KEY,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                timezone TEXT
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -172,7 +210,7 @@ class ChatRepository:
         metadata: dict[str, Any] | None = None,
         client_message_id: str | None = None,
         parent_client_message_id: str | None = None,
-    ) -> int:
+    ) -> tuple[int, str | None]:
         """Persist a single chat message."""
 
         assert self._connection is not None
@@ -216,7 +254,16 @@ class ChatRepository:
             await cursor.close()
         if inserted_id is None:  # pragma: no cover - defensive
             raise RuntimeError("Insert failed: lastrowid is None")
-        return int(inserted_id)
+        timestamp_cursor = await self._connection.execute(
+            "SELECT created_at FROM messages WHERE id = ?",
+            (inserted_id,),
+        )
+        timestamp_row = await timestamp_cursor.fetchone()
+        await timestamp_cursor.close()
+        created_at: str | None = None
+        if timestamp_row is not None:
+            created_at = _normalize_db_timestamp(timestamp_row["created_at"])
+        return int(inserted_id), created_at
 
     async def get_messages(self, session_id: str) -> list[MessageRecord]:
         """Return conversation messages ordered by insertion."""
@@ -231,7 +278,8 @@ class ChatRepository:
                 tool_call_id,
                 metadata,
                 client_message_id,
-                parent_client_message_id
+                parent_client_message_id,
+                created_at
             FROM messages
             WHERE session_id = ?
             ORDER BY id ASC
@@ -264,6 +312,12 @@ class ChatRepository:
             parent_client_message_id = row["parent_client_message_id"]
             if parent_client_message_id:
                 message["parent_client_message_id"] = parent_client_message_id
+            created_at = _normalize_db_timestamp(row["created_at"])
+            edt_iso, utc_iso = format_timestamp_for_client(created_at)
+            if edt_iso is not None:
+                message["created_at"] = edt_iso
+            if utc_iso is not None:
+                message["created_at_utc"] = utc_iso
             messages.append(message)
         return messages
 
@@ -502,4 +556,4 @@ class ChatRepository:
         return deleted
 
 
-__all__ = ["ChatRepository"]
+__all__ = ["ChatRepository", "format_timestamp_for_client"]

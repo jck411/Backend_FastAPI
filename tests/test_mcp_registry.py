@@ -241,7 +241,13 @@ async def test_builtin_test_server_runs_via_aggregator() -> None:
 
         clock = await aggregator.call_tool("current_time", {"format": "unix"})
         clock_payload = clock.structuredContent or {}
+        value = clock_payload.get("value")
         assert clock_payload.get("format") == "unix"
-        assert clock_payload.get("value") is not None
+        assert isinstance(value, str) and value.isdigit()
+        assert clock_payload.get("utc_unix") == value
+        assert clock_payload.get("utc_unix_precise")
+        assert clock_payload.get("eastern_iso")
+        assert clock_payload.get("eastern_abbreviation")
+        assert clock_payload.get("timezone") == "America/New_York"
     finally:
         await aggregator.close()

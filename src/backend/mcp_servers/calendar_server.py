@@ -34,9 +34,20 @@ from backend.services.google_auth.auth import (
     authorize_user,
     get_calendar_service,
     get_credentials,
-    get_tasks_service,
 )
 from backend.services.time_context import build_context_lines, create_time_snapshot
+from backend.tasks import (
+    Task,
+    ScheduledTask,
+    TaskAuthorizationError,
+    TaskSearchResult,
+    TaskService,
+    TaskServiceError,
+)
+from backend.tasks.utils import (
+    normalize_rfc3339,
+    parse_rfc3339_datetime,
+)
 
 
 # Define parser for date/time handling
@@ -89,6 +100,48 @@ def _reset_context_check() -> None:  # pragma: no cover - testing hook
     _last_context_check = None
 
 
+def _parse_time_string(time_str: Optional[str]) -> Optional[str]:
+    """Convert simple date keywords/strings to RFC3339 (UTC) strings.
+
+    Behavior:
+    - None → None
+    - 'today'/'tomorrow'/'yesterday' → YYYY-MM-DDT00:00:00Z
+    - 'YYYY-MM-DD' → YYYY-MM-DDT00:00:00Z
+    - Naive datetime 'YYYY-MM-DDTHH:MM[:SS]' → append Z
+    - Already offset/Z → returned as-is
+    """
+
+    if not time_str:
+        return None
+
+    lowered = time_str.lower()
+    today = datetime.date.today()
+
+    if lowered in {"today", "tomorrow", "yesterday"}:
+        if lowered == "today":
+            d = today
+        elif lowered == "tomorrow":
+            d = today + datetime.timedelta(days=1)
+        else:
+            d = today - datetime.timedelta(days=1)
+        return f"{d.isoformat()}T00:00:00Z"
+
+    # ISO date-only
+    try:
+        if len(time_str) == 10 and time_str[4] == "-" and time_str[7] == "-":
+            # YYYY-MM-DD
+            datetime.date.fromisoformat(time_str)
+            return f"{time_str}T00:00:00Z"
+    except Exception:
+        pass
+
+    # Datetime with no timezone → treat as UTC
+    if "T" in time_str and ("+" not in time_str and "-" not in time_str[10:] and "Z" not in time_str):
+        return time_str + "Z"
+
+    return time_str
+
+
 def _has_recent_context(now: Optional[datetime.datetime] = None) -> bool:
     """Return True if the caller recently refreshed the current date context."""
 
@@ -135,23 +188,6 @@ class EventInfo:
     description: Optional[str] = None
     ical_uid: Optional[str] = None
 
-
-@dataclass
-class TaskScheduleEntry:
-    """Data structure describing a task included in the schedule view."""
-
-    title: str
-    due: datetime.datetime
-    due_display: str
-    status: str
-    list_title: str
-    list_id: str
-    id: str
-    notes: Optional[str] = None
-    updated: Optional[str] = None
-    completed: Optional[str] = None
-    web_link: Optional[str] = None
-    is_overdue: bool = False
 
 class CalendarDefinition(TypedDict):
     """Typed mapping describing a known calendar."""
@@ -229,12 +265,57 @@ DEFAULT_READ_CALENDAR_IDS: tuple[str, ...] = tuple(
 _CALENDAR_ALIAS_TO_ID: dict[str, str] = {}
 _CALENDAR_ID_TO_LABEL: dict[str, str] = {}
 
+def _alias_key(value: str) -> str:
+    """Normalize alias keys for robust matching.
+
+    - Lowercase
+    - Normalize common Unicode punctuation to ASCII
+    - Collapse possessives (e.g., mom's, mom’s → mom)
+    - Collapse whitespace
+    """
+
+    import unicodedata
+
+    txt = value.strip().lower()
+    # Normalize unicode quotes to ASCII
+    txt = (
+        txt.replace("’", "'")
+        .replace("‘", "'")
+        .replace("“", '"')
+        .replace("”", '"')
+    )
+    # Remove simple possessive 's
+    for who in ("mom", "dad"):
+        txt = txt.replace(f"{who}'s", who)
+    # Also handle the common no-apostrophe form (moms → mom, dads → dad)
+    for who in ("mom", "dad"):
+        txt = txt.replace(f"{who}s ", f"{who} ")
+        if txt.endswith(f"{who}s"):
+            txt = txt[: -1]
+
+    # Strip most punctuation except characters that can appear in real
+    # calendar IDs (e.g., '@', '+', '#', '-', '_', '.')
+    allowed = set("@+#-_. ")
+    txt = "".join(ch for ch in txt if ch.isalnum() or ch in allowed)
+    # Collapse internal whitespace
+    txt = " ".join(txt.split())
+    # Fold accents
+    txt = "".join(
+        c for c in unicodedata.normalize("NFKD", txt) if not unicodedata.combining(c)
+    )
+    return txt
+
+
 for definition in DEFAULT_CALENDAR_DEFINITIONS:
     cal_id = definition["id"]
     _CALENDAR_ID_TO_LABEL[cal_id] = definition["label"]
-    _CALENDAR_ALIAS_TO_ID[cal_id.lower()] = cal_id
+    _CALENDAR_ALIAS_TO_ID[_alias_key(cal_id)] = cal_id
+    # Seed alias dictionary with provided aliases and common variants
     for alias in definition["aliases"]:
-        _CALENDAR_ALIAS_TO_ID[alias.lower()] = cal_id
+        _CALENDAR_ALIAS_TO_ID[_alias_key(alias)] = cal_id
+    # Add common possessive variants for convenience
+    label = definition["label"]
+    _CALENDAR_ALIAS_TO_ID[_alias_key(label)] = cal_id
 
 # Lower numbers are treated as more authoritative when deduplicating events.
 CALENDAR_PRIORITIES: dict[str, int] = {
@@ -259,14 +340,14 @@ AGGREGATE_CALENDAR_ALIASES: set[str] = {
 def _normalize_calendar_id(calendar_id: str) -> str:
     """Map friendly calendar names to canonical IDs when possible."""
 
-    normalized = calendar_id.strip().lower()
+    normalized = _alias_key(calendar_id)
     return _CALENDAR_ALIAS_TO_ID.get(normalized, calendar_id)
 
 
 def _calendar_label(calendar_id: str) -> str:
     """Return a human-friendly label for a calendar ID."""
 
-    canonical = _CALENDAR_ALIAS_TO_ID.get(calendar_id.lower(), calendar_id)
+    canonical = _CALENDAR_ALIAS_TO_ID.get(_alias_key(calendar_id), calendar_id)
     return _CALENDAR_ID_TO_LABEL.get(canonical, calendar_id)
 
 
@@ -289,6 +370,53 @@ def _resolve_calendar_id_for_write(calendar_id: Optional[str]) -> str:
         return "primary"
 
     return _CALENDAR_ALIAS_TO_ID.get(normalized, calendar_id)
+
+
+async def _resolve_task_list_identifier(
+    task_service: TaskService, identifier: str
+) -> tuple[str, str] | None:
+    """Resolve a task list identifier to an (id, title) pair.
+
+    Accepts either a canonical list ID or a human-friendly title. Returns
+    (id, title) when a match is found; otherwise returns None.
+    """
+
+    ident = identifier.strip()
+    if not ident:
+        return None
+
+    # Fast path: try as an ID
+    try:
+        info = await task_service.get_task_list(ident)
+        return (info.id, info.title)
+    except TaskServiceError:
+        pass
+
+    # Fallback: scan lists and match by title (case-insensitive). Prefer exact
+    # title matches; allow a unique substring match as a convenience.
+    partial_candidates: list[tuple[str, str]] = []
+
+    page_token: str | None = None
+    while True:
+        lists, next_token = await task_service.list_task_lists(
+            max_results=100, page_token=page_token
+        )
+        for lst in lists:
+            title_lower = (lst.title or "").strip().lower()
+            ident_lower = ident.lower()
+            if title_lower == ident_lower:
+                return (lst.id, lst.title)
+            if ident_lower and ident_lower in title_lower:
+                partial_candidates.append((lst.id, lst.title))
+
+        if not next_token:
+            break
+        page_token = next_token
+
+    if len(partial_candidates) == 1:
+        return partial_candidates[0]
+
+    return None
 
 
 def _event_sort_key(start_value: str) -> datetime.datetime:
@@ -343,189 +471,7 @@ def _deduplicate_events(events: List[EventInfo]) -> List[EventInfo]:
     return [deduped[key] for key in order]
 
 
-def _parse_rfc3339_datetime(value: Optional[str]) -> Optional[datetime.datetime]:
-    """Best-effort conversion of an RFC3339 string to an aware datetime."""
-
-    if not value:
-        return None
-
-    try:
-        parsed = parser.parse(value)
-    except Exception:
-        return None
-
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
-    else:
-        parsed = parsed.astimezone(datetime.timezone.utc)
-
-    return parsed
-
-
-def _normalize_rfc3339(dt_value: datetime.datetime) -> str:
-    """Return an RFC3339 string in canonical UTC form."""
-
-    normalized = dt_value.astimezone(datetime.timezone.utc).isoformat()
-    if normalized.endswith("+00:00"):
-        normalized = normalized[:-6] + "Z"
-    return normalized
-
-
-def _compute_task_window(
-    time_min_rfc: Optional[str], time_max_rfc: Optional[str]
-) -> tuple[Optional[datetime.datetime], datetime.datetime, datetime.datetime]:
-    """Determine the primary task window and overdue cutoff."""
-
-    now = datetime.datetime.now(datetime.timezone.utc)
-    start_dt = _parse_rfc3339_datetime(time_min_rfc)
-    end_dt = _parse_rfc3339_datetime(time_max_rfc)
-
-    if end_dt is None:
-        base = start_dt if start_dt and start_dt > now else now
-        end_dt = base + datetime.timedelta(days=7)
-
-    if end_dt < now:
-        end_dt = now
-
-    past_due_cutoff = now - datetime.timedelta(days=14)
-    if start_dt:
-        candidate = start_dt - datetime.timedelta(days=7)
-        if candidate < past_due_cutoff:
-            past_due_cutoff = candidate
-
-    return start_dt, end_dt, past_due_cutoff
-
-
-async def _collect_scheduled_tasks(
-    user_email: str,
-    time_min_rfc: Optional[str],
-    time_max_rfc: Optional[str],
-    max_results: int,
-) -> tuple[List[TaskScheduleEntry], List[str], int]:
-    """Gather due and overdue tasks that should appear alongside the schedule."""
-
-    start_dt, end_dt, past_due_cutoff = _compute_task_window(time_min_rfc, time_max_rfc)
-    now = datetime.datetime.now(datetime.timezone.utc)
-    display_limit = max(1, min(max_results, 50))
-    max_to_collect = display_limit * 2
-
-    try:
-        service = get_tasks_service(user_email)
-    except ValueError as exc:
-        return [], [
-            f"Tasks unavailable: {exc}. Re-run calendar_generate_auth_url with force=true to extend permissions."
-        ], 0
-    except Exception as exc:  # pragma: no cover - unexpected transport issues
-        return [], [f"Tasks unavailable: {exc}."], 0
-
-    collected: List[TaskScheduleEntry] = []
-    warnings: List[str] = []
-
-    tasklist_page_token: Optional[str] = None
-
-    while True:
-        tasklist_params: dict[str, Any] = {"maxResults": 100}
-        if tasklist_page_token:
-            tasklist_params["pageToken"] = tasklist_page_token
-
-        tasklist_call = service.tasklists().list(**tasklist_params)
-        tasklist_response = await asyncio.to_thread(tasklist_call.execute)
-        task_lists = tasklist_response.get("items", [])
-
-        for task_list in task_lists:
-            list_id = task_list.get("id")
-            list_title = task_list.get("title", "(Untitled list)")
-
-            if not list_id:
-                continue
-
-            task_page_token: Optional[str] = None
-            while True:
-                task_params: dict[str, Any] = {
-                    "tasklist": list_id,
-                    "showCompleted": False,
-                    "showDeleted": False,
-                    "showHidden": False,
-                    "maxResults": 100,
-                    "dueMax": _normalize_rfc3339(end_dt),
-                }
-                if past_due_cutoff:
-                    task_params["dueMin"] = _normalize_rfc3339(past_due_cutoff)
-                if task_page_token:
-                    task_params["pageToken"] = task_page_token
-
-                try:
-                    task_call = service.tasks().list(**task_params)
-                    task_response = await asyncio.to_thread(task_call.execute)
-                except Exception as exc:
-                    warnings.append(f"Tasks ({list_title}): {exc}")
-                    break
-
-                items = task_response.get("items", [])
-                for item in items:
-                    due_raw = item.get("due")
-                    if not due_raw:
-                        continue
-
-                    due_dt = _parse_rfc3339_datetime(due_raw)
-                    if due_dt is None:
-                        continue
-
-                    # Filter by computed bounds to avoid overwhelming output
-                    if due_dt > end_dt + datetime.timedelta(seconds=1):
-                        continue
-                    if due_dt < past_due_cutoff:
-                        continue
-
-                    status = item.get("status", "needsAction")
-                    if status.lower() == "completed":
-                        continue
-
-                    entry = TaskScheduleEntry(
-                        title=item.get("title", "(No title)"),
-                        due=due_dt,
-                        due_display=_normalize_rfc3339(due_dt),
-                        status=status,
-                        list_title=list_title,
-                        list_id=list_id,
-                        id=item.get("id", ""),
-                        notes=item.get("notes"),
-                        updated=item.get("updated"),
-                        completed=item.get("completed"),
-                        web_link=item.get("webViewLink") or item.get("selfLink"),
-                        is_overdue=due_dt < now,
-                    )
-                    collected.append(entry)
-
-                    if len(collected) >= max_to_collect:
-                        break
-
-                if len(collected) >= max_to_collect:
-                    break
-
-                task_page_token = task_response.get("nextPageToken")
-                if not task_page_token:
-                    break
-
-            if len(collected) >= max_to_collect:
-                break
-
-        if len(collected) >= max_to_collect:
-            break
-
-        tasklist_page_token = tasklist_response.get("nextPageToken")
-        if not tasklist_page_token:
-            break
-
-    collected.sort(key=lambda entry: entry.due)
-
-    displayed = collected[:display_limit]
-    remaining = max(0, len(collected) - len(displayed))
-
-    return displayed, warnings, remaining
-
-
-def _format_task_line(task: TaskScheduleEntry) -> List[str]:
+def _format_task_line(task: ScheduledTask) -> List[str]:
     """Produce formatted lines for a task summary."""
 
     prefix = "overdue" if task.is_overdue else "due"
@@ -548,43 +494,32 @@ def _format_task_line(task: TaskScheduleEntry) -> List[str]:
     return lines
 
 
-def _parse_time_string(time_str: Optional[str]) -> Optional[str]:
-    """
-    Convert keywords like 'today', 'tomorrow' to RFC3339 timestamps.
+def _format_task_search_result(task: TaskSearchResult) -> List[str]:
+    """Format a search result entry for display."""
 
-    Args:
-        time_str: Time string to parse (keyword or ISO format)
+    due_text = f" | Due: {task.due}" if task.due else ""
+    completed_text = f" | Completed: {task.completed}" if task.completed else ""
+    line = (
+        f'- "{task.title}" [List: {task.list_title}] '
+        f"Status: {task.status}{due_text}{completed_text} ID: {task.id}"
+    )
 
-    Returns:
-        RFC3339 formatted timestamp or None if input is None
-    """
-    if not time_str:
-        return None
+    if task.web_link:
+        line += f" | Link: {task.web_link}"
 
-    if time_str.lower() == "today":
-        date_obj = datetime.date.today()
-        return f"{date_obj.isoformat()}T00:00:00Z"
-    elif time_str.lower() == "tomorrow":
-        date_obj = datetime.date.today() + datetime.timedelta(days=1)
-        return f"{date_obj.isoformat()}T00:00:00Z"
-    elif time_str.lower() == "yesterday":
-        date_obj = datetime.date.today() - datetime.timedelta(days=1)
-        return f"{date_obj.isoformat()}T00:00:00Z"
-    elif time_str.lower() == "next_week":
-        date_obj = datetime.date.today() + datetime.timedelta(days=7)
-        return f"{date_obj.isoformat()}T00:00:00Z"  # If it's already in ISO format, ensure it has timezone info
-    try:
-        parsed_dt = parser.parse(time_str)
-        if parsed_dt.tzinfo is None:
-            parsed_dt = parsed_dt.replace(tzinfo=datetime.timezone.utc)
+    lines = [line]
 
-        iso_value = parsed_dt.isoformat()
-        if iso_value.endswith("+00:00"):
-            iso_value = iso_value[:-6] + "Z"
-        return iso_value
-    except ValueError:
-        # If parsing fails, assume it's already in a valid format
-        return time_str
+    if task.notes:
+        snippet = task.notes.strip()
+        if len(snippet) > 200:
+            snippet = snippet[:197] + "..."
+        if snippet:
+            lines.append(f"  Notes: {snippet}")
+
+    if task.updated:
+        lines.append(f"  Updated: {task.updated}")
+
+    return lines
 
 
 def _resolve_redirect_uri(redirect_uri: Optional[str]) -> str:
@@ -742,6 +677,11 @@ async def get_events(
         time_min_rfc = _parse_time_string(time_min)
         time_max_rfc = _parse_time_string(time_max) if time_max else None
 
+        # Parse time bounds to datetimes for precise local filtering when
+        # Google API semantics include cross-boundary events (e.g. overnight).
+        range_min_dt = parse_rfc3339_datetime(time_min_rfc) if time_min_rfc else None
+        range_max_dt = parse_rfc3339_datetime(time_max_rfc) if time_max_rfc else None
+
         aggregate = _should_use_aggregate(calendar_id)
         if aggregate:
             calendars_to_query = list(DEFAULT_READ_CALENDAR_IDS)
@@ -805,16 +745,41 @@ async def get_events(
                     description=event.get("description", None),
                     ical_uid=event.get("iCalUID"),
                 )
+                # Explicitly filter timed events to avoid including items that
+                # started before the requested window but overlap into it
+                # (e.g., overnight shifts).
+                if not is_all_day and range_min_dt is not None:
+                    start_key = _event_sort_key(event_info.start)
+                    if start_key < range_min_dt:
+                        continue
+                if not is_all_day and range_max_dt is not None:
+                    start_key = _event_sort_key(event_info.start)
+                    if start_key > range_max_dt:
+                        continue
+
                 events_with_keys.append((_event_sort_key(event_info.start), event_info))
 
-        task_entries: List[TaskScheduleEntry] = []
+        task_entries: List[ScheduledTask] = []
         truncated_tasks = 0
 
         if aggregate:
-            task_entries, task_warnings, truncated_tasks = await _collect_scheduled_tasks(
-                user_email, time_min_rfc, time_max_rfc, max_results
-            )
-            warnings.extend(task_warnings)
+            task_service = TaskService(user_email)
+            try:
+                task_collection = await task_service.collect_scheduled_tasks(
+                    time_min_rfc, time_max_rfc, None
+                )
+            except TaskAuthorizationError as exc:
+                warnings.append(
+                    "Tasks unavailable: "
+                    + str(exc)
+                    + ". Re-run calendar_generate_auth_url with force=true to extend permissions."
+                )
+            except TaskServiceError as exc:
+                warnings.append(f"Tasks unavailable: {exc}.")
+            else:
+                task_entries = task_collection.tasks
+                truncated_tasks = task_collection.remaining
+                warnings.extend(task_collection.warnings)
 
         if not events_with_keys and not task_entries:
             if warnings:
@@ -1207,48 +1172,37 @@ async def list_task_lists(
         Formatted string describing task lists.
     """
     try:
-        service = get_tasks_service(user_email)
-    except ValueError as exc:
+        task_service = TaskService(user_email)
+        task_lists, next_page = await task_service.list_task_lists(
+            max_results=max_results, page_token=page_token
+        )
+    except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
             "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
         )
-    except Exception as exc:  # pragma: no cover - unexpected transport issues
-        return f"Error creating Google Tasks service: {exc}"
+    except TaskServiceError as exc:
+        return str(exc)
 
-    try:
-        params: dict[str, Any] = {"maxResults": max(1, min(max_results, 100))}
-        if page_token:
-            params["pageToken"] = page_token
+    if not task_lists:
+        return f"No task lists found for {user_email}."
 
-        response = await asyncio.to_thread(service.tasklists().list(**params).execute)
-        task_lists = response.get("items", [])
+    lines = [f"Task lists for {user_email}:"]
+    for task_list in task_lists:
+        lines.append(f"- {task_list.title} (ID: {task_list.id})")
+        lines.append(f"  Updated: {task_list.updated or 'N/A'}")
 
-        if not task_lists:
-            return f"No task lists found for {user_email}."
+    if next_page:
+        lines.append(f"Next page token: {next_page}")
 
-        lines = [f"Task lists for {user_email}:"]
-        for item in task_lists:
-            title = item.get("title", "(Untitled list)")
-            list_id = item.get("id", "")
-            updated = item.get("updated", "N/A")
-            lines.append(f"- {title} (ID: {list_id})")
-            lines.append(f"  Updated: {updated}")
-
-        next_page = response.get("nextPageToken")
-        if next_page:
-            lines.append(f"Next page token: {next_page}")
-
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"Error listing task lists: {exc}"
+    return "\n".join(lines)
 
 
 @mcp.tool("calendar_list_tasks")
 async def list_tasks(
     user_email: str = DEFAULT_USER_EMAIL,
-    task_list_id: str = "@default",
-    max_results: int = 50,
+    task_list_id: Optional[str] = None,
+    max_results: Optional[int] = None,
     page_token: Optional[str] = None,
     show_completed: bool = False,
     show_deleted: bool = False,
@@ -1257,12 +1211,13 @@ async def list_tasks(
     due_max: Optional[str] = None,
 ) -> str:
     """
-    List tasks within a specific task list.
+    List tasks within a specific task list, or all due tasks when no list is provided.
 
     Args:
         user_email: The user's email address.
-        task_list_id: Task list identifier (default: '@default').
-        max_results: Maximum number of tasks to return (capped at 100).
+        task_list_id: Task list identifier; when omitted, gather due tasks across lists.
+        max_results: Maximum number of tasks to return (capped at 100). Provide
+            None to return all matching tasks.
         page_token: Optional pagination token from a previous call.
         show_completed: Whether to include completed tasks.
         show_deleted: Whether to include deleted tasks.
@@ -1274,78 +1229,397 @@ async def list_tasks(
         Formatted string describing tasks.
     """
     try:
-        service = get_tasks_service(user_email)
-    except ValueError as exc:
+        task_service = TaskService(user_email)
+        effective_list_id: Optional[str] = None
+        list_label: Optional[str] = None
+
+        if task_list_id:
+            # Support passing a human-friendly list title by resolving to ID
+            resolved = await _resolve_task_list_identifier(task_service, task_list_id)
+            if resolved is not None:
+                effective_list_id, list_label = resolved
+            else:
+                effective_list_id, list_label = task_list_id, task_list_id
+
+            list_limit = max_results if max_results is not None else 50
+            due_collection = None
+        else:
+            due_collection = await task_service.collect_due_tasks(
+                max_results=max_results,
+                show_completed=show_completed,
+                show_deleted=show_deleted,
+                show_hidden=show_hidden,
+                due_min=due_min,
+                due_max=due_max,
+            )
+            tasks = due_collection.tasks
+            # No page token in aggregated view here.
+    except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
             "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
         )
-    except Exception as exc:  # pragma: no cover - unexpected transport issues
-        return f"Error creating Google Tasks service: {exc}"
+    except TaskServiceError as exc:
+        return str(exc)
 
-    try:
-        params: dict[str, Any] = {
-            "tasklist": task_list_id,
-            "maxResults": max(1, min(max_results, 100)),
-            "showCompleted": show_completed,
-            "showDeleted": show_deleted,
-            "showHidden": show_hidden,
-        }
+    if task_list_id:
+        list_limit = max_results if max_results is not None else 50
+        collected_due: list[Task] = []
+        next_page_token = page_token
+        unscheduled_found = False
 
-        if page_token:
-            params["pageToken"] = page_token
-
-        due_min_rfc = _parse_time_string(due_min) if due_min else None
-        due_max_rfc = _parse_time_string(due_max) if due_max else None
-
-        if due_min_rfc:
-            params["dueMin"] = due_min_rfc
-        elif due_min:
-            params["dueMin"] = due_min
-
-        if due_max_rfc:
-            params["dueMax"] = due_max_rfc
-        elif due_max:
-            params["dueMax"] = due_max
-
-        response = await asyncio.to_thread(service.tasks().list(**params).execute)
-        tasks = response.get("items", [])
-
-        if not tasks:
-            return (
-                f"No tasks found in list {task_list_id} for {user_email} with the "
-                "specified filters."
+        while True:
+            page_tasks, page_next = await task_service.list_tasks(
+                effective_list_id or task_list_id,
+                max_results=list_limit,
+                page_token=next_page_token,
+                show_completed=show_completed,
+                show_deleted=show_deleted,
+                show_hidden=show_hidden,
+                due_min=due_min,
+                due_max=due_max,
             )
 
-        lines = [f"Tasks in list {task_list_id} for {user_email}:"]
-        for task in tasks:
-            title = task.get("title", "(No title)")
-            task_id = task.get("id", "")
-            status = task.get("status", "needsAction")
-            due_value = task.get("due")
-            updated = task.get("updated", "N/A")
-            lines.append(f"- {title} (ID: {task_id})")
-            lines.append(f"  Status: {status}")
-            lines.append(f"  Updated: {updated}")
-            if due_value:
-                lines.append(f"  Due: {due_value}")
-            if task.get("completed"):
-                lines.append(f"  Completed: {task['completed']}")
-            if task.get("notes"):
-                notes = task["notes"].strip()
+            if not page_tasks:
+                next_page_token = page_next
+                break
+
+            for task in page_tasks:
+                if task.due:
+                    collected_due.append(task)
+                    if len(collected_due) >= list_limit:
+                        next_page_token = page_next
+                        break
+                else:
+                    unscheduled_found = True
+
+            if len(collected_due) >= list_limit:
+                break
+
+            if not page_next:
+                next_page_token = None
+                break
+
+            next_page_token = page_next
+
+        if not collected_due:
+            message = (
+                f"No tasks with scheduled due dates found in list {list_label or task_list_id} "
+                f"for {user_email}."
+            )
+            if unscheduled_found:
+                message += (
+                    " Use tasks_list_unscheduled to view items without "
+                    "due dates."
+                )
+            return message
+
+        lines = [
+            (
+                f"Tasks with scheduled due date/time in list {list_label or task_list_id} for "
+                f"{user_email}:"
+            )
+        ]
+
+        def append_task_details(target: list[str], task: Task) -> None:
+            target.append(f"- {task.title} (ID: {task.id})")
+            target.append(f"  Status: {task.status}")
+            target.append(f"  Updated: {task.updated or 'N/A'}")
+            if task.due is not None:
+                target.append(f"  Due: {normalize_rfc3339(task.due)}")
+            if task.completed:
+                target.append(f"  Completed: {task.completed}")
+            if task.notes:
+                notes = task.notes.strip()
                 if len(notes) > 200:
                     notes = notes[:197] + "..."
-                lines.append(f"  Notes: {notes}")
-            if task.get("webViewLink"):
-                lines.append(f"  Link: {task['webViewLink']}")
+                if notes:
+                    target.append(f"  Notes: {notes}")
+            if task.web_link:
+                target.append(f"  Link: {task.web_link}")
 
-        next_page = response.get("nextPageToken")
-        if next_page:
-            lines.append(f"Next page token: {next_page}")
+        for task in collected_due:
+            append_task_details(lines, task)
+
+        if unscheduled_found:
+            lines.append(
+                """
+Note: Additional tasks without due dates exist; use tasks_list_unscheduled to view them.
+""".strip()
+            )
+
+        if next_page_token:
+            lines.append(f"Next page token: {next_page_token}")
 
         return "\n".join(lines)
-    except Exception as exc:
-        return f"Error listing tasks: {exc}"
+
+    # Aggregate due tasks view.
+    assert due_collection is not None
+    due_tasks = tasks
+
+    if not due_tasks:
+        base_message = f"No due tasks found across task lists for {user_email}."
+        if due_collection.has_additional:
+            base_message += (
+                " Additional due tasks may exist; increase max_results or "
+                "adjust the filters to reveal more."
+            )
+        if due_collection.warnings:
+            base_message += " Warnings: " + "; ".join(due_collection.warnings) + "."
+        return base_message
+
+    shown_count = len(due_tasks)
+    task_word = "task" if shown_count == 1 else "tasks"
+    if due_collection.total_found > shown_count:
+        lines = [
+            (
+                f"Due tasks for {user_email}: showing {shown_count} of "
+                f"{due_collection.total_found} {task_word}."
+            )
+        ]
+    else:
+        lines = [f"Due tasks for {user_email}: {shown_count} {task_word}."]
+
+    if due_collection.scanned_lists:
+        if len(due_collection.scanned_lists) <= 10:
+            lines.append(
+                "Task lists scanned: " + ", ".join(due_collection.scanned_lists)
+            )
+        else:
+            displayed_lists = ", ".join(due_collection.scanned_lists[:10])
+            remaining_lists = len(due_collection.scanned_lists) - 10
+            lines.append(
+                f"Task lists scanned: {displayed_lists}, +{remaining_lists} more"
+            )
+
+    for task in due_tasks:
+        lines.append(f"- {task.title} (ID: {task.id})")
+        lines.append(f"  Status: {task.status}")
+        lines.append(f"  Task list: {task.list_title} (ID: {task.list_id})")
+        if task.due:
+            lines.append(f"  Due: {normalize_rfc3339(task.due)}")
+        lines.append(f"  Updated: {task.updated or 'N/A'}")
+        if task.completed:
+            lines.append(f"  Completed: {task.completed}")
+        if task.notes:
+            notes = task.notes.strip()
+            if len(notes) > 200:
+                notes = notes[:197] + "..."
+            if notes:
+                lines.append(f"  Notes: {notes}")
+        if task.web_link:
+            lines.append(f"  Link: {task.web_link}")
+
+    if due_collection.truncated > 0:
+        extra = due_collection.truncated
+        extra_word = "task" if extra == 1 else "tasks"
+        lines.append(
+            f"(+{extra} additional due {extra_word} not shown; increase max_results "
+            "or refine the filters to view more.)"
+        )
+    elif due_collection.has_additional:
+        lines.append(
+            "Additional due tasks may exist; increase max_results or adjust the "
+            "filters to view more."
+        )
+
+    if due_collection.warnings:
+        lines.append("Warnings:")
+        for warning in due_collection.warnings:
+            lines.append(f"- {warning}")
+
+    return "\n".join(lines)
+
+
+@mcp.tool("tasks_list_unscheduled")
+async def list_unscheduled_tasks(
+    *,
+    user_email: str = DEFAULT_USER_EMAIL,
+    task_list_id: Optional[str] = None,
+    max_results: Optional[int] = None,
+    page_token: Optional[str] = None,
+    show_completed: bool = False,
+    show_deleted: bool = False,
+    show_hidden: bool = False,
+) -> str:
+    """List tasks that do not have a scheduled due date."""
+
+    if not task_list_id:
+        return "task_list_id is required to list unscheduled tasks."
+
+    try:
+        task_service = TaskService(user_email)
+        # Resolve friendly titles to canonical IDs when possible
+        effective_list_id = task_list_id
+        list_label = task_list_id
+        resolved = await _resolve_task_list_identifier(task_service, task_list_id)
+        if resolved is not None:
+            effective_list_id, list_label = resolved
+
+        list_limit = max_results if max_results is not None else 50
+        unscheduled_tasks: list[Task] = []
+        next_page_token = page_token
+        scheduled_found = False
+
+        while True:
+            page_tasks, page_next = await task_service.list_tasks(
+                effective_list_id,
+                max_results=list_limit,
+                page_token=next_page_token,
+                show_completed=show_completed,
+                show_deleted=show_deleted,
+                show_hidden=show_hidden,
+            )
+
+            if not page_tasks:
+                next_page_token = page_next
+                break
+
+            for task in page_tasks:
+                if task.due:
+                    scheduled_found = True
+                    continue
+
+                unscheduled_tasks.append(task)
+                if len(unscheduled_tasks) >= list_limit:
+                    next_page_token = page_next
+                    break
+
+            if len(unscheduled_tasks) >= list_limit:
+                break
+
+            if not page_next:
+                next_page_token = None
+                break
+
+            next_page_token = page_next
+
+    except TaskAuthorizationError as exc:
+        return (
+            f"Authentication error: {exc}. Use calendar_generate_auth_url "
+            "with force=true to authorize Google Tasks."
+        )
+    except TaskServiceError as exc:
+        return str(exc)
+
+    if not unscheduled_tasks:
+        message = (
+            f"No unscheduled tasks found in list {list_label} for {user_email}."
+        )
+        if scheduled_found:
+            message += " Use calendar_list_tasks to view items with due dates."
+        return message
+
+    lines = [
+        (
+            f"Tasks without due date/time in list {list_label} for {user_email}:"
+        )
+    ]
+
+    for task in unscheduled_tasks:
+        lines.append(f"- {task.title} (ID: {task.id})")
+        lines.append(f"  Status: {task.status}")
+        lines.append(f"  Updated: {task.updated or 'N/A'}")
+        lines.append("  Due: Not scheduled")
+        if task.completed:
+            lines.append(f"  Completed: {task.completed}")
+        if task.notes:
+            notes = task.notes.strip()
+            if len(notes) > 200:
+                notes = notes[:197] + "..."
+            if notes:
+                lines.append(f"  Notes: {notes}")
+        if task.web_link:
+            lines.append(f"  Link: {task.web_link}")
+
+    if scheduled_found:
+        lines.append("Use calendar_list_tasks to view items that have due dates.")
+
+    if next_page_token:
+        lines.append(f"Next page token: {next_page_token}")
+
+    return "\n".join(lines)
+
+
+@mcp.tool("calendar_search_tasks")
+async def search_tasks(
+    user_email: str = DEFAULT_USER_EMAIL,
+    query: str = "",
+    task_list_id: Optional[str] = None,
+    max_results: int = 25,
+    include_completed: bool = False,
+    include_hidden: bool = False,
+    include_deleted: bool = False,
+    search_notes: bool = True,
+    due_min: Optional[str] = None,
+    due_max: Optional[str] = None,
+) -> str:
+    """Search for tasks matching a text query across Google Task lists."""
+
+    trimmed_query = query.strip()
+    if not trimmed_query:
+        return "Provide a non-empty search query (for example, a keyword from the task title or notes)."
+
+    try:
+        task_service = TaskService(user_email)
+        search_response = await task_service.search_tasks(
+            trimmed_query,
+            task_list_id=task_list_id,
+            max_results=max_results,
+            include_completed=include_completed,
+            include_hidden=include_hidden,
+            include_deleted=include_deleted,
+            search_notes=search_notes,
+            due_min=due_min,
+            due_max=due_max,
+        )
+    except TaskAuthorizationError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+        )
+    except TaskServiceError as exc:
+        return str(exc)
+
+    matches = search_response.matches
+    if not matches:
+        if search_response.warnings:
+            warning_text = "; ".join(search_response.warnings)
+            return (
+                f"No tasks matched query '{trimmed_query}' for {user_email}. "
+                f"Warnings: {warning_text}."
+            )
+        return f"No tasks matched query '{trimmed_query}' for {user_email}."
+
+    header_lines = [
+        (
+            f"Task search for {user_email}: {len(matches)} match"
+            + ("es" if len(matches) != 1 else "")
+            + f" for '{trimmed_query}'."
+        )
+    ]
+
+    if not task_list_id and search_response.scanned_lists:
+        header_lines.append(
+            "Task lists scanned: " + ", ".join(search_response.scanned_lists)
+        )
+    elif task_list_id and search_response.scanned_lists:
+        header_lines.append(f"Task list: {search_response.scanned_lists[0]}")
+
+    for task in matches:
+        header_lines.extend(_format_task_search_result(task))
+
+    if search_response.truncated:
+        header_lines.append(
+            f"(+{search_response.truncated} additional matches not shown; increase max_results or refine the query.)"
+        )
+
+    if search_response.warnings:
+        header_lines.append("Warnings:")
+        for warning in search_response.warnings:
+            header_lines.append(f"- {warning}")
+
+    return "\n".join(header_lines)
 
 
 @mcp.tool("calendar_get_task")
@@ -1366,44 +1640,38 @@ async def get_task(
         Detailed description of the task.
     """
     try:
-        service = get_tasks_service(user_email)
-    except ValueError as exc:
+        task_service = TaskService(user_email)
+        task = await task_service.get_task(task_list_id, task_id)
+    except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
             "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
         )
-    except Exception as exc:  # pragma: no cover - unexpected transport issues
-        return f"Error creating Google Tasks service: {exc}"
+    except TaskServiceError as exc:
+        return str(exc)
 
-    try:
-        response = await asyncio.to_thread(
-            service.tasks().get(tasklist=task_list_id, task=task_id).execute
-        )
+    lines = [
+        f"Task details for {user_email}:",
+        f"- Title: {task.title}",
+        f"- ID: {task.id or task_id}",
+        f"- Status: {task.status}",
+        f"- Updated: {task.updated or 'N/A'}",
+    ]
 
-        lines = [
-            f"Task details for {user_email}:",
-            f"- Title: {response.get('title', '(No title)')}",
-            f"- ID: {response.get('id', task_id)}",
-            f"- Status: {response.get('status', 'needsAction')}",
-            f"- Updated: {response.get('updated', 'N/A')}",
-        ]
+    if task.due:
+        lines.append(f"- Due: {normalize_rfc3339(task.due)}")
+    if task.completed:
+        lines.append(f"- Completed: {task.completed}")
+    if task.notes:
+        lines.append(f"- Notes: {task.notes}")
+    if task.parent:
+        lines.append(f"- Parent: {task.parent}")
+    if task.position:
+        lines.append(f"- Position: {task.position}")
+    if task.web_link:
+        lines.append(f"- Link: {task.web_link}")
 
-        if response.get("due"):
-            lines.append(f"- Due: {response['due']}")
-        if response.get("completed"):
-            lines.append(f"- Completed: {response['completed']}")
-        if response.get("notes"):
-            lines.append(f"- Notes: {response['notes']}")
-        if response.get("parent"):
-            lines.append(f"- Parent: {response['parent']}")
-        if response.get("position"):
-            lines.append(f"- Position: {response['position']}")
-        if response.get("webViewLink"):
-            lines.append(f"- Link: {response['webViewLink']}")
-
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"Error retrieving task {task_id}: {exc}"
+    return "\n".join(lines)
 
 
 @mcp.tool("calendar_create_task")
@@ -1437,46 +1705,36 @@ async def create_task(
         return guard_message
 
     try:
-        service = get_tasks_service(user_email)
-    except ValueError as exc:
+        task_service = TaskService(user_email)
+        created = await task_service.create_task(
+            task_list_id,
+            title=title,
+            notes=notes,
+            due=due,
+            parent=parent,
+            previous=previous,
+        )
+    except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
             "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
         )
-    except Exception as exc:  # pragma: no cover - unexpected transport issues
-        return f"Error creating Google Tasks service: {exc}"
+    except TaskServiceError as exc:
+        return str(exc)
 
-    try:
-        body: dict[str, Any] = {"title": title}
-        if notes is not None:
-            body["notes"] = notes
-        if due:
-            due_rfc = _parse_time_string(due) or due
-            body["due"] = due_rfc
+    lines = [
+        f"Created task '{created.title}' in list {task_list_id}:",
+        f"- ID: {created.id or '(unknown)'}",
+        f"- Status: {created.status}",
+        f"- Updated: {created.updated or 'N/A'}",
+    ]
 
-        params: dict[str, Any] = {"tasklist": task_list_id, "body": body}
-        if parent:
-            params["parent"] = parent
-        if previous:
-            params["previous"] = previous
+    if created.due:
+        lines.append(f"- Due: {normalize_rfc3339(created.due)}")
+    if created.web_link:
+        lines.append(f"- Link: {created.web_link}")
 
-        response = await asyncio.to_thread(service.tasks().insert(**params).execute)
-
-        lines = [
-            f"Created task '{response.get('title', title)}' in list {task_list_id}:",
-            f"- ID: {response.get('id', '(unknown)')}",
-            f"- Status: {response.get('status', 'needsAction')}",
-            f"- Updated: {response.get('updated', 'N/A')}",
-        ]
-
-        if response.get("due"):
-            lines.append(f"- Due: {response['due']}")
-        if response.get("webViewLink"):
-            lines.append(f"- Link: {response['webViewLink']}")
-
-        return "\n".join(lines)
-    except Exception as exc:
-        return f"Error creating task: {exc}"
+    return "\n".join(lines)
 
 
 @mcp.tool("calendar_update_task")
@@ -1506,59 +1764,35 @@ async def update_task(
         Confirmation message with task details.
     """
     try:
-        service = get_tasks_service(user_email)
-    except ValueError as exc:
+        task_service = TaskService(user_email)
+        updated_task = await task_service.update_task(
+            task_list_id,
+            task_id,
+            title=title,
+            notes=notes,
+            status=status,
+            due=due,
+        )
+    except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
             "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
         )
-    except Exception as exc:  # pragma: no cover - unexpected transport issues
-        return f"Error creating Google Tasks service: {exc}"
-
-    try:
-        current = await asyncio.to_thread(
-            service.tasks().get(tasklist=task_list_id, task=task_id).execute
-        )
-    except Exception as exc:
-        return f"Error retrieving task {task_id} before update: {exc}"
-
-    body: dict[str, Any] = {
-        "id": task_id,
-        "title": title if title is not None else current.get("title", ""),
-        "status": status if status is not None else current.get("status", "needsAction"),
-    }
-
-    if notes is not None:
-        body["notes"] = notes
-    elif current.get("notes"):
-        body["notes"] = current["notes"]
-
-    if due is not None:
-        body["due"] = _parse_time_string(due) or due
-    elif current.get("due"):
-        body["due"] = current["due"]
-
-    try:
-        response = await asyncio.to_thread(
-            service.tasks()
-            .update(tasklist=task_list_id, task=task_id, body=body)
-            .execute
-        )
-    except Exception as exc:
-        return f"Error updating task {task_id}: {exc}"
+    except TaskServiceError as exc:
+        return str(exc)
 
     lines = [
-        f"Updated task '{response.get('title', '(No title)')}' (ID: {response.get('id', task_id)}):",
-        f"- Status: {response.get('status', 'needsAction')}",
-        f"- Updated: {response.get('updated', 'N/A')}",
+        f"Updated task '{updated_task.title}' (ID: {updated_task.id or task_id}):",
+        f"- Status: {updated_task.status}",
+        f"- Updated: {updated_task.updated or 'N/A'}",
     ]
 
-    if response.get("due"):
-        lines.append(f"- Due: {response['due']}")
-    if response.get("completed"):
-        lines.append(f"- Completed: {response['completed']}")
-    if response.get("webViewLink"):
-        lines.append(f"- Link: {response['webViewLink']}")
+    if updated_task.due:
+        lines.append(f"- Due: {normalize_rfc3339(updated_task.due)}")
+    if updated_task.completed:
+        lines.append(f"- Completed: {updated_task.completed}")
+    if updated_task.web_link:
+        lines.append(f"- Link: {updated_task.web_link}")
 
     return "\n".join(lines)
 
@@ -1581,21 +1815,15 @@ async def delete_task(
         Confirmation message.
     """
     try:
-        service = get_tasks_service(user_email)
-    except ValueError as exc:
+        task_service = TaskService(user_email)
+        await task_service.delete_task(task_list_id, task_id)
+    except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
             "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
         )
-    except Exception as exc:  # pragma: no cover - unexpected transport issues
-        return f"Error creating Google Tasks service: {exc}"
-
-    try:
-        await asyncio.to_thread(
-            service.tasks().delete(tasklist=task_list_id, task=task_id).execute
-        )
-    except Exception as exc:
-        return f"Error deleting task {task_id}: {exc}"
+    except TaskServiceError as exc:
+        return str(exc)
 
     return f"Task {task_id} deleted from list {task_list_id}."
 
@@ -1624,40 +1852,28 @@ async def move_task(
         Confirmation message describing the move.
     """
     try:
-        service = get_tasks_service(user_email)
-    except ValueError as exc:
+        task_service = TaskService(user_email)
+        moved = await task_service.move_task(
+            task_list_id,
+            task_id,
+            parent=parent,
+            previous=previous,
+            destination_task_list=destination_task_list,
+        )
+    except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
             "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
         )
-    except Exception as exc:  # pragma: no cover - unexpected transport issues
-        return f"Error creating Google Tasks service: {exc}"
+    except TaskServiceError as exc:
+        return str(exc)
 
-    params: dict[str, Any] = {
-        "tasklist": task_list_id,
-        "task": task_id,
-    }
+    lines = [f"Moved task '{moved.title}' (ID: {moved.id or task_id})."]
 
-    if parent:
-        params["parent"] = parent
-    if previous:
-        params["previous"] = previous
-    if destination_task_list:
-        params["destinationTasklist"] = destination_task_list
-
-    try:
-        response = await asyncio.to_thread(service.tasks().move(**params).execute)
-    except Exception as exc:
-        return f"Error moving task {task_id}: {exc}"
-
-    lines = [
-        f"Moved task '{response.get('title', '(No title)')}' (ID: {response.get('id', task_id)})."
-    ]
-
-    if response.get("parent"):
-        lines.append(f"- Parent: {response['parent']}")
-    if response.get("position"):
-        lines.append(f"- Position: {response['position']}")
+    if moved.parent:
+        lines.append(f"- Parent: {moved.parent}")
+    if moved.position:
+        lines.append(f"- Position: {moved.position}")
     if destination_task_list:
         lines.append(f"- Destination list: {destination_task_list}")
 
@@ -1680,19 +1896,15 @@ async def clear_completed_tasks(
         Confirmation message.
     """
     try:
-        service = get_tasks_service(user_email)
-    except ValueError as exc:
+        task_service = TaskService(user_email)
+        await task_service.clear_completed_tasks(task_list_id)
+    except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
             "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
         )
-    except Exception as exc:  # pragma: no cover - unexpected transport issues
-        return f"Error creating Google Tasks service: {exc}"
-
-    try:
-        await asyncio.to_thread(service.tasks().clear(tasklist=task_list_id).execute)
-    except Exception as exc:
-        return f"Error clearing completed tasks for list {task_list_id}: {exc}"
+    except TaskServiceError as exc:
+        return str(exc)
 
     return (
         f"Completed tasks cleared from list {task_list_id}. "
@@ -1799,6 +2011,7 @@ __all__ = [
     "list_calendars",
     "list_task_lists",
     "list_tasks",
+    "list_unscheduled_tasks",
     "get_task",
     "create_task",
     "update_task",

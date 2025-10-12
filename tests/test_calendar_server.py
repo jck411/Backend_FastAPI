@@ -396,6 +396,72 @@ async def test_list_tasks_authentication_error(mock_get_tasks_service):
 
 @pytest.mark.asyncio
 @patch("backend.mcp_servers.calendar_server.get_tasks_service")
+async def test_list_tasks_due_across_lists(mock_get_tasks_service):
+    """calendar_list_tasks aggregates only scheduled tasks when no list is provided."""
+
+    mock_service = MagicMock()
+    mock_get_tasks_service.return_value = mock_service
+
+    tasklists_request = MagicMock()
+    tasklists_request.execute.return_value = {
+        "items": [
+            {"id": "list-1", "title": "Personal", "updated": "2024-05-01T12:00:00Z"},
+            {"id": "list-2", "title": "Work", "updated": "2024-05-02T12:00:00Z"},
+        ]
+    }
+    mock_service.tasklists.return_value.list.return_value = tasklists_request
+
+    due_one = "2025-10-13T00:00:00Z"
+    due_two = "2025-10-14T12:30:00Z"
+
+    def tasks_list_side_effect(tasklist, **kwargs):
+        request = MagicMock()
+        if tasklist == "list-1":
+            request.execute.return_value = {
+                "items": [
+                    {
+                        "id": "task-1",
+                        "title": "Water plants",
+                        "status": "needsAction",
+                        "due": due_one,
+                        "webViewLink": "https://tasks.google.com/task-1",
+                    },
+                    {
+                        "id": "task-ignored",
+                        "title": "Unscheduled",
+                        "status": "needsAction",
+                    },
+                ]
+            }
+        else:
+            request.execute.return_value = {
+                "items": [
+                    {
+                        "id": "task-2",
+                        "title": "Prepare report",
+                        "status": "needsAction",
+                        "due": due_two,
+                        "notes": "Outline talking points",
+                    }
+                ]
+            }
+        return request
+
+    mock_service.tasks.return_value.list.side_effect = tasks_list_side_effect
+
+    result = await calendar_list_tasks(user_email="user@example.com")
+
+    assert "Due tasks for user@example.com" in result
+    assert "Water plants" in result
+    assert "Prepare report" in result
+    assert "Unscheduled" not in result
+    assert "Task lists scanned: Personal, Work" in result
+    assert "Outline talking points" in result
+    assert "Additional due tasks" not in result
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.calendar_server.get_tasks_service")
 async def test_create_task_due_conversion(mock_get_tasks_service):
     """calendar_create_task normalizes due date strings."""
 

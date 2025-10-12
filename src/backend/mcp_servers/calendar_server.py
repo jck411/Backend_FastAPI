@@ -12,16 +12,19 @@ import datetime
 # Standard library imports
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, List, Optional, TypedDict
 
 # Third party imports
 if TYPE_CHECKING:
+
     class FastMCP:
         def __init__(self, *args: Any, **kwargs: Any) -> None: ...
 
         def run(self) -> None: ...
 
-        def tool(self, name: str) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
+        def tool(
+            self, name: str
+        ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
 else:
     from mcp.server.fastmcp import FastMCP
 
@@ -32,6 +35,7 @@ from backend.services.google_auth.auth import (
     get_calendar_service,
     get_credentials,
 )
+from backend.services.time_context import build_context_lines, create_time_snapshot
 
 
 # Define parser for date/time handling
@@ -53,11 +57,6 @@ try:
 except ImportError:
     # Keep using our fallback implementation
     pass
-
-try:  # pragma: no cover - optional dependency
-    from zoneinfo import ZoneInfo
-except Exception:  # pragma: no cover - Python <3.9 or missing data
-    ZoneInfo = None  # type: ignore
 
 # Create MCP server instance
 mcp: FastMCP = FastMCP("custom-calendar")
@@ -128,10 +127,12 @@ class EventInfo:
     end: str
     is_all_day: bool
     calendar: str
+    calendar_id: str
     id: str
     link: Optional[str] = None
     location: Optional[str] = None
     description: Optional[str] = None
+    ical_uid: Optional[str] = None
 
 
 class CalendarDefinition(TypedDict):
@@ -217,6 +218,17 @@ for definition in DEFAULT_CALENDAR_DEFINITIONS:
     for alias in definition["aliases"]:
         _CALENDAR_ALIAS_TO_ID[alias.lower()] = cal_id
 
+# Lower numbers are treated as more authoritative when deduplicating events.
+CALENDAR_PRIORITIES: dict[str, int] = {
+    "0d02885a194bb2bfab4573ac6188f079498c768aa22659656b248962d03af863@group.calendar.google.com": 0,
+    "4b779996b31f84a4dc520b2f0255e437863f0c826f3249c05f5f13f020fe3ba6@group.calendar.google.com": 0,
+    "family08001023161820261147@group.calendar.google.com": 5,
+    "primary": 10,
+    "en.usa#holiday@group.v.calendar.google.com": 20,
+}
+
+_DEFAULT_CALENDAR_PRIORITY = 100
+
 AGGREGATE_CALENDAR_ALIASES: set[str] = {
     "my calendar",
     "my calendars",
@@ -275,17 +287,42 @@ def _event_sort_key(start_value: str) -> datetime.datetime:
     return parsed
 
 
-def _determine_timezone(timezone: Optional[str]) -> datetime.tzinfo:
-    """Resolve a timezone from user input with sensible fallbacks."""
+def _calendar_priority(calendar_id: str) -> int:
+    """Return ordering priority for a calendar when deduplicating events."""
 
-    if timezone and ZoneInfo is not None:
-        try:
-            return ZoneInfo(timezone)
-        except Exception:
-            pass
+    return CALENDAR_PRIORITIES.get(calendar_id, _DEFAULT_CALENDAR_PRIORITY)
 
-    local_zone = datetime.datetime.now().astimezone().tzinfo
-    return local_zone or datetime.timezone.utc
+
+def _event_dedup_key(event: EventInfo) -> str:
+    """Return a stable key representing the logical event."""
+
+    if event.ical_uid:
+        return event.ical_uid
+
+    return f"{event.title}|{event.start}|{event.end}"
+
+
+def _deduplicate_events(events: List[EventInfo]) -> List[EventInfo]:
+    """Collapse duplicate events, preferring authoritative calendars."""
+
+    deduped: dict[str, EventInfo] = {}
+    order: List[str] = []
+
+    for event in events:
+        key = _event_dedup_key(event)
+        existing = deduped.get(key)
+
+        if existing is None:
+            deduped[key] = event
+            order.append(key)
+            continue
+
+        if _calendar_priority(event.calendar_id) < _calendar_priority(
+            existing.calendar_id
+        ):
+            deduped[key] = event
+
+    return [deduped[key] for key in order]
 
 
 def _parse_time_string(time_str: Optional[str]) -> Optional[str]:
@@ -428,34 +465,10 @@ async def generate_auth_url(
 async def calendar_current_context(timezone: Optional[str] = None) -> str:
     """Report the up-to-date calendar context and record that it was checked."""
 
-    tzinfo = _determine_timezone(timezone)
-    now_local = datetime.datetime.now(tzinfo)
-    now_utc = now_local.astimezone(datetime.timezone.utc)
+    snapshot = create_time_snapshot(timezone)
+    _mark_context_checked(snapshot.now_utc)
 
-    _mark_context_checked(now_utc)
-
-    today_local = now_local.date()
-    start_of_week = today_local - datetime.timedelta(days=today_local.weekday())
-    end_of_week = start_of_week + datetime.timedelta(days=6)
-
-    lines = [
-        f"Current date: {today_local.isoformat()} ({now_local.strftime('%A')})",
-        f"Current time: {now_local.strftime('%H:%M:%S %Z')}",
-        f"Timezone: {tzinfo}",
-        f"ISO timestamp (local): {now_local.isoformat()}",
-        f"ISO timestamp (UTC): {now_utc.isoformat()}",
-        f"Week range: {start_of_week.isoformat()} → {end_of_week.isoformat()}",
-        "Upcoming anchors:",
-    ]
-
-    for label, delta in (
-        ("Tomorrow", datetime.timedelta(days=1)),
-        ("In 3 days", datetime.timedelta(days=3)),
-        ("Next week", datetime.timedelta(weeks=1)),
-    ):
-        anchor = today_local + delta
-        lines.append(f"- {label}: {anchor.isoformat()} ({anchor.strftime('%A')})")
-
+    lines = list(build_context_lines(snapshot))
     lines.append(
         "Use these values when preparing time ranges, and re-run this tool if "
         "your reasoning depends on the current date."
@@ -565,10 +578,12 @@ async def get_events(
                     end=event_end,
                     is_all_day=is_all_day,
                     calendar=calendar_name,
+                    calendar_id=cal_id,
                     id=event.get("id", ""),
                     link=event.get("htmlLink", ""),
                     location=event.get("location", None),
                     description=event.get("description", None),
+                    ical_uid=event.get("iCalUID"),
                 )
                 events_with_keys.append((_event_sort_key(event_info.start), event_info))
 
@@ -587,25 +602,41 @@ async def get_events(
                 )
 
             return (
-                f"No events found for {user_email} in calendar "
-                f"'{calendar_labels[0]}'."
+                f"No events found for {user_email} in calendar '{calendar_labels[0]}'."
             )
 
         events_with_keys.sort(key=lambda item: item[0])
-        selected_events = [event for _, event in events_with_keys[:max_results]]
+        ordered_events = [event for _, event in events_with_keys]
+
+        if aggregate:
+            ordered_events = _deduplicate_events(ordered_events)
+
+        selected_events = ordered_events[:max_results]
 
         result_lines = [f"Found {len(selected_events)} events for {user_email}:"]
 
         if aggregate or len(calendar_labels) > 1:
-            result_lines.append(
-                "Calendars scanned: " + ", ".join(calendar_labels)
-            )
+            result_lines.append("Calendars scanned: " + ", ".join(calendar_labels))
         elif calendar_labels:
             result_lines.append(f"Calendar: {calendar_labels[0]}")
 
         for event in selected_events:
             if event.is_all_day:
-                timing = f"All day on {event.start}"
+                # Check if it's a multi-day event
+                try:
+                    start_date = datetime.date.fromisoformat(event.start)
+                    end_date = datetime.date.fromisoformat(event.end)
+                    # Google Calendar API returns exclusive end dates for all-day events
+                    # So we need to subtract 1 day to get the actual last day
+                    actual_end_date = end_date - datetime.timedelta(days=1)
+
+                    if start_date == actual_end_date:
+                        timing = f"All day on {event.start}"
+                    else:
+                        timing = f"All day from {event.start} to {actual_end_date.isoformat()}"
+                except (ValueError, TypeError):
+                    # Fallback if date parsing fails
+                    timing = f"All day on {event.start}"
             else:
                 timing = f"Starts: {event.start}, Ends: {event.end}"
 
@@ -713,9 +744,7 @@ async def create_event(
 
         # Execute the API call to create the event
         created_event = await asyncio.to_thread(
-            service.events()
-            .insert(calendarId=resolved_calendar_id, body=event)
-            .execute
+            service.events().insert(calendarId=resolved_calendar_id, body=event).execute
         )
 
         # Format timing string for the response
@@ -818,9 +847,7 @@ async def update_event(
         # Execute the API call to update the event
         updated_event = await asyncio.to_thread(
             service.events()
-            .update(
-                calendarId=resolved_calendar_id, eventId=event_id, body=event
-            )
+            .update(calendarId=resolved_calendar_id, eventId=event_id, body=event)
             .execute
         )
 

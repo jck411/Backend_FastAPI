@@ -5,20 +5,25 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import timezone
 from pathlib import Path
 from typing import Any, Literal
-
-from zoneinfo import ZoneInfo
 
 from mcp.server.fastmcp import FastMCP
 
 from backend.config import get_settings
 from backend.repository import ChatRepository
+from backend.services.time_context import (
+    EASTERN_TIMEZONE_NAME,
+    build_context_lines,
+    create_time_snapshot,
+    format_timezone_offset,
+    resolve_timezone,
+)
 
 mcp = FastMCP("housekeeping")
 
-EASTERN_TIMEZONE = ZoneInfo("America/New_York")
+EASTERN_TIMEZONE = resolve_timezone(EASTERN_TIMEZONE_NAME, timezone.utc)
 _MESSAGE_PREVIEW_LIMIT = 2000
 _MAX_HISTORY_LIMIT = 100
 
@@ -30,19 +35,6 @@ _repository_lock = asyncio.Lock()
 class EchoResult:
     message: str
     uppercase: bool
-
-
-def _format_timezone_offset(offset: timedelta | None) -> str:
-    """Return an ISO-8601 style UTC offset string."""
-
-    if offset is None:
-        return "UTC+00:00"
-
-    total_minutes = int(offset.total_seconds() // 60)
-    sign = "+" if total_minutes >= 0 else "-"
-    total_minutes = abs(total_minutes)
-    hours, minutes = divmod(total_minutes, 60)
-    return f"UTC{sign}{hours:02d}:{minutes:02d}"
 
 
 def _resolve_chat_db_path() -> Path:
@@ -109,33 +101,33 @@ async def test_echo(message: str, uppercase: bool = False) -> dict[str, Any]:
 async def current_time(format: Literal["iso", "unix"] = "iso") -> dict[str, Any]:
     """Return the current time with UTC and Eastern Time representations."""
 
-    now_utc = datetime.now(timezone.utc)
-    eastern = now_utc.astimezone(EASTERN_TIMEZONE)
-    unix_seconds = int(now_utc.timestamp())
-    unix_precise = f"{now_utc.timestamp():.6f}"
-    utc_iso = now_utc.isoformat()
-    eastern_iso = eastern.isoformat()
+    snapshot = create_time_snapshot(fallback=timezone.utc)
+    eastern = snapshot.eastern
 
     if format == "iso":
-        rendered = utc_iso
+        rendered = snapshot.iso_utc
     elif format == "unix":
-        rendered = str(unix_seconds)
+        rendered = str(snapshot.unix_seconds)
     else:  # pragma: no cover - guarded by Literal
         raise ValueError(f"Unsupported format: {format}")
 
-    offset = _format_timezone_offset(eastern.utcoffset())
+    offset = format_timezone_offset(eastern.utcoffset())
+    context_lines = list(build_context_lines(snapshot))
+    context_summary = "\n".join(context_lines)
 
     return {
         "format": format,
         "value": rendered,
-        "utc_iso": utc_iso,
-        "utc_unix": str(unix_seconds),
-        "utc_unix_precise": unix_precise,
-        "eastern_iso": eastern_iso,
+        "utc_iso": snapshot.iso_utc,
+        "utc_unix": str(snapshot.unix_seconds),
+        "utc_unix_precise": snapshot.unix_precise,
+        "eastern_iso": eastern.isoformat(),
         "eastern_abbreviation": eastern.tzname(),
         "eastern_display": eastern.strftime("%a %b %d %Y %I:%M:%S %p %Z"),
         "eastern_offset": offset,
-        "timezone": "America/New_York",
+        "timezone": EASTERN_TIMEZONE_NAME,
+        "context_lines": context_lines,
+        "context_summary": context_summary,
     }
 
 

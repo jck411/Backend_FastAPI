@@ -5,6 +5,7 @@ from backend.services.google_auth.auth import (
     get_auth_url,
     get_calendar_service,
     get_credentials,
+    get_tasks_service,
     process_auth_callback,
     store_credentials,
 )
@@ -12,6 +13,7 @@ from backend.services.google_auth.auth import (
 __all__ = [
     "get_calendar_service",
     "get_credentials",
+    "get_tasks_service",
     "authorize_user",
     "store_credentials",
     "get_auth_url",

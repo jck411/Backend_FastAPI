@@ -23,7 +23,23 @@ TOKEN_PATH = PROJECT_ROOT / "data" / "tokens"
 os.makedirs(TOKEN_PATH, exist_ok=True)
 
 # Define scopes
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
+TASKS_SCOPE = "https://www.googleapis.com/auth/tasks"
+SCOPES = [CALENDAR_SCOPE, TASKS_SCOPE]
+
+
+def _extract_token_scopes(token_data: Dict[str, Any]) -> set[str]:
+    """Extract OAuth scopes from a stored token payload."""
+
+    scopes_field = token_data.get("scopes")
+    if isinstance(scopes_field, list):
+        return set(scopes_field)
+
+    scope_field = token_data.get("scope")
+    if isinstance(scope_field, str):
+        return set(scope_field.split())
+
+    return set()
 
 
 def get_client_config() -> Dict[str, Any]:
@@ -81,6 +97,18 @@ def get_credentials(user_email: str) -> Optional[Any]:
 
     with open(token_path, "r") as token_file:
         token_data = json.load(token_file)
+
+    required_scopes = set(SCOPES)
+    current_scopes = _extract_token_scopes(token_data)
+
+    if not required_scopes.issubset(current_scopes):
+        # Existing token is missing scopes (likely created before Tasks support).
+        # Remove the token so the caller initiates a fresh consent flow.
+        try:
+            token_path.unlink()
+        except OSError:
+            pass
+        return None
 
     creds = google.oauth2.credentials.Credentials.from_authorized_user_info(
         token_data, SCOPES
@@ -206,3 +234,27 @@ def get_calendar_service(user_email: str) -> Any:
         )
 
     return build("calendar", "v3", credentials=credentials)
+
+
+def get_tasks_service(user_email: str) -> Any:
+    """
+    Get an authenticated Google Tasks API service for a user.
+
+    Args:
+        user_email: User's email address.
+
+    Returns:
+        Google Tasks service object.
+
+    Raises:
+        ValueError: If no valid credentials are found for the user.
+    """
+    credentials = get_credentials(user_email)
+
+    if not credentials:
+        raise ValueError(
+            f"No valid credentials found for {user_email}. "
+            "User needs to authorize access."
+        )
+
+    return build("tasks", "v1", credentials=credentials)

@@ -13,11 +13,16 @@ from backend.mcp_servers.calendar_server import (
     calendar_current_context,
     auth_status,
     create_event,
+    create_task as calendar_create_task,
     delete_event,
+    delete_task as calendar_delete_task,
     generate_auth_url,
     get_events,
     list_calendars,
+    list_task_lists as calendar_list_task_lists,
+    list_tasks as calendar_list_tasks,
     update_event,
+    update_task as calendar_update_task,
 )
 
 
@@ -165,6 +170,58 @@ async def test_get_events_specific_calendar_alias(mock_get_calendar_service):
 
 
 @pytest.mark.asyncio
+@patch("backend.mcp_servers.calendar_server.get_tasks_service")
+@patch("backend.mcp_servers.calendar_server.get_calendar_service")
+async def test_get_events_includes_tasks(
+    mock_get_calendar_service, mock_get_tasks_service
+):
+    """Aggregated schedule output includes due tasks."""
+
+    mock_calendar_service = MagicMock()
+    mock_get_calendar_service.return_value = mock_calendar_service
+
+    # No calendar events returned
+    calendar_list_request = MagicMock()
+    calendar_list_request.execute.return_value = {"items": []}
+    mock_calendar_service.events.return_value.list.return_value = calendar_list_request
+
+    mock_tasks_service = MagicMock()
+    mock_get_tasks_service.return_value = mock_tasks_service
+
+    # Provide a single task list
+    tasklists_list_request = MagicMock()
+    tasklists_list_request.execute.return_value = {
+        "items": [{"id": "list-1", "title": "Personal"}]
+    }
+    mock_tasks_service.tasklists.return_value.list.return_value = tasklists_list_request
+
+    # Provide a due task
+    tasks_list_request = MagicMock()
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    due_str = (now + datetime.timedelta(days=1)).isoformat().replace("+00:00", "Z")
+    tasks_list_request.execute.return_value = {
+        "items": [
+            {
+                "id": "task-1",
+                "title": "Buy groceries",
+                "status": "needsAction",
+                "due": due_str,
+                "notes": "Remember milk",
+                "webViewLink": "https://tasks.google.com/task-1",
+            }
+        ]
+    }
+    mock_tasks_service.tasks.return_value.list.return_value = tasks_list_request
+
+    await calendar_current_context(timezone="UTC")
+    result = await get_events(user_email="test@example.com", max_results=5)
+
+    assert "Tasks due or overdue:" in result
+    assert "Buy groceries" in result
+    assert "No tasks with due dates in this range." not in result
+
+
+@pytest.mark.asyncio
 async def test_get_events_requires_context_gate():
     """get_events prompts for context when not recently refreshed."""
 
@@ -287,6 +344,146 @@ async def test_delete_event_success(mock_get_calendar_service):
     delete_kwargs = mock_service.events().delete.call_args.kwargs
     assert get_kwargs["calendarId"] == "primary"
     assert delete_kwargs["calendarId"] == "primary"
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.calendar_server.get_tasks_service")
+async def test_list_task_lists_success(mock_get_tasks_service):
+    """calendar_list_task_lists returns task lists."""
+
+    mock_service = MagicMock()
+    mock_get_tasks_service.return_value = mock_service
+
+    list_request = MagicMock()
+    list_request.execute.return_value = {
+        "items": [
+            {"id": "list-1", "title": "Personal", "updated": "2024-05-01T12:00:00Z"}
+        ]
+    }
+    mock_service.tasklists.return_value.list.return_value = list_request
+
+    result = await calendar_list_task_lists(user_email="user@example.com")
+
+    assert "Task lists for user@example.com" in result
+    assert "Personal" in result
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.calendar_server.get_tasks_service")
+async def test_list_task_lists_auth_error(mock_get_tasks_service):
+    """calendar_list_task_lists reports auth issues."""
+
+    mock_get_tasks_service.side_effect = ValueError("No credentials")
+
+    result = await calendar_list_task_lists(user_email="user@example.com")
+
+    assert "Authentication error" in result
+    assert "Google Tasks" in result
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.calendar_server.get_tasks_service")
+async def test_list_tasks_authentication_error(mock_get_tasks_service):
+    """calendar_list_tasks handles missing credentials."""
+
+    mock_get_tasks_service.side_effect = ValueError("Missing")
+
+    result = await calendar_list_tasks(user_email="user@example.com")
+
+    assert "Authentication error" in result
+    assert "Google Tasks" in result
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.calendar_server.get_tasks_service")
+async def test_create_task_due_conversion(mock_get_tasks_service):
+    """calendar_create_task normalizes due date strings."""
+
+    mock_service = MagicMock()
+    mock_get_tasks_service.return_value = mock_service
+
+    insert_request = MagicMock()
+    insert_request.execute.return_value = {
+        "id": "task-1",
+        "title": "New Task",
+        "status": "needsAction",
+        "updated": "2024-05-01T12:00:00Z",
+        "due": "2025-01-01T00:00:00Z",
+    }
+    mock_service.tasks.return_value.insert.return_value = insert_request
+
+    await calendar_current_context(timezone="UTC")
+
+    await calendar_create_task(
+        user_email="user@example.com",
+        title="New Task",
+        due="2025-01-01",
+    )
+
+    insert_kwargs = mock_service.tasks.return_value.insert.call_args.kwargs
+    assert insert_kwargs["body"]["due"] == "2025-01-01T00:00:00Z"
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.calendar_server.get_tasks_service")
+async def test_update_task_preserves_existing_fields(mock_get_tasks_service):
+    """calendar_update_task pulls current task data before updating."""
+
+    mock_service = MagicMock()
+    mock_get_tasks_service.return_value = mock_service
+
+    get_request = MagicMock()
+    get_request.execute.return_value = {
+        "id": "task-1",
+        "title": "Old Task",
+        "status": "needsAction",
+        "due": "2024-06-01T00:00:00Z",
+        "notes": "Existing notes",
+    }
+    mock_service.tasks.return_value.get.return_value = get_request
+
+    update_request = MagicMock()
+    update_request.execute.return_value = {
+        "id": "task-1",
+        "title": "Old Task",
+        "status": "completed",
+        "updated": "2024-06-02T10:00:00Z",
+        "due": "2024-06-01T00:00:00Z",
+    }
+    mock_service.tasks.return_value.update.return_value = update_request
+
+    result = await calendar_update_task(
+        user_email="user@example.com",
+        task_id="task-1",
+        status="completed",
+    )
+
+    assert "Updated task 'Old Task'" in result
+    update_kwargs = mock_service.tasks.return_value.update.call_args.kwargs
+    assert update_kwargs["body"]["status"] == "completed"
+    assert update_kwargs["body"]["title"] == "Old Task"
+    assert update_kwargs["body"]["due"] == "2024-06-01T00:00:00Z"
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.calendar_server.get_tasks_service")
+async def test_delete_task_success(mock_get_tasks_service):
+    """calendar_delete_task deletes tasks via the API."""
+
+    mock_service = MagicMock()
+    mock_get_tasks_service.return_value = mock_service
+    delete_request = MagicMock()
+    delete_request.execute.return_value = None
+    mock_service.tasks.return_value.delete.return_value = delete_request
+
+    result = await calendar_delete_task(
+        user_email="user@example.com",
+        task_id="task-1",
+    )
+
+    assert "Task task-1 deleted" in result
+    delete_kwargs = mock_service.tasks.return_value.delete.call_args.kwargs
+    assert delete_kwargs["task"] == "task-1"
 
 
 @pytest.mark.asyncio

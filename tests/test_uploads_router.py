@@ -26,7 +26,7 @@ def upload_client(monkeypatch, tmp_path) -> Generator[TestClient, None, None]:
     mcp_file.write_text("""{
         "servers": [
             {"id": "local-calculator", "module": "backend.mcp_servers.calculator_server", "enabled": false},
-            {"id": "test-toolkit", "module": "backend.mcp_servers.sample_server", "enabled": false}
+            {"id": "housekeeping", "module": "backend.mcp_servers.housekeeping_server", "enabled": false}
         ]
     }""")
 

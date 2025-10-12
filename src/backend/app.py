@@ -54,8 +54,8 @@ def create_app() -> FastAPI:
             "module": "backend.mcp_servers.calculator_server",
         },
         {
-            "id": "test-toolkit",
-            "module": "backend.mcp_servers.sample_server",
+            "id": "housekeeping",
+            "module": "backend.mcp_servers.housekeeping_server",
             "enabled": True,
         },
         {

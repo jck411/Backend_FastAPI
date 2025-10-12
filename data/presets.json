@@ -14,8 +14,8 @@
           "disabled_tools": [],
           "enabled": true,
           "env": {},
-          "id": "test-toolkit",
-          "module": "backend.mcp_servers.sample_server"
+          "id": "housekeeping",
+          "module": "backend.mcp_servers.housekeeping_server"
         }
       ],
       "model": "anthropic/claude-3-opus",
@@ -37,8 +37,8 @@
           "disabled_tools": [],
           "enabled": true,
           "env": {},
-          "id": "test-toolkit",
-          "module": "backend.mcp_servers.sample_server"
+          "id": "housekeeping",
+          "module": "backend.mcp_servers.housekeeping_server"
         }
       ],
       "model": "openai/gpt-4o:extended",
@@ -60,8 +60,8 @@
           "disabled_tools": [],
           "enabled": true,
           "env": {},
-          "id": "test-toolkit",
-          "module": "backend.mcp_servers.sample_server"
+          "id": "housekeeping",
+          "module": "backend.mcp_servers.housekeeping_server"
         }
       ],
       "model": "openai/gpt-4o-mini-2024-07-18",

@@ -18,8 +18,8 @@
       "disabled_tools": [],
       "enabled": true,
       "env": {},
-      "id": "test-toolkit",
-      "module": "backend.mcp_servers.sample_server"
+      "id": "housekeeping",
+      "module": "backend.mcp_servers.housekeeping_server"
     }
   ]
 }

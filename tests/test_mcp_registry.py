@@ -10,11 +10,8 @@ from typing import Any
 import pytest
 from mcp.types import CallToolResult, Tool
 
-from backend.chat.mcp_registry import (
-    MCPServerConfig,
-    MCPToolAggregator,
-    load_server_configs,
-)
+from backend.chat.mcp_registry import MCPServerConfig, MCPToolAggregator, load_server_configs
+from backend.repository import ChatRepository
 
 pytestmark = pytest.mark.anyio
 
@@ -204,7 +201,7 @@ async def test_aggregator_prefixes_duplicate_tool_names(
     await aggregator.close()
 
 
-async def test_builtin_test_server_runs_via_aggregator() -> None:
+async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -> None:
     project_root = Path(__file__).resolve().parents[1]
     src_dir = project_root / "src"
 
@@ -212,11 +209,26 @@ async def test_builtin_test_server_runs_via_aggregator() -> None:
     existing_path = env.get("PYTHONPATH", "")
     new_pythonpath = os.pathsep.join(filter(None, [existing_path, str(src_dir)]))
     env["PYTHONPATH"] = new_pythonpath
+    env.setdefault("OPENROUTER_API_KEY", "test-key")
+
+    db_path = tmp_path / "chat.db"
+    env["CHAT_DATABASE_PATH"] = str(db_path)
+
+    repository = ChatRepository(db_path)
+    await repository.initialize()
+    await repository.ensure_session("session-test")
+    await repository.add_message("session-test", role="user", content="hello world")
+    await repository.add_message("session-test", role="assistant", content="Hello back!")
+    await repository.close()
 
     config = MCPServerConfig(
-        id="test-toolkit",
-        module="backend.mcp_servers.sample_server",
-        env={"PYTHONPATH": new_pythonpath},
+        id="housekeeping",
+        module="backend.mcp_servers.housekeeping_server",
+        env={
+            "PYTHONPATH": new_pythonpath,
+            "OPENROUTER_API_KEY": env["OPENROUTER_API_KEY"],
+            "CHAT_DATABASE_PATH": str(db_path),
+        },
     )
 
     aggregator = MCPToolAggregator(
@@ -230,7 +242,7 @@ async def test_builtin_test_server_runs_via_aggregator() -> None:
         tool_names = {
             entry["function"]["name"] for entry in aggregator.get_openai_tools()
         }
-        assert {"test_echo", "current_time"}.issubset(tool_names)
+        assert {"test_echo", "current_time", "chat_history"}.issubset(tool_names)
 
         result = await aggregator.call_tool(
             "test_echo",
@@ -249,5 +261,17 @@ async def test_builtin_test_server_runs_via_aggregator() -> None:
         assert clock_payload.get("eastern_iso")
         assert clock_payload.get("eastern_abbreviation")
         assert clock_payload.get("timezone") == "America/New_York"
+
+        history = await aggregator.call_tool(
+            "chat_history",
+            {"session_id": "session-test", "limit": 5, "newest_first": False},
+        )
+        history_payload = history.structuredContent or {}
+        assert history_payload.get("session_id") == "session-test"
+        messages = history_payload.get("messages") or []
+        assert messages, "expected chat_history to return at least one message"
+        assert any("hello world" in (item.get("content") or "") for item in messages)
+        summary = history_payload.get("summary") or ""
+        assert "hello world" in summary
     finally:
         await aggregator.close()

@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 SseEvent = dict[str, str | None]
 
+_SESSION_AWARE_TOOL_NAME = "chat_history"
+_SESSION_AWARE_TOOL_SUFFIX = "__chat_history"
+
 
 @dataclass
 class AssistantTurn:
@@ -421,16 +424,33 @@ class StreamingHandler:
                             "Tool argument parse failure for %s: %s", tool_name, exc
                         )
                     else:
-                        try:
-                            result = await self._tool_client.call_tool(
-                                tool_name, arguments
+                        if not isinstance(arguments, dict):
+                            result_text = (
+                                f"Tool {tool_name} expected a JSON object for arguments but "
+                                f"received {type(arguments).__name__}."
                             )
-                            result_text = self._tool_client.format_tool_result(result)
-                            status = "error" if result.isError else "finished"
-                        except Exception as exc:  # pragma: no cover - MCP errors
-                            logger.exception("Tool '%s' raised an exception", tool_name)
-                            result_text = f"Tool error: {exc}"
                             status = "error"
+                            logger.warning(
+                                "Unexpected tool argument type for %s: %s",
+                                tool_name,
+                                type(arguments).__name__,
+                            )
+                        else:
+                            working_arguments = dict(arguments)
+                            if session_id and _tool_requires_session_id(tool_name):
+                                working_arguments.setdefault("session_id", session_id)
+                            try:
+                                result = await self._tool_client.call_tool(
+                                    tool_name, working_arguments
+                                )
+                                result_text = self._tool_client.format_tool_result(result)
+                                status = "error" if result.isError else "finished"
+                            except Exception as exc:  # pragma: no cover - MCP errors
+                                logger.exception(
+                                    "Tool '%s' raised an exception", tool_name
+                                )
+                                result_text = f"Tool error: {exc}"
+                                status = "error"
 
                 tool_record_id, tool_created_at = await self._repo.add_message(
                     session_id,
@@ -491,6 +511,10 @@ def _is_tool_support_error(error: OpenRouterError) -> bool:
         and "support" in message
         and "tool use" in message
     )
+
+
+def _tool_requires_session_id(tool_name: str) -> bool:
+    return tool_name == _SESSION_AWARE_TOOL_NAME or tool_name.endswith(_SESSION_AWARE_TOOL_SUFFIX)
 
 
 def _merge_tool_calls(

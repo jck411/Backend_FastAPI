@@ -104,8 +104,8 @@ The chat orchestrator can launch multiple MCP servers and expose their tools via
       "enabled": true
     },
     {
-      "id": "test-toolkit",
-      "module": "backend.mcp_servers.sample_server",
+      "id": "housekeeping",
+      "module": "backend.mcp_servers.housekeeping_server",
       "enabled": false
     }
   ]
@@ -114,7 +114,7 @@ The chat orchestrator can launch multiple MCP servers and expose their tools via
 
 Each entry must supply either a Python module (`module`) launched with `python -m`, or an explicit `command` array. Set `enabled` to `false` to keep a definition available without starting it. When multiple servers expose tools with the same name, the orchestrator automatically prefixes them with the server id to keep them unique.
 
-The built-in `test-toolkit` server exposes two simple tools (`test_echo` and `current_time`) that are useful for validating aggregation end-to-end. Toggle `enabled` to `true` in `data/mcp_servers.json` to include it alongside the calculator or third-party MCP servers.
+The built-in `housekeeping` server exposes foundational tools (`test_echo`, `current_time`, and `chat_history`) that are useful for quick diagnostics and retrieving timestamped conversation history. Toggle `enabled` to `true` in `data/mcp_servers.json` to include it alongside the calculator or third-party MCP servers.
 
 ## Run the MCP server
 

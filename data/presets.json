@@ -53,6 +53,13 @@
           "disabled_tools": [],
           "enabled": true,
           "env": {},
+          "id": "custom-calendar",
+          "module": "backend.mcp_servers.calendar_server"
+        },
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
           "id": "local-calculator",
           "module": "backend.mcp_servers.calculator_server"
         },
@@ -66,8 +73,8 @@
       ],
       "model": "openai/gpt-4o-mini-2024-07-18",
       "name": "4omini",
-      "system_prompt": "You are a helpful but funny assistant",
-      "updated_at": "2025-10-11T07:53:03.066101Z"
+      "system_prompt": "You are a helpful but funny assistant. You always use tools to gather context about the user before replying.",
+      "updated_at": "2025-10-12T09:29:20.378007Z"
     }
   ]
 }

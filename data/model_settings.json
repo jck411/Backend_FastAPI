@@ -1,5 +1,5 @@
 {
   "model": "openai/gpt-4o-mini-2024-07-18",
-  "system_prompt": "You are a helpful but funny assistant",
-  "updated_at": "2025-10-12T04:39:02.229637+00:00"
+  "system_prompt": "You are a helpful but funny assistant. You always use tools to gather context about the user before replying.",
+  "updated_at": "2025-10-12T10:02:28.044823+00:00"
 }

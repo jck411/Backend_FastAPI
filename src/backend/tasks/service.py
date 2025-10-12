@@ -480,11 +480,7 @@ class TaskService:
     ) -> TaskSearchResponse:
         client = self._client_or_raise()
 
-        trimmed_query = query.strip()
-        if not trimmed_query:
-            raise TaskServiceError(
-                "Provide a non-empty search query (for example, a keyword from the task title or notes)."
-            )
+        trimmed_query = (query or "").strip()
 
         due_min_rfc = parse_time_string(due_min) if due_min else None
         due_max_rfc = parse_time_string(due_max) if due_max else None
@@ -541,6 +537,8 @@ class TaskService:
             scanned_lists.append(list_info.title)
 
             task_page_token: Optional[str] = None
+            list_title_normalized = (list_info.title or "").lower()
+            list_match = normalized_query in list_title_normalized
             while True:
                 task_params: dict[str, Any] = {
                     "tasklist": list_info.id,
@@ -582,7 +580,8 @@ class TaskService:
                     if notes:
                         haystack_parts.append(notes)
 
-                    if normalized_query not in " ".join(haystack_parts).lower():
+                    # If the query matches the list name, treat every task in that list as relevant.
+                    if not list_match and normalized_query not in " ".join(haystack_parts).lower():
                         continue
 
                     collected.append(

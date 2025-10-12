@@ -37,8 +37,8 @@ from backend.services.google_auth.auth import (
 )
 from backend.services.time_context import build_context_lines, create_time_snapshot
 from backend.tasks import (
-    Task,
     ScheduledTask,
+    Task,
     TaskAuthorizationError,
     TaskSearchResult,
     TaskService,
@@ -136,7 +136,9 @@ def _parse_time_string(time_str: Optional[str]) -> Optional[str]:
         pass
 
     # Datetime with no timezone → treat as UTC
-    if "T" in time_str and ("+" not in time_str and "-" not in time_str[10:] and "Z" not in time_str):
+    if "T" in time_str and (
+        "+" not in time_str and "-" not in time_str[10:] and "Z" not in time_str
+    ):
         return time_str + "Z"
 
     return time_str
@@ -265,6 +267,7 @@ DEFAULT_READ_CALENDAR_IDS: tuple[str, ...] = tuple(
 _CALENDAR_ALIAS_TO_ID: dict[str, str] = {}
 _CALENDAR_ID_TO_LABEL: dict[str, str] = {}
 
+
 def _alias_key(value: str) -> str:
     """Normalize alias keys for robust matching.
 
@@ -278,12 +281,7 @@ def _alias_key(value: str) -> str:
 
     txt = value.strip().lower()
     # Normalize unicode quotes to ASCII
-    txt = (
-        txt.replace("’", "'")
-        .replace("‘", "'")
-        .replace("“", '"')
-        .replace("”", '"')
-    )
+    txt = txt.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"')
     # Remove simple possessive 's
     for who in ("mom", "dad"):
         txt = txt.replace(f"{who}'s", who)
@@ -291,7 +289,7 @@ def _alias_key(value: str) -> str:
     for who in ("mom", "dad"):
         txt = txt.replace(f"{who}s ", f"{who} ")
         if txt.endswith(f"{who}s"):
-            txt = txt[: -1]
+            txt = txt[:-1]
 
     # Strip most punctuation except characters that can appear in real
     # calendar IDs (e.g., '@', '+', '#', '-', '_', '.')
@@ -1309,8 +1307,7 @@ async def list_tasks(
             )
             if unscheduled_found:
                 message += (
-                    " Use tasks_list_unscheduled to view items without "
-                    "due dates."
+                    " Use tasks_list_unscheduled to view items without due dates."
                 )
             return message
 
@@ -1503,18 +1500,12 @@ async def list_unscheduled_tasks(
         return str(exc)
 
     if not unscheduled_tasks:
-        message = (
-            f"No unscheduled tasks found in list {list_label} for {user_email}."
-        )
+        message = f"No unscheduled tasks found in list {list_label} for {user_email}."
         if scheduled_found:
             message += " Use calendar_list_tasks to view items with due dates."
         return message
 
-    lines = [
-        (
-            f"Tasks without due date/time in list {list_label} for {user_email}:"
-        )
-    ]
+    lines = [(f"Tasks without due date/time in list {list_label} for {user_email}:")]
 
     for task in unscheduled_tasks:
         lines.append(f"- {task.title} (ID: {task.id})")
@@ -1541,8 +1532,8 @@ async def list_unscheduled_tasks(
     return "\n".join(lines)
 
 
-@mcp.tool("calendar_search_tasks")
-async def search_tasks(
+@mcp.tool("search_all_tasks")
+async def search_all_tasks(
     user_email: str = DEFAULT_USER_EMAIL,
     query: str = "",
     task_list_id: Optional[str] = None,
@@ -1554,11 +1545,31 @@ async def search_tasks(
     due_min: Optional[str] = None,
     due_max: Optional[str] = None,
 ) -> str:
-    """Search for tasks matching a text query across Google Task lists."""
+    """Search Google Tasks across every list to learn what the user plans, wants, or needs.
+    Call this whenever the user asks about what they have to do, want to read/watch/eat/buy,
+    or before offering personal suggestions—questions like "what books do I want to read?"
+    should trigger this tool. Prefer short keyword queries copied from the user's request
+    (for example, "books"). If you do not have a specific keyword, pass an empty string
+    and this tool will return a general overview of recent tasks.
 
-    trimmed_query = query.strip()
-    if not trimmed_query:
-        return "Provide a non-empty search query (for example, a keyword from the task title or notes)."
+    Args:
+        user_email: The user's email address.
+        query: Search query string to match against task titles and notes.
+        task_list_id: Optional task list identifier or friendly name to narrow search.
+        max_results: Maximum number of matching tasks to return (default: 25).
+        include_completed: Whether to include completed tasks in results.
+        include_hidden: Whether to include hidden tasks.
+        include_deleted: Whether to include deleted tasks.
+        search_notes: Whether to search task notes in addition to titles (default: True).
+        due_min: Optional lower bound for due dates (keywords like "today" supported).
+        due_max: Optional upper bound for due dates (keywords supported).
+
+    Returns:
+        Formatted string with matching tasks and their details.
+    """
+
+    trimmed_query = (query or "").strip()
+    general_search = not trimmed_query
 
     try:
         task_service = TaskService(user_email)
@@ -1585,19 +1596,33 @@ async def search_tasks(
     if not matches:
         if search_response.warnings:
             warning_text = "; ".join(search_response.warnings)
+            if general_search:
+                return (
+                    f"No tasks found for {user_email} across available lists. "
+                    f"Warnings: {warning_text}."
+                )
             return (
                 f"No tasks matched query '{trimmed_query}' for {user_email}. "
                 f"Warnings: {warning_text}."
             )
+        if general_search:
+            return f"No tasks found for {user_email} across available lists."
         return f"No tasks matched query '{trimmed_query}' for {user_email}."
 
-    header_lines = [
-        (
+    if general_search:
+        header = (
+            f"Task overview for {user_email}: {len(matches)} item"
+            + ("s" if len(matches) != 1 else "")
+            + " highlighted."
+        )
+    else:
+        header = (
             f"Task search for {user_email}: {len(matches)} match"
             + ("es" if len(matches) != 1 else "")
             + f" for '{trimmed_query}'."
         )
-    ]
+
+    header_lines = [header]
 
     if not task_list_id and search_response.scanned_lists:
         header_lines.append(
@@ -1620,6 +1645,79 @@ async def search_tasks(
             header_lines.append(f"- {warning}")
 
     return "\n".join(header_lines)
+
+
+async def _upcoming_calendar_snapshot(
+    user_email: str,
+    *,
+    days_ahead: int = 7,
+    max_results: int = 10,
+) -> str:
+    """Fetch upcoming events within the next ``days_ahead`` days."""
+
+    # Ensure context cache is refreshed so calendar_get_events will run.
+    await calendar_current_context()
+
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+    window_end = now + datetime.timedelta(days=days_ahead)
+
+    return await get_events(
+        user_email=user_email,
+        time_min=now.isoformat(),
+        time_max=window_end.isoformat(),
+        max_results=max_results,
+        detailed=False,
+    )
+
+
+@mcp.tool("user_context_from_tasks")
+async def user_context_from_tasks(
+    query: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+    max_results: int = 25,
+    include_completed: bool = False,
+) -> str:
+    """High-priority alias that surfaces personal context from Google Tasks.
+    Always call this before making recommendations; when no obvious keyword is present,
+    pass an empty string for ``query`` to fetch a general overview plus upcoming events.
+    """
+
+    trimmed_query = (query or "").strip()
+    if trimmed_query:
+        return await search_all_tasks(
+            user_email=user_email,
+            query=trimmed_query,
+            max_results=max_results,
+            include_completed=include_completed,
+        )
+
+    # Fallback: gather a general task overview plus the upcoming week calendar snapshot.
+    task_summary = await search_all_tasks(
+        user_email=user_email,
+        query="",
+        max_results=max_results,
+        include_completed=include_completed,
+    )
+
+    calendar_summary = await _upcoming_calendar_snapshot(
+        user_email,
+        days_ahead=7,
+        max_results=max(1, min(max_results, 10)),
+    )
+
+    sections: list[str] = []
+    if task_summary:
+        sections.append(task_summary)
+    if calendar_summary:
+        sections.append(calendar_summary)
+
+    if sections:
+        return "\n\n".join(sections)
+
+    return (
+        "No tasks or calendar events were found for the upcoming week. "
+        "Use calendar_list_tasks or calendar_get_events for more details."
+    )
 
 
 @mcp.tool("calendar_get_task")
@@ -2012,6 +2110,8 @@ __all__ = [
     "list_task_lists",
     "list_tasks",
     "list_unscheduled_tasks",
+    "search_all_tasks",
+    "user_context_from_tasks",
     "get_task",
     "create_task",
     "update_task",

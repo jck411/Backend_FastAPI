@@ -63,6 +63,11 @@ def create_app() -> FastAPI:
             "module": "backend.mcp_servers.calendar_server",
             "enabled": True,
         },
+        {
+            "id": "custom-gmail",
+            "module": "backend.mcp_servers.gmail_server",
+            "enabled": True,
+        },
     ]
 
     mcp_settings_service = MCPServerSettingsService(

@@ -25,7 +25,20 @@ os.makedirs(TOKEN_PATH, exist_ok=True)
 # Define scopes
 CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"
 TASKS_SCOPE = "https://www.googleapis.com/auth/tasks"
-SCOPES = [CALENDAR_SCOPE, TASKS_SCOPE]
+GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
+GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose"
+GMAIL_LABELS_SCOPE = "https://www.googleapis.com/auth/gmail.labels"
+SCOPES = [
+    CALENDAR_SCOPE,
+    TASKS_SCOPE,
+    GMAIL_READONLY_SCOPE,
+    GMAIL_MODIFY_SCOPE,
+    GMAIL_SEND_SCOPE,
+    GMAIL_COMPOSE_SCOPE,
+    GMAIL_LABELS_SCOPE,
+]
 
 
 def _extract_token_scopes(token_data: Dict[str, Any]) -> set[str]:
@@ -258,3 +271,27 @@ def get_tasks_service(user_email: str) -> Any:
         )
 
     return build("tasks", "v1", credentials=credentials)
+
+
+def get_gmail_service(user_email: str) -> Any:
+    """
+    Get an authenticated Gmail API service for a user.
+
+    Args:
+        user_email: User's email address.
+
+    Returns:
+        Google Gmail service object.
+
+    Raises:
+        ValueError: If no valid credentials are found for the user.
+    """
+    credentials = get_credentials(user_email)
+
+    if not credentials:
+        raise ValueError(
+            f"No valid credentials found for {user_email}. "
+            "User needs to authorize access."
+        )
+
+    return build("gmail", "v1", credentials=credentials)

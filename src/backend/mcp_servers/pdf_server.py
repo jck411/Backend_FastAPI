@@ -12,6 +12,7 @@ import asyncio
 import base64
 import fnmatch
 import os
+import string
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -371,6 +372,19 @@ def _file_info(base: Path, p: Path) -> dict[str, Any]:
     }
 
 
+def _extract_attachment_id(relative_path: str) -> str | None:
+    """Derive the attachment_id from the stored filename when possible."""
+
+    name = Path(relative_path).name
+    stem = Path(name).stem
+    if "__" in stem:
+        stem = stem.split("__", 1)[0]
+    candidate = stem.lower()
+    if len(candidate) == 32 and all(ch in string.hexdigits for ch in candidate):
+        return candidate
+    return None
+
+
 @mcp.tool("list_upload_paths")  # type: ignore[misc]
 async def list_upload_paths(
     subdir: Optional[str] = None,
@@ -453,7 +467,7 @@ async def list_upload_paths(
             info = _file_info(base, p)
             info["type"] = "file"
             if repository is not None:
-                attachment_id = Path(name_rel).stem
+                attachment_id = _extract_attachment_id(name_rel)
                 try:
                     record = await repository.get_attachment(attachment_id)
                 except Exception:  # pragma: no cover - defensive

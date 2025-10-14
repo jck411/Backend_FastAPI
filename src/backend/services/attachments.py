@@ -16,6 +16,7 @@ from starlette.datastructures import URL
 from starlette.requests import Request
 
 from ..repository import AttachmentRecord, ChatRepository
+from ..utils import build_storage_name
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,8 @@ class AttachmentService:
         extension = self._pick_extension(upload.filename, mime_type)
         attachment_id = uuid4().hex
         relative_dir = Path(session_id)
-        relative_path = relative_dir / f"{attachment_id}{extension}"
+        stored_name = build_storage_name(attachment_id, extension, upload.filename)
+        relative_path = relative_dir / stored_name
         absolute_path = (self._base_dir / relative_path).resolve()
 
         base_dir_resolved = self._base_dir.resolve()

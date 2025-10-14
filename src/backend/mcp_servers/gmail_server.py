@@ -35,6 +35,7 @@ else:  # Runtime import
 
 from backend.config import get_settings
 from backend.repository import ChatRepository
+from backend.utils import build_storage_name
 from backend.services.google_auth.auth import (
     authorize_user,
     get_credentials,
@@ -722,7 +723,8 @@ async def download_gmail_attachment(
         ext = guessed or ""
 
     internal_id = uuid4().hex
-    relative_path = Path(session_id) / f"{internal_id}{ext}"
+    stored_name = build_storage_name(internal_id, ext, filename)
+    relative_path = Path(session_id) / stored_name
     storage_base = _resolve_attachments_dir()
     absolute_path = (storage_base / relative_path).resolve()
 
@@ -879,7 +881,8 @@ async def _download_and_register_attachment(
             ext = guessed or ""
 
     internal_id = uuid4().hex
-    relative_path = Path(session_id) / f"{internal_id}{ext}"
+    stored_name = build_storage_name(internal_id, ext, filename)
+    relative_path = Path(session_id) / stored_name
     storage_base = _resolve_attachments_dir()
     absolute_path = (storage_base / relative_path).resolve()
 

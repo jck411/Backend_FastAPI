@@ -55,4 +55,6 @@ async def test_attachment_service_accepts_pdf(tmp_path: Path) -> None:
     assert call_kwargs["size_bytes"] == len(b"%PDF-1.4 sample content")
 
     stored_relative = Path(call_kwargs["storage_path"])
+    assert stored_relative.as_posix().startswith("session1/")
+    assert stored_relative.name.endswith("__report.pdf")
     assert (storage_dir / stored_relative).exists()

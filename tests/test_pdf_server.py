@@ -118,6 +118,30 @@ async def test_list_and_search_upload_paths(tmp_path, monkeypatch):
     assert match.get("original_filename") == "Original Name.pdf"
     assert match.get("name") == "Original Name.pdf"
 
+    # Slugged filenames should still resolve the attachment identifier
+    slug_id = "1234567890abcdef1234567890abcdef"
+    slug_file = uploads / "a" / f"{slug_id}__scan-of-receipt.pdf"
+    slug_file.write_bytes(b"%PDF-1.4 slug")
+    await repo.add_attachment(
+        attachment_id=slug_id,
+        session_id="a",
+        storage_path=f"a/{slug_file.name}",
+        mime_type="application/pdf",
+        size_bytes=slug_file.stat().st_size,
+        display_url=f"http://localhost:8000/api/uploads/{slug_id}/content",
+        delivery_url=f"http://localhost:8000/api/uploads/{slug_id}/content",
+        metadata={"filename": "Receipt.pdf"},
+        expires_at=now,
+    )
+
+    enriched = await pdf_server.list_upload_paths()
+    slug_match = next(
+        (it for it in enriched if it.get("relative_path") == f"a/{slug_file.name}"), None
+    )
+    assert slug_match is not None
+    assert slug_match.get("attachment_id") == slug_id
+    assert slug_match.get("name") == "Receipt.pdf"
+
 
 def test_pdf_server_reuses_kreuzberg_mcp():
     from kreuzberg._mcp import server as kreuzberg_server

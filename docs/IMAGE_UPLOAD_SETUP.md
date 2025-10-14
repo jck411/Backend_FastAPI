@@ -2,6 +2,8 @@
 
 This guide explains how to set up image uploads so that LLMs can access your uploaded images.
 
+Note (Gmail attachments): Gmail attachment downloads and PDF extraction now run entirely on localhost and do not require ngrok. Use this document only when you need third‑party LLMs to fetch files over HTTPS (e.g., images sent directly to the model).
+
 ## Why This Setup Is Needed
 
 LLM providers (OpenAI, Anthropic, etc.) need to fetch images from publicly accessible HTTPS URLs. Since your FastAPI backend runs locally (`http://localhost:8000`), LLMs can't access the images directly.

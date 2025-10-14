@@ -12,8 +12,8 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import UploadFile
-from starlette.requests import Request
 from starlette.datastructures import URL
+from starlette.requests import Request
 
 from ..repository import AttachmentRecord, ChatRepository
 
@@ -97,7 +97,10 @@ class AttachmentService:
         absolute_path = (self._base_dir / relative_path).resolve()
 
         base_dir_resolved = self._base_dir.resolve()
-        if base_dir_resolved not in absolute_path.parents and absolute_path != base_dir_resolved:
+        if (
+            base_dir_resolved not in absolute_path.parents
+            and absolute_path != base_dir_resolved
+        ):
             raise AttachmentError("Resolved attachment path escaped storage directory")
 
         absolute_path.parent.mkdir(parents=True, exist_ok=True)
@@ -115,10 +118,14 @@ class AttachmentService:
 
         await self._repo.ensure_session(session_id)
 
-        original_url = str(request.url_for("download_attachment", attachment_id=attachment_id))
+        original_url = str(
+            request.url_for("download_attachment", attachment_id=attachment_id)
+        )
         delivery_url = self._apply_public_base(original_url)
         now = datetime.now(timezone.utc)
-        expires_at = now + self._retention if self._retention.total_seconds() > 0 else None
+        expires_at = (
+            now + self._retention if self._retention.total_seconds() > 0 else None
+        )
         metadata: dict[str, Any] = {}
         if upload.filename:
             metadata["filename"] = upload.filename
@@ -153,7 +160,9 @@ class AttachmentService:
         parsed = URL(url)
         external = f"{self._public_base_url}{parsed.path}"
         if parsed.query:
-            external = f"{external}?{parsed.query}"  # pragma: no cover - future proofing
+            external = (
+                f"{external}?{parsed.query}"  # pragma: no cover - future proofing
+            )
         return external
 
     async def resolve(self, attachment_id: str) -> StoredAttachment:
@@ -168,7 +177,10 @@ class AttachmentService:
             raise AttachmentError("Attachment missing storage path")
         absolute_path = (self._base_dir / storage_path).resolve()
         base_dir_resolved = self._base_dir.resolve()
-        if base_dir_resolved not in absolute_path.parents and absolute_path != base_dir_resolved:
+        if (
+            base_dir_resolved not in absolute_path.parents
+            and absolute_path != base_dir_resolved
+        ):
             raise AttachmentError("Attachment path escaped storage directory")
         if not absolute_path.exists():
             raise AttachmentNotFound(attachment_id)
@@ -190,7 +202,9 @@ class AttachmentService:
             try:
                 (self._base_dir / record["storage_path"]).unlink(missing_ok=True)
             except Exception:  # pragma: no cover - best-effort cleanup
-                logger.warning("Failed to remove attachment file %s", attachment_id, exc_info=True)
+                logger.warning(
+                    "Failed to remove attachment file %s", attachment_id, exc_info=True
+                )
         return deleted
 
     async def _write_file(self, upload: UploadFile, destination: Path) -> int:
@@ -217,6 +231,11 @@ class AttachmentService:
             ext = Path(filename).suffix
             if ext:
                 return ext
+
+        # Handle common mime types explicitly for more consistent extensions
+        if mime_type == "application/pdf":
+            return ".pdf"
+
         guessed = mimetypes.guess_extension(mime_type)
         return guessed or ""
 

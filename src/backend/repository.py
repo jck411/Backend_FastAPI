@@ -444,6 +444,42 @@ class ChatRepository:
             return None
         return self._row_to_attachment(row)
 
+    async def get_attachment_by_storage_path(
+        self, storage_path: str
+    ) -> AttachmentRecord | None:
+        """Return a single attachment matching the given storage path.
+
+        The `storage_path` must match the relative path stored in the DB
+        (e.g., `session_id/attachment_id.ext`).
+        """
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            """
+            SELECT
+                attachment_id,
+                session_id,
+                storage_path,
+                mime_type,
+                size_bytes,
+                display_url,
+                delivery_url,
+                metadata,
+                created_at,
+                expires_at,
+                last_used_at
+            FROM attachments
+            WHERE storage_path = ?
+            LIMIT 1
+            """,
+            (storage_path,),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row is None:
+            return None
+        return self._row_to_attachment(row)
+
     async def touch_attachment(
         self, attachment_id: str, *, session_id: str | None = None
     ) -> bool:

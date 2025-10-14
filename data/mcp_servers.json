@@ -18,6 +18,13 @@
       "disabled_tools": [],
       "enabled": true,
       "env": {},
+      "id": "custom-pdf",
+      "module": "backend.mcp_servers.pdf_server"
+    },
+    {
+      "disabled_tools": [],
+      "enabled": true,
+      "env": {},
       "id": "custom-calendar",
       "module": "backend.mcp_servers.calendar_server"
     },

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import zipfile
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -30,6 +31,7 @@ from backend.services.google_auth.auth import (
     get_credentials,
     get_drive_service,
 )
+from backend.mcp_servers.pdf_server import extract_bytes as kb_extract_bytes
 
 mcp = FastMCP("custom-gdrive")
 
@@ -79,6 +81,19 @@ def _build_drive_list_params(
         params["corpora"] = corpora
 
     return params
+
+
+async def _download_request_bytes(request: Any) -> bytes:
+    """Stream an API request payload into bytes using MediaIoBaseDownload."""
+
+    buffer = io.BytesIO()
+    downloader = MediaIoBaseDownload(buffer, request)
+
+    loop = asyncio.get_running_loop()
+    done = False
+    while not done:
+        _, done = await loop.run_in_executor(None, downloader.next_chunk)
+    return buffer.getvalue()
 
 
 async def _locate_child_folder(
@@ -532,18 +547,11 @@ async def get_drive_file_content(
         else service.files().get_media(fileId=file_id)
     )
 
-    buffer = io.BytesIO()
-    downloader = MediaIoBaseDownload(buffer, request)
-
-    loop = asyncio.get_running_loop()
-    done = False
     try:
-        while not done:
-            _, done = await loop.run_in_executor(None, downloader.next_chunk)
+        content_bytes = await _download_request_bytes(request)
     except Exception as exc:
         return f"Error downloading file content: {exc}"
 
-    content_bytes = buffer.getvalue()
     office_mime_types = {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -551,7 +559,49 @@ async def get_drive_file_content(
     }
 
     body_text: str
-    if mime_type in office_mime_types:
+    if mime_type == "application/pdf":
+        try:
+            payload = base64.b64encode(content_bytes).decode("ascii")
+            # Use Kreuzberg's robust extractor for PDFs (handles text + OCR)
+            result: Dict[str, Any] = kb_extract_bytes(
+                content_base64=payload,
+                mime_type=mime_type,
+            )
+            body_text = (
+                str(result.get("content") or result.get("text") or "").strip()
+            )
+            # If no text was extracted, try an OCR pass as a fallback
+            if not body_text:
+                try:
+                    result_ocr: Dict[str, Any] = kb_extract_bytes(
+                        content_base64=payload,
+                        mime_type=mime_type,
+                        force_ocr=True,
+                    )
+                    body_text = (
+                        str(result_ocr.get("content") or result_ocr.get("text") or "").strip()
+                    )
+                except Exception:
+                    body_text = ""
+            if not body_text:
+                # Fall back to a best-effort UTF-8 decode or binary notice
+                try:
+                    body_text = content_bytes.decode("utf-8")
+                except UnicodeDecodeError:
+                    body_text = (
+                        f"[Binary or unsupported text encoding for mimeType '{mime_type}' - "
+                        f"{len(content_bytes)} bytes]"
+                    )
+        except Exception:
+            # If extraction fails for any reason, degrade gracefully
+            try:
+                body_text = content_bytes.decode("utf-8")
+            except UnicodeDecodeError:
+                body_text = (
+                    f"[Binary or unsupported text encoding for mimeType '{mime_type}' - "
+                    f"{len(content_bytes)} bytes]"
+                )
+    elif mime_type in office_mime_types:
         extracted = _extract_office_xml_text(content_bytes, mime_type)
         if extracted:
             body_text = extracted
@@ -578,6 +628,78 @@ async def get_drive_file_content(
         f"Link: {metadata.get('webViewLink', '#')}\n\n--- CONTENT ---\n"
     )
     return header + body_text
+
+
+@mcp.tool("gdrive_download_file")
+async def download_drive_file(
+    file_id: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+    export_mime_type: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Return Drive file bytes encoded as base64 alongside metadata."""
+
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return {
+            "error": f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        }
+    except Exception as exc:
+        return {"error": f"Error creating Google Drive service: {exc}"}
+
+    try:
+        metadata = await asyncio.to_thread(
+            service.files()
+            .get(
+                fileId=file_id,
+                fields="id, name, mimeType, size, webViewLink, modifiedTime",
+                supportsAllDrives=True,
+            )
+            .execute
+        )
+    except Exception as exc:
+        return {"error": f"Error retrieving metadata for file {file_id}: {exc}"}
+
+    mime_type = metadata.get("mimeType", "")
+    default_exports = {
+        "application/vnd.google-apps.document": "application/pdf",
+        "application/vnd.google-apps.presentation": "application/pdf",
+        "application/vnd.google-apps.spreadsheet": "text/csv",
+        "application/vnd.google-apps.drawing": "image/png",
+    }
+    chosen_export = export_mime_type or default_exports.get(mime_type)
+
+    request = (
+        service.files().export_media(fileId=file_id, mimeType=chosen_export)
+        if chosen_export
+        else service.files().get_media(fileId=file_id)
+    )
+    download_mime = chosen_export or mime_type or "application/octet-stream"
+
+    try:
+        content_bytes = await _download_request_bytes(request)
+    except Exception as exc:
+        return {"error": f"Error downloading file content: {exc}", "file_id": file_id}
+
+    payload = base64.b64encode(content_bytes).decode("ascii")
+    response: Dict[str, Any] = {
+        "file_id": file_id,
+        "file_name": metadata.get("name"),
+        "mime_type": mime_type,
+        "download_mime_type": download_mime,
+        "size_bytes": len(content_bytes),
+        "content_base64": payload,
+        "web_view_link": metadata.get("webViewLink"),
+        "modified_time": metadata.get("modifiedTime"),
+    }
+    if metadata.get("size") is not None:
+        response["reported_size"] = metadata.get("size")
+    if chosen_export and chosen_export != mime_type:
+        response["exported"] = True
+        response["export_mime_type"] = chosen_export
+    else:
+        response["exported"] = False
+    return response
 
 
 @mcp.tool("gdrive_create_file")

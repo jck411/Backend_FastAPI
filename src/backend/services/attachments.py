@@ -20,12 +20,13 @@ from ..repository import AttachmentRecord, ChatRepository
 logger = logging.getLogger(__name__)
 
 
-ALLOWED_IMAGE_MIME_TYPES: frozenset[str] = frozenset(
+ALLOWED_ATTACHMENT_MIME_TYPES: frozenset[str] = frozenset(
     {
         "image/png",
         "image/jpeg",
         "image/webp",
         "image/gif",
+        "application/pdf",
     }
 )
 
@@ -86,7 +87,7 @@ class AttachmentService:
             raise AttachmentError("session_id is required")
 
         mime_type = (upload.content_type or "").lower()
-        if mime_type not in ALLOWED_IMAGE_MIME_TYPES:
+        if mime_type not in ALLOWED_ATTACHMENT_MIME_TYPES:
             raise UnsupportedAttachmentType(mime_type or "unknown")
 
         extension = self._pick_extension(upload.filename, mime_type)

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import base64
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -10,6 +11,8 @@ from backend.mcp_servers.gdrive_server import (
     auth_status,
     copy_drive_file,
     create_drive_folder,
+    get_drive_file_content,
+    download_drive_file,
     delete_drive_file,
     generate_auth_url,
     list_drive_items,
@@ -135,6 +138,42 @@ async def test_list_drive_items_resolves_folder_name(
     assert "Found 1 items in folder 'bps'" in result
     assert "notes.txt" in result
     assert files_api.list.call_count == 2
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.gdrive_server._download_request_bytes", new_callable=AsyncMock)
+@patch("backend.mcp_servers.gdrive_server.asyncio.to_thread")
+@patch("backend.mcp_servers.gdrive_server.get_drive_service")
+async def test_download_drive_file_returns_base64(
+    mock_get_service, mock_to_thread, mock_download_bytes
+):
+    mock_service = MagicMock()
+    mock_get_service.return_value = mock_service
+
+    files_api = mock_service.files.return_value
+    files_api.get.return_value.execute.return_value = {
+        "id": "file123",
+        "name": "Report.pdf",
+        "mimeType": "application/pdf",
+        "size": "2048",
+        "webViewLink": "https://drive.example/report",
+        "modifiedTime": "2024-05-01T00:00:00.000Z",
+    }
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    mock_to_thread.side_effect = fake_to_thread
+    mock_download_bytes.return_value = b"%PDF-1.4"
+
+    result = await download_drive_file("file123", user_email="user@example.com")
+
+    assert result["file_id"] == "file123"
+    assert result["download_mime_type"] == "application/pdf"
+    assert result["exported"] is False
+    assert result["size_bytes"] == len(b"%PDF-1.4")
+    assert result["content_base64"] == base64.b64encode(b"%PDF-1.4").decode("ascii")
+    mock_download_bytes.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -289,6 +328,39 @@ async def test_rename_drive_file(mock_get_drive_service, mock_to_thread):
     files_api.update.assert_called_once()
     kwargs = files_api.update.call_args.kwargs
     assert kwargs["body"] == {"name": "New Name"}
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.gdrive_server.kb_extract_bytes")
+@patch("backend.mcp_servers.gdrive_server._download_request_bytes", new_callable=AsyncMock)
+@patch("backend.mcp_servers.gdrive_server.asyncio.to_thread")
+@patch("backend.mcp_servers.gdrive_server.get_drive_service")
+async def test_get_file_content_pdf_uses_extractor(
+    mock_get_service, mock_to_thread, mock_download_bytes, mock_extract
+):
+    mock_service = MagicMock()
+    mock_get_service.return_value = mock_service
+
+    files_api = mock_service.files.return_value
+    files_api.get.return_value.execute.return_value = {
+        "id": "file123",
+        "name": "Report.pdf",
+        "mimeType": "application/pdf",
+        "webViewLink": "https://drive.example/report",
+    }
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    mock_to_thread.side_effect = fake_to_thread
+    mock_download_bytes.return_value = b"%PDF-1.4...mockpdfbytes"
+    mock_extract.return_value = {"content": "Hello world from PDF"}
+
+    result = await get_drive_file_content("file123", user_email="user@example.com")
+
+    assert "Report.pdf" in result
+    assert "Hello world from PDF" in result
+    mock_extract.assert_called_once()
 
 
 @pytest.mark.asyncio

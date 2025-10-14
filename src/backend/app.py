@@ -73,6 +73,11 @@ def create_app() -> FastAPI:
             "module": "backend.mcp_servers.gdrive_server",
             "enabled": True,
         },
+        {
+            "id": "custom-pdf",
+            "module": "backend.mcp_servers.pdf_server",
+            "enabled": True,
+        },
     ]
 
     mcp_settings_service = MCPServerSettingsService(

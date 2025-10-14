@@ -11,6 +11,13 @@
       "disabled_tools": [],
       "enabled": true,
       "env": {},
+      "id": "custom-gdrive",
+      "module": "backend.mcp_servers.gdrive_server"
+    },
+    {
+      "disabled_tools": [],
+      "enabled": true,
+      "env": {},
       "id": "custom-calendar",
       "module": "backend.mcp_servers.calendar_server"
     },

@@ -68,6 +68,11 @@ def create_app() -> FastAPI:
             "module": "backend.mcp_servers.gmail_server",
             "enabled": True,
         },
+        {
+            "id": "custom-gdrive",
+            "module": "backend.mcp_servers.gdrive_server",
+            "enabled": True,
+        },
     ]
 
     mcp_settings_service = MCPServerSettingsService(

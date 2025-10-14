@@ -30,6 +30,7 @@ GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose"
 GMAIL_LABELS_SCOPE = "https://www.googleapis.com/auth/gmail.labels"
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive"
 SCOPES = [
     CALENDAR_SCOPE,
     TASKS_SCOPE,
@@ -38,6 +39,7 @@ SCOPES = [
     GMAIL_SEND_SCOPE,
     GMAIL_COMPOSE_SCOPE,
     GMAIL_LABELS_SCOPE,
+    DRIVE_SCOPE,
 ]
 
 
@@ -295,3 +297,27 @@ def get_gmail_service(user_email: str) -> Any:
         )
 
     return build("gmail", "v1", credentials=credentials)
+
+
+def get_drive_service(user_email: str) -> Any:
+    """
+    Get an authenticated Google Drive API service for a user.
+
+    Args:
+        user_email: User's email address.
+
+    Returns:
+        Google Drive service object.
+
+    Raises:
+        ValueError: If no valid credentials are found for the user.
+    """
+    credentials = get_credentials(user_email)
+
+    if not credentials:
+        raise ValueError(
+            f"No valid credentials found for {user_email}. "
+            "User needs to authorize access."
+        )
+
+    return build("drive", "v3", credentials=credentials)

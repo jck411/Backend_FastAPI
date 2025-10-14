@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import io
 import zipfile
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import httpx
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -79,6 +79,140 @@ def _build_drive_list_params(
         params["corpora"] = corpora
 
     return params
+
+
+async def _locate_child_folder(
+    service: Any,
+    *,
+    parent_id: str,
+    folder_name: str,
+    drive_id: Optional[str],
+    include_items_from_all_drives: bool,
+    corpora: Optional[str],
+    page_size: int = 10,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Return the first folder matching folder_name under parent_id plus optional warning."""
+
+    escaped_name = _escape_query_term(folder_name.strip())
+    query = (
+        f"'{parent_id}' in parents and "
+        f"name = '{escaped_name}' and "
+        "mimeType = 'application/vnd.google-apps.folder' and trashed=false"
+    )
+    params = _build_drive_list_params(
+        query=query,
+        page_size=page_size,
+        drive_id=drive_id,
+        include_items_from_all_drives=include_items_from_all_drives,
+        corpora=corpora,
+    )
+
+    try:
+        results = await asyncio.to_thread(service.files().list(**params).execute)
+    except Exception as exc:
+        return None, (
+            f"Error resolving folder '{folder_name}' under parent '{parent_id}': {exc}"
+        )
+
+    folders = [
+        item
+        for item in results.get("files", [])
+        if item.get("mimeType") == "application/vnd.google-apps.folder"
+    ]
+    if not folders:
+        return None, None
+
+    warning: Optional[str] = None
+    if len(folders) > 1:
+        candidates = ", ".join(
+            f"{item.get('name', '(unknown)')} (ID: {item.get('id', 'unknown')})"
+            for item in folders[1:4]
+        )
+        warning = (
+            f"Multiple folders named '{folder_name}' found; using the most recently "
+            f"modified match (ID: {folders[0].get('id', 'unknown')})."
+        )
+        if candidates:
+            warning += f" Other candidates: {candidates}"
+
+    return folders[0], warning
+
+
+async def _resolve_folder_reference(
+    service: Any,
+    *,
+    folder_id: Optional[str],
+    folder_name: Optional[str],
+    folder_path: Optional[str],
+    drive_id: Optional[str],
+    include_items_from_all_drives: bool,
+    corpora: Optional[str],
+) -> Tuple[Optional[str], Optional[str], List[str]]:
+    """Return (folder_id, display_label, warnings) or (None, error_message, warnings)."""
+
+    warnings: List[str] = []
+
+    normalized_id = (folder_id or "").strip()
+    normalized_path = (folder_path or "").strip().strip("/")
+    normalized_name = (folder_name or "").strip()
+
+    base_id = normalized_id if normalized_id else "root"
+    base_label = "root" if base_id == "root" else base_id
+
+    if normalized_path:
+        parent_id = base_id
+        label_parts: List[str] = [] if base_id == "root" else [base_label]
+        for segment in [part.strip() for part in normalized_path.split("/") if part.strip()]:
+            located, note = await _locate_child_folder(
+                service,
+                parent_id=parent_id,
+                folder_name=segment,
+                drive_id=drive_id,
+                include_items_from_all_drives=include_items_from_all_drives,
+                corpora=corpora,
+            )
+            scope = "/".join(label_parts) if label_parts else base_label
+            if located is None:
+                missing_context = scope or ("root" if parent_id == "root" else parent_id)
+                return (
+                    None,
+                    f"Unable to find folder '{segment}' within '{missing_context}'.",
+                    warnings,
+                )
+            if note:
+                warnings.append(note)
+            parent_id = located.get("id", parent_id)
+            label_parts.append(located.get("name", segment))
+
+        final_label = "/".join(label_parts) if label_parts else base_label
+        return parent_id, final_label or normalized_path, warnings
+
+    if (not normalized_id or normalized_id.lower() == "root") and normalized_name:
+        located, note = await _locate_child_folder(
+            service,
+            parent_id=base_id,
+            folder_name=normalized_name,
+            drive_id=drive_id,
+            include_items_from_all_drives=include_items_from_all_drives,
+            corpora=corpora,
+        )
+        scope = "root" if base_id == "root" else base_label
+        if located is None:
+            return (
+                None,
+                f"No folder named '{normalized_name}' was found under '{scope}'.",
+                warnings,
+            )
+        if note:
+            warnings.append(note)
+        label = located.get("name", normalized_name)
+        if scope != "root":
+            label = f"{scope}/{label}"
+        return located.get("id"), label, warnings
+
+    final_id = normalized_id or "root"
+    final_label = "root" if final_id == "root" else final_id
+    return final_id, final_label, warnings
 
 
 def _iter_text(el) -> Iterable[str]:
@@ -281,13 +415,23 @@ async def search_drive_files(
 
 @mcp.tool("gdrive_list_folder")
 async def list_drive_items(
-    folder_id: str = "root",
+    folder_id: Optional[str] = "root",
+    folder_name: Optional[str] = None,
+    folder_path: Optional[str] = None,
     user_email: str = DEFAULT_USER_EMAIL,
     page_size: int = 100,
     drive_id: Optional[str] = None,
     include_items_from_all_drives: bool = True,
     corpora: Optional[str] = None,
 ) -> str:
+    """
+    List the contents of a Google Drive folder.
+
+    Provide one of the following to identify the folder:
+    - `folder_id` (defaults to "root")
+    - `folder_name` for a direct child under the selected parent
+    - `folder_path` like "Reports/2024" relative to the parent/root
+    """
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
@@ -295,7 +439,23 @@ async def list_drive_items(
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
-    query = f"'{folder_id}' in parents and trashed=false"
+    resolved_id, display_label, warnings = await _resolve_folder_reference(
+        service,
+        folder_id=folder_id,
+        folder_name=folder_name,
+        folder_path=folder_path,
+        drive_id=drive_id,
+        include_items_from_all_drives=include_items_from_all_drives,
+        corpora=corpora,
+    )
+
+    if resolved_id is None:
+        detail_lines = [display_label or "Unable to resolve folder selection."]
+        if warnings:
+            detail_lines.extend(warnings)
+        return "\n".join(detail_lines)
+
+    query = f"'{resolved_id}' in parents and trashed=false"
     params = _build_drive_list_params(
         query=query,
         page_size=page_size,
@@ -311,10 +471,13 @@ async def list_drive_items(
 
     files = results.get("files", [])
     if not files:
-        return f"No items found in folder '{folder_id}'."
+        response_lines = [f"No items found in folder '{display_label}'."]
+        if warnings:
+            response_lines.extend(warnings)
+        return "\n".join(response_lines)
 
     lines = [
-        f"Found {len(files)} items in folder '{folder_id}' for {user_email}:",
+        f"Found {len(files)} items in folder '{display_label}' for {user_email}:",
         "",
     ]
     for item in files:
@@ -325,6 +488,8 @@ async def list_drive_items(
             f"{size_text}, Modified: {item.get('modifiedTime', 'N/A')}) "
             f"Link: {item.get('webViewLink', '#')}"
         )
+    if warnings:
+        lines.extend(["", *warnings])
     return "\n".join(lines)
 
 

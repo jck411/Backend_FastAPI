@@ -12,6 +12,7 @@ from backend.mcp_servers.gdrive_server import (
     create_drive_folder,
     delete_drive_file,
     generate_auth_url,
+    list_drive_items,
     move_drive_file,
     rename_drive_file,
     search_drive_files,
@@ -84,6 +85,56 @@ async def test_search_drive_files_auth_error(mock_get_drive_service):
 
     assert "Authentication error" in result
     assert "Missing credentials" in result
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.gdrive_server.asyncio.to_thread")
+@patch("backend.mcp_servers.gdrive_server.get_drive_service")
+async def test_list_drive_items_resolves_folder_name(
+    mock_get_drive_service, mock_to_thread
+):
+    mock_service = MagicMock()
+    mock_get_drive_service.return_value = mock_service
+
+    files_api = mock_service.files.return_value
+    folder_list_call = MagicMock()
+    folder_list_call.execute.return_value = {
+        "files": [
+            {
+                "id": "FOLDER123",
+                "name": "bps",
+                "mimeType": "application/vnd.google-apps.folder",
+            }
+        ]
+    }
+    content_list_call = MagicMock()
+    content_list_call.execute.return_value = {
+        "files": [
+            {
+                "id": "file1",
+                "name": "notes.txt",
+                "mimeType": "text/plain",
+                "modifiedTime": "2024-05-01T00:00:00.000Z",
+                "webViewLink": "https://drive.example/doc",
+            }
+        ]
+    }
+    files_api.list.side_effect = [folder_list_call, content_list_call]
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    mock_to_thread.side_effect = fake_to_thread
+
+    result = await list_drive_items(
+        folder_id="",
+        folder_name="bps",
+        user_email="user@example.com",
+    )
+
+    assert "Found 1 items in folder 'bps'" in result
+    assert "notes.txt" in result
+    assert files_api.list.call_count == 2
 
 
 @pytest.mark.asyncio

@@ -468,9 +468,12 @@ async def list_upload_paths(
             info["type"] = "file"
             if repository is not None:
                 attachment_id = _extract_attachment_id(name_rel)
-                try:
-                    record = await repository.get_attachment(attachment_id)
-                except Exception:  # pragma: no cover - defensive
+                if attachment_id is not None:
+                    try:
+                        record = await repository.get_attachment(attachment_id)
+                    except Exception:  # pragma: no cover - defensive
+                        record = None
+                else:
                     record = None
                 if record:
                     info["attachment_id"] = attachment_id

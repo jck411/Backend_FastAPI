@@ -15,6 +15,24 @@ const sanitizerConfig: Config = {
   ADD_TAGS: ["table", "thead", "tbody", "tfoot", "tr", "th", "td"],
 };
 
+// Ensure all links open in a new tab and are safe
+DOMPurify.addHook("afterSanitizeAttributes", (node) => {
+  // Only process anchor elements
+  // Using tagName check to avoid relying on DOM globals in different environments
+  const el = node as unknown as Element;
+  if (!el || typeof (el as any).tagName !== "string") return;
+  if (el.tagName.toUpperCase() !== "A") return;
+
+  // Always open links in a new tab
+  el.setAttribute("target", "_blank");
+
+  // Ensure safe rel attributes (merge with any existing ones)
+  const existing = (el.getAttribute("rel") || "").split(/\s+/).filter(Boolean);
+  const required = ["noopener", "noreferrer", "nofollow", "ugc"];
+  const merged = Array.from(new Set([...existing, ...required]));
+  el.setAttribute("rel", merged.join(" "));
+});
+
 export function renderMarkdown(source: string | null | undefined): string {
   if (!source) {
     return "";

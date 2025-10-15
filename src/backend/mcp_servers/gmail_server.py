@@ -4,15 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import mimetypes
-from datetime import datetime, timedelta, timezone
-from email.header import decode_header, make_header
-from email.message import Message
 from email.mime.text import MIMEText
-from email.utils import collapse_rfc2231_value
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Optional
-from uuid import uuid4
 
 # For local, in-process document extraction (no external URLs needed)
 try:  # pragma: no cover - optional import used by attachment text tool
@@ -34,12 +28,15 @@ else:  # Runtime import
     from mcp.server.fastmcp import FastMCP
 
 from backend.config import get_settings
-from backend.repository import ChatRepository
-from backend.utils import build_storage_name
 from backend.services.google_auth.auth import (
     authorize_user,
     get_credentials,
     get_gmail_service,
+)
+from backend.services.gmail_download_simple import (
+    download_gmail_attachment as simple_download_attachment,
+    extract_filename_from_part,
+    find_attachment_part,
 )
 
 mcp = FastMCP("custom-gmail")
@@ -47,11 +44,6 @@ mcp = FastMCP("custom-gmail")
 DEFAULT_USER_EMAIL = "jck411@gmail.com"
 GMAIL_BATCH_SIZE = 25
 HTML_BODY_TRUNCATE_LIMIT = 20000
-
-# Local repository singleton for persisting attachments
-_repository: ChatRepository | None = None
-_repository_lock = asyncio.Lock()
-
 
 def _project_root() -> Path:
     module_path = Path(__file__).resolve()
@@ -67,23 +59,6 @@ def _resolve_under(base: Path, p: Path) -> Path:
     if not resolved.is_relative_to(base):
         raise ValueError(f"Configured path {resolved} escapes project root {base}")
     return resolved
-
-
-def _resolve_chat_db_path() -> Path:
-    settings = get_settings()
-    return _resolve_under(_project_root(), settings.chat_database_path)
-
-
-async def _get_repository() -> ChatRepository:
-    global _repository
-    if _repository is not None:
-        return _repository
-    async with _repository_lock:
-        if _repository is None:
-            repo = ChatRepository(_resolve_chat_db_path())
-            await repo.initialize()
-            _repository = repo
-    return _repository
 
 
 def _resolve_redirect_uri(redirect_uri: Optional[str]) -> str:
@@ -154,98 +129,29 @@ def _iter_payload_parts(payload: Dict) -> Iterable[Dict[str, Any]]:
 def _extract_attachments(payload: Dict) -> List[Dict[str, Any]]:
     attachments: List[Dict[str, Any]] = []
     for part in _iter_payload_parts(payload):
-        filename = (part.get("filename") or "").strip()
         body = part.get("body") or {}
         attachment_id = body.get("attachmentId")
+        if not attachment_id:
+            continue
         mime_type = part.get("mimeType") or "application/octet-stream"
-        if filename and attachment_id:
-            size = body.get("size") or 0
-            # Disposition (inline/attachment) if present in headers
-            disposition = None
-            for header in part.get("headers", []) or []:
-                if header.get("name") == "Content-Disposition":
-                    disposition = header.get("value")
-                    break
-            attachments.append(
-                {
-                    "filename": filename,
-                    "mimeType": mime_type,
-                    "size": size,
-                    "attachmentId": attachment_id,
-                    "partId": part.get("partId"),
-                    "disposition": disposition,
-                }
-            )
+        effective_filename = extract_filename_from_part(part)
+        size = body.get("size") or 0
+        disposition = None
+        for header in part.get("headers", []) or []:
+            if header.get("name") == "Content-Disposition":
+                disposition = header.get("value")
+                break
+        attachments.append(
+            {
+                "filename": effective_filename or "attachment",
+                "mimeType": mime_type,
+                "size": size,
+                "attachmentId": attachment_id,
+                "partId": part.get("partId"),
+                "disposition": disposition,
+            }
+        )
     return attachments
-
-
-def _find_attachment_part(
-    payload: Dict, target_attachment_id: str
-) -> Optional[Dict[str, Any]]:
-    for part in _iter_payload_parts(payload):
-        body = part.get("body") or {}
-        if body.get("attachmentId") == target_attachment_id:
-            return part
-    return None
-
-
-def _decode_header_value(value: str) -> str:
-    if not value:
-        return ""
-    try:
-        return str(make_header(decode_header(value))).strip()
-    except Exception:
-        return value.strip()
-
-
-def _sanitize_filename(name: str) -> str:
-    candidate = (name or "").strip().strip("\x00")
-    if not candidate:
-        return "attachment"
-    candidate = candidate.replace("\\", "/")
-    candidate = candidate.split("/")[-1]
-    return candidate or "attachment"
-
-
-def _extract_filename_from_headers(
-    headers: Iterable[Dict[str, Any]] | None,
-) -> str | None:
-    if not headers:
-        return None
-    for header in headers:
-        name = header.get("name")
-        if name not in {"Content-Disposition", "Content-Type"}:
-            continue
-        value = header.get("value")
-        if not value:
-            continue
-        message = Message()
-        message[name] = value
-        for param_name, param_value in message.get_params(header=name, failobj=[]):
-            if not param_name:
-                continue
-            if param_name.lower() not in {"filename", "name"}:
-                continue
-            if isinstance(param_value, tuple):
-                candidate = collapse_rfc2231_value(param_value)
-            else:
-                candidate = param_value
-            candidate = _decode_header_value(candidate)
-            if candidate and candidate.lower() != "attachment":
-                return candidate
-    return None
-
-
-def _resolve_attachment_filename(part: Optional[Dict[str, Any]]) -> str:
-    if not part:
-        return "attachment"
-    raw = _decode_header_value((part.get("filename") or "").strip())
-    if raw and raw.lower() != "attachment":
-        return _sanitize_filename(raw)
-    header_name = _extract_filename_from_headers(part.get("headers"))
-    if header_name:
-        return _sanitize_filename(header_name)
-    return _sanitize_filename(raw)
 
 
 def _format_body_content(text_body: str, html_body: str) -> str:
@@ -317,25 +223,6 @@ def _generate_gmail_web_url(item_id: str, account_index: int = 0) -> str:
 def _resolve_attachments_dir() -> Path:
     settings = get_settings()
     return _resolve_under(_project_root(), settings.attachments_dir)
-
-
-def _build_attachment_urls(attachment_id: str) -> tuple[str, str]:
-    """Return (display_url, delivery_url) for stored attachments.
-
-    - delivery_url always uses localhost to avoid reliance on public tunnels.
-    - display_url uses configured public base if present, otherwise localhost.
-    """
-    settings = get_settings()
-    api_path = f"/api/uploads/{attachment_id}/content"
-    local_base = "http://localhost:8000"
-    public_base = (
-        str(settings.attachments_public_base_url)
-        if settings.attachments_public_base_url
-        else None
-    )
-    display = f"{(public_base or local_base).rstrip('/')}{api_path}"
-    delivery = f"{local_base.rstrip('/')}{api_path}"
-    return display, delivery
 
 
 def _format_thread_content(thread_data: Dict, thread_id: str) -> str:
@@ -482,6 +369,7 @@ async def search_gmail_messages(
         "",
     ]
 
+    # Fetch metadata for each message to get subjects and attachments
     for idx, message in enumerate(messages, start=1):
         message_id = message.get("id", "unknown")
         thread_id = message.get("threadId", "unknown")
@@ -493,16 +381,49 @@ async def search_gmail_messages(
             _generate_gmail_web_url(thread_id) if thread_id != "unknown" else "N/A"
         )
 
-        lines.extend(
-            [
-                f"{idx}. Message ID: {message_id}",
-                f"   Thread ID: {thread_id}",
-                f"   Message URL: {message_url}",
-                f"   Thread URL:  {thread_url}",
-                f"   Snippet: {snippet}",
-                "",
-            ]
-        )
+        # Fetch subject and attachments from message metadata
+        subject = "(no subject)"
+        attachments = []
+        if message_id != "unknown":
+            try:
+                full_message = await asyncio.to_thread(
+                    service.users()
+                    .messages()
+                    .get(userId="me", id=message_id, format="full")
+                    .execute
+                )
+                payload = full_message.get("payload", {})
+                headers = _extract_headers(payload, ["Subject"])
+                subject = headers.get("Subject", "(no subject)")
+                attachments = _extract_attachments(payload)
+            except Exception:
+                # If fetch fails, continue with defaults
+                pass
+
+        message_lines = [
+            f"{idx}. Subject: {subject}",
+            f"   Message ID: {message_id}",
+            f"   Thread ID: {thread_id}",
+            f"   Message URL: {message_url}",
+            f"   Thread URL:  {thread_url}",
+            f"   Snippet: {snippet}",
+        ]
+
+        if attachments:
+            message_lines.append(f"   Attachments ({len(attachments)}):")
+            for att_idx, att in enumerate(attachments, start=1):
+                att_filename = att.get("filename", "unknown")
+                att_size = att.get("size", 0)
+                att_mime = att.get("mimeType", "unknown")
+                att_id = att.get("attachmentId", "unknown")
+                size_kb = att_size / 1024 if att_size else 0
+                message_lines.append(
+                    f"      {att_idx}. {att_filename} ({size_kb:.1f} KB, {att_mime})"
+                )
+                message_lines.append(f"         ID: {att_id}")
+
+        message_lines.append("")
+        lines.extend(message_lines)
 
     if next_token:
         lines.append(f"Next page token: {next_token}")
@@ -624,9 +545,9 @@ async def download_gmail_attachment(
 ) -> str:
     """Download a Gmail attachment and persist it in local storage.
 
-    Returns a summary including the internal attachment ID and a local URL.
-    Public URLs (e.g., ngrok) are no longer required for delivery and will only
-    be shown as a convenience if configured.
+    Preserves the original filename when available and avoids redundant API
+    calls by delegating to a shared helper. Returns the internal attachment ID
+    and a local URL.
     """
     if not session_id or not session_id.strip():
         return "session_id is required to register the attachment."
@@ -641,7 +562,40 @@ async def download_gmail_attachment(
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
 
-    # Fetch message to locate metadata for the attachment (filename/mime)
+    try:
+        storage_dir = _resolve_attachments_dir()
+        info = await simple_download_attachment(
+            service, message_id, attachment_id, storage_dir
+        )
+    except Exception as exc:
+        return f"Failed to download attachment: {exc}"
+
+    lines = [
+        "Attachment saved!",
+        f"Filename: {info.get('filename')}",
+        f"MIME: {info.get('mime_type')}",
+        f"Size: {info.get('size_bytes')} bytes",
+        f"Saved To: {info.get('absolute_path')}",
+    ]
+    return "\n".join(lines)
+
+
+@mcp.tool("debug_gmail_attachment_metadata")
+async def debug_gmail_attachment_metadata(
+    message_id: str,
+    attachment_id: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+) -> str:
+    """Inspect Gmail part metadata for an attachment to diagnose filename issues.
+
+    Returns key fields including partId, mimeType, Gmail-provided filename, and
+    relevant headers. Use this if a saved file falls back to file.bin.
+    """
+    try:
+        service = get_gmail_service(user_email)
+    except Exception as exc:
+        return f"Error creating Gmail service: {exc}"
+
     try:
         message = await asyncio.to_thread(
             service.users()
@@ -653,287 +607,40 @@ async def download_gmail_attachment(
         return f"Error retrieving Gmail message {message_id}: {exc}"
 
     payload = message.get("payload", {})
-    attachment_entry = None
-    for candidate in _extract_attachments(payload):
-        if candidate.get("attachmentId") == attachment_id:
-            attachment_entry = candidate
-            break
-
-    part = _find_attachment_part(payload, attachment_id)
-    # If we can't locate metadata, fall back to sensible defaults while still
-    # attempting the download to avoid blocking on Gmail quirks.
-    filename = "attachment"
-    if attachment_entry:
-        candidate = _sanitize_filename(
-            _decode_header_value(attachment_entry.get("filename") or "")
-        )
-        if candidate and candidate.lower() != "attachment":
-            filename = candidate
-    if (not filename or filename == "attachment") and part:
-        filename = _resolve_attachment_filename(part)
-
-    mime_type = None
-    if attachment_entry and attachment_entry.get("mimeType"):
-        mime_type = attachment_entry.get("mimeType")
-    if not mime_type and part:
-        mime_type = part.get("mimeType")
-    if not mime_type:
-        mime_type = "application/octet-stream"
-
-    # Download the raw attachment bytes
-    try:
-        att_obj = await asyncio.to_thread(
-            service.users()
-            .messages()
-            .attachments()
-            .get(userId="me", messageId=message_id, id=attachment_id)
-            .execute
-        )
-    except Exception as exc:
-        # If we couldn't even fetch the attachment object and we also
-        # didn't find a matching part, report the original guidance to list.
-        if not part:
-            return (
-                f"Attachment '{attachment_id}' was not found in message '{message_id}'. "
-                "Use list_gmail_message_attachments to enumerate available attachments."
-            )
-        return f"Error downloading Gmail attachment {attachment_id}: {exc}"
-
-    data_b64 = att_obj.get("data")
-    if not data_b64:
-        return "Downloaded attachment did not contain data."
-
-    try:
-        content_bytes = base64.urlsafe_b64decode(data_b64)
-    except Exception:
-        return "Failed to decode attachment content."
-
-    size_bytes = len(content_bytes)
-    settings = get_settings()
-    max_size = int(settings.attachments_max_size_bytes)
-    if size_bytes > max_size:
+    part = find_attachment_part(payload, attachment_id)
+    if not part:
         return (
-            f"Attachment is {size_bytes} bytes which exceeds limit of {max_size} bytes."
+            "Attachment part not found in message payload. "
+            "Ensure attachment_id belongs to this message."
         )
 
-    # Determine file extension
-    ext = Path(filename).suffix
-    if not ext:
-        guessed = mimetypes.guess_extension(mime_type)
-        ext = guessed or ""
-
-    internal_id = uuid4().hex
-    stored_name = build_storage_name(internal_id, ext, filename)
-    relative_path = Path(session_id) / stored_name
-    storage_base = _resolve_attachments_dir()
-    absolute_path = (storage_base / relative_path).resolve()
-
-    # Safety: ensure we don't escape storage dir
-    storage_resolved = storage_base.resolve()
-    if (
-        storage_resolved not in absolute_path.parents
-        and absolute_path != storage_resolved
-    ):
-        return "Resolved attachment path escaped storage directory"
-
-    absolute_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Write file to disk off the main thread
-    try:
-        await asyncio.to_thread(absolute_path.write_bytes, content_bytes)
-    except Exception as exc:
-        return f"Failed to write attachment to storage: {exc}"
-
-    # Persist metadata in repository
-    try:
-        repository = await _get_repository()
-        await repository.ensure_session(session_id)
-        now = datetime.now(timezone.utc)
-        retention_days = int(settings.attachments_retention_days)
-        expires_at = (
-            now + timedelta(days=retention_days) if retention_days > 0 else None
-        )
-        display_url, delivery_url = _build_attachment_urls(internal_id)
-        part_id = None
-        if part and part.get("partId"):
-            part_id = part.get("partId")
-        elif attachment_entry and attachment_entry.get("partId"):
-            part_id = attachment_entry.get("partId")
-
-        metadata: Dict[str, Any] = {
-            "filename": filename,
-            "gmail": {
-                "message_id": message_id,
-                "attachment_id": attachment_id,
-                "part_id": part_id,
-            },
-        }
-        record = await repository.add_attachment(
-            attachment_id=internal_id,
-            session_id=session_id,
-            storage_path=str(relative_path),
-            mime_type=mime_type,
-            size_bytes=size_bytes,
-            display_url=display_url,
-            delivery_url=delivery_url,
-            metadata=metadata,
-            expires_at=expires_at,
-        )
-    except Exception as exc:
-        # best-effort cleanup
-        try:
-            absolute_path.unlink(missing_ok=True)
-        except Exception:
-            pass
-        return f"Failed to register attachment: {exc}"
-
-    uploaded_at = record.get("created_at")
-    expires_at_iso = record.get("expires_at")
+    headers = {h.get("name"): h.get("value") for h in (part.get("headers") or [])}
+    effective = extract_filename_from_part(part)
+    body = part.get("body") or {}
     lines = [
-        "Attachment saved!",
-        f"Attachment ID: {internal_id}",
-        f"Filename: {filename}",
-        f"MIME: {mime_type}",
-        f"Size: {size_bytes} bytes",
-        f"Local URL: {delivery_url}",
-        f"Uploaded At: {uploaded_at}",
-        f"Expires At: {expires_at_iso or 'none'}",
+        f"partId: {part.get('partId')}",
+        f"mimeType: {part.get('mimeType')}",
+        f"gmail_filename_field: {part.get('filename')}",
+        f"resolved_filename: {effective}",
+        f"attachmentId: {body.get('attachmentId')}",
+        f"size: {body.get('size')}",
+        "",
+        "Headers:",
     ]
-    if display_url != delivery_url:
-        lines.insert(6, f"Public URL: {display_url}")
-    return "\n".join(lines)
-
-
-async def _download_and_register_attachment(
-    service: Any,
-    message_id: str,
-    attachment_id: str,
-    session_id: str,
-) -> dict[str, Any]:
-    """Internal helper to download and register an attachment; returns record info.
-
-    Returns a dict with keys: internal_id, filename, mime_type, size_bytes,
-    display_url, delivery_url, record.
-    """
-    # Fetch message to locate metadata
-    message = await asyncio.to_thread(
-        service.users()
-        .messages()
-        .get(userId="me", id=message_id, format="full")
-        .execute
-    )
-    payload = message.get("payload", {})
-    attachment_entry = None
-    for candidate in _extract_attachments(payload):
-        if candidate.get("attachmentId") == attachment_id:
-            attachment_entry = candidate
-            break
-
-    part = _find_attachment_part(payload, attachment_id)
-
-    filename = "attachment"
-    if attachment_entry:
-        candidate = _sanitize_filename(
-            _decode_header_value(attachment_entry.get("filename") or "")
-        )
-        if candidate and candidate.lower() != "attachment":
-            filename = candidate
-    if (not filename or filename == "attachment") and part:
-        filename = _resolve_attachment_filename(part)
-
-    mime_type = None
-    if attachment_entry and attachment_entry.get("mimeType"):
-        mime_type = attachment_entry.get("mimeType")
-    if not mime_type and part:
-        mime_type = part.get("mimeType")
-    if not mime_type:
-        mime_type = "application/octet-stream"
-
-    # Download bytes
-    att_obj = await asyncio.to_thread(
-        service.users()
-        .messages()
-        .attachments()
-        .get(userId="me", messageId=message_id, id=attachment_id)
-        .execute
-    )
-    data_b64 = att_obj.get("data")
-    if not data_b64:
-        raise RuntimeError("Downloaded attachment did not contain data")
-    content_bytes = base64.urlsafe_b64decode(data_b64)
-    size_bytes = len(content_bytes)
-
-    settings = get_settings()
-    max_size = int(settings.attachments_max_size_bytes)
-    if size_bytes > max_size:
-        raise RuntimeError(
-            f"Attachment is {size_bytes} bytes which exceeds limit of {max_size} bytes."
-        )
-
-    # Determine file extension
-    ext = Path(filename).suffix
-    if not ext:
-        # Handle common mime types explicitly for more consistent extensions
-        if mime_type.lower() == "application/pdf":
-            ext = ".pdf"
-        else:
-            guessed = mimetypes.guess_extension(mime_type)
-            ext = guessed or ""
-
-    internal_id = uuid4().hex
-    stored_name = build_storage_name(internal_id, ext, filename)
-    relative_path = Path(session_id) / stored_name
-    storage_base = _resolve_attachments_dir()
-    absolute_path = (storage_base / relative_path).resolve()
-
-    storage_resolved = storage_base.resolve()
-    if (
-        storage_resolved not in absolute_path.parents
-        and absolute_path != storage_resolved
+    for key in (
+        "Content-Disposition",
+        "Content-Type",
+        "Content-ID",
+        "Content-Description",
+        "Content-Location",
+        "X-Attachment-Id",
+        "X-Attachment-Info",
     ):
-        raise RuntimeError("Resolved attachment path escaped storage directory")
-
-    absolute_path.parent.mkdir(parents=True, exist_ok=True)
-    await asyncio.to_thread(absolute_path.write_bytes, content_bytes)
-
-    # Persist metadata
-    repository = await _get_repository()
-    await repository.ensure_session(session_id)
-    now = datetime.now(timezone.utc)
-    retention_days = int(settings.attachments_retention_days)
-    expires_at = now + timedelta(days=retention_days) if retention_days > 0 else None
-    display_url, delivery_url = _build_attachment_urls(internal_id)
-    metadata: Dict[str, Any] = {
-        "filename": filename,
-        "gmail": {
-            "message_id": message_id,
-            "attachment_id": attachment_id,
-            "part_id": part.get("partId") if part else None,
-        },
-    }
-    record = await repository.add_attachment(
-        attachment_id=internal_id,
-        session_id=session_id,
-        storage_path=str(relative_path),
-        mime_type=mime_type,
-        size_bytes=size_bytes,
-        display_url=display_url,
-        delivery_url=delivery_url,
-        metadata=metadata,
-        expires_at=expires_at,
-    )
-
-    return {
-        "internal_id": internal_id,
-        "filename": filename,
-        "mime_type": mime_type,
-        "size_bytes": size_bytes,
-        "display_url": display_url,
-        "delivery_url": delivery_url,
-        "record": record,
-        "absolute_path": str(absolute_path),
-        "relative_path": str(relative_path),
-    }
+        if key in headers:
+            lines.append(f"- {key}: {headers.get(key)}")
+    if len(lines) <= 7:
+        lines.append("(no relevant headers found on this part)")
+    return "\n".join(lines)
 
 
 @mcp.tool("read_gmail_attachment_text")
@@ -968,7 +675,6 @@ async def read_gmail_attachment_text(
 
     # If no attachment_id provided, pick one from the message
     selected_attachment_id = attachment_id
-    selected_filename = None
     selected_mime = None
 
     if not selected_attachment_id:
@@ -999,37 +705,26 @@ async def read_gmail_attachment_text(
         attachments_sorted = sorted(attachments, key=_match, reverse=True)
         top = attachments_sorted[0]
         selected_attachment_id = str(top.get("attachmentId"))
-        selected_filename = top.get("filename")
         selected_mime = top.get("mimeType")
 
     # Download and register
     try:
-        info = await _download_and_register_attachment(
-            service, message_id, str(selected_attachment_id), session_id
+        storage_dir = _resolve_attachments_dir()
+        info = await simple_download_attachment(
+            service, message_id, str(selected_attachment_id), storage_dir
         )
     except Exception as exc:
-        return f"Failed to download/register attachment: {exc}"
+        return f"Failed to download attachment: {exc}"
 
-    internal_id = info["internal_id"]
-    filename = selected_filename or info["filename"]
-    mime_type = (
-        selected_mime or info["mime_type"] or "application/octet-stream"
-    ).lower()
+    filename = info["filename"]
+    mime_type = (info.get("mime_type") or selected_mime or "application/octet-stream").lower()
 
     # Read bytes and extract via kreuzberg, no URLs involved
     try:
-        repository = await _get_repository()
-        record = await repository.get_attachment(internal_id)
-        if not record:
-            return f"Attachment not found after save: {internal_id}"
-        storage_path = record.get("storage_path")
-        if not storage_path:
-            return "Attachment record missing storage path"
-        base = _resolve_attachments_dir()
-        abs_path = (base / storage_path).resolve()
+        abs_path = Path(info["absolute_path"]).resolve()
         content_bytes = await asyncio.to_thread(abs_path.read_bytes)
     except Exception as exc:
-        return f"Failed to read stored attachment: {exc}"
+        return f"Failed to read saved attachment: {exc}"
 
     if kreuzberg_server is None:
         return (
@@ -1067,9 +762,9 @@ async def read_gmail_attachment_text(
     if text:
         header = (
             f"Attachment text extracted!\n"
-            f"Attachment ID: {internal_id}\n"
             f"Filename: {filename}\n"
-            f"MIME: {mime_type}\n\n"
+            f"MIME: {mime_type}\n"
+            f"Saved To: {abs_path}\n\n"
         )
         return header + text
 
@@ -1100,9 +795,9 @@ async def read_gmail_attachment_text(
             if ocr_text:
                 header = (
                     f"Attachment text extracted (OCR)!\n"
-                    f"Attachment ID: {internal_id}\n"
                     f"Filename: {filename}\n"
-                    f"MIME: {mime_type}\n\n"
+                    f"MIME: {mime_type}\n"
+                    f"Saved To: {abs_path}\n\n"
                 )
                 return header + ocr_text
         except Exception:
@@ -1135,6 +830,7 @@ async def extract_gmail_attachment_by_id(
         force_ocr=force_ocr,
         user_email=user_email,
     )
+
 
 @mcp.tool("get_gmail_messages_content_batch")
 async def get_gmail_messages_content_batch(

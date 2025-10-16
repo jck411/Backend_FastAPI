@@ -5,6 +5,7 @@
   import type { AttachmentResource } from '../../api/types';
   import { chatStore } from '../../stores/chat';
   import { speechState } from '../../speech/speechController';
+  import { autoResize } from '../../actions/autoResize';
 
   export let prompt = '';
   export let isStreaming = false;
@@ -269,6 +270,7 @@
         on:keydown={handleKeydown}
         placeholder={isStreaming ? 'Waiting for response…' : 'Type here…'}
         aria-disabled={isStreaming}
+        use:autoResize={prompt}
       ></textarea>
 
       <div class="composer-actions">

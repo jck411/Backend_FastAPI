@@ -323,6 +323,9 @@
     display: flex;
     flex-direction: column;
     height: 100vh;
+    height: 100dvh;
+    min-height: 100vh;
+    padding-bottom: env(safe-area-inset-bottom, 0);
     background: radial-gradient(
       circle at top,
       #162135 0%,
@@ -367,6 +370,24 @@
       rgba(4, 6, 13, 0.1) 90%,
       transparent 100%
     );
+  }
+  @media (max-width: 900px) {
+    .chat-app {
+      --header-h: 58px;
+      --composer-h: 130px;
+    }
+  }
+  @media (max-width: 600px) {
+    .chat-app {
+      --header-h: 56px;
+      --composer-h: 170px;
+    }
+    .chat-app::before {
+      height: calc(var(--header-h) + 1.5rem);
+    }
+    .chat-app::after {
+      height: calc(var(--composer-h) + 1.5rem);
+    }
   }
   .chat-error {
     display: flex;

@@ -542,4 +542,77 @@
     clip: rect(0, 0, 0, 0);
     border: 0;
   }
+  @media (max-width: 900px) {
+    .composer {
+      padding: 0 0 0.75rem;
+    }
+    .composer-content {
+      padding: 0 1.5rem;
+    }
+  }
+  @media (max-width: 700px) {
+    .composer-content {
+      padding: 0 1.25rem;
+      gap: 0.65rem;
+    }
+    .attachment-strip {
+      gap: 0.6rem;
+    }
+  }
+  @media (max-width: 600px) {
+    .composer {
+      padding: 0 0 0.5rem;
+    }
+    .composer-content {
+      padding: 0 1rem;
+      gap: 0.6rem;
+    }
+    .input-shell {
+      flex-wrap: wrap;
+      align-items: stretch;
+      padding: 0.75rem 0.85rem;
+      border-radius: 1.5rem;
+      gap: 0.6rem;
+    }
+    .icon-button.leading {
+      order: 0;
+    }
+    .input-shell textarea {
+      flex-basis: 100%;
+      order: 1;
+      min-height: 3rem;
+      padding: 0.25rem 0.1rem;
+    }
+    .composer-actions {
+      order: 2;
+      width: 100%;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+    .icon-button,
+    .send-button {
+      height: 2.4rem;
+    }
+  }
+  @media (max-width: 480px) {
+    .composer-content {
+      padding: 0 0.75rem;
+    }
+    .input-shell {
+      padding: 0.7rem;
+      gap: 0.5rem;
+    }
+    .composer-actions {
+      justify-content: space-between;
+      gap: 0.4rem;
+    }
+    .composer-actions > * {
+      flex: 1 1 calc(50% - 0.4rem);
+      min-width: 0;
+    }
+    .send-button {
+      width: 100%;
+    }
+  }
 </style>

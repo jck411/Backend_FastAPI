@@ -52,4 +52,26 @@
   .suggestions button:focus {
     border-color: rgba(140, 180, 255, 0.6);
   }
+  @media (max-width: 900px) {
+    .suggestions {
+      padding: 1.25rem 1.5rem;
+      gap: 0.65rem;
+    }
+  }
+  @media (max-width: 600px) {
+    .suggestions {
+      padding: 1rem 1rem;
+      gap: 0.5rem;
+    }
+    .suggestions button {
+      width: 100%;
+      text-align: center;
+    }
+  }
+  @media (max-width: 420px) {
+    .suggestions {
+      padding: 0.85rem 0.75rem;
+      gap: 0.45rem;
+    }
+  }
 </style>

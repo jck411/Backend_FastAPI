@@ -188,4 +188,27 @@
     width: 100%;
     box-sizing: border-box;
   }
+  @media (max-width: 900px) {
+    .conversation {
+      padding: 1.5rem 0;
+      gap: 1.25rem;
+    }
+    .conversation-item {
+      padding: 0 1.5rem;
+    }
+  }
+  @media (max-width: 600px) {
+    .conversation {
+      padding: 1rem 0;
+      gap: 1rem;
+    }
+    .conversation-item {
+      padding: 0 1rem;
+    }
+  }
+  @media (max-width: 420px) {
+    .conversation-item {
+      padding: 0 0.75rem;
+    }
+  }
 </style>

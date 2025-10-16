@@ -307,6 +307,17 @@
     display: flex;
     gap: 0.75rem;
     align-items: center;
+    flex-wrap: nowrap;
+  }
+  .controls > * {
+    flex: 0 0 auto;
+  }
+  :global(.chat-header .controls .model-picker) {
+    display: flex;
+  }
+  :global(.chat-header .controls .model-picker),
+  :global(.chat-header .controls .web-search) {
+    width: auto;
   }
   .preset-badge {
     display: inline-flex;
@@ -451,5 +462,81 @@
     border-radius: 999px;
     border: 1px solid rgba(62, 90, 140, 0.6);
     color: #9fb3d8;
+  }
+  @media (max-width: 1024px) {
+    .topbar {
+      padding: 0 1.5rem;
+    }
+  }
+  @media (max-width: 900px) {
+    .controls {
+      gap: 0.6rem;
+    }
+  }
+  @media (max-width: 860px) {
+    .controls {
+      flex-wrap: wrap;
+    }
+  }
+  @media (max-width: 760px) {
+    .topbar {
+      height: auto;
+      padding: 0.75rem 1.25rem 0.5rem;
+    }
+    .topbar-content {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.75rem;
+    }
+    .controls {
+      width: 100%;
+      justify-content: center;
+    }
+    .controls > * {
+      flex: 1 1 calc(50% - 0.6rem);
+      min-width: 0;
+    }
+    :global(.chat-header .controls .ghost),
+    :global(.chat-header .controls select),
+    .preset-badge,
+    .model-picker-loading,
+    .web-search-loading,
+    :global(.chat-header .controls .model-picker),
+    :global(.chat-header .controls .web-search) {
+      width: 100%;
+    }
+    :global(.chat-header .controls .ghost),
+    .preset-badge {
+      justify-content: center;
+    }
+    :global(.chat-header .controls select) {
+      min-width: 0;
+      width: 100%;
+      text-align: left;
+    }
+    :global(.chat-header .controls .ghost),
+    :global(.chat-header .controls select) {
+      padding: 0.55rem 0.9rem;
+    }
+    :global(.chat-header .controls .ghost.system-settings svg) {
+      width: 1rem;
+      height: 1rem;
+    }
+  }
+  @media (max-width: 520px) {
+    .controls > * {
+      flex-basis: 100%;
+    }
+    .topbar {
+      padding: 0.75rem 1rem 0.5rem;
+    }
+    .preset-badge .name {
+      max-width: 22ch;
+    }
+  }
+  @media (max-width: 400px) {
+    .preset-badge .name {
+      max-width: 18ch;
+    }
   }
 </style>

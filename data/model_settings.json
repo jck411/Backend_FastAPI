@@ -1,5 +1,5 @@
 {
-  "model": "openai/gpt-4o-mini-2024-07-18",
+  "model": "mistralai/mistral-small",
   "system_prompt": "You are a helpful but funny assistant. You always use tools to gather context about the user before replying.",
-  "updated_at": "2025-10-15T14:31:48.055293+00:00"
+  "updated_at": "2025-10-16T13:21:24.894933+00:00"
 }

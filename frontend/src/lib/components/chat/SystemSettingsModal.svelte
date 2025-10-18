@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-  import { get } from 'svelte/store';
-  import { createSystemPromptStore } from '../../stores/systemPrompt';
-  import { createMcpServersStore } from '../../stores/mcpServers';
-  import ModelSettingsDialog from './model-settings/ModelSettingsDialog.svelte';
-  import './system-settings.css';
+  import { createEventDispatcher } from "svelte";
+  import { get } from "svelte/store";
+  import { createMcpServersStore } from "../../stores/mcpServers";
+  import { createSystemPromptStore } from "../../stores/systemPrompt";
+  import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
+  import "./system-settings.css";
 
   export let open = false;
 
@@ -14,6 +14,7 @@
 
   let hasInitialized = false;
   let closing = false;
+  let expandedServers: Set<string> = new Set();
 
   $: {
     if (open && !hasInitialized) {
@@ -52,8 +53,13 @@
     const promptState = get(systemPrompt);
     const serversState = get(mcpServers);
 
-    if (promptSaved && serversSaved && !promptState.saveError && !serversState.saveError) {
-      dispatch('close');
+    if (
+      promptSaved &&
+      serversSaved &&
+      !promptState.saveError &&
+      !serversState.saveError
+    ) {
+      dispatch("close");
     }
 
     closing = false;
@@ -61,7 +67,7 @@
 
   function handlePromptInput(event: Event): void {
     const target = event.target as HTMLTextAreaElement | null;
-    systemPrompt.updateValue(target?.value ?? '');
+    systemPrompt.updateValue(target?.value ?? "");
   }
 
   function toggleServer(serverId: string, enabled: boolean): void {
@@ -94,17 +100,27 @@
         return timestamp;
       }
       return new Intl.DateTimeFormat(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        year: 'numeric',
-        month: 'short',
-        day: '2-digit',
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        year: "numeric",
+        month: "short",
+        day: "2-digit",
       }).format(date);
     } catch (error) {
-      console.warn('Failed to format timestamp', error);
+      console.warn("Failed to format timestamp", error);
       return timestamp;
     }
+  }
+
+  function toggleServerTools(serverId: string): void {
+    const newExpanded = new Set(expandedServers);
+    if (newExpanded.has(serverId)) {
+      newExpanded.delete(serverId);
+    } else {
+      newExpanded.add(serverId);
+    }
+    expandedServers = newExpanded;
   }
 </script>
 
@@ -121,21 +137,27 @@
   >
     <svelte:fragment slot="heading">
       <h2 id="system-settings-title">System settings</h2>
-      <p class="model-settings-subtitle">Configure orchestration defaults and MCP servers.</p>
+      <p class="model-settings-subtitle">
+        Configure orchestration defaults and MCP servers.
+      </p>
     </svelte:fragment>
 
     <article class="system-card">
       <header class="system-card-header">
         <div>
           <h3>System prompt</h3>
-          <p class="system-card-caption">Applied to new chat sessions when no custom prompt is present.</p>
+          <p class="system-card-caption">
+            Applied to new chat sessions when no custom prompt is present.
+          </p>
         </div>
         <div class="system-card-actions">
           <button
             type="button"
             class="ghost"
             on:click={() => systemPrompt.reset()}
-            disabled={!$systemPrompt.dirty || $systemPrompt.saving || $mcpServers.saving}
+            disabled={!$systemPrompt.dirty ||
+              $systemPrompt.saving ||
+              $mcpServers.saving}
           >
             Reset
           </button>
@@ -173,10 +195,12 @@
           <h3>MCP servers</h3>
           {#if $mcpServers.updatedAt}
             <p class="system-card-caption">
-              Last updated {formatUpdatedAt($mcpServers.updatedAt) ?? ''}
+              Last updated {formatUpdatedAt($mcpServers.updatedAt) ?? ""}
             </p>
           {:else}
-            <p class="system-card-caption">Toggle integrations available to the assistant.</p>
+            <p class="system-card-caption">
+              Toggle integrations available to the assistant.
+            </p>
           {/if}
         </div>
         <div class="system-card-actions">
@@ -184,9 +208,11 @@
             type="button"
             class="ghost"
             on:click={refreshServers}
-            disabled={$mcpServers.refreshing || $mcpServers.saving || $mcpServers.dirty}
+            disabled={$mcpServers.refreshing ||
+              $mcpServers.saving ||
+              $mcpServers.dirty}
           >
-            {$mcpServers.refreshing ? 'Refreshing…' : 'Refresh'}
+            {$mcpServers.refreshing ? "Refreshing…" : "Refresh"}
           </button>
         </div>
       </header>
@@ -205,22 +231,33 @@
                 <li
                   class="server-row"
                   data-connected={server.connected}
-                  data-pending={$mcpServers.pending[server.id] ? 'true' : 'false'}
-                  data-dirty={$mcpServers.pendingChanges[server.id] ? 'true' : 'false'}
+                  data-pending={$mcpServers.pending[server.id]
+                    ? "true"
+                    : "false"}
+                  data-dirty={$mcpServers.pendingChanges[server.id]
+                    ? "true"
+                    : "false"}
                 >
                   <div class="server-row-header">
                     <div class="server-heading">
                       <h4>{server.id}</h4>
                       <div class="server-meta">
-                        <span class:connected={server.connected} class:offline={!server.connected}>
-                          {server.connected ? 'Connected' : 'Offline'}
+                        <span
+                          class:connected={server.connected}
+                          class:offline={!server.connected}
+                        >
+                          {server.connected ? "Connected" : "Offline"}
                         </span>
                         {#if server.module}
                           <span aria-hidden="true">•</span>
-                          <span title={server.module}>Module: {server.module}</span>
+                          <span title={server.module}
+                            >Module: {server.module}</span
+                          >
                         {:else if server.command?.length}
                           <span aria-hidden="true">•</span>
-                          <span title={server.command.join(' ')}>Command: {server.command.join(' ')}</span>
+                          <span title={server.command.join(" ")}
+                            >Command: {server.command.join(" ")}</span
+                          >
                         {/if}
                       </div>
                     </div>
@@ -228,50 +265,102 @@
                       <input
                         type="checkbox"
                         checked={server.enabled}
-                        disabled={$mcpServers.pending[server.id] || $mcpServers.saving}
-                        on:change={(event) => toggleServer(server.id, (event.target as HTMLInputElement).checked)}
+                        disabled={$mcpServers.pending[server.id] ||
+                          $mcpServers.saving}
+                        on:change={(event) =>
+                          toggleServer(
+                            server.id,
+                            (event.target as HTMLInputElement).checked,
+                          )}
                       />
-                      <span>{server.enabled ? 'Enabled' : 'Disabled'}</span>
+                      <span>{server.enabled ? "Enabled" : "Disabled"}</span>
                     </label>
                   </div>
 
                   <div class="server-row-body">
-                    <p class="status">
-                      {server.tool_count} tool{server.tool_count === 1 ? '' : 's'} available
-                    </p>
+                    <button
+                      type="button"
+                      class="tools-toggle"
+                      class:open={expandedServers.has(server.id)}
+                      on:click={() => toggleServerTools(server.id)}
+                      aria-expanded={expandedServers.has(server.id)}
+                      aria-controls="tools-{server.id}"
+                    >
+                      <span class="tools-toggle__label">
+                        {server.tool_count} tool{server.tool_count === 1
+                          ? ""
+                          : "s"} available
+                      </span>
+                      <svg
+                        class="tools-toggle__icon"
+                        width="12"
+                        height="12"
+                        viewBox="0 0 12 12"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        aria-hidden="true"
+                      >
+                        <path
+                          d="M2.5 4.5L6 8L9.5 4.5"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                        />
+                      </svg>
+                    </button>
 
-                    {#if server.tools.length}
-                      <ul class="tool-list">
-                        {#each server.tools as tool}
-                          <li class="tool-row" data-disabled={!tool.enabled}>
-                            <div class="tool-info">
-                              <span class="tool-name">{tool.name}</span>
-                              <span class="tool-qualified">{tool.qualified_name}</span>
-                            </div>
-                            <label class="toggle">
-                              <input
-                                type="checkbox"
-                                checked={tool.enabled}
-                                disabled={
-                                  !server.enabled ||
-                                  $mcpServers.pending[server.id] ||
-                                  $mcpServers.saving
-                                }
-                                on:change={(event) => toggleTool(server.id, tool.name, (event.target as HTMLInputElement).checked)}
-                              />
-                              <span>{tool.enabled ? 'Enabled' : 'Disabled'}</span>
-                            </label>
-                          </li>
-                        {/each}
-                      </ul>
-                    {:else}
-                      <p class="status">Tool list unavailable.</p>
-                    {/if}
+                    {#if expandedServers.has(server.id)}
+                      <div id="tools-{server.id}" class="tools-dropdown">
+                        {#if server.tools.length}
+                          <ul class="tool-list">
+                            {#each server.tools as tool}
+                              <li
+                                class="tool-row"
+                                data-disabled={!tool.enabled}
+                              >
+                                <div class="tool-info">
+                                  <span class="tool-name">{tool.name}</span>
+                                  <span class="tool-qualified"
+                                    >{tool.qualified_name}</span
+                                  >
+                                </div>
+                                <label class="toggle">
+                                  <input
+                                    type="checkbox"
+                                    checked={tool.enabled}
+                                    disabled={!server.enabled ||
+                                      $mcpServers.pending[server.id] ||
+                                      $mcpServers.saving}
+                                    on:change={(event) =>
+                                      toggleTool(
+                                        server.id,
+                                        tool.name,
+                                        (event.target as HTMLInputElement)
+                                          .checked,
+                                      )}
+                                  />
+                                  <span
+                                    >{tool.enabled
+                                      ? "Enabled"
+                                      : "Disabled"}</span
+                                  >
+                                </label>
+                              </li>
+                            {/each}
+                          </ul>
+                        {:else}
+                          <p class="status">Tool list unavailable.</p>
+                        {/if}
 
-                    {#if server.disabled_tools.length}
-                      <p class="status warning">
-                        Disabled tool ids: {server.disabled_tools.join(', ')}
-                      </p>
+                        {#if server.disabled_tools.length}
+                          <p class="status warning">
+                            Disabled tool ids: {server.disabled_tools.join(
+                              ", ",
+                            )}
+                          </p>
+                        {/if}
+                      </div>
                     {/if}
                   </div>
                 </li>
@@ -282,7 +371,9 @@
             <p class="status error">{$mcpServers.saveError}</p>
           {/if}
           {#if $mcpServers.dirty}
-            <p class="status warning">Pending changes save when you close this modal.</p>
+            <p class="status warning">
+              Pending changes save when you close this modal.
+            </p>
           {/if}
         {/if}
       </div>

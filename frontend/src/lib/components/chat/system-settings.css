@@ -156,6 +156,54 @@
   gap: 0.65rem;
 }
 
+.tools-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(71, 99, 150, 0.35);
+  background: rgba(10, 16, 28, 0.7);
+  color: #8ea7d2;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+
+.tools-toggle:hover {
+  border-color: #38bdf8;
+  color: #38bdf8;
+  background: rgba(10, 16, 28, 0.85);
+}
+
+.tools-toggle.open {
+  border-color: #38bdf8;
+  color: #38bdf8;
+  background: rgba(16, 25, 43, 0.85);
+}
+
+.tools-toggle__label {
+  font-weight: 500;
+}
+
+.tools-toggle__icon {
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.tools-toggle.open .tools-toggle__icon {
+  transform: rotate(180deg);
+}
+
+.tools-dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding-top: 0.25rem;
+}
+
 .tool-list {
   list-style: none;
   padding: 0;

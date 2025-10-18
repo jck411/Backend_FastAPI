@@ -9,6 +9,7 @@
         "GitHub.vscode-github-actions",
         "bierner.markdown-mermaid",
         "Postman.postman-for-vscode",
-        "alexcvzz.vscode-sqlite"
+        "alexcvzz.vscode-sqlite",
+        "openai.chatgpt"
     ]
 }

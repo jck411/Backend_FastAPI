@@ -65,6 +65,10 @@
     }
 
     async function handleDelete(item: PresetListItem): Promise<void> {
+        if (item.is_default) {
+            // Do not allow deletion of default preset
+            return;
+        }
         if (confirmingDelete === item.name) {
             const ok = await presetsStore.remove(item.name);
             confirmingDelete = null;
@@ -77,6 +81,10 @@
                 confirmingDelete = null;
             }
         }, 3000);
+    }
+
+    async function handleSetDefault(item: PresetListItem): Promise<void> {
+        await presetsStore.setDefault(item.name);
     }
 </script>
 
@@ -129,16 +137,28 @@
                 {#each $presetsStore.items as item (item.name)}
                     <li class="preset-item">
                         <div class="meta">
-                            <div class="name">{item.name}</div>
+                            <div class="name">
+                                {item.name}
+                                {#if item.is_default}
+                                    <span
+                                        class="default-badge"
+                                        title="Default preset">Default</span
+                                    >
+                                {/if}
+                            </div>
                             <div class="details">
                                 <span class="model">{item.model}</span>
                                 <span class="timestamps">
                                     <span title="Created at"
-                                        >{new Date(item.created_at).toLocaleString()}</span
+                                        >{new Date(
+                                            item.created_at,
+                                        ).toLocaleString()}</span
                                     >
                                     <span aria-hidden="true">·</span>
                                     <span title="Updated at"
-                                        >{new Date(item.updated_at).toLocaleString()}</span
+                                        >{new Date(
+                                            item.updated_at,
+                                        ).toLocaleString()}</span
                                     >
                                 </span>
                             </div>
@@ -164,15 +184,36 @@
                                 aria-busy={$presetsStore.saving}
                                 title="Overwrite preset with current configuration"
                             >
-                                {$presetsStore.saving ? "Saving…" : "Save snapshot"}
+                                {$presetsStore.saving
+                                    ? "Saving…"
+                                    : "Save snapshot"}
                             </button>
+                            {#if !item.is_default}
+                                <button
+                                    type="button"
+                                    class="ghost small"
+                                    on:click={() => handleSetDefault(item)}
+                                    disabled={$presetsStore.settingDefault ===
+                                        item.name}
+                                    aria-busy={$presetsStore.settingDefault ===
+                                        item.name}
+                                    title="Set as default preset to load on startup"
+                                >
+                                    {$presetsStore.settingDefault === item.name
+                                        ? "Setting…"
+                                        : "Set as default"}
+                                </button>
+                            {/if}
                             <button
                                 type="button"
                                 class="danger small"
                                 on:click={() => handleDelete(item)}
-                                disabled={$presetsStore.deleting === item.name}
+                                disabled={item.is_default ||
+                                    $presetsStore.deleting === item.name}
                                 aria-busy={$presetsStore.deleting === item.name}
-                                title="Delete preset"
+                                title={item.is_default
+                                    ? "Cannot delete default preset"
+                                    : "Delete preset"}
                             >
                                 {confirmingDelete === item.name
                                     ? "Confirm delete"
@@ -188,9 +229,13 @@
 
         <footer slot="footer" class="model-settings-footer">
             {#if $presetsStore.lastApplied}
-                <span class="status">Applied preset: {$presetsStore.lastApplied}</span>
+                <span class="status"
+                    >Applied preset: {$presetsStore.lastApplied}</span
+                >
             {:else if $presetsStore.lastResult}
-                <span class="status">Saved: {$presetsStore.lastResult.name}</span>
+                <span class="status"
+                    >Saved: {$presetsStore.lastResult.name}</span
+                >
             {:else}
                 <span class="status">Create, update, or apply a preset.</span>
             {/if}
@@ -199,11 +244,11 @@
 {/if}
 
 <style>
-:global(.presets-modal) {
+    :global(.presets-modal) {
         width: min(820px, calc(100% - 2rem));
         max-height: min(80vh, 720px);
     }
-:global(.presets-body) {
+    :global(.presets-body) {
         display: flex;
         flex-direction: column;
         gap: 1.25rem;
@@ -256,6 +301,19 @@
     }
     .preset-item .name {
         font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .default-badge {
+        display: inline-block;
+        padding: 0.15rem 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        border-radius: 999px;
+        background: rgba(34, 197, 94, 0.2);
+        color: #86efac;
+        border: 1px solid rgba(34, 197, 94, 0.4);
     }
     .preset-item .details {
         display: flex;

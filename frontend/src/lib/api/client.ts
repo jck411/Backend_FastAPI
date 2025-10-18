@@ -364,4 +364,16 @@ export async function applyPreset(name: string): Promise<PresetConfig> {
   });
 }
 
+export async function setDefaultPreset(name: string): Promise<PresetConfig> {
+  const path = `/api/presets/${encodeURIComponent(name)}/set-default`;
+  return requestJson<PresetConfig>(resolveApiPath(path), {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+export async function fetchDefaultPreset(): Promise<PresetConfig | null> {
+  return requestJson<PresetConfig | null>(resolveApiPath('/api/presets/default'));
+}
+
 export { ApiError };

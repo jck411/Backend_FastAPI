@@ -335,6 +335,7 @@ export interface McpServerUpdatePayload {
 export interface PresetListItem {
   name: string;
   model: string;
+  is_default: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -346,6 +347,7 @@ export interface PresetConfig {
   parameters?: ModelHyperparameters | null;
   system_prompt?: string | null;
   mcp_servers?: McpServerDefinition[] | null;
+  is_default: boolean;
   created_at: string;
   updated_at: string;
 }

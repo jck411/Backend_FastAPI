@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import List
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..chat.orchestrator import ChatOrchestrator
 from ..schemas.presets import (
@@ -47,6 +47,14 @@ async def list_presets(
     return await service.list_presets()
 
 
+@router.get("/default", response_model=PresetConfig | None)
+async def get_default_preset(
+    service: PresetService = Depends(get_preset_service),
+) -> PresetConfig | None:
+    """Get the default preset if one is set."""
+    return await service.get_default_preset()
+
+
 @router.get("/{name}", response_model=PresetConfig)
 async def read_preset(
     name: str,
@@ -78,8 +86,20 @@ async def delete_preset(
     name: str,
     service: PresetService = Depends(get_preset_service),
 ) -> dict:
-    deleted = await service.delete(name)
+    try:
+        deleted = await service.delete(name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"deleted": deleted}
+
+
+@router.post("/{name}/set-default", response_model=PresetConfig)
+async def set_default_preset(
+    name: str,
+    service: PresetService = Depends(get_preset_service),
+) -> PresetConfig:
+    """Mark a preset as the default to load on startup."""
+    return await service.set_default(name)
 
 
 @router.post("/{name}/apply", response_model=PresetConfig)

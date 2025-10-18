@@ -32,6 +32,10 @@ class PresetConfig(BaseModel):
         default=None,
         description="MCP server configurations (enabled state, disabled tools, env overrides, etc.)",
     )
+    is_default: bool = Field(
+        default=False,
+        description="Whether this preset is the default preset to load on startup",
+    )
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="Creation timestamp",
@@ -49,6 +53,7 @@ class PresetListItem(BaseModel):
 
     name: str
     model: str
+    is_default: bool = False
     created_at: datetime
     updated_at: datetime
 

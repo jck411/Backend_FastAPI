@@ -3,8 +3,10 @@ import {
     applyPreset,
     createPreset,
     deletePreset,
+    fetchDefaultPreset,
     fetchPresets,
     savePresetSnapshot,
+    setDefaultPreset,
 } from '../api/client';
 import type { PresetConfig, PresetCreatePayload, PresetListItem, PresetSaveSnapshotPayload } from '../api/types';
 
@@ -14,6 +16,7 @@ interface PresetsState {
     applying: string | null;
     deleting: string | null;
     creating: boolean;
+    settingDefault: string | null;
     error: string | null;
     items: PresetListItem[];
     lastApplied: string | null;
@@ -26,6 +29,7 @@ const INITIAL_STATE: PresetsState = {
     applying: null,
     deleting: null,
     creating: false,
+    settingDefault: null,
     error: null,
     items: [],
     lastApplied: null,
@@ -137,6 +141,35 @@ export function createPresetsStore() {
         }
     }
 
+    async function setDefault(name: string): Promise<PresetConfig | null> {
+        store.update((s) => ({ ...s, settingDefault: name, error: null }));
+        try {
+            const result = await setDefaultPreset(name);
+            // Refresh list to reflect is_default changes
+            const items = await fetchPresets();
+            store.update((s) => ({
+                ...s,
+                settingDefault: null,
+                items,
+                lastResult: result,
+            }));
+            return result;
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Failed to set default preset.';
+            store.update((s) => ({ ...s, settingDefault: null, error: message }));
+            return null;
+        }
+    }
+
+    async function loadDefault(): Promise<PresetConfig | null> {
+        try {
+            return await fetchDefaultPreset();
+        } catch (error) {
+            console.error('Failed to load default preset:', error);
+            return null;
+        }
+    }
+
     function clearError(): void {
         store.update((s) => ({ ...s, error: null }));
     }
@@ -148,6 +181,8 @@ export function createPresetsStore() {
         saveSnapshot,
         remove,
         apply,
+        setDefault,
+        loadDefault,
         clearError,
     };
 }

@@ -23,6 +23,7 @@
   } from "./lib/speech/speechController";
   import { chatStore } from "./lib/stores/chat";
   import { modelStore } from "./lib/stores/models";
+  import { presetsStore } from "./lib/stores/presets";
 
   const {
     sendMessage,
@@ -64,7 +65,17 @@
   let editingOriginalText = "";
   let editingSaving = false;
 
-  onMount(loadModels);
+  onMount(async () => {
+    await loadModels();
+    // Load and apply default preset if one is set
+    const defaultPreset = await presetsStore.loadDefault();
+    if (defaultPreset) {
+      const applied = await presetsStore.apply(defaultPreset.name);
+      if (applied?.model) {
+        setModel(applied.model);
+      }
+    }
+  });
 
   $: {
     if (typeof document !== "undefined") {

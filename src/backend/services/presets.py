@@ -84,6 +84,7 @@ class PresetService:
                 PresetListItem(
                     name=preset.name,
                     model=preset.model,
+                    is_default=preset.is_default,
                     created_at=preset.created_at,
                     updated_at=preset.updated_at,
                 )
@@ -98,6 +99,32 @@ class PresetService:
             preset = self._presets.get(name)
             if preset is None:
                 raise KeyError(f"Unknown preset: {name}")
+            return preset.model_copy(deep=True)
+
+    async def get_default_preset(self) -> PresetConfig | None:
+        """Get the default preset if one is set."""
+        async with self._lock:
+            for preset in self._presets.values():
+                if preset.is_default:
+                    return preset.model_copy(deep=True)
+            return None
+
+    async def set_default(self, name: str) -> PresetConfig:
+        """Mark a preset as the default. Only one preset can be default at a time."""
+        async with self._lock:
+            preset = self._presets.get(name)
+            if preset is None:
+                raise KeyError(f"Unknown preset: {name}")
+
+            # Clear any existing default
+            for existing_preset in self._presets.values():
+                if existing_preset.is_default:
+                    existing_preset.is_default = False
+
+            # Set new default
+            preset.is_default = True
+            preset.updated_at = datetime.now(timezone.utc)
+            self._save_to_disk()
             return preset.model_copy(deep=True)
 
     async def _capture_current_locked(self, name: str) -> PresetConfig:
@@ -144,11 +171,14 @@ class PresetService:
 
     async def delete(self, name: str) -> bool:
         async with self._lock:
-            if name in self._presets:
-                self._presets.pop(name)
-                self._save_to_disk()
-                return True
-            return False
+            preset = self._presets.get(name)
+            if preset is None:
+                return False
+            if preset.is_default:
+                raise ValueError(f"Cannot delete default preset: {name}")
+            self._presets.pop(name)
+            self._save_to_disk()
+            return True
 
     async def apply(self, name: str) -> PresetConfig:
         """Apply a preset to the running system (persisting changes via underlying services)."""

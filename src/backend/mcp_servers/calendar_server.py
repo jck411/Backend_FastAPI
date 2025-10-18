@@ -34,6 +34,7 @@ from backend.services.google_auth.auth import (
     authorize_user,
     get_calendar_service,
     get_credentials,
+    get_tasks_service as _google_get_tasks_service,
 )
 from backend.services.time_context import build_context_lines, create_time_snapshot
 from backend.tasks import (
@@ -72,6 +73,16 @@ except ImportError:
 
 # Create MCP server instance
 mcp: FastMCP = FastMCP("custom-calendar")
+
+
+def get_tasks_service(user_email: str):
+    """Factory wrapper for Google Tasks service access.
+
+    Exposed so tests can patch the task service dependency without reaching into
+    lower-level modules.
+    """
+
+    return _google_get_tasks_service(user_email)
 
 _CONTEXT_TTL = datetime.timedelta(minutes=5)
 _last_context_check: Optional[datetime.datetime] = None
@@ -761,7 +772,7 @@ async def get_events(
         truncated_tasks = 0
 
         if aggregate:
-            task_service = TaskService(user_email)
+            task_service = TaskService(user_email, service_factory=get_tasks_service)
             try:
                 task_collection = await task_service.collect_scheduled_tasks(
                     time_min_rfc, time_max_rfc, None
@@ -1170,7 +1181,7 @@ async def list_task_lists(
         Formatted string describing task lists.
     """
     try:
-        task_service = TaskService(user_email)
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
         task_lists, next_page = await task_service.list_task_lists(
             max_results=max_results, page_token=page_token
         )
@@ -1227,7 +1238,7 @@ async def list_tasks(
         Formatted string describing tasks.
     """
     try:
-        task_service = TaskService(user_email)
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
         effective_list_id: Optional[str] = None
         list_label: Optional[str] = None
 
@@ -1445,7 +1456,7 @@ async def list_unscheduled_tasks(
         return "task_list_id is required to list unscheduled tasks."
 
     try:
-        task_service = TaskService(user_email)
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
         # Resolve friendly titles to canonical IDs when possible
         effective_list_id = task_list_id
         list_label = task_list_id
@@ -1572,7 +1583,7 @@ async def search_all_tasks(
     general_search = not trimmed_query
 
     try:
-        task_service = TaskService(user_email)
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
         search_response = await task_service.search_tasks(
             trimmed_query,
             task_list_id=task_list_id,
@@ -1738,7 +1749,7 @@ async def get_task(
         Detailed description of the task.
     """
     try:
-        task_service = TaskService(user_email)
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
         task = await task_service.get_task(task_list_id, task_id)
     except TaskAuthorizationError as exc:
         return (
@@ -1803,7 +1814,7 @@ async def create_task(
         return guard_message
 
     try:
-        task_service = TaskService(user_email)
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
         created = await task_service.create_task(
             task_list_id,
             title=title,
@@ -1862,7 +1873,7 @@ async def update_task(
         Confirmation message with task details.
     """
     try:
-        task_service = TaskService(user_email)
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
         updated_task = await task_service.update_task(
             task_list_id,
             task_id,
@@ -1913,7 +1924,7 @@ async def delete_task(
         Confirmation message.
     """
     try:
-        task_service = TaskService(user_email)
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
         await task_service.delete_task(task_list_id, task_id)
     except TaskAuthorizationError as exc:
         return (
@@ -1950,7 +1961,7 @@ async def move_task(
         Confirmation message describing the move.
     """
     try:
-        task_service = TaskService(user_email)
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
         moved = await task_service.move_task(
             task_list_id,
             task_id,
@@ -1994,7 +2005,7 @@ async def clear_completed_tasks(
         Confirmation message.
     """
     try:
-        task_service = TaskService(user_email)
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
         await task_service.clear_completed_tasks(task_list_id)
     except TaskAuthorizationError as exc:
         return (

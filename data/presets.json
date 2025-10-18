@@ -2,7 +2,7 @@
   "presets": [
     {
       "created_at": "2025-10-10T13:11:30.688032Z",
-      "is_default": true,
+      "is_default": false,
       "mcp_servers": [
         {
           "disabled_tools": [],
@@ -50,7 +50,7 @@
     },
     {
       "created_at": "2025-10-11T07:53:03.066101Z",
-      "is_default": false,
+      "is_default": true,
       "mcp_servers": [
         {
           "disabled_tools": [],
@@ -77,7 +77,7 @@
       "model": "openai/gpt-4o-mini-2024-07-18",
       "name": "4omini",
       "system_prompt": "You are a helpful but funny assistant. You always use tools to gather context about the user before replying.",
-      "updated_at": "2025-10-18T14:55:14.268896Z"
+      "updated_at": "2025-10-18T17:58:25.413752Z"
     }
   ]
 }

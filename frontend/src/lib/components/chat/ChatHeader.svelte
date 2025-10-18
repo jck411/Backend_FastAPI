@@ -190,7 +190,9 @@
         >
           <span class="spinner" aria-hidden="true"></span>
           <span class="label">Preset</span>
-          <span class="name" title={$presetsStore.applying}>{$presetsStore.applying}</span>
+          <span class="name" title={$presetsStore.applying}
+            >{$presetsStore.applying}</span
+          >
         </button>
       {:else if $presetsStore.lastApplied}
         <button
@@ -202,7 +204,9 @@
         >
           <span class="dot" aria-hidden="true"></span>
           <span class="label">Preset</span>
-          <span class="name" title={$presetsStore.lastApplied}>{$presetsStore.lastApplied}</span>
+          <span class="name" title={$presetsStore.lastApplied}
+            >{$presetsStore.lastApplied}</span
+          >
         </button>
       {/if}
 
@@ -376,8 +380,12 @@
     animation: spin 0.9s linear infinite;
   }
   @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
   :global(.chat-header .controls select) {
     appearance: none;
@@ -463,6 +471,50 @@
     border: 1px solid rgba(62, 90, 140, 0.6);
     color: #9fb3d8;
   }
+  @media (max-width: 1500px) {
+    .topbar {
+      height: auto;
+      padding: 0.75rem 1.5rem 1rem;
+    }
+    .topbar-content {
+      flex-direction: column;
+      align-items: center;
+      gap: 0.75rem;
+      width: 100%;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .controls {
+      width: 100%;
+      max-width: 900px;
+      margin: 0 auto;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: center;
+      gap: 0.6rem;
+    }
+    .controls > * {
+      flex: 0 0 auto;
+      width: 100%;
+    }
+    :global(.chat-header .controls .ghost),
+    :global(.chat-header .controls select),
+    .preset-badge,
+    .model-picker-loading,
+    .web-search-loading,
+    :global(.chat-header .controls .model-picker),
+    :global(.chat-header .controls .web-search) {
+      width: 100%;
+    }
+    :global(.chat-header .controls .ghost),
+    .preset-badge {
+      justify-content: center;
+    }
+    :global(.chat-header .controls select) {
+      min-width: 0;
+      text-align: left;
+    }
+  }
   @media (max-width: 1024px) {
     .topbar {
       padding: 0 1.5rem;
@@ -480,39 +532,13 @@
   }
   @media (max-width: 760px) {
     .topbar {
-      height: auto;
       padding: 0.75rem 1.25rem 0.5rem;
     }
     .topbar-content {
-      flex-direction: column;
-      align-items: stretch;
-      gap: 0.75rem;
+      max-width: 100%;
     }
     .controls {
-      width: 100%;
-      justify-content: center;
-    }
-    .controls > * {
-      flex: 1 1 calc(50% - 0.6rem);
-      min-width: 0;
-    }
-    :global(.chat-header .controls .ghost),
-    :global(.chat-header .controls select),
-    .preset-badge,
-    .model-picker-loading,
-    .web-search-loading,
-    :global(.chat-header .controls .model-picker),
-    :global(.chat-header .controls .web-search) {
-      width: 100%;
-    }
-    :global(.chat-header .controls .ghost),
-    .preset-badge {
-      justify-content: center;
-    }
-    :global(.chat-header .controls select) {
-      min-width: 0;
-      width: 100%;
-      text-align: left;
+      max-width: 100%;
     }
     :global(.chat-header .controls .ghost),
     :global(.chat-header .controls select) {
@@ -524,9 +550,6 @@
     }
   }
   @media (max-width: 520px) {
-    .controls > * {
-      flex-basis: 100%;
-    }
     .topbar {
       padding: 0.75rem 1rem 0.5rem;
     }

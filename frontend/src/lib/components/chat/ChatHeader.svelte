@@ -94,7 +94,11 @@
 <header class="topbar chat-header">
   <div class="topbar-content">
     <div class="controls">
-      <button class="ghost" type="button" on:click={handleExplorerClick}>
+      <button
+        class="ghost explorer"
+        type="button"
+        on:click={handleExplorerClick}
+      >
         Explorer
       </button>
 
@@ -478,24 +482,25 @@
     }
     .topbar-content {
       flex-direction: column;
-      align-items: center;
+      align-items: stretch;
       gap: 0.75rem;
       width: 100%;
       max-width: 900px;
       margin: 0 auto;
     }
     .controls {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: stretch;
       width: 100%;
       max-width: 900px;
       margin: 0 auto;
-      flex-direction: column;
-      align-items: stretch;
-      justify-content: center;
-      gap: 0.6rem;
+      gap: 0.75rem;
+      justify-items: stretch;
     }
     .controls > * {
-      flex: 0 0 auto;
       width: 100%;
+      min-width: 0;
     }
     :global(.chat-header .controls .ghost),
     :global(.chat-header .controls select),
@@ -514,25 +519,32 @@
       min-width: 0;
       text-align: left;
     }
+    :global(.chat-header .controls .explorer),
+    :global(.chat-header .controls .model-picker),
+    .model-picker-loading {
+      grid-column: 1 / -1;
+    }
+    .preset-badge {
+      grid-column: 1 / -1;
+      order: 9;
+    }
+    .web-search-loading {
+      justify-content: center;
+    }
   }
   @media (max-width: 1024px) {
     .topbar {
-      padding: 0 1.5rem;
+      padding: 0.75rem 1.25rem 1rem;
     }
   }
   @media (max-width: 900px) {
     .controls {
-      gap: 0.6rem;
-    }
-  }
-  @media (max-width: 860px) {
-    .controls {
-      flex-wrap: wrap;
+      gap: 0.65rem;
     }
   }
   @media (max-width: 760px) {
     .topbar {
-      padding: 0.75rem 1.25rem 0.5rem;
+      padding: 0.75rem 1.15rem 0.75rem;
     }
     .topbar-content {
       max-width: 100%;

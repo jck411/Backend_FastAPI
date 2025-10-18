@@ -23,7 +23,7 @@
     menuOpen = true;
     queueMicrotask(() => {
       const first = menuEl?.querySelector<HTMLElement>(
-        'select, input, textarea, button, [href], [tabindex]:not([tabindex="-1"])'
+        'select, input, textarea, button, [href], [tabindex]:not([tabindex="-1"])',
       );
       first?.focus();
     });
@@ -62,13 +62,18 @@
 
   function commitEngine(event: Event): void {
     const value = (event.currentTarget as HTMLSelectElement).value;
-    webSearch.update({ engine: value === "native" || value === "exa" ? value : null });
+    webSearch.update({
+      engine: value === "native" || value === "exa" ? value : null,
+    });
   }
 
   function commitContext(event: Event): void {
     const value = (event.currentTarget as HTMLSelectElement).value;
     webSearch.update({
-      contextSize: value === "low" || value === "medium" || value === "high" ? value : null,
+      contextSize:
+        value === "low" || value === "medium" || value === "high"
+          ? value
+          : null,
     });
   }
 
@@ -107,8 +112,8 @@
     if (event.key === "Tab" && menuOpen) {
       const focusables = Array.from(
         menuEl?.querySelectorAll<HTMLElement>(
-          'select, input, textarea, button, [href], [tabindex]:not([tabindex="-1"])'
-        ) ?? []
+          'select, input, textarea, button, [href], [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
       ).filter((el) => !el.hasAttribute("disabled"));
       if (focusables.length === 0) return;
       const first = focusables[0];
@@ -290,6 +295,7 @@
     z-index: 50;
     flex-direction: column;
     gap: 0.75rem;
+    transform: none;
   }
   .web-search[data-open="true"] .web-search-menu {
     display: flex;
@@ -332,5 +338,21 @@
   }
   .web-search *:focus {
     outline: none;
+  }
+
+  @media (max-width: 640px) {
+    .web-search-menu {
+      right: auto;
+      transform: none;
+      width: min(320px, calc(100vw - 2rem));
+      left: max(0px, calc((100% - min(320px, calc(100vw - 2rem))) / 2));
+    }
+  }
+
+  @media (max-width: 420px) {
+    .web-search-menu {
+      width: calc(100vw - 1.5rem);
+      left: max(0px, calc((100% - calc(100vw - 1.5rem)) / 2));
+    }
   }
 </style>

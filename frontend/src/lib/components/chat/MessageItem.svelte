@@ -86,113 +86,126 @@
     return filename ?? "Attachment preview";
   }
 
-type TimestampInfo = {
-  iso: string;
-  display: string;
-  tooltip: string;
-} | null;
+  $: hasAttachments = (message.attachments?.length ?? 0) > 0;
 
-const EDT_TIMEZONE = "America/New_York";
+  type TimestampInfo = {
+    iso: string;
+    display: string;
+    tooltip: string;
+  } | null;
 
-function formatUtcTooltip(value: string | null | undefined): string | null {
-  if (!value) {
-    return null;
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "UTC",
-    weekday: "short",
-    month: "short",
-    day: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).formatToParts(date);
-  const lookup = (type: Intl.DateTimeFormatPartTypes) =>
-    parts.find((part) => part.type === type)?.value ?? "";
-  const weekday = lookup("weekday");
-  const month = lookup("month");
-  const day = lookup("day");
-  const year = lookup("year");
-  const hour = lookup("hour");
-  const minute = lookup("minute");
-  const second = lookup("second");
-  return `${weekday} ${month} ${day} ${year} ${hour}:${minute}:${second} UTC`.replace(
-    /\s+/g,
-    " ",
-  );
-}
+  const EDT_TIMEZONE = "America/New_York";
 
-function computeTimestampInfo(
-  value: string | null | undefined,
-  utcValue: string | null | undefined,
-): TimestampInfo {
-  if (!value) {
-    return null;
-  }
-  const candidate = typeof value === "string" && value ? value : String(value);
-  const date = new Date(candidate);
-  if (Number.isNaN(date.getTime())) {
-    return {
-      iso: candidate,
-      display: candidate,
-      tooltip: candidate,
-    };
-  }
-  try {
-    const partsFormatter = new Intl.DateTimeFormat([], {
+  function formatUtcTooltip(value: string | null | undefined): string | null {
+    if (!value) {
+      return null;
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "UTC",
+      weekday: "short",
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
-      hour12: true,
-      timeZone: EDT_TIMEZONE,
-      timeZoneName: "short",
-    });
-    const parts = partsFormatter.formatToParts(date);
+      hour12: false,
+    }).formatToParts(date);
     const lookup = (type: Intl.DateTimeFormatPartTypes) =>
       parts.find((part) => part.type === type)?.value ?? "";
+    const weekday = lookup("weekday");
+    const month = lookup("month");
+    const day = lookup("day");
+    const year = lookup("year");
     const hour = lookup("hour");
     const minute = lookup("minute");
     const second = lookup("second");
-    const dayPeriod = lookup("dayPeriod");
-    const tzName = lookup("timeZoneName");
-    const display = `${hour}:${minute} ${dayPeriod}${tzName ? ` ${tzName}` : ""}`.trim();
-    const tooltipTime = `${hour}:${minute}:${second} ${dayPeriod}${tzName ? ` ${tzName}` : ""}`.trim();
-    const tooltipFormatter = new Intl.DateTimeFormat([], {
-      dateStyle: "long",
-      timeStyle: "medium",
-      timeZone: EDT_TIMEZONE,
-      timeZoneName: "short",
-    });
-    const utcTooltip = formatUtcTooltip(utcValue ?? value);
-    const tooltipBase = `${tooltipFormatter.format(date)} (${tooltipTime})`;
-    const tooltip = utcTooltip ? `${tooltipBase}\n${utcTooltip}` : tooltipBase;
-    return {
-      iso: candidate,
-      display,
-      tooltip,
-    };
-  } catch (error) {
-    console.warn("Failed to format timestamp", error);
-    const utcTooltip = formatUtcTooltip(utcValue ?? value);
-    return {
-      iso: candidate,
-      display: date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      tooltip: utcTooltip ?? candidate,
-    };
+    return `${weekday} ${month} ${day} ${year} ${hour}:${minute}:${second} UTC`.replace(
+      /\s+/g,
+      " ",
+    );
   }
-}
 
-$: timestampInfo = computeTimestampInfo(message.createdAt, message.createdAtUtc);
+  function computeTimestampInfo(
+    value: string | null | undefined,
+    utcValue: string | null | undefined,
+  ): TimestampInfo {
+    if (!value) {
+      return null;
+    }
+    const candidate =
+      typeof value === "string" && value ? value : String(value);
+    const date = new Date(candidate);
+    if (Number.isNaN(date.getTime())) {
+      return {
+        iso: candidate,
+        display: candidate,
+        tooltip: candidate,
+      };
+    }
+    try {
+      const partsFormatter = new Intl.DateTimeFormat([], {
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: true,
+        timeZone: EDT_TIMEZONE,
+        timeZoneName: "short",
+      });
+      const parts = partsFormatter.formatToParts(date);
+      const lookup = (type: Intl.DateTimeFormatPartTypes) =>
+        parts.find((part) => part.type === type)?.value ?? "";
+      const hour = lookup("hour");
+      const minute = lookup("minute");
+      const second = lookup("second");
+      const dayPeriod = lookup("dayPeriod");
+      const tzName = lookup("timeZoneName");
+      const display =
+        `${hour}:${minute} ${dayPeriod}${tzName ? ` ${tzName}` : ""}`.trim();
+      const tooltipTime =
+        `${hour}:${minute}:${second} ${dayPeriod}${tzName ? ` ${tzName}` : ""}`.trim();
+      const tooltipFormatter = new Intl.DateTimeFormat([], {
+        dateStyle: "long",
+        timeStyle: "medium",
+        timeZone: EDT_TIMEZONE,
+        timeZoneName: "short",
+      });
+      const utcTooltip = formatUtcTooltip(utcValue ?? value);
+      const tooltipBase = `${tooltipFormatter.format(date)} (${tooltipTime})`;
+      const tooltip = utcTooltip
+        ? `${tooltipBase}\n${utcTooltip}`
+        : tooltipBase;
+      return {
+        iso: candidate,
+        display,
+        tooltip,
+      };
+    } catch (error) {
+      console.warn("Failed to format timestamp", error);
+      const utcTooltip = formatUtcTooltip(utcValue ?? value);
+      return {
+        iso: candidate,
+        display: date.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        tooltip: utcTooltip ?? candidate,
+      };
+    }
+  }
+
+  $: timestampInfo = computeTimestampInfo(
+    message.createdAt,
+    message.createdAtUtc,
+  );
 </script>
 
 <article class={`message ${message.role}`}>
-  <div class="bubble">
+  <div class="bubble" class:has-attachments={hasAttachments}>
     {#if message.role !== "user"}
       <span class="sender">
         <span class="sender-label">
@@ -424,7 +437,7 @@ $: timestampInfo = computeTimestampInfo(message.createdAt, message.createdAtUtc)
     line-height: 1.55;
     font-size: 0.95rem;
     color: #e2e8f8;
-    overflow-x: auto;
+    overflow: visible;
   }
   .message-content :global(p) {
     margin: 0 0 0.85rem;
@@ -525,17 +538,29 @@ $: timestampInfo = computeTimestampInfo(message.createdAt, message.createdAtUtc)
     text-decoration: underline;
     text-decoration-thickness: 1px;
   }
+  .message-content :global(img) {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0.85rem 0;
+  }
+  .bubble.has-attachments {
+    max-width: 100%;
+  }
   .message-attachments {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 0.75rem;
     margin-top: 0.85rem;
+    width: 100%;
   }
   .message-attachments .attachment-card {
     margin: 0;
+    width: 100%;
   }
   .message-attachments .attachment-card a {
     display: block;
+    width: 100%;
     border-radius: 0.75rem;
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -555,9 +580,10 @@ $: timestampInfo = computeTimestampInfo(message.createdAt, message.createdAtUtc)
   }
   .message-attachments .attachment-card img {
     display: block;
-    max-width: 220px;
-    max-height: 220px;
-    object-fit: cover;
+    width: 100%;
+    height: auto;
+    max-height: 70vh;
+    object-fit: contain;
   }
   .message-actions {
     position: absolute;

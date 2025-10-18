@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any, Callable, List, Optional
 
 from backend.services.google_auth.auth import get_tasks_service
 
@@ -60,14 +60,22 @@ class TaskSearchResponse:
 class TaskService:
     """Manage Google Task operations and convert API responses into domain models."""
 
-    def __init__(self, user_email: str):
+    def __init__(
+        self,
+        user_email: str,
+        *,
+        service_factory: Callable[[str], Any] | None = None,
+    ):
         self._user_email = user_email
         self._client: Any | None = None
+        self._service_factory: Callable[[str], Any] = (
+            service_factory if service_factory is not None else get_tasks_service
+        )
 
     def _client_or_raise(self) -> Any:
         if self._client is None:
             try:
-                self._client = get_tasks_service(self._user_email)
+                self._client = self._service_factory(self._user_email)
             except ValueError as exc:
                 raise TaskAuthorizationError(str(exc)) from exc
             except Exception as exc:  # pragma: no cover - unexpected transport issues

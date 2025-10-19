@@ -56,6 +56,27 @@
           "disabled_tools": [],
           "enabled": true,
           "env": {},
+          "id": "custom-gmail",
+          "module": "backend.mcp_servers.gmail_server"
+        },
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "custom-gdrive",
+          "module": "backend.mcp_servers.gdrive_server"
+        },
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "custom-pdf",
+          "module": "backend.mcp_servers.pdf_server"
+        },
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
           "id": "custom-calendar",
           "module": "backend.mcp_servers.calendar_server"
         },
@@ -76,8 +97,8 @@
       ],
       "model": "openai/gpt-4o-mini-2024-07-18",
       "name": "4omini",
-      "system_prompt": "You are a helpful but funny assistant. You always use tools to gather context about the user before replying.",
-      "updated_at": "2025-10-18T17:58:25.413752Z"
+      "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack and live in Olrlando, Fl",
+      "updated_at": "2025-10-19T03:27:28.746888Z"
     }
   ]
 }

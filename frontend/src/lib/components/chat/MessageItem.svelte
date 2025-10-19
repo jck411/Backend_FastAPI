@@ -148,7 +148,7 @@
       };
     }
     try {
-      const partsFormatter = new Intl.DateTimeFormat([], {
+      const partsFormatter = new Intl.DateTimeFormat(undefined, {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
@@ -168,9 +168,14 @@
         `${hour}:${minute} ${dayPeriod}${tzName ? ` ${tzName}` : ""}`.trim();
       const tooltipTime =
         `${hour}:${minute}:${second} ${dayPeriod}${tzName ? ` ${tzName}` : ""}`.trim();
-      const tooltipFormatter = new Intl.DateTimeFormat([], {
-        dateStyle: "long",
-        timeStyle: "medium",
+      const tooltipFormatter = new Intl.DateTimeFormat(undefined, {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
         timeZone: EDT_TIMEZONE,
         timeZoneName: "short",
       });
@@ -189,7 +194,7 @@
       const utcTooltip = formatUtcTooltip(utcValue ?? value);
       return {
         iso: candidate,
-        display: date.toLocaleTimeString([], {
+        display: date.toLocaleTimeString(undefined, {
           hour: "2-digit",
           minute: "2-digit",
         }),

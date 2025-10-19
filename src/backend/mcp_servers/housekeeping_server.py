@@ -101,7 +101,7 @@ async def test_echo(message: str, uppercase: bool = False) -> dict[str, Any]:
 async def current_time(format: Literal["iso", "unix"] = "iso") -> dict[str, Any]:
     """Return the current time with UTC and Eastern Time representations."""
 
-    snapshot = create_time_snapshot(fallback=timezone.utc)
+    snapshot = create_time_snapshot(EASTERN_TIMEZONE_NAME, fallback=timezone.utc)
     eastern = snapshot.eastern
 
     if format == "iso":
@@ -194,7 +194,9 @@ async def chat_history(
 
     for offset, record in enumerate(selected):
         role = record.get("role", "unknown")
-        created_display = record.get("created_at") or record.get("created_at_utc") or "unknown time"
+        created_display = (
+            record.get("created_at") or record.get("created_at_utc") or "unknown time"
+        )
         content_text, truncated = _render_content(record.get("content"))
 
         payload_messages.append(

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 import mimetypes
 import os
-from io import BytesIO
+from binascii import Error as BinasciiError
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -181,6 +183,114 @@ class AttachmentService:
 
         logger.info(
             "Stored attachment %s (%s, %d bytes) for session %s",
+            attachment_id,
+            mime_type,
+            size_bytes,
+            session_id,
+        )
+        return record
+
+    async def save_data_url(
+        self,
+        *,
+        session_id: str,
+        data_url: str,
+        request: Request,
+        filename: str | None = None,
+    ) -> AttachmentRecord:
+        """Persist a base64 data URI as an attachment record."""
+
+        if not session_id:
+            raise AttachmentError("session_id is required")
+
+        if not isinstance(data_url, str) or not data_url.startswith("data:"):
+            raise AttachmentError("Only data URLs are supported for inline attachments")
+
+        try:
+            header, payload = data_url.split(",", 1)
+        except ValueError as exc:  # pragma: no cover - defensive
+            raise AttachmentError("Malformed data URL") from exc
+
+        meta = header[5:]
+        parts = [part.strip() for part in meta.split(";") if part.strip()]
+        mime_type = "application/octet-stream"
+        is_base64 = False
+        for part in parts:
+            if part.lower() == "base64":
+                is_base64 = True
+                continue
+            if "/" in part:
+                mime_type = part.lower()
+
+        if not is_base64:
+            raise AttachmentError("Only base64-encoded data URLs are supported")
+
+        if mime_type not in ALLOWED_ATTACHMENT_MIME_TYPES:
+            raise UnsupportedAttachmentType(mime_type)
+
+        try:
+            data = base64.b64decode(payload, validate=True)
+        except (BinasciiError, ValueError) as exc:
+            raise AttachmentError("Failed to decode data URL payload") from exc
+
+        size_bytes = len(data)
+        if size_bytes == 0:
+            raise AttachmentError("Inline attachment payload was empty")
+        if size_bytes > self._max_size_bytes:
+            raise AttachmentTooLarge(
+                f"Attachment exceeded {self._max_size_bytes} bytes limit"
+            )
+
+        extension = self._pick_extension(filename, mime_type)
+        attachment_id = uuid4().hex
+        relative_dir = Path(session_id)
+        stored_name = build_storage_name(attachment_id, extension, filename)
+        relative_path = relative_dir / stored_name
+        absolute_path = (self._base_dir / relative_path).resolve()
+
+        base_dir_resolved = self._base_dir.resolve()
+        if (
+            base_dir_resolved not in absolute_path.parents
+            and absolute_path != base_dir_resolved
+        ):
+            raise AttachmentError("Resolved attachment path escaped storage directory")
+
+        absolute_path.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(absolute_path.write_bytes, data)
+
+        await self._repo.ensure_session(session_id)
+
+        original_url = str(
+            request.url_for("download_attachment", attachment_id=attachment_id)
+        )
+        delivery_url = self._apply_public_base(original_url)
+
+        now = datetime.now(timezone.utc)
+        expires_at = (
+            now + self._retention if self._retention.total_seconds() > 0 else None
+        )
+        metadata: dict[str, Any] = {
+            "mime_type": mime_type,
+            "size_bytes": size_bytes,
+            "source": "inline_data_url",
+        }
+        if filename:
+            metadata["filename"] = filename
+
+        record = await self._repo.add_attachment(
+            attachment_id=attachment_id,
+            session_id=session_id,
+            storage_path=os.fspath(relative_path),
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            display_url=original_url,
+            delivery_url=delivery_url,
+            metadata=metadata or None,
+            expires_at=expires_at,
+        )
+
+        logger.info(
+            "Stored inline attachment %s (%s, %d bytes) for session %s",
             attachment_id,
             mime_type,
             size_bytes,

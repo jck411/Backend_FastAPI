@@ -6,7 +6,9 @@ import asyncio
 import json
 import re
 import time
+import uuid
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sse_starlette.sse import EventSourceResponse
@@ -15,6 +17,7 @@ from ..chat import ChatOrchestrator
 from ..config import Settings, get_settings
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..schemas.chat import ChatCompletionRequest
+from ..services.attachments import AttachmentError, AttachmentService
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -39,6 +42,17 @@ async def stream_chat_completions(
     """Stream chat completions from OpenRouter through Server-Sent Events."""
 
     orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+    attachment_service: AttachmentService | None = getattr(
+        request.app.state, "attachment_service", None
+    )
+
+    if attachment_service is not None:
+        try:
+            await _materialize_inline_image_attachments(
+                payload, request, attachment_service
+            )
+        except AttachmentError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     async def event_publisher():
         try:
@@ -57,6 +71,79 @@ async def stream_chat_completions(
             yield {"event": "message", "data": "[DONE]"}
 
     return EventSourceResponse(event_publisher())
+
+
+async def _materialize_inline_image_attachments(
+    payload: ChatCompletionRequest,
+    request: Request,
+    attachment_service: AttachmentService,
+) -> None:
+    """Store inline image data URLs as attachments for later processing."""
+
+    session_id = payload.session_id
+
+    for message in payload.messages:
+        content = message.content
+        if not isinstance(content, list):
+            continue
+
+        for part in content:
+            if not isinstance(part, dict) or part.get("type") != "image_url":
+                continue
+
+            image_payload = part.get("image_url")
+            if isinstance(image_payload, str):
+                image_payload = {"url": image_payload}
+                part["image_url"] = image_payload
+            if not isinstance(image_payload, dict):
+                continue
+
+            raw_url = image_payload.get("url")
+            if not isinstance(raw_url, str) or not raw_url:
+                continue
+
+            if _is_probably_public_url(raw_url):
+                continue
+
+            if not raw_url.startswith("data:"):
+                raise AttachmentError("Unsupported inline image URL scheme")
+
+            if session_id is None:
+                session_id = uuid.uuid4().hex
+                payload.session_id = session_id
+
+            metadata = part.get("metadata")
+            filename = None
+            if isinstance(metadata, dict):
+                existing_attachment = metadata.get("attachment_id")
+                if isinstance(existing_attachment, str) and existing_attachment:
+                    continue
+                filename_value = metadata.get("filename")
+                if isinstance(filename_value, str) and filename_value.strip():
+                    filename = filename_value.strip()
+            else:
+                metadata = {}
+
+            record = await attachment_service.save_data_url(
+                session_id=session_id,
+                data_url=raw_url,
+                request=request,
+                filename=filename,
+            )
+
+            metadata = dict(metadata or {})
+            metadata.setdefault("mime_type", record.get("mime_type"))
+            metadata["attachment_id"] = record["attachment_id"]
+            metadata.setdefault("size_bytes", record.get("size_bytes"))
+            metadata.setdefault("storage_path", record.get("storage_path"))
+            part["metadata"] = metadata
+
+
+def _is_probably_public_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    return bool(parsed.netloc)
 
 
 @router.delete("/chat/session/{session_id}", status_code=204)

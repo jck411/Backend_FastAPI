@@ -111,7 +111,10 @@ def create_app() -> FastAPI:
             if settings.attachments_public_base_url
             else None
         ),
+        gdrive_uploads_folder=settings.gdrive_uploads_folder,
+        gdrive_default_user_email=settings.gdrive_default_user_email,
     )
+    orchestrator.set_attachment_service(attachment_service)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

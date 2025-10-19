@@ -48,6 +48,11 @@ class AttachmentResource(BaseModel):
     deliveryUrl: str = Field(alias="delivery_url")
     uploadedAt: str = Field(alias="created_at")
     expiresAt: str | None = Field(alias="expires_at")
+    gdriveFileId: str | None = Field(default=None, alias="gdrive_file_id")
+    gdrivePublicUrl: str | None = Field(default=None, alias="gdrive_public_url")
+    gdriveUploadedAt: str | None = Field(
+        default=None, alias="gdrive_uploaded_at"
+    )
     metadata: dict[str, Any] | None = None
 
 
@@ -74,6 +79,9 @@ def _serialize_attachment(record: dict[str, Any]) -> dict[str, Any]:
     payload = dict(record)
     payload["created_at"] = _normalize_timestamp(record.get("created_at"))
     payload["expires_at"] = _normalize_timestamp(record.get("expires_at"))
+    payload["gdrive_uploaded_at"] = _normalize_timestamp(
+        record.get("gdrive_uploaded_at")
+    )
     payload.setdefault("metadata", None)
     return payload
 

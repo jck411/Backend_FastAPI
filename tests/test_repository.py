@@ -80,6 +80,21 @@ async def test_attachment_roundtrip(repository):
     assert fetched["mime_type"] == "image/png"
     assert fetched["size_bytes"] == 128
     assert fetched["metadata"]["filename"] == "image.png"
+    assert fetched["gdrive_file_id"] is None
+    assert fetched["gdrive_public_url"] is None
+    assert fetched["gdrive_uploaded_at"] is None
+
+    uploaded_at = datetime.now(timezone.utc)
+    await repository.update_attachment_drive_metadata(
+        "att-1",
+        file_id="drive-file-123",
+        public_url="https://drive.google.com/uc?export=view&id=drive-file-123",
+        uploaded_at=uploaded_at,
+    )
+    updated = await repository.get_attachment("att-1")
+    assert updated["gdrive_file_id"] == "drive-file-123"
+    assert updated["gdrive_public_url"].endswith("drive-file-123")
+    assert updated["gdrive_uploaded_at"].startswith(uploaded_at.isoformat()[:19])
 
     # Add a small delay to ensure timestamp difference
     import asyncio

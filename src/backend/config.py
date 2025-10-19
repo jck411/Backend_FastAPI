@@ -122,6 +122,20 @@ class Settings(BaseSettings):
             "attachments_public_base_url",
         ),
     )
+    gdrive_uploads_folder: str = Field(
+        default="root",
+        validation_alias=AliasChoices(
+            "GDRIVE_UPLOADS_FOLDER_ID",
+            "gdrive_uploads_folder",
+        ),
+    )
+    gdrive_default_user_email: Optional[str] = Field(
+        default="jck411@gmail.com",
+        validation_alias=AliasChoices(
+            "GDRIVE_DEFAULT_USER_EMAIL",
+            "gdrive_default_user_email",
+        ),
+    )
 
     # Deepgram (optional, only needed if using browser STT)
     deepgram_api_key: SecretStr | None = Field(

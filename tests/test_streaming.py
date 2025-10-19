@@ -199,6 +199,65 @@ class DummyOpenRouterClientWithMetadata(DummyOpenRouterClient):
         yield {"data": "[DONE]"}
 
 
+class DummyImageContentClient:
+    def __init__(self) -> None:
+        self.payloads: list[dict[str, Any]] = []
+
+    async def stream_chat_raw(self, payload: dict[str, Any]):
+        self.payloads.append(payload)
+        yield {
+            "data": json.dumps(
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "content": [
+                                    {"type": "text", "text": "Here"},
+                                ]
+                            }
+                        }
+                    ]
+                }
+            )
+        }
+        yield {
+            "data": json.dumps(
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "content": [
+                                    {"type": "text", "text": " is an image:"},
+                                ]
+                            }
+                        }
+                    ]
+                }
+            )
+        }
+        yield {
+            "data": json.dumps(
+                {
+                    "choices": [
+                        {
+                            "delta": {
+                                "content": [
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {
+                                            "url": "https://example.com/image.png"
+                                        },
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                }
+            )
+        }
+        yield {"data": "[DONE]"}
+
+
 class ToolUnsupportedClient:
     def __init__(self) -> None:
         self.calls = 0
@@ -229,7 +288,7 @@ class DummyRepository:
         metadata: dict[str, Any] | None = None,
         client_message_id: str | None = None,
         parent_client_message_id: str | None = None,
-    ) -> int:
+    ) -> tuple[int, str]:
         self._counter += 1
         record = {
             "session_id": session_id,
@@ -242,7 +301,7 @@ class DummyRepository:
             "message_id": self._counter,
         }
         self.messages.append(record)
-        return self._counter
+        return self._counter, "2024-01-01T00:00:00+00:00"
 
 
 class DummyToolClient:
@@ -369,12 +428,14 @@ async def test_streaming_emits_metadata_event() -> None:
     assert payload["routing"]["OpenRouter-Provider"] == "test/provider"
     assert payload["meta"]["provider"]["endpoint"] == "test-endpoint"
     assert payload["generation_id"] == "gen-abc123"
+    assert payload["content"] == "Hello"
     assert payload["message_id"] == 1
 
     assert repo.messages, "Expected message persisted"
     record = repo.messages[-1]
     assert record["role"] == "assistant"
     assert record["message_id"] == 1
+    assert record["content"] == "Hello"
     metadata = record["metadata"]
     assert metadata is not None
     assert metadata["usage"]["prompt_tokens"] == 5
@@ -422,3 +483,45 @@ async def test_structured_tool_choice_does_not_retry_without_tools() -> None:
             pass
 
     assert client.calls == 1
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_handles_image_content() -> None:
+    repo = DummyRepository()
+    client = DummyImageContentClient()
+    handler = StreamingHandler(
+        client,
+        repo,
+        DummyToolClient(),
+        default_model="openrouter/auto",
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Show me a picture")],
+    )
+    conversation = [{"role": "user", "content": "Show me a picture"}]
+
+    events = []
+    async for event in handler.stream_conversation(
+        "session-image",
+        request,
+        conversation,
+        [],
+        None,
+    ):
+        events.append(event)
+
+    metadata_events = [event for event in events if event.get("event") == "metadata"]
+    assert metadata_events, "Expected metadata event with image content"
+    payload = json.loads(metadata_events[0]["data"])
+    content = payload["content"]
+    assert isinstance(content, list)
+    assert content[0]["type"] == "text"
+    assert content[0]["text"] == "Here is an image:"
+    assert content[1]["type"] == "image_url"
+    assert content[1]["image_url"]["url"] == "https://example.com/image.png"
+
+    assert repo.messages, "Expected stored assistant message"
+    stored = repo.messages[-1]
+    assert isinstance(stored["content"], list)
+    assert stored["content"][1]["image_url"]["url"] == "https://example.com/image.png"

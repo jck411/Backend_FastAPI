@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -12,6 +13,7 @@ from typing import Any, AsyncGenerator, Iterable, Sequence
 
 from ..config import Settings
 from ..openrouter import OpenRouterClient
+from ..services.attachments import AttachmentError, AttachmentService
 from ..services.model_settings import ModelSettingsService
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..repository import ChatRepository
@@ -20,6 +22,8 @@ from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 
 logger = logging.getLogger(__name__)
+
+_INLINE_BASE64_MAX_BYTES = 2 * 1024 * 1024
 
 
 def _iter_attachment_ids(content: Any) -> Iterable[str]:
@@ -75,6 +79,7 @@ class ChatOrchestrator:
         self._settings = settings
         self._init_lock = asyncio.Lock()
         self._ready = asyncio.Event()
+        self._attachment_service: AttachmentService | None = None
 
     async def initialize(self) -> None:
         """Initialize database and MCP client once."""
@@ -107,6 +112,111 @@ class ChatOrchestrator:
         """Expose the underlying repository for shared services."""
 
         return self._repo
+
+    def set_attachment_service(self, attachment_service: AttachmentService) -> None:
+        """Register the attachment service for Drive uploads."""
+
+        self._attachment_service = attachment_service
+
+    async def _transform_message_content(
+        self,
+        content: Any,
+        session_id: str,
+    ) -> Any:
+        """Convert attachment references to OpenRouter-compatible formats."""
+
+        if not isinstance(content, list):
+            return content
+
+        attachment_service = self._attachment_service
+        if attachment_service is None:
+            return content
+
+        transformed: list[Any] = []
+        cached_urls: dict[str, str] = {}
+
+        for item in content:
+            if not isinstance(item, dict):
+                transformed.append(item)
+                continue
+
+            entry = dict(item)
+            metadata = entry.get("metadata")
+            if not isinstance(metadata, dict):
+                transformed.append(entry)
+                continue
+
+            attachment_id = metadata.get("attachment_id")
+            if not isinstance(attachment_id, str) or not attachment_id:
+                transformed.append(entry)
+                continue
+
+            mime_type = metadata.get("mime_type")
+            if not isinstance(mime_type, str) or not mime_type.startswith("image/"):
+                transformed.append(entry)
+                continue
+
+            if attachment_id in cached_urls:
+                public_url = cached_urls[attachment_id]
+            else:
+                try:
+                    public_url = await attachment_service.upload_to_gdrive(
+                        attachment_id
+                    )
+                except AttachmentError as exc:
+                    logger.error(
+                        "Failed to prepare attachment %s for session %s: %s",
+                        attachment_id,
+                        session_id,
+                        exc,
+                    )
+                    public_url = await self._inline_base64_image(attachment_id)
+                    if public_url is None:
+                        transformed.append(entry)
+                        continue
+                cached_urls[attachment_id] = public_url
+
+            new_metadata = dict(metadata)
+            new_metadata["attachment_id"] = attachment_id
+            new_metadata["mime_type"] = mime_type
+
+            transformed.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": public_url},
+                    "metadata": new_metadata,
+                }
+            )
+
+        return transformed
+
+    async def _inline_base64_image(self, attachment_id: str) -> str | None:
+        """Return an inline data URI fallback for small attachments."""
+
+        attachment_service = self._attachment_service
+        if attachment_service is None:
+            return None
+
+        try:
+            stored = await attachment_service.resolve(attachment_id)
+        except AttachmentError:
+            return None
+
+        size_bytes = stored.record.get("size_bytes")
+        if isinstance(size_bytes, int) and size_bytes > _INLINE_BASE64_MAX_BYTES:
+            return None
+
+        try:
+            data = await asyncio.to_thread(stored.path.read_bytes)
+        except Exception:
+            return None
+
+        if len(data) > _INLINE_BASE64_MAX_BYTES:
+            return None
+
+        mime_type = stored.record.get("mime_type") or "application/octet-stream"
+        payload = base64.b64encode(data).decode("ascii")
+        return f"data:{mime_type};base64,{payload}"
 
     async def process_stream(
         self,
@@ -180,6 +290,14 @@ class ChatOrchestrator:
                 await self._repo.mark_attachments_used(session_id, attachment_ids)
 
         conversation = await self._repo.get_messages(session_id)
+        wire_messages: list[dict[str, Any]] = []
+        for message in conversation:
+            payload = dict(message)
+            if "content" in payload:
+                payload["content"] = await self._transform_message_content(
+                    payload["content"], session_id
+                )
+            wire_messages.append(payload)
         tools_payload = self._mcp_client.get_openai_tools()
 
         if not existing:
@@ -191,7 +309,7 @@ class ChatOrchestrator:
         async for event in self._streaming.stream_conversation(
             session_id,
             request,
-            conversation,
+            wire_messages,
             tools_payload,
             assistant_parent_message_id,
         ):

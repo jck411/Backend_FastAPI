@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -15,6 +16,7 @@ from backend.mcp_servers.gdrive_server import (
     download_drive_file,
     delete_drive_file,
     generate_auth_url,
+    get_public_drive_url,
     list_drive_items,
     move_drive_file,
     rename_drive_file,
@@ -174,6 +176,83 @@ async def test_download_drive_file_returns_base64(
     assert result["size_bytes"] == len(b"%PDF-1.4")
     assert result["content_base64"] == base64.b64encode(b"%PDF-1.4").decode("ascii")
     mock_download_bytes.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.gdrive_server.asyncio.to_thread")
+@patch("backend.mcp_servers.gdrive_server.get_drive_service")
+async def test_get_public_drive_url_grants_permission(
+    mock_get_drive_service, mock_to_thread
+):
+    state = {"public": False, "file_id": "file123"}
+
+    class DummyFiles:
+        def __init__(self, shared_state):
+            self._state = shared_state
+
+        def get(self, *args, **kwargs):
+            def execute():
+                permissions = []
+                if self._state["public"]:
+                    permissions = [{"type": "anyone", "role": "reader"}]
+                return {
+                    "id": self._state["file_id"],
+                    "name": "Photo.png",
+                    "mimeType": "image/png",
+                    "permissions": permissions,
+                    "shared": self._state["public"],
+                    "webViewLink": "https://drive.example/view",
+                    "webContentLink": "https://drive.example/download",
+                }
+
+            return SimpleNamespace(execute=execute)
+
+    class DummyPermissions:
+        def __init__(self, shared_state):
+            self._state = shared_state
+
+        def create(self, *args, **kwargs):
+            def execute():
+                self._state["public"] = True
+                return {"id": "perm123"}
+
+            return SimpleNamespace(execute=execute)
+
+    class DummyService:
+        def __init__(self, shared_state):
+            self._state = shared_state
+            self.permission_calls = 0
+
+        def files(self):
+            return DummyFiles(self._state)
+
+        def permissions(self):
+            service = self
+
+            class _Wrapper(DummyPermissions):
+                def create(self_inner, *args, **kwargs):
+                    def execute():
+                        service.permission_calls += 1
+                        service._state["public"] = True
+                        return {"id": "perm123"}
+
+                    return SimpleNamespace(execute=execute)
+
+            return _Wrapper(self._state)
+
+    mock_get_drive_service.return_value = DummyService(state)
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    mock_to_thread.side_effect = fake_to_thread
+
+    result = await get_public_drive_url("file123", user_email="user@example.com")
+
+    assert result["public"] is True
+    assert result["url"].endswith("file123")
+    assert result.get("changed") is True
+    assert mock_get_drive_service.return_value.permission_calls == 1
 
 
 @pytest.mark.asyncio

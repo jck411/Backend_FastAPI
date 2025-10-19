@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import mimetypes
 import os
+from io import BytesIO
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,7 +16,14 @@ from uuid import uuid4
 from fastapi import UploadFile
 from starlette.datastructures import URL
 from starlette.requests import Request
+from googleapiclient.http import MediaIoBaseUpload
 
+from ..mcp_servers.gdrive_helpers import (
+    check_public_link_permission,
+    format_public_sharing_error,
+    get_drive_image_url,
+)
+from .google_auth.auth import get_drive_service
 from ..repository import AttachmentRecord, ChatRepository
 from ..utils import build_storage_name
 
@@ -55,6 +64,26 @@ class StoredAttachment:
     record: AttachmentRecord
     path: Path
 
+    @property
+    def gdrive_file_id(self) -> str | None:
+        value = self.record.get("gdrive_file_id")
+        return value if isinstance(value, str) and value else None
+
+    @property
+    def gdrive_public_url(self) -> str | None:
+        value = self.record.get("gdrive_public_url")
+        return value if isinstance(value, str) and value else None
+
+    @property
+    def gdrive_uploaded_at(self) -> datetime | None:
+        value = self.record.get("gdrive_uploaded_at")
+        if isinstance(value, str) and value:
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        return None
+
 
 class AttachmentService:
     """Persist attachment binaries and metadata for chat sessions."""
@@ -67,12 +96,16 @@ class AttachmentService:
         max_size_bytes: int,
         retention_days: int,
         public_base_url: str | None = None,
+        gdrive_uploads_folder: str = "root",
+        gdrive_default_user_email: str | None = None,
     ) -> None:
         self._repo = repository
         self._base_dir = base_dir
         self._max_size_bytes = max_size_bytes
         self._retention = timedelta(days=retention_days)
         self._public_base_url = public_base_url.rstrip("/") if public_base_url else None
+        self._gdrive_folder = gdrive_uploads_folder or "root"
+        self._gdrive_default_user_email = gdrive_default_user_email
         self._base_dir.mkdir(parents=True, exist_ok=True)
 
     async def save_upload(
@@ -208,6 +241,210 @@ class AttachmentService:
                     "Failed to remove attachment file %s", attachment_id, exc_info=True
                 )
         return deleted
+
+    async def upload_to_gdrive(
+        self,
+        attachment_id: str,
+        *,
+        user_email: str | None = None,
+        force: bool = False,
+    ) -> str:
+        """Upload an attachment to Google Drive and return the public URL."""
+
+        stored = await self.resolve(attachment_id)
+        record = stored.record
+
+        mime_type = str(record.get("mime_type") or "")
+        if not mime_type.startswith("image/"):
+            raise AttachmentError(
+                f"Attachment {attachment_id} is not an image (mime={mime_type})"
+            )
+
+        resolved_user = user_email or self._gdrive_default_user_email
+        if not resolved_user:
+            raise AttachmentError(
+                "Google Drive user email required; configure gdrive_default_user_email"
+            )
+
+        try:
+            service = get_drive_service(resolved_user)
+        except ValueError as exc:
+            raise AttachmentError(str(exc)) from exc
+        except Exception as exc:
+            raise AttachmentError(
+                f"Failed to initialize Google Drive service: {exc}"
+            ) from exc
+
+        file_id = record.get("gdrive_file_id")
+        public_url = record.get("gdrive_public_url")
+
+        if file_id and not force:
+            try:
+                await self._ensure_drive_public(service, file_id)
+            except AttachmentError as exc:
+                logger.info(
+                    "Drive metadata for attachment %s is stale: %s. Re-uploading.",
+                    attachment_id,
+                    exc,
+                )
+            else:
+                if public_url:
+                    return public_url
+                url = get_drive_image_url(file_id)
+                await self._repo.update_attachment_drive_metadata(
+                    attachment_id,
+                    file_id=file_id,
+                    public_url=url,
+                )
+                return url
+
+        metadata = record.get("metadata")
+        attachment_name = None
+        if isinstance(metadata, dict):
+            filename = metadata.get("filename")
+            if isinstance(filename, str) and filename.strip():
+                attachment_name = filename.strip()
+        if not attachment_name:
+            attachment_name = stored.path.name
+
+        try:
+            data = await asyncio.to_thread(stored.path.read_bytes)
+        except Exception as exc:
+            raise AttachmentError(
+                f"Failed to read attachment file {stored.path}: {exc}"
+            ) from exc
+
+        media = MediaIoBaseUpload(BytesIO(data), mimetype=mime_type, resumable=False)
+        file_metadata: dict[str, Any] = {
+            "name": attachment_name,
+            "mimeType": mime_type,
+        }
+        if self._gdrive_folder and self._gdrive_folder != "root":
+            file_metadata["parents"] = [self._gdrive_folder]
+
+        try:
+            created = await asyncio.to_thread(
+                service.files()
+                .create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields="id, name",
+                    supportsAllDrives=True,
+                )
+                .execute
+            )
+        except Exception as exc:
+            raise AttachmentError(
+                f"Failed to upload attachment {attachment_id} to Google Drive: {exc}"
+            ) from exc
+
+        drive_file_id = created.get("id")
+        if not isinstance(drive_file_id, str) or not drive_file_id:
+            raise AttachmentError(
+                f"Google Drive upload for attachment {attachment_id} returned no file ID"
+            )
+
+        metadata = await self._ensure_drive_public(
+            service,
+            drive_file_id,
+            file_name=created.get("name"),
+        )
+
+        public_url = get_drive_image_url(drive_file_id)
+        uploaded_at = datetime.now(timezone.utc)
+        await self._repo.update_attachment_drive_metadata(
+            attachment_id,
+            file_id=drive_file_id,
+            public_url=public_url,
+            uploaded_at=uploaded_at,
+        )
+        logger.info(
+            "Uploaded attachment %s to Google Drive as %s",
+            attachment_id,
+            drive_file_id,
+        )
+        return public_url
+
+    async def _ensure_drive_public(
+        self,
+        service: Any,
+        file_id: str,
+        *,
+        file_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Ensure the Drive file has public access and return metadata."""
+
+        try:
+            metadata = await asyncio.to_thread(
+                service.files()
+                .get(
+                    fileId=file_id,
+                    fields=(
+                        "id, name, permissions, webViewLink, webContentLink, shared, trashed"
+                    ),
+                    supportsAllDrives=True,
+                )
+                .execute
+            )
+        except Exception as exc:  # pragma: no cover - network/Drive errors
+            raise AttachmentError(
+                f"Failed to retrieve Drive metadata for {file_id}: {exc}"
+            ) from exc
+
+        if metadata.get("trashed"):
+            name = metadata.get("name", file_name or "(unknown)")
+            raise AttachmentError(
+                f"Google Drive file '{name}' (ID: {file_id}) is in trash; remove metadata to retry."
+            )
+
+        permissions = metadata.get("permissions", [])
+        if not check_public_link_permission(permissions):
+            try:
+                await asyncio.to_thread(
+                    service.permissions()
+                    .create(
+                        fileId=file_id,
+                        body={
+                            "type": "anyone",
+                            "role": "reader",
+                            "allowFileDiscovery": False,
+                        },
+                        fields="id",
+                        sendNotificationEmail=False,
+                        supportsAllDrives=True,
+                    )
+                    .execute
+                )
+            except Exception as exc:  # pragma: no cover - network/Drive errors
+                name = metadata.get("name", file_name or "(unknown)")
+                raise AttachmentError(
+                    f"Unable to enable public access for '{name}' (ID: {file_id}): {exc}"
+                ) from exc
+
+            try:
+                metadata = await asyncio.to_thread(
+                    service.files()
+                    .get(
+                        fileId=file_id,
+                        fields=(
+                            "id, name, permissions, webViewLink, webContentLink, shared"
+                        ),
+                        supportsAllDrives=True,
+                    )
+                    .execute
+                )
+            except Exception as exc:  # pragma: no cover - network/Drive errors
+                raise AttachmentError(
+                    f"Failed to confirm public access for file {file_id}: {exc}"
+                ) from exc
+
+            permissions = metadata.get("permissions", [])
+
+        if not check_public_link_permission(permissions):
+            name = metadata.get("name", file_name or "(unknown)")
+            raise AttachmentError(format_public_sharing_error(name, file_id))
+
+        return metadata
 
     async def _write_file(self, upload: UploadFile, destination: Path) -> int:
         chunk_size = 1024 * 1024  # 1 MiB

@@ -11,6 +11,12 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional,
 import httpx
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
+from backend.mcp_servers.gdrive_helpers import (
+    check_public_link_permission as helper_check_public_link_permission,
+    format_public_sharing_error,
+    get_drive_image_url,
+)
+
 if TYPE_CHECKING:
 
     class FastMCP:
@@ -283,18 +289,11 @@ def _extract_office_xml_text(data: bytes, mime_type: str) -> Optional[str]:
 
 
 def _check_public_link_permission(permissions: List[Dict[str, object]]) -> bool:
-    for perm in permissions or []:
-        if perm.get("type") == "anyone" and perm.get("role") in {
-            "reader",
-            "commenter",
-            "writer",
-        }:
-            return True
-    return False
+    return helper_check_public_link_permission(permissions)
 
 
 def _get_drive_image_url(file_id: str) -> str:
-    return f"https://drive.google.com/uc?export=view&id={file_id}&page=1&attredirects=0"
+    return get_drive_image_url(file_id)
 
 
 @mcp.tool("gdrive_auth_status")
@@ -1092,6 +1091,117 @@ async def get_drive_file_permissions(
     return "\n".join(lines)
 
 
+@mcp.tool("gdrive_get_public_url")
+async def get_public_drive_url(
+    file_id: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+) -> Dict[str, Any]:
+    """Ensure a Drive file has public access and return its direct-view URL."""
+
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return {
+            "error": f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account.",
+            "file_id": file_id,
+            "public": False,
+        }
+    except Exception as exc:
+        return {
+            "error": f"Error creating Google Drive service: {exc}",
+            "file_id": file_id,
+            "public": False,
+        }
+
+    try:
+        metadata: Dict[str, Any] = await asyncio.to_thread(
+            service.files()
+            .get(
+                fileId=file_id,
+                fields=(
+                    "id, name, mimeType, permissions, size, shared, "
+                    "webViewLink, webContentLink"
+                ),
+                supportsAllDrives=True,
+            )
+            .execute
+        )
+    except Exception as exc:
+        return {
+            "error": f"Error retrieving metadata for file {file_id}: {exc}",
+            "file_id": file_id,
+            "public": False,
+        }
+
+    permissions = metadata.get("permissions", [])
+    made_public = False
+
+    if not _check_public_link_permission(permissions):
+        try:
+            await asyncio.to_thread(
+                service.permissions()
+                .create(
+                    fileId=file_id,
+                    body={
+                        "type": "anyone",
+                        "role": "reader",
+                        "allowFileDiscovery": False,
+                    },
+                    fields="id",
+                    sendNotificationEmail=False,
+                    supportsAllDrives=True,
+                )
+                .execute
+            )
+            made_public = True
+
+            metadata = await asyncio.to_thread(
+                service.files()
+                .get(
+                    fileId=file_id,
+                    fields=(
+                        "id, name, mimeType, permissions, size, shared, "
+                        "webViewLink, webContentLink"
+                    ),
+                    supportsAllDrives=True,
+                )
+                .execute
+            )
+            permissions = metadata.get("permissions", [])
+        except Exception as exc:
+            file_name = metadata.get("name", "(unknown)")
+            return {
+                "error": f"Unable to enable public access for '{file_name}' (ID: {file_id}): {exc}",
+                "file_id": file_id,
+                "file_name": file_name,
+                "public": False,
+            }
+
+    if not _check_public_link_permission(permissions):
+        file_name = metadata.get("name", "(unknown)")
+        return {
+            "error": format_public_sharing_error(file_name, file_id),
+            "file_id": file_id,
+            "file_name": file_name,
+            "public": False,
+        }
+
+    response: Dict[str, Any] = {
+        "file_id": metadata.get("id", file_id),
+        "file_name": metadata.get("name"),
+        "mime_type": metadata.get("mimeType"),
+        "size": metadata.get("size"),
+        "shared": metadata.get("shared"),
+        "public": True,
+        "url": get_drive_image_url(file_id),
+        "webViewLink": metadata.get("webViewLink"),
+        "webContentLink": metadata.get("webContentLink"),
+    }
+    if made_public:
+        response["changed"] = True
+    return response
+
+
 @mcp.tool("gdrive_check_public_access")
 async def check_drive_file_public_access(
     file_name: str,
@@ -1201,5 +1311,6 @@ __all__ = [
     "rename_drive_file",
     "create_drive_folder",
     "get_drive_file_permissions",
+    "get_public_drive_url",
     "check_drive_file_public_access",
 ]

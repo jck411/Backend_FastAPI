@@ -11,7 +11,7 @@ class ChatMessage(BaseModel):
     """Represents a single chat message."""
 
     role: Literal["system", "user", "assistant", "tool"]
-    content: Any
+    content: Union[str, List[Dict[str, Any]], None]
     name: Optional[str] = None
     tool_call_id: Optional[str] = Field(default=None, alias="tool_call_id")
     client_message_id: Optional[str] = Field(default=None, alias="client_message_id")

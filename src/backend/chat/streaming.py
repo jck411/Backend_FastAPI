@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Iterable, Protocol
+from typing import Any, AsyncGenerator, Iterable, List, Protocol
 
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..repository import ChatRepository, format_timestamp_for_client
@@ -32,7 +32,7 @@ _SESSION_AWARE_TOOL_SUFFIX = "__chat_history"
 
 @dataclass
 class AssistantTurn:
-    content: str | None
+    content: str | List[dict[str, Any]] | None
     tool_calls: list[dict[str, Any]]
     finish_reason: str | None
     model: str | None
@@ -144,6 +144,7 @@ class StreamingHandler:
                 payload.pop("tool_choice", None)
 
             content_fragments: list[str] = []
+            structured_segments: list[dict[str, Any]] = []
             streamed_tool_calls: list[dict[str, Any]] = []
             finish_reason: str | None = None
             model_name: str | None = None
@@ -187,9 +188,19 @@ class StreamingHandler:
                     for choice in choices:
                         delta = choice.get("delta") or {}
 
-                        text = delta.get("content")
-                        if isinstance(text, str):
-                            content_fragments.append(text)
+                        delta_content = delta.get("content")
+                        if isinstance(delta_content, str):
+                            _append_structured_segment(
+                                structured_segments,
+                                {"type": "text", "text": delta_content},
+                                content_fragments,
+                            )
+                        elif isinstance(delta_content, list):
+                            for segment in delta_content:
+                                if isinstance(segment, dict):
+                                    _append_structured_segment(
+                                        structured_segments, segment, content_fragments
+                                    )
 
                         if tool_deltas := delta.get("tool_calls"):
                             _merge_tool_calls(streamed_tool_calls, tool_deltas)
@@ -258,10 +269,22 @@ class StreamingHandler:
                 raise
 
             tool_calls = _finalize_tool_calls(streamed_tool_calls)
-            content = "".join(content_fragments)
+            if structured_segments:
+                if _contains_non_text_segments(structured_segments):
+                    content_value: str | List[dict[str, Any]] | None = structured_segments
+                else:
+                    combined_text = "".join(
+                        segment.get("text", "")
+                        for segment in structured_segments
+                        if isinstance(segment, dict) and segment.get("type") == "text"
+                    )
+                    content_value = combined_text or None
+            else:
+                combined_text = "".join(content_fragments)
+                content_value = combined_text or None
 
             assistant_turn = AssistantTurn(
-                content=content if content else None,
+                content=content_value,
                 tool_calls=tool_calls,
                 finish_reason=finish_reason,
                 model=model_name,
@@ -314,6 +337,8 @@ class StreamingHandler:
                 "reasoning": assistant_turn.reasoning,
                 "tool_calls": assistant_turn.tool_calls if assistant_turn.tool_calls else None,
             }
+            if assistant_turn.content is not None:
+                metadata_event_payload["content"] = assistant_turn.content
             if assistant_client_message_id is not None:
                 metadata_event_payload["client_message_id"] = assistant_client_message_id
             metadata_event_payload["message_id"] = assistant_record_id
@@ -515,6 +540,38 @@ def _is_tool_support_error(error: OpenRouterError) -> bool:
 
 def _tool_requires_session_id(tool_name: str) -> bool:
     return tool_name == _SESSION_AWARE_TOOL_NAME or tool_name.endswith(_SESSION_AWARE_TOOL_SUFFIX)
+
+
+def _contains_non_text_segments(segments: Iterable[dict[str, Any]]) -> bool:
+    for segment in segments:
+        if not isinstance(segment, dict):
+            return True
+        if segment.get("type") != "text":
+            return True
+    return False
+
+
+def _append_structured_segment(
+    segments: list[dict[str, Any]],
+    segment: dict[str, Any],
+    text_fragments: list[str],
+) -> None:
+    if not isinstance(segment, dict):
+        return
+
+    segment_type = segment.get("type") or "text"
+    if segment_type == "text":
+        text_value = segment.get("text")
+        if not isinstance(text_value, str) or not text_value:
+            return
+        if segments and isinstance(segments[-1], dict) and segments[-1].get("type") == "text":
+            previous = segments[-1].get("text", "")
+            segments[-1] = {"type": "text", "text": previous + text_value}
+        else:
+            segments.append({"type": "text", "text": text_value})
+        text_fragments.append(text_value)
+    else:
+        segments.append(dict(segment))
 
 
 def _merge_tool_calls(

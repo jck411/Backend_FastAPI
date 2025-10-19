@@ -28,6 +28,7 @@ from ..mcp_servers.gdrive_helpers import (
 from .google_auth.auth import get_drive_service
 from ..repository import AttachmentRecord, ChatRepository
 from ..utils import build_storage_name
+from .gcs import GCSUploadError, GCSUploader
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +87,26 @@ class StoredAttachment:
                 return None
         return None
 
+    @property
+    def gcs_blob_name(self) -> str | None:
+        value = self.record.get("gcs_blob_name")
+        return value if isinstance(value, str) and value else None
+
+    @property
+    def gcs_public_url(self) -> str | None:
+        value = self.record.get("gcs_public_url")
+        return value if isinstance(value, str) and value else None
+
+    @property
+    def gcs_uploaded_at(self) -> datetime | None:
+        value = self.record.get("gcs_uploaded_at")
+        if isinstance(value, str) and value:
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        return None
+
 
 class AttachmentService:
     """Persist attachment binaries and metadata for chat sessions."""
@@ -100,6 +121,10 @@ class AttachmentService:
         public_base_url: str | None = None,
         gdrive_uploads_folder: str = "root",
         gdrive_default_user_email: str | None = None,
+        gcs_bucket_name: str | None = None,
+        gcs_project_id: str | None = None,
+        gcs_credentials_file: Path | None = None,
+        gcs_public_url_template: str | None = None,
     ) -> None:
         self._repo = repository
         self._base_dir = base_dir
@@ -108,6 +133,11 @@ class AttachmentService:
         self._public_base_url = public_base_url.rstrip("/") if public_base_url else None
         self._gdrive_folder = gdrive_uploads_folder or "root"
         self._gdrive_default_user_email = gdrive_default_user_email
+        self._gcs_bucket_name = gcs_bucket_name
+        self._gcs_project_id = gcs_project_id
+        self._gcs_credentials_file = gcs_credentials_file
+        self._gcs_public_url_template = gcs_public_url_template
+        self._gcs_uploader: GCSUploader | None = None
         self._base_dir.mkdir(parents=True, exist_ok=True)
 
     async def save_upload(
@@ -352,6 +382,29 @@ class AttachmentService:
                 )
         return deleted
 
+    def _ensure_gcs_uploader(self) -> GCSUploader:
+        if not self._gcs_bucket_name:
+            raise AttachmentError("Google Cloud Storage bucket is not configured")
+
+        if self._gcs_uploader is None:
+            self._gcs_uploader = GCSUploader(
+                self._gcs_bucket_name,
+                project_id=self._gcs_project_id,
+                credentials_file=self._gcs_credentials_file,
+                public_url_template=self._gcs_public_url_template,
+            )
+        return self._gcs_uploader
+
+    async def get_public_image_url(
+        self, attachment_id: str, *, force: bool = False
+    ) -> str:
+        """Return a public URL for an image attachment using configured storage."""
+
+        if self._gcs_bucket_name:
+            return await self.upload_to_gcs(attachment_id, force=force)
+
+        return await self.upload_to_gdrive(attachment_id, force=force)
+
     async def upload_to_gdrive(
         self,
         attachment_id: str,
@@ -474,6 +527,66 @@ class AttachmentService:
             drive_file_id,
         )
         return public_url
+
+    async def upload_to_gcs(
+        self,
+        attachment_id: str,
+        *,
+        force: bool = False,
+    ) -> str:
+        """Upload an attachment to Google Cloud Storage and return the public URL."""
+
+        if not self._gcs_bucket_name:
+            raise AttachmentError("Google Cloud Storage bucket is not configured")
+
+        stored = await self.resolve(attachment_id)
+        record = stored.record
+
+        mime_type = str(record.get("mime_type") or "")
+        if not mime_type.startswith("image/"):
+            raise AttachmentError(
+                f"Attachment {attachment_id} is not an image (mime={mime_type})"
+            )
+
+        existing_blob = record.get("gcs_blob_name")
+        existing_url = record.get("gcs_public_url")
+        if existing_blob and existing_url and not force:
+            return existing_url
+
+        uploader = self._ensure_gcs_uploader()
+
+        metadata = record.get("metadata")
+        attachment_name = None
+        if isinstance(metadata, dict):
+            filename = metadata.get("filename")
+            if isinstance(filename, str) and filename.strip():
+                attachment_name = filename.strip()
+        if not attachment_name:
+            attachment_name = stored.path.name
+
+        blob_name = existing_blob or os.fspath(record.get("storage_path") or attachment_name)
+        cache_control = "public, max-age=31536000, immutable"
+
+        try:
+            data = await asyncio.to_thread(
+                uploader.upload_file,
+                file_path=stored.path,
+                blob_name=blob_name,
+                content_type=mime_type,
+                cache_control=cache_control,
+            )
+        except GCSUploadError as exc:
+            raise AttachmentError(str(exc)) from exc
+
+        now = datetime.now(timezone.utc)
+        await self._repo.update_attachment_gcs_metadata(
+            attachment_id,
+            blob_name=data.blob_name,
+            public_url=data.public_url,
+            uploaded_at=now,
+        )
+
+        return data.public_url
 
     async def _ensure_drive_public(
         self,

@@ -84,6 +84,9 @@ async def test_upload_to_gdrive_uploads_and_caches(monkeypatch, tmp_path: Path) 
         "gdrive_file_id": None,
         "gdrive_public_url": None,
         "gdrive_uploaded_at": None,
+        "gcs_blob_name": None,
+        "gcs_public_url": None,
+        "gcs_uploaded_at": None,
     }
 
     repository = MagicMock()
@@ -167,3 +170,85 @@ async def test_upload_to_gdrive_uploads_and_caches(monkeypatch, tmp_path: Path) 
     assert dummy_service.create_calls == 1
     assert dummy_service.permission_calls == 1
     repository.update_attachment_drive_metadata.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_upload_to_gcs_uploads_and_caches(monkeypatch, tmp_path: Path) -> None:
+    data = b"\x89PNG\r\n\x1a\n" + b"1" * 64
+    attachments_dir = tmp_path / "attachments"
+    file_path = attachments_dir / "session1" / "att-2.png"
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_bytes(data)
+
+    record = {
+        "attachment_id": "att-2",
+        "session_id": "session1",
+        "storage_path": "session1/att-2.png",
+        "mime_type": "image/png",
+        "size_bytes": len(data),
+        "display_url": "http://example/uploads/att-2",
+        "delivery_url": "http://example/uploads/att-2",
+        "metadata": {"filename": "att-2.png"},
+        "created_at": "2024-01-01T00:00:00",
+        "expires_at": None,
+        "last_used_at": "2024-01-01T00:00:00",
+        "gdrive_file_id": None,
+        "gdrive_public_url": None,
+        "gdrive_uploaded_at": None,
+        "gcs_blob_name": None,
+        "gcs_public_url": None,
+        "gcs_uploaded_at": None,
+    }
+
+    repository = MagicMock()
+    repository.get_attachment = AsyncMock(return_value=record)
+    repository.update_attachment_gcs_metadata = AsyncMock()
+
+    service = AttachmentService(
+        repository=repository,
+        base_dir=attachments_dir,
+        max_size_bytes=10 * 1024 * 1024,
+        retention_days=7,
+        gcs_bucket_name="openrouter-chat",
+    )
+
+    class DummyUploader:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str]] = []
+
+        def upload_file(
+            self,
+            *,
+            file_path: Path,
+            blob_name: str,
+            content_type: str,
+            cache_control: str | None = None,
+        ) -> SimpleNamespace:
+            self.calls.append((str(file_path), blob_name))
+            assert content_type == "image/png"
+            assert cache_control is not None
+            return SimpleNamespace(
+                blob_name=blob_name,
+                public_url=f"https://storage.googleapis.com/openrouter-chat/{blob_name}",
+            )
+
+    dummy_uploader = DummyUploader()
+
+    monkeypatch.setattr(
+        service,
+        "_ensure_gcs_uploader",
+        lambda: dummy_uploader,
+    )
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "backend.services.attachments.asyncio.to_thread", fake_to_thread
+    )
+
+    url = await service.upload_to_gcs("att-2")
+
+    assert url.endswith("session1/att-2.png")
+    assert dummy_uploader.calls
+    repository.update_attachment_gcs_metadata.assert_awaited_once()

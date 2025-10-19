@@ -127,6 +127,9 @@ class ChatRepository:
                 gdrive_file_id TEXT,
                 gdrive_public_url TEXT,
                 gdrive_uploaded_at DATETIME,
+                gcs_blob_name TEXT,
+                gcs_public_url TEXT,
+                gcs_uploaded_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 expires_at DATETIME,
                 last_used_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -155,6 +158,9 @@ class ChatRepository:
         await self._ensure_column("attachments", "gdrive_file_id", "TEXT")
         await self._ensure_column("attachments", "gdrive_public_url", "TEXT")
         await self._ensure_column("attachments", "gdrive_uploaded_at", "DATETIME")
+        await self._ensure_column("attachments", "gcs_blob_name", "TEXT")
+        await self._ensure_column("attachments", "gcs_public_url", "TEXT")
+        await self._ensure_column("attachments", "gcs_uploaded_at", "DATETIME")
 
     async def _ensure_column(self, table: str, column: str, definition: str) -> None:
         """Ensure a column exists on a table, adding it if necessary."""
@@ -366,6 +372,9 @@ class ChatRepository:
         record["gdrive_file_id"] = row["gdrive_file_id"]
         record["gdrive_public_url"] = row["gdrive_public_url"]
         record["gdrive_uploaded_at"] = row["gdrive_uploaded_at"]
+        record["gcs_blob_name"] = row["gcs_blob_name"]
+        record["gcs_public_url"] = row["gcs_public_url"]
+        record["gcs_uploaded_at"] = row["gcs_uploaded_at"]
         return record
 
     async def add_attachment(
@@ -404,10 +413,13 @@ class ChatRepository:
                 gdrive_file_id,
                 gdrive_public_url,
                 gdrive_uploaded_at,
+                gcs_blob_name,
+                gcs_public_url,
+                gcs_uploaded_at,
                 expires_at,
                 last_used_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             (
                 attachment_id,
@@ -418,6 +430,9 @@ class ChatRepository:
                 display_url,
                 delivery_url,
                 metadata_json,
+                None,
+                None,
+                None,
                 None,
                 None,
                 None,
@@ -448,6 +463,9 @@ class ChatRepository:
                 gdrive_file_id,
                 gdrive_public_url,
                 gdrive_uploaded_at,
+                gcs_blob_name,
+                gcs_public_url,
+                gcs_uploaded_at,
                 created_at,
                 expires_at,
                 last_used_at
@@ -503,6 +521,46 @@ class ChatRepository:
         )
         await self._connection.commit()
 
+    async def update_attachment_gcs_metadata(
+        self,
+        attachment_id: str,
+        *,
+        blob_name: Any = _UNSET,
+        public_url: Any = _UNSET,
+        uploaded_at: Any = _UNSET,
+    ) -> None:
+        """Update cached Google Cloud Storage metadata for an attachment."""
+
+        assert self._connection is not None
+        updates: list[str] = []
+        params: list[Any] = []
+
+        if blob_name is not _UNSET:
+            updates.append("gcs_blob_name = ?")
+            params.append(blob_name)
+
+        if public_url is not _UNSET:
+            updates.append("gcs_public_url = ?")
+            params.append(public_url)
+
+        if uploaded_at is not _UNSET:
+            if isinstance(uploaded_at, datetime):
+                value = uploaded_at.astimezone(timezone.utc).isoformat()
+            else:
+                value = uploaded_at
+            updates.append("gcs_uploaded_at = ?")
+            params.append(value)
+
+        if not updates:
+            return
+
+        params.append(attachment_id)
+        await self._connection.execute(
+            f"UPDATE attachments SET {', '.join(updates)} WHERE attachment_id = ?",
+            params,
+        )
+        await self._connection.commit()
+
     async def get_attachment_by_storage_path(
         self, storage_path: str
     ) -> AttachmentRecord | None:
@@ -527,6 +585,9 @@ class ChatRepository:
                 gdrive_file_id,
                 gdrive_public_url,
                 gdrive_uploaded_at,
+                gcs_blob_name,
+                gcs_public_url,
+                gcs_uploaded_at,
                 created_at,
                 expires_at,
                 last_used_at

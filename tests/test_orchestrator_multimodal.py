@@ -25,7 +25,7 @@ async def test_transform_message_content_uploads(orchestrator: ChatOrchestrator)
     calls: list[str] = []
 
     class DummyAttachmentService:
-        async def upload_to_gdrive(self, attachment_id: str, **_: object) -> str:
+        async def get_public_image_url(self, attachment_id: str, **_: object) -> str:
             calls.append(attachment_id)
             return f"https://drive.google.com/uc?export=view&id={attachment_id}"
 
@@ -51,7 +51,7 @@ async def test_transform_message_content_uploads(orchestrator: ChatOrchestrator)
 @pytest.mark.asyncio
 async def test_transform_message_content_fallback(orchestrator: ChatOrchestrator):
     service = MagicMock()
-    service.upload_to_gdrive = AsyncMock(side_effect=AttachmentError("failure"))
+    service.get_public_image_url = AsyncMock(side_effect=AttachmentError("failure"))
     orchestrator.set_attachment_service(service)
     orchestrator._inline_base64_image = AsyncMock(  # type: ignore[attr-defined]
         return_value="data:image/png;base64,Zm9v"

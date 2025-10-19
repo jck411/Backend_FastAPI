@@ -137,6 +137,27 @@ class Settings(BaseSettings):
         ),
     )
 
+    gcs_bucket_name: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GCS_BUCKET_NAME", "gcs_bucket_name"),
+    )
+    gcs_project_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GCP_PROJECT_ID", "gcs_project_id"),
+    )
+    gcs_credentials_file: Optional[Path] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "GCS_SERVICE_ACCOUNT_FILE",
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            "gcs_credentials_file",
+        ),
+    )
+    gcs_public_url_template: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("GCS_PUBLIC_URL_TEMPLATE", "gcs_public_url_template"),
+    )
+
     # Deepgram (optional, only needed if using browser STT)
     deepgram_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("DEEPGRAM_API_KEY")

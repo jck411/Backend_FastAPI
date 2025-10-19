@@ -101,6 +101,12 @@ def create_app() -> FastAPI:
 
     attachments_dir = _resolve_under(project_root, settings.attachments_dir)
 
+    gcs_credentials_file = (
+        _resolve_under(project_root, settings.gcs_credentials_file)
+        if settings.gcs_credentials_file
+        else None
+    )
+
     attachment_service = AttachmentService(
         orchestrator.repository,
         attachments_dir,
@@ -113,6 +119,10 @@ def create_app() -> FastAPI:
         ),
         gdrive_uploads_folder=settings.gdrive_uploads_folder,
         gdrive_default_user_email=settings.gdrive_default_user_email,
+        gcs_bucket_name=settings.gcs_bucket_name,
+        gcs_project_id=settings.gcs_project_id,
+        gcs_credentials_file=gcs_credentials_file,
+        gcs_public_url_template=settings.gcs_public_url_template,
     )
     orchestrator.set_attachment_service(attachment_service)
 

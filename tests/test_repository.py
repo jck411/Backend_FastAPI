@@ -83,6 +83,9 @@ async def test_attachment_roundtrip(repository):
     assert fetched["gdrive_file_id"] is None
     assert fetched["gdrive_public_url"] is None
     assert fetched["gdrive_uploaded_at"] is None
+    assert fetched["gcs_blob_name"] is None
+    assert fetched["gcs_public_url"] is None
+    assert fetched["gcs_uploaded_at"] is None
 
     uploaded_at = datetime.now(timezone.utc)
     await repository.update_attachment_drive_metadata(
@@ -95,6 +98,20 @@ async def test_attachment_roundtrip(repository):
     assert updated["gdrive_file_id"] == "drive-file-123"
     assert updated["gdrive_public_url"].endswith("drive-file-123")
     assert updated["gdrive_uploaded_at"].startswith(uploaded_at.isoformat()[:19])
+
+    gcs_uploaded = datetime.now(timezone.utc)
+    await repository.update_attachment_gcs_metadata(
+        "att-1",
+        blob_name="session-1/image.png",
+        public_url="https://storage.googleapis.com/example/session-1/image.png",
+        uploaded_at=gcs_uploaded,
+    )
+    updated_gcs = await repository.get_attachment("att-1")
+    assert updated_gcs["gcs_blob_name"] == "session-1/image.png"
+    assert updated_gcs["gcs_public_url"].startswith(
+        "https://storage.googleapis.com/example"
+    )
+    assert updated_gcs["gcs_uploaded_at"].startswith(gcs_uploaded.isoformat()[:19])
 
     # Add a small delay to ensure timestamp difference
     import asyncio

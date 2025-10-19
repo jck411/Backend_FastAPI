@@ -62,6 +62,9 @@ def test_upload_and_download_image(upload_client: TestClient, tmp_path: Path) ->
     assert attachment["gdriveFileId"] is None
     assert attachment["gdrivePublicUrl"] is None
     assert attachment["gdriveUploadedAt"] is None
+    assert attachment["gcsBlobName"] is None
+    assert attachment["gcsPublicUrl"] is None
+    assert attachment["gcsUploadedAt"] is None
 
     download = upload_client.get(f"/api/uploads/{attachment['id']}/content")
     assert download.status_code == 200

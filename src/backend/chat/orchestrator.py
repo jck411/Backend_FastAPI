@@ -160,7 +160,7 @@ class ChatOrchestrator:
                 public_url = cached_urls[attachment_id]
             else:
                 try:
-                    public_url = await attachment_service.upload_to_gdrive(
+                    public_url = await attachment_service.get_public_image_url(
                         attachment_id
                     )
                 except AttachmentError as exc:

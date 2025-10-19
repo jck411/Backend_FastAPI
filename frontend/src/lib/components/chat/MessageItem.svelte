@@ -11,8 +11,7 @@
   } from "lucide-svelte";
   import { createEventDispatcher } from "svelte";
   import { copyableCode } from "../../actions/copyableCode";
-  import type { AttachmentResource } from "../../api/types";
-  import type { ConversationMessage } from "../../stores/chat";
+  import type { ConversationMessage, MessageAttachment } from "../../stores/chat";
   import { renderMarkdown } from "../../utils/markdown";
 
   export let message: ConversationMessage;
@@ -71,22 +70,54 @@
     dispatch("delete", { message });
   }
 
-  function attachmentFilename(attachment: AttachmentResource): string | null {
+  function attachmentFilename(attachment: MessageAttachment): string | null {
     const value = attachment.metadata?.filename;
-    return typeof value === "string" && value.trim() ? value : null;
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+    const resourceValue = attachment.resource?.metadata?.filename;
+    return typeof resourceValue === "string" && resourceValue.trim()
+      ? resourceValue.trim()
+      : null;
   }
 
-  function attachmentLabel(attachment: AttachmentResource): string {
+  function attachmentLabel(attachment: MessageAttachment): string {
     const filename = attachmentFilename(attachment);
     return filename ? `Open attachment ${filename}` : "Open attachment";
   }
 
-  function attachmentAlt(attachment: AttachmentResource): string {
+  function attachmentAlt(attachment: MessageAttachment): string {
     const filename = attachmentFilename(attachment);
     return filename ?? "Attachment preview";
   }
 
-  $: hasAttachments = (message.attachments?.length ?? 0) > 0;
+  function attachmentUrl(attachment: MessageAttachment): string | null {
+    return (
+      attachment.displayUrl ??
+      attachment.deliveryUrl ??
+      attachment.resource?.displayUrl ??
+      attachment.resource?.deliveryUrl ??
+      null
+    );
+  }
+
+  function attachmentKey(attachment: MessageAttachment): string {
+    return (
+      attachment.id ??
+      attachment.resource?.id ??
+      attachment.deliveryUrl ??
+      attachment.displayUrl ??
+      attachment.resource?.deliveryUrl ??
+      attachment.resource?.displayUrl ??
+      JSON.stringify({
+        display: attachment.displayUrl ?? attachment.resource?.displayUrl ?? null,
+        delivery: attachment.deliveryUrl ?? attachment.resource?.deliveryUrl ?? null,
+      })
+    );
+  }
+
+  $: attachments = message.attachments ?? [];
+  $: hasAttachments = attachments.length > 0;
 
   type TimestampInfo = {
     iso: string;
@@ -255,23 +286,25 @@
       {#if message.text}
         {@html renderMarkdown(message.text)}
       {/if}
-      {#if message.attachments?.length}
+      {#if hasAttachments}
         <div class="message-attachments">
-          {#each message.attachments as attachment (attachment.id ?? attachment.displayUrl ?? attachment.deliveryUrl)}
-            <figure class="attachment-card">
-              <a
-                href={attachment.displayUrl || attachment.deliveryUrl}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={attachmentLabel(attachment)}
-              >
-                <img
-                  src={attachment.displayUrl || attachment.deliveryUrl}
-                  alt={attachmentAlt(attachment)}
-                  loading="lazy"
-                />
-              </a>
-            </figure>
+          {#each attachments as attachment (attachmentKey(attachment))}
+            {#if attachmentUrl(attachment)}
+              <figure class="attachment-card">
+                <a
+                  href={attachmentUrl(attachment) || "#"}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={attachmentLabel(attachment)}
+                >
+                  <img
+                    src={attachmentUrl(attachment) || ""}
+                    alt={attachmentAlt(attachment)}
+                    loading="lazy"
+                  />
+                </a>
+              </figure>
+            {/if}
           {/each}
         </div>
       {/if}

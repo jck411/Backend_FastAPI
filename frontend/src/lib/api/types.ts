@@ -63,7 +63,7 @@ export interface ChatCompletionRequest {
 }
 
 export interface ChatCompletionDelta {
-  content?: string;
+  content?: ChatMessageContent | null;
   tool_calls?: Array<Record<string, unknown>>;
   reasoning?: Array<Record<string, unknown>>;
   [key: string]: unknown;
@@ -95,14 +95,14 @@ export interface SseEvent {
 }
 
 export interface AttachmentResource {
-  id: string;
-  sessionId: string;
-  mimeType: string;
-  sizeBytes: number;
-  displayUrl: string;
-  deliveryUrl: string;
-  uploadedAt: string;
-  expiresAt: string | null;
+  id?: string;
+  sessionId?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  displayUrl?: string;
+  deliveryUrl?: string;
+  uploadedAt?: string;
+  expiresAt?: string | null;
   metadata?: Record<string, unknown> | null;
 }
 

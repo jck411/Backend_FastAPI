@@ -4,8 +4,10 @@ import type {
   AttachmentResource,
   ChatCompletionRequest,
   ChatMessageContent,
+  ChatContentFragment,
 } from '../api/types';
 import { buildChatContent, normalizeMessageContent } from '../chat/content';
+import type { MessageContentPart, NormalizedMessageContent } from '../chat/content';
 import {
   mergeReasoningSegments,
   type ReasoningSegment,
@@ -170,6 +172,97 @@ function createChatStore() {
     return null;
   }
 
+  function toTextFragment(text: string): ChatContentFragment {
+    return { type: 'text', text };
+  }
+
+  function attachmentKey(resource: AttachmentResource): string {
+    return resource.id ?? resource.deliveryUrl ?? resource.displayUrl ?? '';
+  }
+
+  function imagePartToAttachment(
+    part: Extract<MessageContentPart, { type: 'image' }>,
+  ): AttachmentResource {
+    const fallbackId = part.attachmentId ?? part.url ?? createId('attachment');
+    return {
+      id: part.attachmentId ?? fallbackId,
+      sessionId: part.sessionId,
+      mimeType: part.mimeType,
+      sizeBytes: part.sizeBytes,
+      displayUrl: part.displayUrl ?? part.url,
+      deliveryUrl: part.url,
+      uploadedAt: part.uploadedAt,
+      expiresAt: part.expiresAt ?? null,
+      metadata: part.metadata ?? null,
+    };
+  }
+
+  function mergeAttachmentsFromParts(
+    parts: MessageContentPart[],
+    existing: AttachmentResource[] = [],
+  ): AttachmentResource[] {
+    const merged = new Map<string, AttachmentResource>();
+
+    for (const item of existing) {
+      const key = attachmentKey(item);
+      if (key) {
+        merged.set(key, { ...item });
+      } else {
+        const fallback = createId('attachment');
+        merged.set(fallback, { ...item, id: item.id ?? fallback });
+      }
+    }
+
+    for (const part of parts) {
+      if (part.type !== 'image') {
+        continue;
+      }
+      const attachment = imagePartToAttachment(part);
+      const key = attachmentKey(attachment);
+      if (key) {
+        merged.set(key, attachment);
+      } else {
+        const fallback = createId('attachment');
+        merged.set(fallback, { ...attachment, id: attachment.id ?? fallback });
+      }
+    }
+
+    return Array.from(merged.values());
+  }
+
+  function appendContent(
+    current: ChatMessageContent,
+    deltaContent: ChatMessageContent | null | undefined,
+    deltaText: string,
+  ): ChatMessageContent {
+    if (Array.isArray(deltaContent)) {
+      const baseFragments = Array.isArray(current)
+        ? current.slice()
+        : typeof current === 'string' && current
+          ? [toTextFragment(current)]
+          : [];
+      return [...baseFragments, ...deltaContent];
+    }
+
+    if (typeof deltaContent === 'string') {
+      if (Array.isArray(current)) {
+        return deltaContent ? [...current, toTextFragment(deltaContent)] : current;
+      }
+      const previousText = typeof current === 'string' ? current : '';
+      return `${previousText}${deltaContent}`;
+    }
+
+    if (Array.isArray(current)) {
+      if (deltaText) {
+        return [...current, toTextFragment(deltaText)];
+      }
+      return current;
+    }
+
+    const previousText = typeof current === 'string' ? current : '';
+    return deltaText ? `${previousText}${deltaText}` : previousText;
+  }
+
   async function sendMessage(draft: OutgoingMessageDraft): Promise<void> {
     const text = draft.text.trim();
     const attachments = draft.attachments ?? [];
@@ -236,19 +329,28 @@ function createChatStore() {
         onSession(sessionId) {
           store.update((value) => ({ ...value, sessionId }));
         },
-        onMessageDelta({ text: deltaText, reasoningSegments, hasReasoningPayload }) {
+        onMessageDelta({
+          text: deltaText,
+          content: deltaContent,
+          reasoningSegments,
+          hasReasoningPayload,
+        }) {
           store.update((value) => {
             const messages = value.messages.map((message) => {
               if (message.id !== assistantMessageId) {
                 return message;
               }
-              const previousText =
-                typeof message.content === 'string' ? message.content : message.text;
-              const nextText = deltaText ? `${previousText}${deltaText}` : previousText;
+              const nextContent = appendContent(message.content, deltaContent, deltaText);
+              const normalized = normalizeMessageContent(nextContent);
+              const attachments = mergeAttachmentsFromParts(
+                normalized.parts,
+                message.attachments ?? [],
+              );
               const updatedMessage: ConversationMessage = {
                 ...message,
-                content: nextText,
-                text: nextText,
+                content: nextContent,
+                text: normalized.text,
+                attachments,
               };
 
               if (reasoningSegments.length > 0 || hasReasoningPayload) {
@@ -271,7 +373,7 @@ function createChatStore() {
             return { ...value, messages };
           });
         },
-        onMetadata(metadata) {
+        onMetadata({ metadata, content, normalizedContent }) {
           store.update((value) => {
             const messages = value.messages.map((message) => {
               if (message.id !== assistantMessageId) {
@@ -293,6 +395,27 @@ function createChatStore() {
                   ? 'streaming'
                   : 'complete'
                 : existingDetails.reasoningStatus ?? null;
+              let nextContent = message.content;
+              let nextText = message.text;
+              let nextAttachments = message.attachments ?? [];
+              let normalizedMessage: NormalizedMessageContent | null = null;
+
+              if (content !== null && content !== undefined) {
+                nextContent = content;
+                normalizedMessage =
+                  normalizedContent ?? normalizeMessageContent(content);
+                nextText = normalizedMessage.text;
+                nextAttachments = mergeAttachmentsFromParts(normalizedMessage.parts);
+              } else if (normalizedContent) {
+                normalizedMessage = normalizedContent;
+                if (normalizedMessage.text) {
+                  nextText = normalizedMessage.text;
+                }
+                nextAttachments = mergeAttachmentsFromParts(
+                  normalizedMessage.parts,
+                  nextAttachments,
+                );
+              }
               const serverMessageId =
                 typeof metadata.message_id === 'number'
                   ? metadata.message_id
@@ -308,6 +431,9 @@ function createChatStore() {
               );
               return {
                 ...message,
+                content: nextContent,
+                text: nextText,
+                attachments: nextAttachments,
                 details: {
                   ...existingDetails,
                   model:

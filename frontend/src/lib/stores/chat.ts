@@ -5,7 +5,11 @@ import type {
   ChatCompletionRequest,
   ChatMessageContent,
 } from '../api/types';
-import { buildChatContent, normalizeMessageContent } from '../chat/content';
+import {
+  buildChatContent,
+  normalizeMessageContent,
+  type MessageContentPart,
+} from '../chat/content';
 import {
   mergeReasoningSegments,
   type ReasoningSegment,
@@ -35,12 +39,25 @@ interface ConversationMessageDetails {
   serverMessageId?: number | null;
 }
 
+export interface MessageAttachment {
+  id: string | null;
+  sessionId: string | null;
+  mimeType: string | null;
+  sizeBytes: number | null;
+  displayUrl: string | null;
+  deliveryUrl: string | null;
+  uploadedAt: string | null;
+  expiresAt: string | null;
+  metadata?: Record<string, unknown> | null;
+  resource?: AttachmentResource | null;
+}
+
 export interface ConversationMessage {
   id: string;
   role: ConversationRole;
   content: ChatMessageContent;
   text: string;
-  attachments: AttachmentResource[];
+  attachments: MessageAttachment[];
   pending?: boolean;
   details?: ConversationMessageDetails;
   createdAt?: string | null;
@@ -110,6 +127,186 @@ function resolveDeletionIdentifiers(message: ConversationMessage): string[] {
   }
 
   return identifiers;
+}
+
+function cloneMessageAttachment(attachment: MessageAttachment): MessageAttachment {
+  return {
+    ...attachment,
+    metadata: attachment.metadata ? { ...attachment.metadata } : attachment.metadata ?? null,
+    resource: attachment.resource ? { ...attachment.resource } : attachment.resource ?? null,
+  };
+}
+
+function attachmentKey(attachment: MessageAttachment): string {
+  const id = attachment.id?.trim();
+  if (id) {
+    return `id:${id}`;
+  }
+  const delivery = attachment.deliveryUrl?.trim();
+  if (delivery) {
+    return `delivery:${delivery}`;
+  }
+  const display = attachment.displayUrl?.trim();
+  if (display) {
+    return `display:${display}`;
+  }
+  return `meta:${JSON.stringify({
+    display: attachment.displayUrl ?? null,
+    delivery: attachment.deliveryUrl ?? null,
+  })}`;
+}
+
+function mergeMessageAttachments(
+  existing: MessageAttachment[],
+  incoming: MessageAttachment[],
+): MessageAttachment[] {
+  if (incoming.length === 0) {
+    return existing.map(cloneMessageAttachment);
+  }
+
+  const map = new Map<string, MessageAttachment>();
+  const order: string[] = [];
+
+  const register = (attachment: MessageAttachment) => {
+    const cloned = cloneMessageAttachment(attachment);
+    const key = attachmentKey(cloned);
+    if (!map.has(key)) {
+      order.push(key);
+    }
+    map.set(key, cloned);
+  };
+
+  for (const item of existing) {
+    register(item);
+  }
+
+  for (const item of incoming) {
+    register(item);
+  }
+
+  return order.map((key) => map.get(key) as MessageAttachment);
+}
+
+type ImageContentPart = Extract<MessageContentPart, { type: 'image' }>;
+
+function toMessageAttachmentFromResource(resource: AttachmentResource): MessageAttachment {
+  return {
+    id: resource.id ?? null,
+    sessionId: resource.sessionId ?? null,
+    mimeType: resource.mimeType ?? null,
+    sizeBytes: Number.isFinite(resource.sizeBytes) ? resource.sizeBytes : null,
+    displayUrl: resource.displayUrl ?? resource.deliveryUrl ?? null,
+    deliveryUrl: resource.deliveryUrl ?? resource.displayUrl ?? null,
+    uploadedAt: resource.uploadedAt ?? null,
+    expiresAt: resource.expiresAt ?? null,
+    metadata: resource.metadata ?? null,
+    resource: { ...resource },
+  };
+}
+
+function toMessageAttachmentFromImagePart(part: ImageContentPart): MessageAttachment {
+  const deliveryUrl = part.url ?? part.displayUrl ?? null;
+  const displayUrl = part.displayUrl ?? part.url ?? null;
+  return {
+    id: part.attachmentId ?? part.url ?? null,
+    sessionId: part.sessionId ?? null,
+    mimeType: part.mimeType ?? null,
+    sizeBytes: typeof part.sizeBytes === 'number' && Number.isFinite(part.sizeBytes)
+      ? part.sizeBytes
+      : null,
+    displayUrl,
+    deliveryUrl,
+    uploadedAt: part.uploadedAt ?? null,
+    expiresAt: part.expiresAt ?? null,
+    metadata: part.metadata ?? null,
+    resource: null,
+  };
+}
+
+function choosePreferredText(current: string, candidate: string): string {
+  const trimmedCandidate = candidate.trim();
+  if (!trimmedCandidate) {
+    return current;
+  }
+  const trimmedCurrent = current.trim();
+  if (!trimmedCurrent) {
+    return candidate;
+  }
+  return trimmedCandidate.length >= trimmedCurrent.length ? candidate : current;
+}
+
+interface AssistantContentUpdate {
+  deltaText?: string;
+  metadataContent?: unknown;
+}
+
+function reduceAssistantMessageContent(
+  message: ConversationMessage,
+  update: AssistantContentUpdate,
+): Pick<ConversationMessage, 'content' | 'text' | 'attachments'> {
+  let text = message.text ?? '';
+  let content: ChatMessageContent = message.content;
+  let attachments: MessageAttachment[] = message.attachments ?? [];
+
+  if (update.deltaText) {
+    const baseText =
+      typeof message.content === 'string'
+        ? message.content
+        : typeof message.text === 'string'
+          ? message.text
+          : '';
+    const appended = `${baseText}${update.deltaText}`;
+    text = appended;
+    content = appended;
+  }
+
+  if (update.metadataContent !== undefined) {
+    const rawContent = update.metadataContent as ChatMessageContent | null | undefined;
+
+    if (rawContent && (typeof rawContent === 'string' || Array.isArray(rawContent))) {
+      const normalized = normalizeMessageContent(rawContent);
+      if (normalized.text) {
+        text = choosePreferredText(text, normalized.text);
+      }
+
+      const imageParts = normalized.parts.filter(
+        (part): part is ImageContentPart => part.type === 'image',
+      );
+      if (imageParts.length > 0) {
+        const mapped = imageParts.map(toMessageAttachmentFromImagePart);
+        attachments = mergeMessageAttachments(attachments, mapped);
+      } else {
+        attachments = attachments.map(cloneMessageAttachment);
+      }
+
+      if (Array.isArray(rawContent)) {
+        const hasTextPart = rawContent.some((fragment) => fragment?.type === 'text');
+        if (!hasTextPart && text) {
+          const fragments = [{ type: 'text', text }, ...rawContent];
+          content = fragments as ChatMessageContent;
+        } else {
+          content = rawContent;
+        }
+      } else if (typeof rawContent === 'string') {
+        content = rawContent;
+      }
+    } else if (rawContent === null || rawContent === undefined) {
+      content = text;
+      attachments = attachments.map(cloneMessageAttachment);
+    }
+  }
+
+  return { text, content, attachments };
+}
+
+function extractAttachmentResources(attachments: MessageAttachment[]): AttachmentResource[] {
+  const resources: AttachmentResource[] = [];
+  for (const attachment of attachments ?? []) {
+    if (attachment.resource) {
+      resources.push({ ...attachment.resource });
+    }
+  }
+  return resources;
 }
 
 function toChatPayload(
@@ -187,7 +384,7 @@ function createChatStore() {
 
     const messageContent = buildChatContent(draft.text, attachments);
     const normalized = normalizeMessageContent(messageContent);
-    const userAttachments = attachments.map((item) => ({ ...item }));
+    const userAttachments = attachments.map(toMessageAttachmentFromResource);
 
     const payload = toChatPayload(
       state,
@@ -242,13 +439,10 @@ function createChatStore() {
               if (message.id !== assistantMessageId) {
                 return message;
               }
-              const previousText =
-                typeof message.content === 'string' ? message.content : message.text;
-              const nextText = deltaText ? `${previousText}${deltaText}` : previousText;
+              const merged = reduceAssistantMessageContent(message, { deltaText });
               const updatedMessage: ConversationMessage = {
                 ...message,
-                content: nextText,
-                text: nextText,
+                ...merged,
               };
 
               if (reasoningSegments.length > 0 || hasReasoningPayload) {
@@ -277,6 +471,16 @@ function createChatStore() {
               if (message.id !== assistantMessageId) {
                 return message;
               }
+              const hasContent = Object.prototype.hasOwnProperty.call(metadata, 'content');
+              const merged = hasContent
+                ? reduceAssistantMessageContent(message, {
+                    metadataContent: (metadata as Record<string, unknown>).content,
+                  })
+                : {
+                    text: message.text,
+                    content: message.content,
+                    attachments: message.attachments.map(cloneMessageAttachment),
+                  };
               const existingDetails: ConversationMessageDetails = message.details ?? {};
               const nextReasoningSegments = toReasoningSegments(metadata.reasoning);
               const hasIncomingReasoning = nextReasoningSegments.length > 0;
@@ -308,6 +512,7 @@ function createChatStore() {
               );
               return {
                 ...message,
+                ...merged,
                 details: {
                   ...existingDetails,
                   model:
@@ -433,7 +638,7 @@ function createChatStore() {
                   ...message,
                   content: nextText,
                   text: nextText,
-                  attachments: message.attachments ?? [],
+                  attachments: (message.attachments ?? []).map(cloneMessageAttachment),
                   pending: status === 'started',
                   details,
                   createdAt: nextCreatedAt,
@@ -684,7 +889,7 @@ function createChatStore() {
 
     await sendMessage({
       text: target.text,
-      attachments: (target.attachments ?? []).map((item) => ({ ...item })),
+      attachments: extractAttachmentResources(target.attachments ?? []),
     });
   }
 
@@ -732,7 +937,7 @@ function createChatStore() {
 
     await sendMessage({
       text: trimmed,
-      attachments: (target.attachments ?? []).map((item) => ({ ...item })),
+      attachments: extractAttachmentResources(target.attachments ?? []),
     });
   }
 

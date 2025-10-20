@@ -267,6 +267,12 @@
     disableDelete={$chatStore.isStreaming}
   />
 
+  {#if $chatStore.isStreaming && $chatStore.generationFeedback?.kind === 'image'}
+    <div class="generation-feedback" role="status" aria-live="polite">
+      {$chatStore.generationFeedback.message}
+    </div>
+  {/if}
+
   {#if $chatStore.error}
     <div class="chat-error" role="alert">
       <span>{$chatStore.error}</span>
@@ -381,6 +387,14 @@
       rgba(4, 6, 13, 0.1) 90%,
       transparent 100%
     );
+  }
+  .generation-feedback {
+    text-align: center;
+    margin: 0.25rem auto 0;
+    padding: 0 1.5rem;
+    max-width: min(640px, 100%);
+    color: #c7d2ff;
+    font-size: 0.9rem;
   }
   @media (max-width: 900px) {
     .chat-app {

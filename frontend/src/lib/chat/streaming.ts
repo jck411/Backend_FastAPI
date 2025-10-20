@@ -18,6 +18,7 @@ export interface ChatStreamMessageDelta {
 }
 
 export interface ChatStreamMetadataPayload {
+  [key: string]: unknown;
   metadata: Record<string, unknown>;
   content?: ChatMessageContent | null;
   normalizedContent?: NormalizedMessageContent | null;

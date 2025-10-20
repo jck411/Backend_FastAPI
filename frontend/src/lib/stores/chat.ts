@@ -24,6 +24,13 @@ import { modelSettingsStore } from './modelSettings';
 
 export type ConversationRole = 'user' | 'assistant' | 'system' | 'tool';
 
+type GenerationFeedbackKind = 'image';
+
+interface GenerationFeedbackState {
+  kind: GenerationFeedbackKind;
+  message: string;
+}
+
 interface ConversationMessageDetails {
   model?: string | null;
   finishReason?: string | null;
@@ -75,6 +82,7 @@ interface ChatState {
   isStreaming: boolean;
   error: string | null;
   selectedModel: string;
+  generationFeedback: GenerationFeedbackState | null;
 }
 
 const initialState: ChatState = {
@@ -83,6 +91,7 @@ const initialState: ChatState = {
   isStreaming: false,
   error: null,
   selectedModel: 'openrouter/auto',
+  generationFeedback: null,
 };
 
 function createId(prefix: string): string {
@@ -194,7 +203,10 @@ function toMessageAttachmentFromResource(resource: AttachmentResource): MessageA
     id: resource.id ?? null,
     sessionId: resource.sessionId ?? null,
     mimeType: resource.mimeType ?? null,
-    sizeBytes: Number.isFinite(resource.sizeBytes) ? resource.sizeBytes : null,
+    sizeBytes:
+      typeof resource.sizeBytes === 'number' && Number.isFinite(resource.sizeBytes)
+        ? resource.sizeBytes
+        : null,
     displayUrl: resource.displayUrl ?? resource.deliveryUrl ?? null,
     deliveryUrl: resource.deliveryUrl ?? resource.displayUrl ?? null,
     uploadedAt: resource.uploadedAt ?? null,
@@ -385,6 +397,7 @@ function createChatStore() {
     const messageContent = buildChatContent(draft.text, attachments);
     const normalized = normalizeMessageContent(messageContent);
     const userAttachments = attachments.map(toMessageAttachmentFromResource);
+    const expectsImageGeneration = normalized.parts.some((part) => part.type === 'image');
 
     const payload = toChatPayload(
       state,
@@ -421,6 +434,9 @@ function createChatStore() {
       ],
       isStreaming: true,
       error: null,
+      generationFeedback: expectsImageGeneration
+        ? { kind: 'image', message: 'Generating images…' }
+        : null,
     }));
 
     const abortController = new AbortController();
@@ -654,6 +670,7 @@ function createChatStore() {
           store.update((value) => ({
             ...value,
             isStreaming: false,
+            generationFeedback: null,
             messages: value.messages.map((message) => {
               if (message.id !== assistantMessageId) {
                 return message;
@@ -683,6 +700,7 @@ function createChatStore() {
           store.update((value) => ({
             ...value,
             isStreaming: false,
+            generationFeedback: null,
             error: error.message ?? 'Unknown error',
             messages: value.messages.filter(
               (message) =>
@@ -700,6 +718,7 @@ function createChatStore() {
       store.update((value) => ({
         ...value,
         isStreaming: false,
+        generationFeedback: null,
         error: message,
         messages: value.messages.filter(
           (msg) => msg.id !== assistantMessageId && !(msg.role === 'tool' && msg.pending),
@@ -717,6 +736,7 @@ function createChatStore() {
       store.update((value) => ({
         ...value,
         isStreaming: false,
+        generationFeedback: null,
         messages: value.messages.filter(
           (message) =>
             !(
@@ -875,6 +895,7 @@ function createChatStore() {
       messages: preservedMessages,
       isStreaming: false,
       error: null,
+      generationFeedback: null,
     }));
 
     if (state.sessionId) {
@@ -923,6 +944,7 @@ function createChatStore() {
       messages: preservedMessages,
       isStreaming: false,
       error: null,
+      generationFeedback: null,
     }));
 
     if (state.sessionId) {

@@ -109,11 +109,22 @@ def parse_time_string(time_str: Optional[str]) -> Optional[str]:
     elif lowered == "next_year":
         date_obj = today.replace(year=today.year + 1)
     else:
-        return time_str
+        try:
+            date_obj = datetime.date.fromisoformat(time_str)
+        except ValueError:
+            try:
+                dt = datetime.datetime.fromisoformat(time_str)
+            except ValueError:
+                return time_str
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.timezone.utc)
+            return dt.isoformat().replace("+00:00", "Z")
 
     # Build a midnight datetime with the local timezone offset
     local_tz = datetime.datetime.now().astimezone().tzinfo or datetime.timezone.utc
     local_midnight = datetime.datetime(
         date_obj.year, date_obj.month, date_obj.day, 0, 0, 0, tzinfo=local_tz
     )
-    return local_midnight.isoformat()
+    return local_midnight.astimezone(datetime.timezone.utc).isoformat().replace(
+        "+00:00", "Z"
+    )

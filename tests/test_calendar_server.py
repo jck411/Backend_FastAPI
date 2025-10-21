@@ -123,7 +123,9 @@ async def test_get_events_success(mock_get_calendar_service):
     await calendar_current_context(timezone="UTC")
     result = await get_events(time_min="2023-06-01")
 
-    assert f"Found 1 events for {DEFAULT_USER_EMAIL}" in result
+    assert (
+        f"Schedule for {DEFAULT_USER_EMAIL}: 1 calendar event, 0 due tasks." in result
+    )
     assert "Calendars scanned:" in result
     assert "Test Event" in result
     assert "[Calendar: Your Primary Calendar]" in result

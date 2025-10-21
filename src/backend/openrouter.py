@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Iterable, Optional
@@ -40,8 +41,38 @@ class ServerSentEvent:
 class OpenRouterClient:
     """Client responsible for streaming chat completions from OpenRouter."""
 
+    _client_lock: asyncio.Lock = asyncio.Lock()
+    _client_pool: dict[tuple[str, float], httpx.AsyncClient] = {}
+
     def __init__(self, settings: Settings):
         self._settings = settings
+
+    def _client_key(self) -> tuple[str, float]:
+        return (self._base_url, float(self._settings.request_timeout))
+
+    async def _get_http_client(self) -> httpx.AsyncClient:
+        key = self._client_key()
+        client = self.__class__._client_pool.get(key)
+        if client is not None:
+            return client
+
+        async with self.__class__._client_lock:
+            client = self.__class__._client_pool.get(key)
+            if client is None:
+                timeout = httpx.Timeout(
+                    self._settings.request_timeout, connect=10.0
+                )
+                limits = httpx.Limits(
+                    max_connections=50,
+                    max_keepalive_connections=20,
+                )
+                client = httpx.AsyncClient(
+                    timeout=timeout,
+                    limits=limits,
+                    http2=True,
+                )
+                self.__class__._client_pool[key] = client
+        return client
 
     @property
     def _headers(self) -> dict[str, str]:
@@ -80,30 +111,30 @@ class OpenRouterClient:
 
         url = f"{self._base_url}/chat/completions"
 
-        async with httpx.AsyncClient(timeout=self._settings.request_timeout) as client:
-            try:
-                async with client.stream(
-                    "POST",
-                    url,
-                    headers=self._headers,
-                    json=payload,
-                ) as response:
-                    if response.status_code >= 400:
-                        body = await response.aread()
-                        detail = self._extract_error_detail(body)
-                        raise OpenRouterError(response.status_code, detail)
+        client = await self._get_http_client()
+        try:
+            async with client.stream(
+                "POST",
+                url,
+                headers=self._headers,
+                json=payload,
+            ) as response:
+                if response.status_code >= 400:
+                    body = await response.aread()
+                    detail = self._extract_error_detail(body)
+                    raise OpenRouterError(response.status_code, detail)
 
-                    routing_headers = self._extract_routing_headers(response.headers)
-                    if routing_headers:
-                        yield {
-                            "event": "openrouter_headers",
-                            "data": json.dumps(routing_headers),
-                        }
+                routing_headers = self._extract_routing_headers(response.headers)
+                if routing_headers:
+                    yield {
+                        "event": "openrouter_headers",
+                        "data": json.dumps(routing_headers),
+                    }
 
-                    async for event in self._iter_events(response):
-                        yield event.asdict()
-            except httpx.HTTPError as exc:
-                raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+                async for event in self._iter_events(response):
+                    yield event.asdict()
+        except httpx.HTTPError as exc:
+            raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
     async def list_models(
         self, *, params: Optional[dict[str, Any]] = None
@@ -114,11 +145,11 @@ class OpenRouterClient:
         headers = dict(self._headers)
         headers["Accept"] = "application/json"
 
-        async with httpx.AsyncClient(timeout=self._settings.request_timeout) as client:
-            try:
-                response = await client.get(url, headers=headers, params=params)
-            except httpx.HTTPError as exc:
-                raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        client = await self._get_http_client()
+        try:
+            response = await client.get(url, headers=headers, params=params)
+        except httpx.HTTPError as exc:
+            raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
         if response.status_code >= 400:
             detail = self._extract_error_detail(response.content)
@@ -133,11 +164,11 @@ class OpenRouterClient:
         headers = dict(self._headers)
         headers["Accept"] = "application/json"
 
-        async with httpx.AsyncClient(timeout=self._settings.request_timeout) as client:
-            try:
-                response = await client.get(url, headers=headers)
-            except httpx.HTTPError as exc:
-                raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        client = await self._get_http_client()
+        try:
+            response = await client.get(url, headers=headers)
+        except httpx.HTTPError as exc:
+            raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
         if response.status_code >= 400:
             detail = self._extract_error_detail(response.content)
@@ -161,11 +192,11 @@ class OpenRouterClient:
         headers = dict(self._headers)
         headers["Accept"] = "application/json"
 
-        async with httpx.AsyncClient(timeout=self._settings.request_timeout) as client:
-            try:
-                response = await client.get(url, headers=headers, params=filters)
-            except httpx.HTTPError as exc:
-                raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        client = await self._get_http_client()
+        try:
+            response = await client.get(url, headers=headers, params=filters)
+        except httpx.HTTPError as exc:
+            raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
         if response.status_code >= 400:
             detail = self._extract_error_detail(response.content)
@@ -185,17 +216,31 @@ class OpenRouterClient:
 
         params = {"id": generation_id}
 
-        async with httpx.AsyncClient(timeout=self._settings.request_timeout) as client:
-            try:
-                response = await client.get(url, headers=headers, params=params)
-            except httpx.HTTPError as exc:
-                raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+        client = await self._get_http_client()
+        try:
+            response = await client.get(url, headers=headers, params=params)
+        except httpx.HTTPError as exc:
+            raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
         if response.status_code >= 400:
             detail = self._extract_error_detail(response.content)
             raise OpenRouterError(response.status_code, detail)
 
         return response.json()
+
+    async def aclose(self) -> None:
+        await self.__class__.aclose_shared()
+
+    @classmethod
+    async def aclose_shared(cls) -> None:
+        async with cls._client_lock:
+            clients = list(cls._client_pool.values())
+            cls._client_pool.clear()
+        for client in clients:
+            try:
+                await client.aclose()
+            except Exception:  # pragma: no cover - best effort cleanup
+                pass
 
     async def _iter_events(
         self, response: httpx.Response

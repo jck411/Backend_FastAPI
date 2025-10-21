@@ -32,7 +32,8 @@ class Settings(BaseSettings):
     )
 
     openrouter_api_key: SecretStr = Field(
-        ..., validation_alias=AliasChoices("OPENROUTER_API_KEY")
+        ...,
+        validation_alias=AliasChoices("OPENROUTER_API_KEY", "openrouter_api_key"),
     )
     openrouter_base_url: AnyHttpUrl = Field(
         default_factory=lambda: AnyHttpUrl("https://openrouter.ai/api/v1"),
@@ -115,14 +116,6 @@ class Settings(BaseSettings):
             "attachments_retention_days",
         ),
     )
-    attachments_public_base_url: Optional[AnyHttpUrl] = Field(
-        default=None,
-        validation_alias=AliasChoices(
-            "ATTACHMENTS_PUBLIC_BASE_URL",
-            "attachments_public_base_url",
-        ),
-    )
-
     # Deepgram (optional, only needed if using browser STT)
     deepgram_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("DEEPGRAM_API_KEY")

@@ -12,7 +12,6 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import UploadFile
-from starlette.datastructures import URL
 from starlette.requests import Request
 
 from ..repository import AttachmentRecord, ChatRepository
@@ -66,13 +65,11 @@ class AttachmentService:
         *,
         max_size_bytes: int,
         retention_days: int,
-        public_base_url: str | None = None,
     ) -> None:
         self._repo = repository
         self._base_dir = base_dir
         self._max_size_bytes = max_size_bytes
         self._retention = timedelta(days=retention_days)
-        self._public_base_url = public_base_url.rstrip("/") if public_base_url else None
         self._base_dir.mkdir(parents=True, exist_ok=True)
 
     async def save_upload(
@@ -123,7 +120,7 @@ class AttachmentService:
         original_url = str(
             request.url_for("download_attachment", attachment_id=attachment_id)
         )
-        delivery_url = self._apply_public_base(original_url)
+        delivery_url = original_url
         now = datetime.now(timezone.utc)
         expires_at = (
             now + self._retention if self._retention.total_seconds() > 0 else None
@@ -154,18 +151,6 @@ class AttachmentService:
             session_id,
         )
         return record
-
-    def _apply_public_base(self, url: str) -> str:
-        if not self._public_base_url:
-            return url
-
-        parsed = URL(url)
-        external = f"{self._public_base_url}{parsed.path}"
-        if parsed.query:
-            external = (
-                f"{external}?{parsed.query}"  # pragma: no cover - future proofing
-            )
-        return external
 
     async def resolve(self, attachment_id: str) -> StoredAttachment:
         """Return metadata and filesystem path for an attachment."""

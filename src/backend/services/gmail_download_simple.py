@@ -9,6 +9,7 @@ import base64
 import mimetypes
 import re
 from email.message import Message
+from email.utils import collapse_rfc2231_value
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 from urllib.parse import unquote as _url_unquote
@@ -34,8 +35,19 @@ def _decode_rfc5987(value: str) -> str:
     return value
 
 
+def _coerce_param_value(value: Any) -> str:
+    if isinstance(value, tuple):
+        try:
+            return collapse_rfc2231_value(value)
+        except (LookupError, TypeError, ValueError):
+            parts = [str(part) for part in value if part]
+            return "".join(parts)
+    return str(value)
+
+
 def _collect_segments(
-    params: Iterable[tuple[str, str]],
+    params: Iterable[tuple[str, Any]],
+    raw_header: str,
 ) -> Optional[str]:
     segments: Dict[int, str] = {}
     for key, val in params:
@@ -43,16 +55,38 @@ def _collect_segments(
         if base.lower() not in {"filename", "name"}:
             continue
         suffix = suffix_parts[0] if suffix_parts else ""
-        cleaned = str(val).strip('"')
+        cleaned = _coerce_param_value(val).strip('"')
         if suffix:
             suffix = suffix.rstrip("*")
             if suffix.isdigit():
                 segments[int(suffix)] = cleaned
                 continue
         if cleaned:
+            if re.search(r"(?:filename|name)\*\d+\*?=", cleaned, re.IGNORECASE):
+                continue
             return cleaned
     if segments:
         combined = "".join(segments[idx] for idx in sorted(segments))
+        return combined or None
+    # Fallback: scan the raw header for RFC 2231 style continuations even when
+    # parameters are not separated cleanly (common in Gmail payloads).
+    continuation_pattern = re.compile(
+        r"((?:filename|name)\*(\d+)\*?)=([^;]+?)(?=(?:\s*(?:filename|name)\*\d+\*?=)|$)",
+        re.IGNORECASE,
+    )
+    fallback_segments: Dict[int, str] = {}
+    for match in continuation_pattern.finditer(raw_header):
+        idx = match.group(2)
+        try:
+            index = int(idx)
+        except ValueError:
+            continue
+        cleaned = match.group(3).strip().strip('"')
+        fallback_segments[index] = cleaned
+    if fallback_segments:
+        combined = "".join(
+            fallback_segments[index] for index in sorted(fallback_segments)
+        )
         return combined or None
     return None
 
@@ -68,7 +102,7 @@ def _extract_filename_from_headers(headers: Iterable[Dict[str, Any]] | None) -> 
         msg = Message()
         msg[name] = value
         params = msg.get_params(header=name, failobj=[])
-        candidate = _collect_segments(params)
+        candidate = _collect_segments(params, value)
         if candidate:
             candidate = _decode_rfc5987(candidate)
             if candidate:

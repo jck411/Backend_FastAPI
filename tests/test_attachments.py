@@ -53,6 +53,7 @@ async def test_attachment_service_accepts_pdf(tmp_path: Path) -> None:
     call_kwargs = repository.add_attachment.call_args.kwargs
     assert call_kwargs["mime_type"] == "application/pdf"
     assert call_kwargs["size_bytes"] == len(b"%PDF-1.4 sample content")
+    assert call_kwargs["delivery_url"] == call_kwargs["display_url"]
 
     stored_relative = Path(call_kwargs["storage_path"])
     assert stored_relative.as_posix().startswith("session1/")

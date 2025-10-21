@@ -93,6 +93,7 @@ class ChatOrchestrator:
     async def shutdown(self) -> None:
         """Clean up held resources."""
 
+        await self._client.aclose()
         await self._mcp_client.close()
         await self._repo.close()
         self._ready.clear()

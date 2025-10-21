@@ -290,7 +290,7 @@ class StreamingHandler:
             if assistant_client_message_id is not None:
                 metadata.setdefault("client_message_id", assistant_client_message_id)
 
-            assistant_record_id, assistant_created_at = await self._repo.add_message(
+            assistant_result = await self._repo.add_message(
                 session_id,
                 role="assistant",
                 content=assistant_turn.content,
@@ -298,6 +298,11 @@ class StreamingHandler:
                 client_message_id=assistant_client_message_id,
                 parent_client_message_id=assistant_parent_message_id,
             )
+            if isinstance(assistant_result, tuple):
+                assistant_record_id, assistant_created_at = assistant_result
+            else:
+                assistant_record_id = int(assistant_result)
+                assistant_created_at = None
             edt_iso, utc_iso = format_timestamp_for_client(assistant_created_at)
             assistant_turn.created_at = edt_iso or assistant_created_at
             assistant_turn.created_at_utc = utc_iso or assistant_created_at
@@ -355,7 +360,7 @@ class StreamingHandler:
                         "Tool call missing function name; skipping execution."
                     )
                     logger.warning(warning_text)
-                    tool_record_id, tool_created_at = await self._repo.add_message(
+                    tool_result = await self._repo.add_message(
                         session_id,
                         role="tool",
                         content=warning_text,
@@ -366,6 +371,11 @@ class StreamingHandler:
                         },
                         parent_client_message_id=assistant_client_message_id,
                     )
+                    if isinstance(tool_result, tuple):
+                        tool_record_id, tool_created_at = tool_result
+                    else:
+                        tool_record_id = int(tool_result)
+                        tool_created_at = None
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": tool_id,

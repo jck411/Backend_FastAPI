@@ -1,62 +1,61 @@
 # OpenRouter Chat Backend
 
-FastAPI backend that proxies streaming chat completions from OpenRouter and exposes a Model Context Protocol (MCP) server. All chat responses are streamed over Server-Sent Events (SSE), making it simple to drive a reactive frontend.
+FastAPI backend that proxies streaming chat completions from OpenRouter and keeps
+Model Context Protocol (MCP) tools online for the chat UI. Responses are streamed
+over Server-Sent Events (SSE) so any client can render tokens as they arrive.
 
-## Prerequisites
+## Highlights
+
+- **OpenRouter-first streaming** with HTTP keep-alive so replies start quickly.
+- **Persisted chat history** with attachment support and retention controls.
+- **MCP tool aggregation** for Google Calendar, Gmail, Drive, PDF extraction, and
+  custom local utilities.
+- **Browser speech-to-text** helpers that mint short-lived Deepgram tokens.
+
+## Requirements
 
 - Python 3.13+
 - [`uv`](https://github.com/astral-sh/uv) for dependency and task management
-- Local `.env` file (copy from `.env.example` and fill in secrets)
+- Local `.env` file (copy from `.env.example` and fill in at least
+  `OPENROUTER_API_KEY`)
+- Google OAuth client credentials stored under `credentials/`
 
-## Environment configuration
-
-1. Duplicate `.env.example` to `.env` and populate the required keys (at minimum `OPENROUTER_API_KEY`).
-2. In the Google Cloud Console create an **OAuth client ID** of type **Web application**.
-   - Authorized redirect URI must include `http://localhost:8000/api/google-auth/callback`.
-   - Add whichever test users should be allowed to authenticate on the OAuth consent screen.
-   - Download the JSON and drop it into the `credentials/` folder (gitignored).
-3. Tokens saved during the flow will appear under `data/tokens/` (also gitignored).
-
-## Install dependencies
+## Setup
 
 ```bash
 uv sync
 ```
 
-`uv` will create and reuse a virtual environment under `.venv`.
+`uv` will reuse a virtual environment under `.venv/` inside the project root.
 
-## Run the FastAPI server
+## Running the API
 
-Recommended (reload, dev):
+During development you will usually want reload enabled:
 
 ```bash
 uv run uvicorn backend.app:app --reload --app-dir src
 ```
 
-Alternate (without reload):
+Alternative entrypoints:
 
 ```bash
 uv run python -m uvicorn backend.app:app --app-dir src
+uv run fastapi dev backend.app:app --app-dir src  # requires fastapi[standard]
+uv run backend  # CLI wrapper that calls uvicorn with sensible defaults
 ```
 
-If you prefer the FastAPI CLI, ensure `fastapi[standard]` is installed (included in this project) and run:
+The service exposes a lightweight HTTP surface:
 
-```bash
-uv run fastapi dev backend.app:app --app-dir src
-```
-
-You can also use the CLI entrypoint:
-
-```bash
-uv run backend
-```
-
-The service exposes a clean API surface that any client (web, desktop, mobile) can consume:
-
-- `GET /health` — quick readiness probe that also reports the configured default model.
-- `POST /api/chat/stream` — accepts an OpenRouter-compatible chat body and streams completions via SSE.
-- `GET /api/models` — returns the upstream OpenRouter model catalog so the frontend can offer a picker.
-- `POST /api/stt/deepgram/token` — optional helper to mint short-lived Deepgram access tokens without exposing API keys to clients.
+| Method & Path | Description |
+|---------------|-------------|
+| `GET /health` | Readiness probe with default/active model hints |
+| `POST /api/chat/stream` | Stream OpenRouter chat completions via SSE |
+| `DELETE /api/chat/session/{id}` | Clear server-side conversation state |
+| `GET /api/models` | Return the OpenRouter catalog (filterable) |
+| `POST /api/stt/deepgram/token` | Mint short-lived Deepgram keys for browser STT |
+| `POST /api/uploads` | Store attachments for reuse in later turns |
+| `GET /api/mcp/servers` | Inspect configured MCP servers and their status |
+| `GET /api/presets/` | Manage presets built from current backend state |
 
 ### Streaming example
 
@@ -71,9 +70,17 @@ curl -N \
   http://localhost:8000/api/chat/stream
 ```
 
-## Frontend (Svelte)
+### Attachments
 
-A Svelte + TypeScript client lives in `frontend/`. It proxies `/api/*` calls to the FastAPI backend during development and ships with a model explorer for filtering OpenRouter models.
+Uploads live under `data/uploads/<session_id>/`. The
+`AttachmentService` stores metadata in the SQLite chat database and always serves
+local delivery URLs—no ngrok or external tunnelling required. Retention and size
+limits can be tuned with `ATTACHMENTS_*` environment variables.
+
+## Frontend companion app
+
+A Svelte + TypeScript client lives in `frontend/`. It proxies `/api/*` requests
+to the FastAPI backend while developing:
 
 ```bash
 cd frontend
@@ -81,81 +88,14 @@ npm install
 npm run dev
 ```
 
-Set `VITE_API_BASE_URL` in `frontend/.env` if you need to target a remote backend instead of the local proxy.
+Set `VITE_API_BASE_URL` in `frontend/.env` if you need to target a remote
+backend.
 
 ## Documentation
 
-- Models, Active Settings, and Presets: [docs/MODELS_AND_PRESETS.md](docs/MODELS_AND_PRESETS.md)
-
-## MCP server aggregation
-
-The chat orchestrator can launch multiple MCP servers and expose their tools via OpenRouter. Server definitions live in `data/mcp_servers.json` and can be enabled or disabled without code changes.
-
-```json
-{
-  "servers": [
-    {
-      "id": "local-calculator",
-      "module": "backend.mcp_servers.calculator_server"
-    },
-    {
-      "id": "custom-calendar",
-      "module": "backend.mcp_servers.calendar_server",
-      "enabled": true
-    },
-    {
-      "id": "housekeeping",
-      "module": "backend.mcp_servers.housekeeping_server",
-      "enabled": false
-    }
-  ]
-}
-```
-
-Each entry must supply either a Python module (`module`) launched with `python -m`, or an explicit `command` array. Set `enabled` to `false` to keep a definition available without starting it. When multiple servers expose tools with the same name, the orchestrator automatically prefixes them with the server id to keep them unique.
-
-The built-in `housekeeping` server exposes foundational tools (`test_echo`, `current_time`, and `chat_history`) that are useful for quick diagnostics and retrieving timestamped conversation history. Toggle `enabled` to `true` in `data/mcp_servers.json` to include it alongside the calculator or third-party MCP servers.
-
-## Run the MCP server
-
-The MCP server exposes a `chat.completions` tool that mirrors the OpenRouter request schema and returns the final assistant message (including any streamed tool call arguments).
-
-```bash
-uv run python -m backend.mcp_servers.calculator_server
-```
-
-Note: This repo uses a `src/` layout. When using uvicorn or the FastAPI CLI, pass `--app-dir src`. If you run Python directly, ensure `PYTHONPATH` includes `src` (uv/pytest already do):
-
-```bash
-PYTHONPATH=src uv run python -c "import backend, sys; print('ok')"
-```
-
-Factory-style alternative (optional):
-
-```bash
-uv run uvicorn backend.app:create_app --reload --factory --app-dir src
-```
-
-### Google Calendar MCP tools
-
-The `custom-calendar` server exposes calendar-centric tools without requiring the full Google Workspace MCP package:
-
-- `calendar_generate_auth_url` — build a consent URL (set `force=true` to re-consent).
-- `calendar_auth_status` — check whether a user has valid stored credentials.
-- `calendar_list_calendars` — enumerate accessible calendars with IDs and roles.
-- `calendar_get_events`, `calendar_create_event`, `calendar_update_event`, `calendar_delete_event` — wrappers over Google Calendar API operations.
-
-To authorize a new user:
-
-1. Start the backend (`uv run uvicorn backend.app:app --reload --app-dir src`).
-2. Call the tool via the chat UI or run the helper script:
-
-   ```bash
-   uv run python authorize_calendar.py
-   ```
-
-3. Google may warn that the app is unverified; choose **Advanced → Continue** for accounts listed under Test users.
-4. After consent completes, `data/tokens/<user>.json` is created and `calendar_auth_status` will report the expiry time.
+Additional implementation notes (model settings, MCP orchestration, speech
+settings, attachment tooling, and data layout) live in
+[`docs/REFERENCE.md`](docs/REFERENCE.md).
 
 ## Testing
 
@@ -163,4 +103,5 @@ To authorize a new user:
 uv run pytest
 ```
 
-The test suite covers the SSE parser and MCP tool-call aggregation helpers.
+The test suite currently covers attachment storage helpers, SSE parsing, and MCP
+aggregation utilities.

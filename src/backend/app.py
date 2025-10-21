@@ -106,11 +106,6 @@ def create_app() -> FastAPI:
         attachments_dir,
         max_size_bytes=settings.attachments_max_size_bytes,
         retention_days=settings.attachments_retention_days,
-        public_base_url=(
-            str(settings.attachments_public_base_url)
-            if settings.attachments_public_base_url
-            else None
-        ),
     )
 
     @asynccontextmanager

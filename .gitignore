@@ -30,7 +30,6 @@ dist/
 # Env & local config
 .env
 .env.*
-!.env.example
 
 # Database files
 *.db

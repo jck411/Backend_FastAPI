@@ -49,21 +49,23 @@ Use it as a quick refresher on how the major subsystems hang together.
 
 ## Attachments and Gmail tooling
 
-- **Service**: `backend.services.attachments.AttachmentService` manages uploads
-  under `data/uploads/` and records metadata in the chat database.
-- **Environment knobs**: `ATTACHMENTS_DIR`, `ATTACHMENTS_MAX_SIZE_BYTES`,
-  `ATTACHMENTS_RETENTION_DAYS`.
-- **Routes**: `POST /api/uploads`, `GET /api/uploads/{attachment_id}`,
-  `DELETE /api/uploads/{attachment_id}`.
+- **Service**: `backend.services.attachments.AttachmentService` uploads bytes to
+  private Google Cloud Storage, records metadata in SQLite, and keeps signed
+  URLs fresh when messages are serialized.
+- **Environment knobs**: `ATTACHMENTS_MAX_SIZE_BYTES`,
+  `ATTACHMENTS_RETENTION_DAYS`, and optional `LEGACY_ATTACHMENTS_DIR` for MCP
+  servers that still stage local files while developing.
+- **Routes**: `POST /api/uploads` (create + return signed URL), legacy
+  download routes now respond with `410 Gone`.
 - **Behaviour**:
-  - The same storage path backs Gmail downloads and manual uploads. Delivery
-    URLs remain local (no ngrok or external tunnelling) so `display_url` and
-    `delivery_url` always match.
-  - Gmail helpers inside `backend.mcp_servers.gmail_server` can either stream
-    attachment text directly (`read_gmail_attachment_text`) or save files for
-    later extraction (`download_gmail_attachment`).
-  - Attachments are associated with chat sessions; touching a message marks the
-    referenced files as recently used so retention policies work as expected.
+  - Gmail helpers inside `backend.mcp_servers.gmail_server` persist downloads to
+    GCS through the shared attachment service and return signed URLs to the
+    caller.
+  - Attachment records are associated with chat sessions; touching a message
+    marks referenced files as recently used so retention policies work as
+    expected.
+  - A background job periodically reaps expired records and deletes the
+    associated blobs from GCS.
 
 ## Speech-to-text auto submit
 
@@ -88,7 +90,7 @@ Use it as a quick refresher on how the major subsystems hang together.
 | `data/model_settings.json` | Active model configuration                           |
 | `data/presets.json`      | Saved preset snapshots                                |
 | `data/mcp_servers.json`  | Persisted MCP server definitions                      |
-| `data/uploads/`          | Attachment binaries grouped by session                |
+| `data/uploads/`          | (Legacy) MCP staging area for on-disk experiments     |
 | `data/tokens/`           | OAuth tokens minted during Google flows               |
 
 Keep these directories under version control only when you need deterministic

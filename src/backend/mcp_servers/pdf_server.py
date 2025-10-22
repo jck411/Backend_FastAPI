@@ -65,7 +65,7 @@ def _resolve_under(base: Path, p: Path) -> Path:
 
 def _resolve_attachments_dir() -> Path:
     settings = get_settings()
-    return _resolve_under(_project_root(), settings.attachments_dir)
+    return _resolve_under(_project_root(), settings.legacy_attachments_dir)
 
 
 def _resolve_chat_db_path() -> Path:

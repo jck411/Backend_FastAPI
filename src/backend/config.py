@@ -1,5 +1,6 @@
 """Application configuration using environment variables."""
 
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -96,10 +97,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("CHAT_DATABASE_PATH", "chat_db"),
     )
 
-    attachments_dir: Path = Field(
-        default_factory=lambda: Path("data/uploads"),
-        validation_alias=AliasChoices("ATTACHMENTS_DIR", "attachments_dir"),
-    )
     attachments_max_size_bytes: int = Field(
         default=10 * 1024 * 1024,
         ge=1,
@@ -116,6 +113,29 @@ class Settings(BaseSettings):
             "attachments_retention_days",
         ),
     )
+    legacy_attachments_dir: Path = Field(
+        default_factory=lambda: Path("data/uploads"),
+        validation_alias=AliasChoices("LEGACY_ATTACHMENTS_DIR"),
+    )
+    gcs_bucket_name: str = Field(
+        default="openrouter-chat",
+        validation_alias=AliasChoices("GCS_BUCKET_NAME", "gcs_bucket_name"),
+    )
+    gcp_project_id: str = Field(
+        default="pihome123",
+        validation_alias=AliasChoices("GCP_PROJECT_ID", "gcp_project_id"),
+    )
+    google_application_credentials: Path = Field(
+        default_factory=lambda: Path("credentials/googlecloud/sa.json"),
+        validation_alias=AliasChoices(
+            "GOOGLE_APPLICATION_CREDENTIALS",
+            "google_application_credentials",
+        ),
+    )
+
+    @property
+    def attachment_signed_url_ttl(self) -> timedelta:
+        return timedelta(days=self.attachments_retention_days)
     # Deepgram (optional, only needed if using browser STT)
     deepgram_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("DEEPGRAM_API_KEY")

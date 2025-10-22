@@ -14,6 +14,7 @@ from ..config import Settings
 from ..openrouter import OpenRouterClient
 from ..repository import ChatRepository
 from ..schemas.chat import ChatCompletionRequest
+from ..services.attachment_urls import refresh_message_attachments
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
@@ -204,6 +205,11 @@ class ChatOrchestrator:
                 await self._repo.mark_attachments_used(session_id, attachment_ids)
 
         conversation = await self._repo.get_messages(session_id)
+        conversation = await refresh_message_attachments(
+            conversation,
+            self._repo,
+            ttl=self._settings.attachment_signed_url_ttl,
+        )
         tools_payload = self._mcp_client.get_openai_tools()
 
         if not existing:

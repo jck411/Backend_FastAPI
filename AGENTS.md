@@ -28,14 +28,28 @@
 - Tests via `pytest` + `pytest-asyncio`
 - Manage dependencies with `uv`; sync via `uv sync`
 
+## Environment Setup
+
+- Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if it's not already available
+- Create the local environment and install deps via `uv sync`
+- Copy any secret material into `.env` (never commit it) and keep Google OAuth JSON files under `credentials/`
+- For MCP extras you can add additional servers under `src/backend/mcp_servers/`
+
 ## Security & Performance
 
-- No secrets in code (use `.env`)-
-- feel free to edit the .env
+- No secrets in code (use `.env`)
+- Feel free to edit the `.env` locally but keep it out of git
 - Enforce upload limits and safe paths
 - Stream with SSE and reuse HTTP clients
 
 ## Quick Start
 
+- `uv sync`
 - `uv run uvicorn backend.app:create_app --factory --reload`
 - `cd frontend && npm run dev`
+
+## Testing
+
+- Always run tests through uv: `uv run pytest`
+- If pytest fails with missing FastAPI/Pydantic/MCP packages, rerun `uv sync` to hydrate the virtualenv
+- Tests touch SQLite files in `data/`; they clean up automatically but keep an eye on local changes

@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -60,6 +59,8 @@ async def test_string_content_preserved(repository):
 
 @pytest.mark.anyio
 async def test_attachment_roundtrip(repository):
+    expiry = datetime.now(timezone.utc) + timedelta(days=1)
+
     record = await repository.add_attachment(
         attachment_id="att-1",
         session_id="session-1",
@@ -69,7 +70,10 @@ async def test_attachment_roundtrip(repository):
         display_url="https://example.com/uploads/att-1",
         delivery_url="https://example.com/uploads/att-1",
         metadata={"filename": "image.png"},
-        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        expires_at=expiry,
+        gcs_blob="session-1/att-1__image.png",
+        signed_url="https://example.com/uploads/att-1",
+        signed_url_expires_at=expiry,
     )
 
     fetched = await repository.get_attachment("att-1")
@@ -79,6 +83,8 @@ async def test_attachment_roundtrip(repository):
     assert fetched["session_id"] == "session-1"
     assert fetched["mime_type"] == "image/png"
     assert fetched["size_bytes"] == 128
+    assert fetched["signed_url"] == "https://example.com/uploads/att-1"
+    assert fetched["gcs_blob"] == "session-1/att-1__image.png"
     assert fetched["metadata"]["filename"] == "image.png"
 
     # Add a small delay to ensure timestamp difference

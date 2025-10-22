@@ -13,6 +13,7 @@ from mcp.server.fastmcp import FastMCP
 
 from backend.config import get_settings
 from backend.repository import ChatRepository
+from backend.services.attachment_urls import refresh_message_attachments
 from backend.services.time_context import (
     EASTERN_TIMEZONE_NAME,
     build_context_lines,
@@ -161,6 +162,12 @@ async def chat_history(
     try:
         repository = await _get_repository()
         messages = await repository.get_messages(session_id)
+        settings = get_settings()
+        messages = await refresh_message_attachments(
+            messages,
+            repository,
+            ttl=settings.attachment_signed_url_ttl,
+        )
     except Exception as exc:  # pragma: no cover - defensive
         return {
             "error": f"Failed to load messages for session '{session_id}'.",

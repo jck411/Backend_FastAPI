@@ -207,11 +207,10 @@ def find_attachment_part_by_any_id(payload: Dict[str, Any], identifier: Optional
     return None
 
 
-async def download_gmail_attachment(
+async def fetch_gmail_attachment_data(
     service: Any,
     message_id: str,
     attachment_id: str,
-    save_dir: str | Path,
 ) -> Dict[str, Any]:
     message = await asyncio.to_thread(
         service.users()
@@ -270,6 +269,25 @@ async def download_gmail_attachment(
         guessed = mimetypes.guess_extension(mime_type) or ".bin"
         filename = f"{filename}{guessed}"
 
+    return {
+        "filename": Path(filename).name or "attachment.bin",
+        "mime_type": mime_type,
+        "content_bytes": content_bytes,
+        "size_bytes": len(content_bytes),
+    }
+
+
+async def download_gmail_attachment(
+    service: Any,
+    message_id: str,
+    attachment_id: str,
+    save_dir: str | Path,
+) -> Dict[str, Any]:
+    data = await fetch_gmail_attachment_data(service, message_id, attachment_id)
+    filename = data["filename"]
+    mime_type = data["mime_type"]
+    content_bytes = data["content_bytes"]
+
     base_dir = Path(save_dir).expanduser().resolve()
     base_dir.mkdir(parents=True, exist_ok=True)
 
@@ -294,6 +312,7 @@ async def download_gmail_attachment(
 
 __all__ = [
     "download_gmail_attachment",
+    "fetch_gmail_attachment_data",
     "extract_filename_from_part",
     "find_attachment_part",
 ]

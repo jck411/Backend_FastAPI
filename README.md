@@ -72,10 +72,12 @@ curl -N \
 
 ### Attachments
 
-Uploads live under `data/uploads/<session_id>/`. The
-`AttachmentService` stores metadata in the SQLite chat database and always serves
-local delivery URLs—no ngrok or external tunnelling required. Retention and size
-limits can be tuned with `ATTACHMENTS_*` environment variables.
+Uploads are persisted to private Google Cloud Storage. The `AttachmentService`
+stores metadata in SQLite, returns signed delivery URLs on write, and refreshes
+expired links when chat history is read. Size and retention are controlled via
+`ATTACHMENTS_MAX_SIZE_BYTES` and `ATTACHMENTS_RETENTION_DAYS`. A legacy
+`LEGACY_ATTACHMENTS_DIR` knob remains for MCP servers that still stage files on
+disk during development.
 
 ## Frontend companion app
 

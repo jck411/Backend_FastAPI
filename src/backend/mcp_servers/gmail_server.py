@@ -28,14 +28,20 @@ else:  # Runtime import
     from mcp.server.fastmcp import FastMCP
 
 from backend.config import get_settings
+from backend.repository import ChatRepository
+from backend.services.attachments import (
+    AttachmentError,
+    AttachmentService,
+    AttachmentTooLarge,
+)
 from backend.services.google_auth.auth import (
     authorize_user,
     get_credentials,
     get_gmail_service,
 )
 from backend.services.gmail_download_simple import (
-    download_gmail_attachment as simple_download_attachment,
     extract_filename_from_part,
+    fetch_gmail_attachment_data,
     find_attachment_part,
 )
 
@@ -59,6 +65,45 @@ def _resolve_under(base: Path, p: Path) -> Path:
     if not resolved.is_relative_to(base):
         raise ValueError(f"Configured path {resolved} escapes project root {base}")
     return resolved
+
+
+def _resolve_chat_db_path() -> Path:
+    settings = get_settings()
+    return _resolve_under(_project_root(), settings.chat_database_path)
+
+
+_repository: ChatRepository | None = None
+_repository_lock = asyncio.Lock()
+_attachment_service: AttachmentService | None = None
+_attachment_service_lock = asyncio.Lock()
+
+
+async def _get_repository() -> ChatRepository:
+    global _repository
+    if _repository is not None:
+        return _repository
+    async with _repository_lock:
+        if _repository is None:
+            repo = ChatRepository(_resolve_chat_db_path())
+            await repo.initialize()
+            _repository = repo
+    return _repository
+
+
+async def _get_attachment_service() -> AttachmentService:
+    global _attachment_service
+    if _attachment_service is not None:
+        return _attachment_service
+    async with _attachment_service_lock:
+        if _attachment_service is None:
+            settings = get_settings()
+            repository = await _get_repository()
+            _attachment_service = AttachmentService(
+                repository,
+                max_size_bytes=settings.attachments_max_size_bytes,
+                retention_days=settings.attachments_retention_days,
+            )
+    return _attachment_service
 
 
 def _resolve_redirect_uri(redirect_uri: Optional[str]) -> str:
@@ -218,11 +263,6 @@ def _prepare_gmail_message(
 
 def _generate_gmail_web_url(item_id: str, account_index: int = 0) -> str:
     return f"https://mail.google.com/mail/u/{account_index}/#all/{item_id}"
-
-
-def _resolve_attachments_dir() -> Path:
-    settings = get_settings()
-    return _resolve_under(_project_root(), settings.attachments_dir)
 
 
 def _format_thread_content(thread_data: Dict, thread_id: str) -> str:
@@ -563,20 +603,38 @@ async def download_gmail_attachment(
         return f"Error creating Gmail service: {exc}"
 
     try:
-        storage_dir = _resolve_attachments_dir()
-        info = await simple_download_attachment(
-            service, message_id, attachment_id, storage_dir
-        )
+        data = await fetch_gmail_attachment_data(service, message_id, attachment_id)
     except Exception as exc:
         return f"Failed to download attachment: {exc}"
 
+    try:
+        attachment_service = await _get_attachment_service()
+        record = await attachment_service.save_bytes(
+            session_id=session_id,
+            data=data["content_bytes"],
+            mime_type=data["mime_type"],
+            filename_hint=data["filename"],
+        )
+    except AttachmentTooLarge as exc:
+        return f"Attachment rejected: {exc}"
+    except AttachmentError as exc:
+        return f"Failed to store attachment: {exc}"
+
+    metadata = record.get("metadata") or {}
+    filename = metadata.get("filename") or data["filename"]
+    signed_url = record.get("signed_url") or record.get("display_url")
+    expires_at = record.get("expires_at") or record.get("signed_url_expires_at")
+
     lines = [
-        "Attachment saved!",
-        f"Filename: {info.get('filename')}",
-        f"MIME: {info.get('mime_type')}",
-        f"Size: {info.get('size_bytes')} bytes",
-        f"Saved To: {info.get('absolute_path')}",
+        "Attachment stored in chat history!",
+        f"Attachment ID: {record.get('attachment_id')}",
+        f"Filename: {filename}",
+        f"MIME: {record.get('mime_type')}",
+        f"Size: {record.get('size_bytes')} bytes",
+        f"Signed URL: {signed_url}",
     ]
+    if expires_at:
+        lines.append(f"Expires At: {expires_at}")
     return "\n".join(lines)
 
 
@@ -707,24 +765,18 @@ async def read_gmail_attachment_text(
         selected_attachment_id = str(top.get("attachmentId"))
         selected_mime = top.get("mimeType")
 
-    # Download and register
     try:
-        storage_dir = _resolve_attachments_dir()
-        info = await simple_download_attachment(
-            service, message_id, str(selected_attachment_id), storage_dir
+        data = await fetch_gmail_attachment_data(
+            service, message_id, str(selected_attachment_id)
         )
     except Exception as exc:
         return f"Failed to download attachment: {exc}"
 
-    filename = info["filename"]
-    mime_type = (info.get("mime_type") or selected_mime or "application/octet-stream").lower()
-
-    # Read bytes and extract via kreuzberg, no URLs involved
-    try:
-        abs_path = Path(info["absolute_path"]).resolve()
-        content_bytes = await asyncio.to_thread(abs_path.read_bytes)
-    except Exception as exc:
-        return f"Failed to read saved attachment: {exc}"
+    filename = data["filename"]
+    mime_type = (
+        data.get("mime_type") or selected_mime or "application/octet-stream"
+    ).lower()
+    content_bytes = data["content_bytes"]
 
     if kreuzberg_server is None:
         return (

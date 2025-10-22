@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -21,6 +21,7 @@ from .routers.settings import router as settings_router
 from .routers.stt import router as stt_router
 from .routers.uploads import router as uploads_router
 from .services.attachments import AttachmentService
+from .services.attachments_cleanup import cleanup_expired_attachments
 from .services.mcp_server_settings import MCPServerSettingsService
 from .services.model_settings import ModelSettingsService
 from .services.presets import PresetService
@@ -101,21 +102,45 @@ def create_app() -> FastAPI:
         mcp_settings_service,
     )
 
-    attachments_dir = _resolve_under(project_root, settings.attachments_dir)
-
     attachment_service = AttachmentService(
         orchestrator.repository,
-        attachments_dir,
         max_size_bytes=settings.attachments_max_size_bytes,
         retention_days=settings.attachments_retention_days,
     )
 
+    cleanup_interval_hours = max(1, min(24, settings.attachments_retention_days or 1))
+    cleanup_interval_seconds = cleanup_interval_hours * 3600
+    cleanup_task: asyncio.Task | None = None
+
+    async def _attachment_cleanup_loop() -> None:
+        while True:
+            try:
+                await cleanup_expired_attachments(orchestrator.repository)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logging.warning("Attachment cleanup run failed: %s", exc)
+            try:
+                await asyncio.sleep(cleanup_interval_seconds)
+            except asyncio.CancelledError:
+                raise
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        nonlocal cleanup_task
         await orchestrator.initialize()
+        try:
+            await cleanup_expired_attachments(orchestrator.repository)
+        except Exception as exc:
+            logging.warning("Initial attachment cleanup failed: %s", exc)
+        cleanup_task = asyncio.create_task(_attachment_cleanup_loop())
         try:
             yield
         finally:
+            if cleanup_task is not None:
+                cleanup_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await cleanup_task
             # Add timeout to prevent hanging during shutdown (especially in tests)
             try:
                 await asyncio.wait_for(orchestrator.shutdown(), timeout=10.0)

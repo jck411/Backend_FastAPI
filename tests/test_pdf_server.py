@@ -110,6 +110,9 @@ async def test_list_and_search_upload_paths(tmp_path, monkeypatch):
         delivery_url="http://localhost:8000/api/uploads/abc123/content",
         metadata={"filename": "Original Name.pdf"},
         expires_at=now,
+        gcs_blob="a/abc123__doc1.pdf",
+        signed_url="http://localhost:8000/api/uploads/abc123/content",
+        signed_url_expires_at=now,
     )
 
     enriched = await pdf_server.list_upload_paths()
@@ -134,6 +137,9 @@ async def test_list_and_search_upload_paths(tmp_path, monkeypatch):
         delivery_url=f"http://localhost:8000/api/uploads/{slug_id}/content",
         metadata={"filename": "Receipt.pdf"},
         expires_at=now,
+        gcs_blob=f"a/{slug_id}__{slug_file.name.split('__',1)[1]}",
+        signed_url=f"http://localhost:8000/api/uploads/{slug_id}/content",
+        signed_url_expires_at=now,
     )
 
     enriched = await pdf_server.list_upload_paths()

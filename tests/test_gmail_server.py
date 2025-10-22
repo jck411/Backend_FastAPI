@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -14,6 +14,60 @@ from backend.mcp_servers.gmail_server import (
     generate_auth_url,
     search_gmail_messages,
 )
+
+
+@pytest.mark.asyncio
+async def test_download_attachment_stores_via_service(monkeypatch):
+    service_stub = MagicMock()
+    monkeypatch.setattr(
+        gmail_module,
+        "get_gmail_service",
+        lambda user_email: service_stub,
+    )
+
+    data = {
+        "filename": "sample.txt",
+        "mime_type": "text/plain",
+        "content_bytes": b"hello",
+        "size_bytes": 5,
+    }
+    monkeypatch.setattr(
+        gmail_module,
+        "fetch_gmail_attachment_data",
+        AsyncMock(return_value=data),
+    )
+
+    record = {
+        "attachment_id": "att-1",
+        "mime_type": "text/plain",
+        "size_bytes": 5,
+        "signed_url": "https://signed",
+        "metadata": {"filename": "sample.txt"},
+        "expires_at": "2024-01-01T00:00:00Z",
+    }
+    attachment_service = MagicMock()
+    attachment_service.save_bytes = AsyncMock(return_value=record)
+    monkeypatch.setattr(
+        gmail_module,
+        "_get_attachment_service",
+        AsyncMock(return_value=attachment_service),
+    )
+
+    result = await gmail_module.download_gmail_attachment(
+        message_id="msg-1",
+        attachment_id="att-1",
+        session_id="session-1",
+        user_email="user@example.com",
+    )
+
+    attachment_service.save_bytes.assert_awaited_once_with(
+        session_id="session-1",
+        data=b"hello",
+        mime_type="text/plain",
+        filename_hint="sample.txt",
+    )
+    assert "Attachment stored" in result
+    assert "Signed URL" in result
 
 
 @pytest.mark.asyncio

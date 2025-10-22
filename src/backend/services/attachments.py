@@ -3,19 +3,15 @@
 from __future__ import annotations
 
 import logging
-import mimetypes
-import os
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 from fastapi import UploadFile
-from starlette.requests import Request
 
 from ..repository import AttachmentRecord, ChatRepository
-from ..utils import build_storage_name
+from .attachments_naming import make_blob_name
+from .gcs import delete_blob, sign_get_url, upload_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -44,15 +40,7 @@ class AttachmentTooLarge(AttachmentError):
 
 
 class AttachmentNotFound(AttachmentError):
-    """Raised when an attachment record or file cannot be located."""
-
-
-@dataclass(slots=True)
-class StoredAttachment:
-    """Metadata describing a stored attachment."""
-
-    record: AttachmentRecord
-    path: Path
+    """Raised when an attachment record cannot be located."""
 
 
 class AttachmentService:
@@ -61,117 +49,96 @@ class AttachmentService:
     def __init__(
         self,
         repository: ChatRepository,
-        base_dir: Path,
         *,
         max_size_bytes: int,
         retention_days: int,
     ) -> None:
         self._repo = repository
-        self._base_dir = base_dir
         self._max_size_bytes = max_size_bytes
         self._retention = timedelta(days=retention_days)
-        self._base_dir.mkdir(parents=True, exist_ok=True)
 
-    async def save_upload(
+    async def save_user_upload(
         self,
         *,
         session_id: str,
         upload: UploadFile,
-        request: Request,
     ) -> AttachmentRecord:
         """Validate, persist, and register an uploaded attachment."""
 
         if not session_id:
             raise AttachmentError("session_id is required")
 
-        mime_type = (upload.content_type or "").lower()
+        mime_type = (upload.content_type or "application/octet-stream").lower()
         if mime_type not in ALLOWED_ATTACHMENT_MIME_TYPES:
             raise UnsupportedAttachmentType(mime_type or "unknown")
 
-        extension = self._pick_extension(upload.filename, mime_type)
-        attachment_id = uuid4().hex
-        relative_dir = Path(session_id)
-        stored_name = build_storage_name(attachment_id, extension, upload.filename)
-        relative_path = relative_dir / stored_name
-        absolute_path = (self._base_dir / relative_path).resolve()
-
-        base_dir_resolved = self._base_dir.resolve()
-        if (
-            base_dir_resolved not in absolute_path.parents
-            and absolute_path != base_dir_resolved
-        ):
-            raise AttachmentError("Resolved attachment path escaped storage directory")
-
-        absolute_path.parent.mkdir(parents=True, exist_ok=True)
-
-        try:
-            size_bytes = await self._write_file(upload, absolute_path)
-        except AttachmentTooLarge:
-            try:
-                absolute_path.unlink()
-            except FileNotFoundError:
-                pass
-            raise
-        if size_bytes <= 0:
+        data = await self._read_upload(upload)
+        if not data:
             raise AttachmentError("Uploaded file was empty")
 
-        await self._repo.ensure_session(session_id)
-
-        original_url = str(
-            request.url_for("download_attachment", attachment_id=attachment_id)
-        )
-        delivery_url = original_url
-        now = datetime.now(timezone.utc)
-        expires_at = (
-            now + self._retention if self._retention.total_seconds() > 0 else None
-        )
-        metadata: dict[str, Any] = {}
-        if upload.filename:
-            metadata["filename"] = upload.filename
-        metadata["mime_type"] = mime_type
-        metadata["size_bytes"] = size_bytes
-
-        record = await self._repo.add_attachment(
-            attachment_id=attachment_id,
+        attachment_id = uuid4().hex
+        return await self._persist_bytes(
             session_id=session_id,
-            storage_path=os.fspath(relative_path),
+            attachment_id=attachment_id,
+            data=data,
             mime_type=mime_type,
-            size_bytes=size_bytes,
-            display_url=original_url,
-            delivery_url=delivery_url,
-            metadata=metadata or None,
-            expires_at=expires_at,
+            filename_hint=upload.filename or "file.bin",
         )
 
-        logger.info(
-            "Stored attachment %s (%s, %d bytes) for session %s",
-            attachment_id,
-            mime_type,
-            size_bytes,
-            session_id,
+    async def save_model_image_bytes(
+        self,
+        *,
+        session_id: str,
+        data: bytes,
+        mime_type: str,
+        filename_hint: str = "image.png",
+    ) -> AttachmentRecord:
+        """Persist model-generated image bytes and return the stored record."""
+
+        if not session_id:
+            raise AttachmentError("session_id is required")
+
+        if len(data) > self._max_size_bytes:
+            raise AttachmentTooLarge(
+                f"Attachment exceeded {self._max_size_bytes} bytes limit"
+            )
+
+        attachment_id = uuid4().hex
+        return await self._persist_bytes(
+            session_id=session_id,
+            attachment_id=attachment_id,
+            data=data,
+            mime_type=mime_type or "application/octet-stream",
+            filename_hint=filename_hint,
         )
-        return record
 
-    async def resolve(self, attachment_id: str) -> StoredAttachment:
-        """Return metadata and filesystem path for an attachment."""
+    async def save_bytes(
+        self,
+        *,
+        session_id: str,
+        data: bytes,
+        mime_type: str,
+        filename_hint: str,
+    ) -> AttachmentRecord:
+        """Persist arbitrary bytes provided by external integrations."""
 
-        record = await self._repo.get_attachment(attachment_id)
-        if record is None:
-            raise AttachmentNotFound(attachment_id)
+        if not session_id:
+            raise AttachmentError("session_id is required")
+        if not data:
+            raise AttachmentError("Attachment payload was empty")
+        if len(data) > self._max_size_bytes:
+            raise AttachmentTooLarge(
+                f"Attachment exceeded {self._max_size_bytes} bytes limit"
+            )
 
-        storage_path = record.get("storage_path")
-        if not storage_path:
-            raise AttachmentError("Attachment missing storage path")
-        absolute_path = (self._base_dir / storage_path).resolve()
-        base_dir_resolved = self._base_dir.resolve()
-        if (
-            base_dir_resolved not in absolute_path.parents
-            and absolute_path != base_dir_resolved
-        ):
-            raise AttachmentError("Attachment path escaped storage directory")
-        if not absolute_path.exists():
-            raise AttachmentNotFound(attachment_id)
-        return StoredAttachment(record=record, path=absolute_path)
+        attachment_id = uuid4().hex
+        return await self._persist_bytes(
+            session_id=session_id,
+            attachment_id=attachment_id,
+            data=data,
+            mime_type=mime_type or "application/octet-stream",
+            filename_hint=filename_hint or "attachment.bin",
+        )
 
     async def touch(self, attachment_ids: list[str], *, session_id: str) -> None:
         """Mark attachments as referenced in a conversation turn."""
@@ -181,50 +148,101 @@ class AttachmentService:
         await self._repo.mark_attachments_used(session_id, attachment_ids)
 
     async def delete(self, attachment_id: str) -> bool:
-        """Remove attachment metadata and file from storage."""
+        """Remove attachment metadata and delete the blob if it exists."""
 
         record = await self._repo.get_attachment(attachment_id)
         deleted = await self._repo.delete_attachment(attachment_id)
-        if deleted and record and record.get("storage_path"):
-            try:
-                (self._base_dir / record["storage_path"]).unlink(missing_ok=True)
-            except Exception:  # pragma: no cover - best-effort cleanup
-                logger.warning(
-                    "Failed to remove attachment file %s", attachment_id, exc_info=True
-                )
+        if deleted and record:
+            blob_name = record.get("gcs_blob") or record.get("storage_path")
+            if blob_name:
+                try:
+                    delete_blob(str(blob_name))
+                except Exception:  # pragma: no cover - best-effort cleanup
+                    logger.warning(
+                        "Failed to remove attachment blob %s", attachment_id, exc_info=True
+                    )
         return deleted
 
-    async def _write_file(self, upload: UploadFile, destination: Path) -> int:
+    async def resolve(self, attachment_id: str) -> AttachmentRecord:
+        """Direct downloads are no longer supported."""
+
+        raise AttachmentError("Attachments must be accessed via signed URLs")
+
+    async def _persist_bytes(
+        self,
+        *,
+        session_id: str,
+        attachment_id: str,
+        data: bytes,
+        mime_type: str,
+        filename_hint: str,
+    ) -> AttachmentRecord:
+        await self._repo.ensure_session(session_id)
+
+        blob_name = make_blob_name(session_id, attachment_id, filename_hint)
+        upload_bytes(blob_name, data, content_type=mime_type)
+
+        expires_delta = self._retention
+        signed_url = sign_get_url(blob_name, expires_delta=expires_delta)
+
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        expires_at: datetime | None
+        if expires_delta.total_seconds() > 0:
+            expires_at = now + expires_delta
+        else:
+            expires_at = None
+
+        signed_url_expires_at = expires_at or now
+
+        metadata: dict[str, Any] = {
+            "mime_type": mime_type,
+            "size_bytes": len(data),
+        }
+        if filename_hint:
+            metadata["filename"] = filename_hint
+
+        record = await self._repo.add_attachment(
+            attachment_id=attachment_id,
+            session_id=session_id,
+            storage_path=blob_name,
+            gcs_blob=blob_name,
+            mime_type=mime_type,
+            size_bytes=len(data),
+            display_url=signed_url,
+            delivery_url=signed_url,
+            metadata=metadata or None,
+            expires_at=expires_at,
+            signed_url=signed_url,
+            signed_url_expires_at=signed_url_expires_at,
+        )
+
+        logger.info(
+            "Stored attachment %s (%s, %d bytes) for session %s",
+            attachment_id,
+            mime_type,
+            len(data),
+            session_id,
+        )
+        return record
+
+    async def _read_upload(self, upload: UploadFile) -> bytes:
         chunk_size = 1024 * 1024  # 1 MiB
         size = 0
+        chunks: list[bytes] = []
         try:
-            with destination.open("wb") as buffer:
-                while True:
-                    chunk = await upload.read(chunk_size)
-                    if not chunk:
-                        break
-                    buffer.write(chunk)
-                    size += len(chunk)
-                    if size > self._max_size_bytes:
-                        raise AttachmentTooLarge(
-                            f"Attachment exceeded {self._max_size_bytes} bytes limit"
-                        )
+            while True:
+                chunk = await upload.read(chunk_size)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > self._max_size_bytes:
+                    raise AttachmentTooLarge(
+                        f"Attachment exceeded {self._max_size_bytes} bytes limit"
+                    )
+                chunks.append(chunk)
         finally:
             await upload.close()
-        return size
-
-    def _pick_extension(self, filename: str | None, mime_type: str) -> str:
-        if filename:
-            ext = Path(filename).suffix
-            if ext:
-                return ext
-
-        # Handle common mime types explicitly for more consistent extensions
-        if mime_type == "application/pdf":
-            return ".pdf"
-
-        guessed = mimetypes.guess_extension(mime_type)
-        return guessed or ""
+        return b"".join(chunks)
 
 
 __all__ = [
@@ -233,5 +251,4 @@ __all__ = [
     "UnsupportedAttachmentType",
     "AttachmentTooLarge",
     "AttachmentNotFound",
-    "StoredAttachment",
 ]

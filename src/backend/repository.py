@@ -52,6 +52,22 @@ def format_timestamp_for_client(value: str | None) -> tuple[str | None, str | No
     return edt_iso, parsed.isoformat()
 
 
+def _parse_db_timestamp(value: str | None) -> datetime | None:
+    """Parse a timestamp stored in SQLite and normalize to UTC."""
+
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed
+
+
 def _encode_content(value: Any) -> tuple[str | None, bool]:
     if value is None:
         return None, False
@@ -122,6 +138,9 @@ class ChatRepository:
                 size_bytes INTEGER NOT NULL,
                 display_url TEXT NOT NULL,
                 delivery_url TEXT NOT NULL,
+                gcs_blob TEXT,
+                signed_url TEXT,
+                signed_url_expires_at TEXT,
                 metadata TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 expires_at DATETIME,
@@ -148,6 +167,11 @@ class ChatRepository:
         await self._connection.commit()
         await self._ensure_column("messages", "client_message_id", "TEXT")
         await self._ensure_column("messages", "parent_client_message_id", "TEXT")
+        await self._ensure_column("attachments", "gcs_blob", "TEXT")
+        await self._ensure_column("attachments", "signed_url", "TEXT")
+        await self._ensure_column(
+            "attachments", "signed_url_expires_at", "TEXT"
+        )
 
     async def _ensure_column(self, table: str, column: str, definition: str) -> None:
         """Ensure a column exists on a table, adding it if necessary."""
@@ -350,6 +374,9 @@ class ChatRepository:
             "size_bytes": row["size_bytes"],
             "display_url": row["display_url"],
             "delivery_url": row["delivery_url"],
+            "gcs_blob": row["gcs_blob"],
+            "signed_url": row["signed_url"],
+            "signed_url_expires_at": row["signed_url_expires_at"],
             "created_at": row["created_at"],
             "expires_at": row["expires_at"],
             "last_used_at": row["last_used_at"],
@@ -363,13 +390,16 @@ class ChatRepository:
         *,
         attachment_id: str,
         session_id: str,
-        storage_path: str,
+        storage_path: str | None,
         mime_type: str,
         size_bytes: int,
         display_url: str,
         delivery_url: str,
         metadata: dict[str, Any] | None = None,
         expires_at: datetime | None = None,
+        gcs_blob: str | None = None,
+        signed_url: str | None = None,
+        signed_url_expires_at: datetime | str | None = None,
     ) -> AttachmentRecord:
         """Persist an uploaded attachment and return the stored record."""
 
@@ -378,8 +408,16 @@ class ChatRepository:
         expires_value = (
             expires_at.isoformat(timespec="seconds")
             if isinstance(expires_at, datetime)
-            else None
+            else expires_at
         )
+        signed_url_expires_value: str | None
+        if isinstance(signed_url_expires_at, datetime):
+            signed_url_expires_value = signed_url_expires_at.isoformat(
+                timespec="seconds"
+            )
+        else:
+            signed_url_expires_value = signed_url_expires_at
+        storage_value = storage_path or gcs_blob or attachment_id
         await self._connection.execute(
             """
             INSERT INTO attachments(
@@ -390,20 +428,26 @@ class ChatRepository:
                 size_bytes,
                 display_url,
                 delivery_url,
+                gcs_blob,
+                signed_url,
+                signed_url_expires_at,
                 metadata,
                 expires_at,
                 last_used_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             """,
             (
                 attachment_id,
                 session_id,
-                storage_path,
+                storage_value,
                 mime_type,
                 size_bytes,
                 display_url,
                 delivery_url,
+                gcs_blob,
+                signed_url,
+                signed_url_expires_value,
                 metadata_json,
                 expires_value,
             ),
@@ -428,6 +472,9 @@ class ChatRepository:
                 size_bytes,
                 display_url,
                 delivery_url,
+                gcs_blob,
+                signed_url,
+                signed_url_expires_at,
                 metadata,
                 created_at,
                 expires_at,
@@ -443,6 +490,43 @@ class ChatRepository:
         if row is None:
             return None
         return self._row_to_attachment(row)
+
+    async def get_attachments_by_ids(
+        self, attachment_ids: Iterable[str]
+    ) -> dict[str, AttachmentRecord]:
+        """Return attachments keyed by ID for the provided collection."""
+
+        ids = [attachment_id for attachment_id in dict.fromkeys(attachment_ids)]
+        if not ids:
+            return {}
+
+        assert self._connection is not None
+        placeholders = ",".join("?" for _ in ids)
+        cursor = await self._connection.execute(
+            f"""
+            SELECT
+                attachment_id,
+                session_id,
+                storage_path,
+                mime_type,
+                size_bytes,
+                display_url,
+                delivery_url,
+                gcs_blob,
+                signed_url,
+                signed_url_expires_at,
+                metadata,
+                created_at,
+                expires_at,
+                last_used_at
+            FROM attachments
+            WHERE attachment_id IN ({placeholders})
+            """,
+            ids,
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        return {row["attachment_id"]: self._row_to_attachment(row) for row in rows}
 
     async def get_attachment_by_storage_path(
         self, storage_path: str
@@ -464,6 +548,9 @@ class ChatRepository:
                 size_bytes,
                 display_url,
                 delivery_url,
+                gcs_blob,
+                signed_url,
+                signed_url_expires_at,
                 metadata,
                 created_at,
                 expires_at,
@@ -521,6 +608,86 @@ class ChatRepository:
         await cursor.close()
         await self._connection.commit()
         return bool(deleted)
+
+    async def update_attachment_signed_url(
+        self,
+        attachment_id: str,
+        *,
+        signed_url: str,
+        signed_url_expires_at: datetime | str,
+    ) -> None:
+        """Persist refreshed signed URL metadata for an attachment."""
+
+        assert self._connection is not None
+        if isinstance(signed_url_expires_at, datetime):
+            expires_value = signed_url_expires_at.isoformat(timespec="seconds")
+        else:
+            expires_value = signed_url_expires_at
+        await self._connection.execute(
+            """
+            UPDATE attachments
+            SET
+                signed_url = ?,
+                signed_url_expires_at = ?,
+                display_url = ?,
+                delivery_url = ?
+            WHERE attachment_id = ?
+            """,
+            (
+                signed_url,
+                expires_value,
+                signed_url,
+                signed_url,
+                attachment_id,
+            ),
+        )
+        await self._connection.commit()
+
+    async def find_expired_attachments(
+        self,
+        *,
+        now: datetime,
+    ) -> list[AttachmentRecord]:
+        """Return attachment records whose retention windows have elapsed."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            """
+            SELECT
+                attachment_id,
+                session_id,
+                storage_path,
+                mime_type,
+                size_bytes,
+                display_url,
+                delivery_url,
+                gcs_blob,
+                signed_url,
+                signed_url_expires_at,
+                metadata,
+                created_at,
+                expires_at,
+                last_used_at
+            FROM attachments
+            WHERE expires_at IS NOT NULL
+               OR signed_url_expires_at IS NOT NULL
+            """,
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+
+        reference = now.astimezone(timezone.utc)
+        expired: list[AttachmentRecord] = []
+        for row in rows:
+            record = self._row_to_attachment(row)
+            expires_at = _parse_db_timestamp(record.get("expires_at"))
+            signed_expires = _parse_db_timestamp(record.get("signed_url_expires_at"))
+            candidate = expires_at or signed_expires
+            if candidate is None:
+                continue
+            if candidate <= reference:
+                expired.append(record)
+        return expired
 
     async def mark_attachments_used(
         self, session_id: str, attachment_ids: Iterable[str]

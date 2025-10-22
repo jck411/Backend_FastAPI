@@ -6,13 +6,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..chat import ChatOrchestrator
 from ..services.attachments import (
     AttachmentError,
-    AttachmentNotFound,
     AttachmentService,
     AttachmentTooLarge,
     UnsupportedAttachmentType,
@@ -75,6 +73,10 @@ def _serialize_attachment(record: dict[str, Any]) -> dict[str, Any]:
     payload["created_at"] = _normalize_timestamp(record.get("created_at"))
     payload["expires_at"] = _normalize_timestamp(record.get("expires_at"))
     payload.setdefault("metadata", None)
+    signed_url = record.get("signed_url")
+    if signed_url:
+        payload.setdefault("display_url", signed_url)
+        payload.setdefault("delivery_url", signed_url)
     return payload
 
 
@@ -85,7 +87,6 @@ def _serialize_attachment(record: dict[str, Any]) -> dict[str, Any]:
     response_model_by_alias=False,
 )
 async def upload_attachment(
-    request: Request,
     orchestrator: ChatOrchestrator = Depends(get_orchestrator),
     service: AttachmentService = Depends(get_attachment_service),
     file: UploadFile = File(...),
@@ -93,7 +94,7 @@ async def upload_attachment(
 ) -> AttachmentUploadResponse:
     await orchestrator.wait_until_ready()
     try:
-        record = await service.save_upload(session_id=session_id, upload=file, request=request)
+        record = await service.save_user_upload(session_id=session_id, upload=file)
     except UnsupportedAttachmentType as exc:
         raise HTTPException(status_code=415, detail=f"Unsupported attachment type: {exc}") from exc
     except AttachmentTooLarge as exc:
@@ -106,54 +107,13 @@ async def upload_attachment(
 
 
 @router.get("/{attachment_id}/content")
-async def download_attachment(
-    attachment_id: str,
-    request: Request,
-    orchestrator: ChatOrchestrator = Depends(get_orchestrator),
-    service: AttachmentService = Depends(get_attachment_service),
-) -> FileResponse:
-    await orchestrator.wait_until_ready()
-    try:
-        stored = await service.resolve(attachment_id)
-    except AttachmentNotFound as exc:
-        raise HTTPException(status_code=404, detail="Attachment not found") from exc
-    except AttachmentError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    record = stored.record
-    expires_at = _normalize_timestamp(record.get("expires_at"))
-    if expires_at:
-        try:
-            expires_dt = datetime.fromisoformat(expires_at)
-        except ValueError:
-            expires_dt = None
-        if expires_dt:
-            if expires_dt.tzinfo is None:
-                expires_dt = expires_dt.replace(tzinfo=timezone.utc)
-            if expires_dt < datetime.now(timezone.utc):
-                raise HTTPException(status_code=410, detail="Attachment expired")
-
-    session_id = record.get("session_id")
-    if isinstance(session_id, str):
-        await service.touch([attachment_id], session_id=session_id)
-
-    metadata = record.get("metadata")
-    filename = None
-    if isinstance(metadata, dict):
-        raw_name = metadata.get("filename")
-        if isinstance(raw_name, str) and raw_name:
-            filename = raw_name
-
-    headers = {
-        "Cache-Control": "private, max-age=0, must-revalidate",
-        "Content-Disposition": f"inline; filename=\"{filename or attachment_id}\"",
-    }
-
-    return FileResponse(
-        stored.path,
-        media_type=str(record.get("mime_type") or "application/octet-stream"),
-        filename=filename,
-        headers=headers,
+async def download_attachment(attachment_id: str) -> None:
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Direct downloads are no longer supported. "
+            "Use the signed URL provided when the attachment was created."
+        ),
     )
 
 

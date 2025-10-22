@@ -57,10 +57,7 @@ class TestFinalizeToolCalls:
         assert len(result) == 1
         call = result[0]
         assert call["function"]["name"] == "calculator_evaluate"
-        assert (
-            call["function"]["arguments"]
-            == '{"operation": "add", "a": 2, "b": 3}'
-        )
+        assert call["function"]["arguments"] == '{"operation": "add", "a": 2, "b": 3}'
         assert call["id"] == "call_0"
 
     def test_preserves_existing_ids(self):
@@ -137,9 +134,7 @@ class TestMergeToolCalls:
 
         # Should create entry with function details populated
         assert accumulator
-        assert (
-            accumulator[0]["function"]["name"] == "calculator_evaluate"
-        )
+        assert accumulator[0]["function"]["name"] == "calculator_evaluate"
 
 
 @pytest.fixture
@@ -179,7 +174,11 @@ class DummyOpenRouterClientWithMetadata(DummyOpenRouterClient):
                 {
                     "id": "gen-abc123",
                     "model": "test/model",
-                    "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
+                    "usage": {
+                        "prompt_tokens": 5,
+                        "completion_tokens": 7,
+                        "total_tokens": 12,
+                    },
                     "meta": {
                         "provider": {
                             "id": "meta-test",
@@ -246,7 +245,12 @@ class DummyRepository:
 
 
 class DummyToolClient:
-    async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:  # pragma: no cover
+    def get_openai_tools(self) -> list[dict[str, Any]]:
+        return []
+
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any] | None = None
+    ) -> Any:  # pragma: no cover
         raise AssertionError("call_tool should not be invoked in these tests")
 
     def format_tool_result(self, result: Any) -> str:  # pragma: no cover
@@ -266,11 +270,11 @@ class DummyModelSettings:
 async def test_streaming_applies_provider_sort_from_settings() -> None:
     client = DummyOpenRouterClient()
     handler = StreamingHandler(
-        client,
-        DummyRepository(),
-        DummyToolClient(),
+        client,  # type: ignore[arg-type]
+        DummyRepository(),  # type: ignore[arg-type]
+        DummyToolClient(),  # type: ignore[arg-type]
         default_model="openrouter/auto",
-        model_settings=DummyModelSettings(
+        model_settings=DummyModelSettings(  # type: ignore[arg-type]
             "test/model",
             {"provider": {"sort": "price"}},
         ),
@@ -303,11 +307,11 @@ async def test_streaming_applies_provider_sort_from_settings() -> None:
 async def test_streaming_merges_request_provider_preferences() -> None:
     client = DummyOpenRouterClient()
     handler = StreamingHandler(
-        client,
-        DummyRepository(),
-        DummyToolClient(),
+        client,  # type: ignore[arg-type]
+        DummyRepository(),  # type: ignore[arg-type]
+        DummyToolClient(),  # type: ignore[arg-type]
         default_model="openrouter/auto",
-        model_settings=DummyModelSettings(
+        model_settings=DummyModelSettings(  # type: ignore[arg-type]
             "test/model",
             {"provider": {"sort": "latency", "allow_fallbacks": True}},
         ),
@@ -338,9 +342,9 @@ async def test_streaming_emits_metadata_event() -> None:
     repo = DummyRepository()
     client = DummyOpenRouterClientWithMetadata()
     handler = StreamingHandler(
-        client,
-        repo,
-        DummyToolClient(),
+        client,  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
+        DummyToolClient(),  # type: ignore[arg-type]
         default_model="openrouter/auto",
         model_settings=None,
     )
@@ -387,9 +391,9 @@ async def test_streaming_emits_metadata_event() -> None:
 async def test_structured_tool_choice_does_not_retry_without_tools() -> None:
     client = ToolUnsupportedClient()
     handler = StreamingHandler(
-        client,
-        DummyRepository(),
-        DummyToolClient(),
+        client,  # type: ignore[arg-type]
+        DummyRepository(),  # type: ignore[arg-type]
+        DummyToolClient(),  # type: ignore[arg-type]
         default_model="openrouter/auto",
     )
 

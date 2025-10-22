@@ -10,18 +10,28 @@ from backend.mcp_servers.calendar_server import (
     DEFAULT_READ_CALENDAR_IDS,
     DEFAULT_USER_EMAIL,
     _parse_time_string,
-    calendar_current_context,
     auth_status,
+    calendar_current_context,
     create_event,
-    create_task as calendar_create_task,
     delete_event,
-    delete_task as calendar_delete_task,
     generate_auth_url,
     get_events,
     list_calendars,
-    list_task_lists as calendar_list_task_lists,
-    list_tasks as calendar_list_tasks,
     update_event,
+)
+from backend.mcp_servers.calendar_server import (
+    create_task as calendar_create_task,
+)
+from backend.mcp_servers.calendar_server import (
+    delete_task as calendar_delete_task,
+)
+from backend.mcp_servers.calendar_server import (
+    list_task_lists as calendar_list_task_lists,
+)
+from backend.mcp_servers.calendar_server import (
+    list_tasks as calendar_list_tasks,
+)
+from backend.mcp_servers.calendar_server import (
     update_task as calendar_update_task,
 )
 
@@ -94,8 +104,9 @@ async def test_get_events_authentication_error(mock_get_calendar_service):
 
 
 @pytest.mark.asyncio
+@patch("backend.mcp_servers.calendar_server.get_tasks_service")
 @patch("backend.mcp_servers.calendar_server.get_calendar_service")
-async def test_get_events_success(mock_get_calendar_service):
+async def test_get_events_success(mock_get_calendar_service, mock_get_tasks_service):
     """Test get_events with successful response."""
     mock_service = MagicMock()
     mock_get_calendar_service.return_value = mock_service
@@ -119,6 +130,14 @@ async def test_get_events_success(mock_get_calendar_service):
         return response
 
     mock_service.events().list.side_effect = list_side_effect
+
+    # Mock tasks service to return no tasks
+    mock_tasks_service = MagicMock()
+    mock_get_tasks_service.return_value = mock_tasks_service
+
+    tasklists_list_request = MagicMock()
+    tasklists_list_request.execute.return_value = {"items": []}
+    mock_tasks_service.tasklists.return_value.list.return_value = tasklists_list_request
 
     await calendar_current_context(timezone="UTC")
     result = await get_events(time_min="2023-06-01")
@@ -559,7 +578,9 @@ async def test_delete_task_success(mock_get_tasks_service):
 async def test_auth_status_authorized(mock_get_credentials):
     """calendar_auth_status reports when credentials exist."""
     mock_credentials = MagicMock()
-    mock_credentials.expiry = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
+    mock_credentials.expiry = datetime.datetime(
+        2025, 1, 1, tzinfo=datetime.timezone.utc
+    )
     mock_get_credentials.return_value = mock_credentials
 
     result = await auth_status("user@example.com")
@@ -588,7 +609,9 @@ async def test_generate_auth_url_existing_credentials(
 ):
     """calendar_generate_auth_url short-circuits unless force is set."""
     mock_credentials = MagicMock()
-    mock_credentials.expiry = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
+    mock_credentials.expiry = datetime.datetime(
+        2025, 1, 1, tzinfo=datetime.timezone.utc
+    )
     mock_get_credentials.return_value = mock_credentials
 
     result = await generate_auth_url("user@example.com")

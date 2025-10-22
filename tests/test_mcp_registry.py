@@ -10,7 +10,11 @@ from typing import Any
 import pytest
 from mcp.types import CallToolResult, Tool
 
-from backend.chat.mcp_registry import MCPServerConfig, MCPToolAggregator, load_server_configs
+from backend.chat.mcp_registry import (
+    MCPServerConfig,
+    MCPToolAggregator,
+    load_server_configs,
+)
 from backend.repository import ChatRepository
 
 pytestmark = pytest.mark.anyio
@@ -40,7 +44,7 @@ def build_tool_definition(name: str, description: str) -> tuple[Tool, dict[str, 
 
 def make_fake_client_factory(
     tool_map: dict[str, list[tuple[Tool, dict[str, Any]]]],
-    created: dict[str, "FakeClient"],
+    created: dict[str, Any],
 ):
     class FakeClient:
         def __init__(
@@ -165,6 +169,7 @@ async def test_aggregator_preserves_unique_names(
     assert tool_names == {"alpha", "beta"}
 
     result = await aggregator.call_tool("alpha", {"value": 1})
+    assert result.structuredContent is not None
     assert result.structuredContent["server"] == "server_a"
     assert created["server_a"].calls == [("alpha", {"value": 1})]
 
@@ -202,6 +207,8 @@ async def test_aggregator_prefixes_duplicate_tool_names(
 
 
 async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -> None:
+    import asyncio
+
     project_root = Path(__file__).resolve().parents[1]
     src_dir = project_root / "src"
 
@@ -218,7 +225,9 @@ async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -
     await repository.initialize()
     await repository.ensure_session("session-test")
     await repository.add_message("session-test", role="user", content="hello world")
-    await repository.add_message("session-test", role="assistant", content="Hello back!")
+    await repository.add_message(
+        "session-test", role="assistant", content="Hello back!"
+    )
     await repository.close()
 
     config = MCPServerConfig(
@@ -238,40 +247,57 @@ async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -
     )
 
     try:
-        await aggregator.connect()
-        tool_names = {
-            entry["function"]["name"] for entry in aggregator.get_openai_tools()
-        }
-        assert {"test_echo", "current_time", "chat_history"}.issubset(tool_names)
+        # Add timeout for the entire test to prevent hanging
+        async def run_test():
+            await aggregator.connect()
+            tool_names = {
+                entry["function"]["name"] for entry in aggregator.get_openai_tools()
+            }
+            assert {"test_echo", "current_time", "chat_history"}.issubset(tool_names)
 
-        result = await aggregator.call_tool(
-            "test_echo",
-            {"message": "ping", "uppercase": True},
-        )
-        formatted = aggregator.format_tool_result(result)
-        assert "PING" in formatted
+            result = await aggregator.call_tool(
+                "test_echo",
+                {"message": "ping", "uppercase": True},
+            )
+            formatted = aggregator.format_tool_result(result)
+            assert "PING" in formatted
 
-        clock = await aggregator.call_tool("current_time", {"format": "unix"})
-        clock_payload = clock.structuredContent or {}
-        value = clock_payload.get("value")
-        assert clock_payload.get("format") == "unix"
-        assert isinstance(value, str) and value.isdigit()
-        assert clock_payload.get("utc_unix") == value
-        assert clock_payload.get("utc_unix_precise")
-        assert clock_payload.get("eastern_iso")
-        assert clock_payload.get("eastern_abbreviation")
-        assert clock_payload.get("timezone") == "America/New_York"
+            clock = await aggregator.call_tool("current_time", {"format": "unix"})
+            clock_payload = (
+                clock.structuredContent if clock.structuredContent is not None else {}
+            )
+            value = clock_payload.get("value")
+            assert clock_payload.get("format") == "unix"
+            assert isinstance(value, str) and value.isdigit()
+            assert clock_payload.get("utc_unix") == value
+            assert clock_payload.get("utc_unix_precise")
+            assert clock_payload.get("eastern_iso")
+            assert clock_payload.get("eastern_abbreviation")
+            assert clock_payload.get("timezone") == "America/New_York"
 
-        history = await aggregator.call_tool(
-            "chat_history",
-            {"session_id": "session-test", "limit": 5, "newest_first": False},
-        )
-        history_payload = history.structuredContent or {}
-        assert history_payload.get("session_id") == "session-test"
-        messages = history_payload.get("messages") or []
-        assert messages, "expected chat_history to return at least one message"
-        assert any("hello world" in (item.get("content") or "") for item in messages)
-        summary = history_payload.get("summary") or ""
-        assert "hello world" in summary
+            history = await aggregator.call_tool(
+                "chat_history",
+                {"session_id": "session-test", "limit": 5, "newest_first": False},
+            )
+            history_payload = (
+                history.structuredContent
+                if history.structuredContent is not None
+                else {}
+            )
+            assert history_payload.get("session_id") == "session-test"
+            messages = history_payload.get("messages") or []
+            assert messages, "expected chat_history to return at least one message"
+            assert any(
+                "hello world" in (item.get("content") or "") for item in messages
+            )
+            summary = history_payload.get("summary") or ""
+            assert "hello world" in summary
+
+        # Run with a 10-second timeout
+        await asyncio.wait_for(run_test(), timeout=10.0)
     finally:
-        await aggregator.close()
+        # Ensure cleanup happens with timeout
+        try:
+            await asyncio.wait_for(aggregator.close(), timeout=5.0)
+        except asyncio.TimeoutError:
+            pass  # Log already issued in close() method

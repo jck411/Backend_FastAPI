@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -114,7 +116,13 @@ def create_app() -> FastAPI:
         try:
             yield
         finally:
-            await orchestrator.shutdown()
+            # Add timeout to prevent hanging during shutdown (especially in tests)
+            try:
+                await asyncio.wait_for(orchestrator.shutdown(), timeout=10.0)
+            except asyncio.TimeoutError:
+                logging.warning("Orchestrator shutdown timed out after 10s")
+            except Exception as exc:
+                logging.warning("Error during orchestrator shutdown: %s", exc)
 
     app = FastAPI(
         title="OpenRouter Chat Backend",

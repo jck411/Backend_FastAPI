@@ -7,11 +7,12 @@ import copy
 import json
 import logging
 import shlex
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from collections import Counter
 from typing import Any, Sequence
 
+from mcp.types import CallToolResult, Tool
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -20,8 +21,6 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-
-from mcp.types import CallToolResult, Tool
 
 from .mcp_client import MCPToolClient
 
@@ -34,7 +33,9 @@ class MCPServerConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(..., min_length=1, description="Stable identifier for the server")
-    enabled: bool = Field(default=True, description="Whether the server should be launched")
+    enabled: bool = Field(
+        default=True, description="Whether the server should be launched"
+    )
     module: str | None = Field(
         default=None,
         description="Python module path to launch via `python -m`",
@@ -103,7 +104,9 @@ class MCPServerConfig(BaseModel):
         return f"{prefix}__{name}"
 
 
-def load_server_configs(path: Path, *, fallback: Sequence[dict[str, Any]] | None = None) -> list[MCPServerConfig]:
+def load_server_configs(
+    path: Path, *, fallback: Sequence[dict[str, Any]] | None = None
+) -> list[MCPServerConfig]:
     """Load MCP server definitions from JSON, optionally merging fallback entries."""
 
     definitions: list[dict[str, Any]] = []
@@ -115,7 +118,9 @@ def load_server_configs(path: Path, *, fallback: Sequence[dict[str, Any]] | None
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:  # pragma: no cover - defensive
-            raise ValueError(f"Invalid JSON in MCP server config {path}: {exc}") from exc
+            raise ValueError(
+                f"Invalid JSON in MCP server config {path}: {exc}"
+            ) from exc
 
         if isinstance(payload, dict):
             items = payload.get("servers")
@@ -150,7 +155,8 @@ def load_server_configs(path: Path, *, fallback: Sequence[dict[str, Any]] | None
 
         if config.id in configs_by_id:
             logger.info(
-                "Overriding MCP server definition for id '%s' with later entry", config.id
+                "Overriding MCP server definition for id '%s' with later entry",
+                config.id,
             )
             order = [existing for existing in order if existing != config.id]
 
@@ -211,7 +217,8 @@ class MCPToolAggregator:
                 return
 
             logger.info(
-                "Starting MCP aggregator with %d configured server(s)", len(self._configs)
+                "Starting MCP aggregator with %d configured server(s)",
+                len(self._configs),
             )
 
             for config in self._configs:
@@ -220,7 +227,9 @@ class MCPToolAggregator:
                 await self._launch_server(config)
 
             if not self._clients:
-                logger.warning("No MCP servers were started; tool execution is disabled")
+                logger.warning(
+                    "No MCP servers were started; tool execution is disabled"
+                )
 
             await self._refresh_locked()
             self._connected = True
@@ -355,8 +364,15 @@ class MCPToolAggregator:
         """Terminate all server processes and reset state."""
 
         async with self._lock:
-            for client in self._clients.values():
-                await client.close()
+            # Close all clients with individual timeouts and error handling
+            for server_id, client in list(self._clients.items()):
+                try:
+                    await asyncio.wait_for(client.close(), timeout=3.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout closing MCP client '%s'", server_id)
+                except Exception as exc:
+                    logger.warning("Error closing MCP client '%s': %s", server_id, exc)
+
             self._clients.clear()
             self._bindings.clear()
             self._binding_order.clear()
@@ -399,9 +415,9 @@ class MCPToolAggregator:
         )
         active_lookup: dict[str, dict[str, _ToolBinding]] = {}
         for binding in self._binding_order:
-            active_lookup.setdefault(binding.config.id, {})[
-                binding.original_name
-            ] = binding
+            active_lookup.setdefault(binding.config.id, {})[binding.original_name] = (
+                binding
+            )
 
         details: list[dict[str, Any]] = []
         for config in self._configs:

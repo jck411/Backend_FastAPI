@@ -6,12 +6,12 @@ import pytest
 
 pytest.importorskip("kreuzberg")
 
-from backend.mcp_servers import pdf_server
-from pathlib import Path
 import base64
 import os
 
 import pytest
+
+from backend.mcp_servers import pdf_server
 
 
 @pytest.mark.asyncio
@@ -113,7 +113,9 @@ async def test_list_and_search_upload_paths(tmp_path, monkeypatch):
     )
 
     enriched = await pdf_server.list_upload_paths()
-    match = next((it for it in enriched if it.get("relative_path") == "a/doc1.pdf"), None)
+    match = next(
+        (it for it in enriched if it.get("relative_path") == "a/doc1.pdf"), None
+    )
     assert match is not None
     assert match.get("original_filename") == "Original Name.pdf"
     assert match.get("name") == "Original Name.pdf"
@@ -136,7 +138,8 @@ async def test_list_and_search_upload_paths(tmp_path, monkeypatch):
 
     enriched = await pdf_server.list_upload_paths()
     slug_match = next(
-        (it for it in enriched if it.get("relative_path") == f"a/{slug_file.name}"), None
+        (it for it in enriched if it.get("relative_path") == f"a/{slug_file.name}"),
+        None,
     )
     assert slug_match is not None
     assert slug_match.get("attachment_id") == slug_id

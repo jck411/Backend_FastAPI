@@ -85,8 +85,8 @@ def compute_task_window(
 def parse_time_string(time_str: Optional[str]) -> Optional[str]:
     """Convert keywords like 'today' or 'tomorrow' to RFC3339 timestamps.
 
-    Keywords are rendered using the local timezone offset (e.g., T00:00:00-04:00)
-    rather than UTC Z to reflect the user's local day boundaries.
+    Keywords and date-only strings are rendered as UTC midnight (T00:00:00Z)
+    to ensure consistent behavior across different system timezones.
     """
 
     if not time_str:
@@ -120,11 +120,14 @@ def parse_time_string(time_str: Optional[str]) -> Optional[str]:
                 dt = dt.replace(tzinfo=datetime.timezone.utc)
             return dt.isoformat().replace("+00:00", "Z")
 
-    # Build a midnight datetime with the local timezone offset
-    local_tz = datetime.datetime.now().astimezone().tzinfo or datetime.timezone.utc
-    local_midnight = datetime.datetime(
-        date_obj.year, date_obj.month, date_obj.day, 0, 0, 0, tzinfo=local_tz
+    # Build a midnight datetime in UTC for consistent behavior
+    utc_midnight = datetime.datetime(
+        date_obj.year,
+        date_obj.month,
+        date_obj.day,
+        0,
+        0,
+        0,
+        tzinfo=datetime.timezone.utc,
     )
-    return local_midnight.astimezone(datetime.timezone.utc).isoformat().replace(
-        "+00:00", "Z"
-    )
+    return utc_midnight.isoformat().replace("+00:00", "Z")

@@ -7,13 +7,16 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from starlette.datastructures import Headers, UploadFile
+from fastapi import UploadFile
+from starlette.datastructures import Headers
 
 from backend.services.attachments import AttachmentService
 
 
 class DummyRequest:
-    def url_for(self, name: str, **kwargs: str) -> str:  # pragma: no cover - simple stub
+    def url_for(
+        self, name: str, **kwargs: str
+    ) -> str:  # pragma: no cover - simple stub
         return f"http://example.test/{name}/{kwargs.get('attachment_id', '')}"
 
 
@@ -44,7 +47,7 @@ async def test_attachment_service_accepts_pdf(tmp_path: Path) -> None:
     result = await service.save_upload(
         session_id="session1",
         upload=upload,
-        request=DummyRequest(),
+        request=DummyRequest(),  # type: ignore[arg-type]
     )
 
     assert result is repository.add_attachment.return_value

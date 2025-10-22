@@ -12,10 +12,10 @@ from typing import Any, AsyncGenerator, Iterable, Sequence
 
 from ..config import Settings
 from ..openrouter import OpenRouterClient
-from ..services.model_settings import ModelSettingsService
-from ..services.mcp_server_settings import MCPServerSettingsService
 from ..repository import ChatRepository
 from ..schemas.chat import ChatCompletionRequest
+from ..services.mcp_server_settings import MCPServerSettingsService
+from ..services.model_settings import ModelSettingsService
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 
@@ -88,14 +88,29 @@ class ChatOrchestrator:
             await self._mcp_client.apply_configs(configs)
             await self._mcp_client.connect()
             self._ready.set()
-            logger.info("Chat orchestrator ready: %d tool(s) available", len(self._mcp_client.tools))
+            logger.info(
+                "Chat orchestrator ready: %d tool(s) available",
+                len(self._mcp_client.tools),
+            )
 
     async def shutdown(self) -> None:
         """Clean up held resources."""
 
-        await self._client.aclose()
-        await self._mcp_client.close()
-        await self._repo.close()
+        try:
+            await asyncio.wait_for(self._client.aclose(), timeout=2.0)
+        except (asyncio.TimeoutError, Exception) as exc:
+            logger.warning("Error closing OpenRouter client: %s", exc)
+
+        try:
+            await asyncio.wait_for(self._mcp_client.close(), timeout=5.0)
+        except (asyncio.TimeoutError, Exception) as exc:
+            logger.warning("Error closing MCP client: %s", exc)
+
+        try:
+            await asyncio.wait_for(self._repo.close(), timeout=2.0)
+        except (asyncio.TimeoutError, Exception) as exc:
+            logger.warning("Error closing repository: %s", exc)
+
         self._ready.clear()
 
     async def wait_until_ready(self) -> None:
@@ -136,7 +151,9 @@ class ChatOrchestrator:
                 assistant_parent_message_id = parent_candidate
         stored_messages = await self._repo.get_messages(session_id)
         has_system_message = any(msg.get("role") == "system" for msg in stored_messages)
-        incoming_has_system = any(message.role == "system" for message in incoming_messages)
+        incoming_has_system = any(
+            message.role == "system" for message in incoming_messages
+        )
         system_prompt = await self._model_settings.get_system_prompt()
 
         if (
@@ -163,7 +180,13 @@ class ChatOrchestrator:
             if message.name:
                 metadata["name"] = message.name
             extra = message.model_dump(
-                exclude={"role", "content", "tool_call_id", "name", "client_message_id"},
+                exclude={
+                    "role",
+                    "content",
+                    "tool_call_id",
+                    "name",
+                    "client_message_id",
+                },
                 exclude_none=True,
             )
             if extra:
@@ -215,9 +238,7 @@ class ChatOrchestrator:
 
         return self._client
 
-    async def apply_mcp_configs(
-        self, configs: Sequence[MCPServerConfig]
-    ) -> None:
+    async def apply_mcp_configs(self, configs: Sequence[MCPServerConfig]) -> None:
         """Apply MCP configuration updates to the running aggregator."""
 
         await self._mcp_client.apply_configs(configs)
@@ -231,5 +252,6 @@ class ChatOrchestrator:
         """Trigger a manual refresh of tool catalogs."""
 
         await self._mcp_client.refresh()
+
 
 __all__ = ["ChatOrchestrator"]

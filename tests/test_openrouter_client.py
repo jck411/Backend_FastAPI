@@ -1,4 +1,5 @@
 import pytest
+from pydantic import AnyHttpUrl, SecretStr
 
 from backend.config import Settings
 from backend.openrouter import OpenRouterClient
@@ -6,13 +7,15 @@ from backend.openrouter import OpenRouterClient
 
 def make_client() -> OpenRouterClient:
     settings = Settings(
-        openrouter_api_key="test",
-        openrouter_base_url="https://example.com/api/v1",
+        openrouter_api_key=SecretStr("test"),
+        openrouter_base_url=AnyHttpUrl("https://example.com/api/v1"),
     )
     return OpenRouterClient(settings)
 
 
-def test_parse_event_supports_multiple_data_lines(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_parse_event_supports_multiple_data_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("REFERER", "https://app.example.com")
 
     client = make_client()

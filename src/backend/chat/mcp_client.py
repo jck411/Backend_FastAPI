@@ -106,16 +106,27 @@ class MCPToolClient:
 
         async with self._lock:
             if self._exit_stack is not None:
-                logger.info("Closing MCP session")
+                logger.info("Closing MCP session for server '%s'", self._server_id)
                 try:
                     # Add timeout to prevent hanging on shutdown
                     await asyncio.wait_for(self._exit_stack.aclose(), timeout=2.0)
                 except asyncio.TimeoutError:
-                    logger.warning("MCP session close timed out after 2s")
+                    logger.warning(
+                        "MCP session close timed out after 2s for server '%s'",
+                        self._server_id,
+                    )
                 except Exception as exc:
-                    logger.warning("Error closing MCP session: %s", exc)
-            self._exit_stack = None
-            self._session = None
+                    # Catch all exceptions including anyio cancel scope errors
+                    # These can occur when closing from a different async context
+                    logger.warning(
+                        "Error closing MCP session for server '%s': %s",
+                        self._server_id,
+                        exc,
+                    )
+                finally:
+                    # Ensure cleanup happens even if aclose() fails
+                    self._exit_stack = None
+                    self._session = None
             self._tools = []
 
     @property

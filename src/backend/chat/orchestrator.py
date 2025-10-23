@@ -8,7 +8,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any, AsyncGenerator, Iterable, Sequence
+from typing import Any, AsyncGenerator, Iterable, Sequence, TYPE_CHECKING
 
 from ..config import Settings
 from ..openrouter import OpenRouterClient
@@ -19,6 +19,9 @@ from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
+
+if TYPE_CHECKING:
+    from ..services.attachments import AttachmentService
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +127,11 @@ class ChatOrchestrator:
         """Expose the underlying repository for shared services."""
 
         return self._repo
+
+    def set_attachment_service(self, service: "AttachmentService | None") -> None:
+        """Inject the attachment service after application startup wiring."""
+
+        self._streaming.set_attachment_service(service)
 
     async def process_stream(
         self,

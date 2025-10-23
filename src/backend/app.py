@@ -107,6 +107,7 @@ def create_app() -> FastAPI:
         max_size_bytes=settings.attachments_max_size_bytes,
         retention_days=settings.attachments_retention_days,
     )
+    orchestrator.set_attachment_service(attachment_service)
 
     cleanup_interval_hours = max(1, min(24, settings.attachments_retention_days or 1))
     cleanup_interval_seconds = cleanup_interval_hours * 3600

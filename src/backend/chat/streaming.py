@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Iterable, Protocol
+from typing import Any, AsyncGenerator, Iterable, Protocol, Sequence
+from urllib.parse import unquote_to_bytes
 
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..repository import ChatRepository, format_timestamp_for_client
+from ..services.attachments import AttachmentService
 from ..services.model_settings import ModelSettingsService
 from ..schemas.chat import ChatCompletionRequest
 
@@ -32,7 +36,7 @@ _SESSION_AWARE_TOOL_SUFFIX = "__chat_history"
 
 @dataclass
 class AssistantTurn:
-    content: str | None
+    content: str | list[dict[str, Any]] | None
     tool_calls: list[dict[str, Any]]
     finish_reason: str | None
     model: str | None
@@ -58,6 +62,79 @@ class AssistantTurn:
         return message
 
 
+class _AssistantContentBuilder:
+    """Accumulate assistant content fragments and persist generated images."""
+
+    __slots__ = ("_segments", "_created_attachment_ids")
+
+    def __init__(self) -> None:
+        self._segments: list[tuple[str, Any]] = []
+        self._created_attachment_ids: list[str] = []
+
+    def add_text(self, text: str) -> None:
+        if not isinstance(text, str) or not text:
+            return
+        self._segments.append(("text", text))
+
+    def add_structured(self, fragments: Sequence[Any]) -> None:
+        if not fragments:
+            return
+        for fragment in fragments:
+            if isinstance(fragment, dict):
+                self._segments.append(("fragment", fragment))
+            elif isinstance(fragment, str):
+                self.add_text(fragment)
+
+    @property
+    def created_attachment_ids(self) -> Sequence[str]:
+        return tuple(self._created_attachment_ids)
+
+    async def finalize(
+        self,
+        session_id: str,
+        attachment_service: AttachmentService | None,
+    ) -> str | list[dict[str, Any]] | None:
+        if not self._segments:
+            return None
+
+        structured_mode = False
+        text_buffer: list[str] = []
+        structured_parts: list[dict[str, Any]] = []
+
+        for kind, payload in self._segments:
+            if kind == "text":
+                if isinstance(payload, str):
+                    text_buffer.append(payload)
+                continue
+
+            if not isinstance(payload, dict):
+                continue
+
+            if text_buffer:
+                structured_parts.append({"type": "text", "text": "".join(text_buffer)})
+                text_buffer.clear()
+            structured_mode = True
+
+            processed, attachment_id = await _process_assistant_fragment(
+                payload,
+                session_id,
+                attachment_service,
+            )
+            if attachment_id:
+                self._created_attachment_ids.append(attachment_id)
+            if processed is None:
+                continue
+            structured_parts.append(processed)
+
+        if not structured_mode:
+            return "".join(text_buffer)
+
+        if text_buffer:
+            structured_parts.append({"type": "text", "text": "".join(text_buffer)})
+
+        return structured_parts if structured_parts else None
+
+
 class StreamingHandler:
     """Stream chat responses, execute tools, and persist conversation state."""
 
@@ -70,6 +147,7 @@ class StreamingHandler:
         default_model: str,
         tool_hop_limit: int = 3,
         model_settings: ModelSettingsService | None = None,
+        attachment_service: AttachmentService | None = None,
     ) -> None:
         self._client = client
         self._repo = repository
@@ -77,6 +155,12 @@ class StreamingHandler:
         self._default_model = default_model
         self._tool_hop_limit = tool_hop_limit
         self._model_settings = model_settings
+        self._attachment_service = attachment_service
+
+    def set_attachment_service(self, service: AttachmentService | None) -> None:
+        """Attach or replace the attachment service used for image persistence."""
+
+        self._attachment_service = service
 
     async def stream_conversation(
         self,
@@ -143,7 +227,7 @@ class StreamingHandler:
                 payload.pop("tools", None)
                 payload.pop("tool_choice", None)
 
-            content_fragments: list[str] = []
+            content_builder = _AssistantContentBuilder()
             streamed_tool_calls: list[dict[str, Any]] = []
             finish_reason: str | None = None
             model_name: str | None = None
@@ -187,9 +271,11 @@ class StreamingHandler:
                     for choice in choices:
                         delta = choice.get("delta") or {}
 
-                        text = delta.get("content")
-                        if isinstance(text, str):
-                            content_fragments.append(text)
+                        delta_content = delta.get("content")
+                        if isinstance(delta_content, str):
+                            content_builder.add_text(delta_content)
+                        elif isinstance(delta_content, list):
+                            content_builder.add_structured(delta_content)
 
                         if tool_deltas := delta.get("tool_calls"):
                             _merge_tool_calls(streamed_tool_calls, tool_deltas)
@@ -234,6 +320,14 @@ class StreamingHandler:
                                 reasoning_segments, new_segments, seen_reasoning
                             )
 
+                    message_payload = chunk.get("message")
+                    if isinstance(message_payload, dict):
+                        message_content = message_payload.get("content")
+                        if isinstance(message_content, str):
+                            content_builder.add_text(message_content)
+                        elif isinstance(message_content, list):
+                            content_builder.add_structured(message_content)
+
                     yield event
             except OpenRouterError as exc:
                 if allow_tools and can_retry_without_tools and _is_tool_support_error(exc):
@@ -258,10 +352,14 @@ class StreamingHandler:
                 raise
 
             tool_calls = _finalize_tool_calls(streamed_tool_calls)
-            content = "".join(content_fragments)
+            assistant_content = await content_builder.finalize(
+                session_id,
+                self._attachment_service,
+            )
+            new_attachment_ids = list(content_builder.created_attachment_ids)
 
             assistant_turn = AssistantTurn(
-                content=content if content else None,
+                content=assistant_content if assistant_content else None,
                 tool_calls=tool_calls,
                 finish_reason=finish_reason,
                 model=model_name,
@@ -307,6 +405,8 @@ class StreamingHandler:
             assistant_turn.created_at = edt_iso or assistant_created_at
             assistant_turn.created_at_utc = utc_iso or assistant_created_at
             conversation_state.append(assistant_turn.to_message_dict())
+            if new_attachment_ids:
+                await self._repo.mark_attachments_used(session_id, new_attachment_ids)
 
             metadata_event_payload = {
                 "role": "assistant",
@@ -525,6 +625,192 @@ def _is_tool_support_error(error: OpenRouterError) -> bool:
 
 def _tool_requires_session_id(tool_name: str) -> bool:
     return tool_name == _SESSION_AWARE_TOOL_NAME or tool_name.endswith(_SESSION_AWARE_TOOL_SUFFIX)
+
+
+_TEXT_FRAGMENT_TYPES = {"text", "output_text"}
+
+_MIME_EXTENSION_MAP = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/webp": "webp",
+    "image/gif": "gif",
+    "image/bmp": "bmp",
+    "image/heic": "heic",
+    "image/heif": "heif",
+}
+
+
+async def _process_assistant_fragment(
+    fragment: dict[str, Any],
+    session_id: str,
+    attachment_service: AttachmentService | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    fragment_type = fragment.get("type")
+    normalized_type = fragment_type.lower().strip() if isinstance(fragment_type, str) else ""
+
+    if normalized_type in _TEXT_FRAGMENT_TYPES:
+        text_value = fragment.get("text")
+        if isinstance(text_value, str):
+            return {"type": "text", "text": text_value}, None
+        return None, None
+
+    fallback_text = fragment.get("text")
+    if not normalized_type and isinstance(fallback_text, str):
+        return {"type": "text", "text": fallback_text}, None
+
+    if normalized_type in {"image_url", "image"} or "image_url" in fragment:
+        processed, attachment_id = await _persist_image_fragment(
+            fragment,
+            session_id,
+            attachment_service,
+        )
+        return processed, attachment_id
+
+    return _deep_copy_jsonable(fragment), None
+
+
+async def _persist_image_fragment(
+    fragment: dict[str, Any],
+    session_id: str,
+    attachment_service: AttachmentService | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    image_payload = fragment.get("image_url")
+    if not isinstance(image_payload, dict):
+        return _deep_copy_jsonable(fragment), None
+
+    data_bytes: bytes | None = None
+    mime_type: str | None = image_payload.get("mime_type")
+    filename_hint = image_payload.get("file_name") or image_payload.get("filename")
+
+    b64_value = image_payload.get("b64_json")
+    if isinstance(b64_value, str) and b64_value:
+        data_bytes = _safe_b64decode(b64_value)
+        if data_bytes is None:
+            logger.debug("Failed to decode image payload b64_json")
+
+    if data_bytes is None:
+        url_value = image_payload.get("url")
+        if isinstance(url_value, str) and url_value:
+            data_bytes, derived_mime = _decode_data_uri(url_value)
+            if data_bytes is None:
+                decoded_inline = _safe_b64decode(url_value)
+                if decoded_inline is not None:
+                    data_bytes = decoded_inline
+            if data_bytes is not None and not mime_type:
+                mime_type = derived_mime
+
+    if data_bytes is None:
+        return _deep_copy_jsonable(fragment), None
+
+    if attachment_service is None:
+        logger.warning(
+            "Generated image content received for session %s but no attachment service is configured",
+            session_id,
+        )
+        return _deep_copy_jsonable(fragment), None
+
+    normalized_mime = (mime_type or "image/png").lower()
+    filename = filename_hint or _guess_filename_from_mime(normalized_mime)
+
+    try:
+        record = await attachment_service.save_model_image_bytes(
+            session_id=session_id,
+            data=data_bytes,
+            mime_type=normalized_mime,
+            filename_hint=filename,
+        )
+    except Exception:  # pragma: no cover - defensive persistence handling
+        logger.warning("Failed to persist generated image for session %s", session_id, exc_info=True)
+        return _deep_copy_jsonable(fragment), None
+
+    metadata = _build_attachment_metadata(record)
+    fragment_payload = {
+        "type": "image_url",
+        "image_url": {
+            "url": record.get("delivery_url") or record.get("signed_url"),
+        },
+        "metadata": metadata,
+    }
+    attachment_id = record.get("attachment_id")
+    return fragment_payload, attachment_id if isinstance(attachment_id, str) else None
+
+
+def _decode_data_uri(value: str) -> tuple[bytes | None, str | None]:
+    if not isinstance(value, str) or not value.startswith("data:"):
+        return None, None
+
+    header, _, data_part = value.partition(",")
+    if not data_part:
+        return None, None
+
+    meta = header[5:]
+    if ";" in meta:
+        mime, *params = meta.split(";")
+    else:
+        mime, params = meta, []
+
+    mime_type = mime or "application/octet-stream"
+    params_lower = {param.lower() for param in params}
+    is_base64 = "base64" in params_lower
+
+    if is_base64:
+        cleaned = data_part.strip().replace("\n", "").replace("\r", "")
+        data_bytes = _safe_b64decode(cleaned)
+    else:
+        data_bytes = unquote_to_bytes(data_part)
+
+    return data_bytes, mime_type
+
+
+def _safe_b64decode(value: str) -> bytes | None:
+    if not isinstance(value, str):
+        return None
+    cleaned = value.strip().replace("\n", "").replace("\r", "")
+    padding = len(cleaned) % 4
+    if padding:
+        cleaned += "=" * (4 - padding)
+    try:
+        return base64.b64decode(cleaned, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+
+
+def _guess_filename_from_mime(mime_type: str) -> str:
+    extension = _MIME_EXTENSION_MAP.get(mime_type.lower())
+    if not extension:
+        return "generated.bin"
+    return f"image.{extension}"
+
+
+def _build_attachment_metadata(record: dict[str, Any]) -> dict[str, Any]:
+    metadata: dict[str, Any] = {
+        "attachment_id": record.get("attachment_id"),
+        "display_url": record.get("display_url") or record.get("signed_url"),
+        "delivery_url": record.get("delivery_url") or record.get("signed_url"),
+        "mime_type": record.get("mime_type"),
+        "size_bytes": record.get("size_bytes"),
+        "session_id": record.get("session_id"),
+        "uploaded_at": record.get("created_at"),
+        "expires_at": record.get("expires_at"),
+        "signed_url_expires_at": record.get("signed_url_expires_at"),
+    }
+
+    extra_metadata = record.get("metadata")
+    if isinstance(extra_metadata, dict):
+        filename = extra_metadata.get("filename")
+        if isinstance(filename, str):
+            metadata["filename"] = filename
+
+    # Remove keys with None values for cleaner payloads
+    return {key: value for key, value in metadata.items() if value is not None}
+
+
+def _deep_copy_jsonable(payload: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return json.loads(json.dumps(payload))
+    except (TypeError, ValueError):
+        return dict(payload)
 
 
 def _merge_tool_calls(

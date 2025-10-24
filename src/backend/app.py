@@ -8,6 +8,7 @@ import os
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
@@ -30,20 +31,62 @@ from .services.presets import PresetService
 
 def _configure_logging() -> None:
     """Configure logging based on LOG_LEVEL environment variable."""
+    # Load .env file first to ensure LOG_FILE is available
+    load_dotenv()
+
     log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
-    # Configure root logger
+    # Create logs directory if it doesn't exist
+    log_file = os.getenv("LOG_FILE")
+    handlers: list[logging.Handler] = []
+
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+            )
+        )
+        handlers.append(file_handler)
+
+    # Always add console handler
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    handlers.append(console_handler)
+
+    # Configure root logger with no message truncation
     logging.basicConfig(
         level=log_level,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=handlers,
         force=True,  # Override any existing configuration
     )
+
+    # Disable any max length restrictions on log records
+    logging.logMultiprocessing = False
+    logging.logProcesses = False
+    logging.logThreads = False
 
     # Ensure our backend modules use the configured level
     backend_logger = logging.getLogger("backend")
     backend_logger.setLevel(log_level)
+
+    # Also capture uvicorn logs
+    logging.getLogger("uvicorn").setLevel(log_level)
+    logging.getLogger("uvicorn.access").setLevel(log_level)
+    logging.getLogger("uvicorn.error").setLevel(log_level)
+
+    # Ensure httpx and httpcore show full content at DEBUG level
+    logging.getLogger("httpx").setLevel(log_level)
+    logging.getLogger("httpcore").setLevel(log_level)
 
     # Optionally quiet down noisy third-party libraries
     if log_level > logging.DEBUG:

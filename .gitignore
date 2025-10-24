@@ -39,6 +39,10 @@ dist/
 *.sqlite3
 data/chat_sessions.db
 
+# Log files
+logs/
+*.log
+
 # Credentials and tokens
 *credentials*.json
 *token*.json

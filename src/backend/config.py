@@ -133,6 +133,34 @@ class Settings(BaseSettings):
         ),
     )
 
+    # Image download (for model-generated image_url fetch)
+    image_download_allowed_hosts: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices(
+            "IMAGE_DOWNLOAD_ALLOWED_HOSTS",
+            "image_download_allowed_hosts",
+        ),
+        description=(
+            "List of hostnames allowed for server-side image downloads."
+        ),
+    )
+    image_download_timeout_seconds: int = Field(
+        default=15,
+        ge=1,
+        validation_alias=AliasChoices(
+            "IMAGE_DOWNLOAD_TIMEOUT_SECONDS",
+            "image_download_timeout_seconds",
+        ),
+    )
+    image_download_max_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        ge=1,
+        validation_alias=AliasChoices(
+            "IMAGE_DOWNLOAD_MAX_BYTES",
+            "image_download_max_bytes",
+        ),
+    )
+
     @property
     def attachment_signed_url_ttl(self) -> timedelta:
         return timedelta(days=self.attachments_retention_days)

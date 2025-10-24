@@ -16,6 +16,8 @@ from ..repository import ChatRepository, format_timestamp_for_client
 from ..schemas.chat import ChatCompletionRequest
 from ..services.attachments import AttachmentService
 from ..services.model_settings import ModelSettingsService
+from ..config import get_settings
+import httpx
 
 
 class ToolExecutor(Protocol):
@@ -163,10 +165,17 @@ class _AssistantContentBuilder:
     def created_attachment_ids(self) -> Sequence[str]:
         return tuple(self._created_attachment_ids)
 
+    def register_attachment(self, attachment_id: str) -> None:
+        if not attachment_id:
+            return
+        if attachment_id not in self._created_attachment_ids:
+            self._created_attachment_ids.append(attachment_id)
+
     async def finalize(
         self,
         session_id: str,
         attachment_service: AttachmentService | None,
+        http_client: httpx.AsyncClient | None = None,
     ) -> str | list[dict[str, Any]] | None:
         if not self._segments:
             return None
@@ -193,6 +202,7 @@ class _AssistantContentBuilder:
                 payload,
                 session_id,
                 attachment_service,
+                http_client,
             )
             if attachment_id:
                 self._created_attachment_ids.append(attachment_id)
@@ -344,6 +354,9 @@ class StreamingHandler:
                         logger.debug("Skipping non-JSON SSE payload: %s", data)
                         continue
 
+                    chunk_modified = False
+                    http_client_cache: httpx.AsyncClient | None = None
+
                     choices = chunk.get("choices") or []
                     for choice in choices:
                         delta = choice.get("delta") or {}
@@ -357,7 +370,45 @@ class StreamingHandler:
                             )
                             content_builder.add_text(delta_content)
                         elif isinstance(delta_content, list):
-                            content_builder.add_structured(delta_content)
+                            http_client: httpx.AsyncClient | None = None
+                            if hasattr(self._client, "_get_http_client"):
+                                if http_client_cache is None:
+                                    http_client_cache = await self._client._get_http_client()
+                                http_client = http_client_cache
+                            new_fragments, attachment_ids, mutated = await _normalize_structured_fragments(
+                                delta_content,
+                                session_id,
+                                self._attachment_service,
+                                http_client,
+                            )
+                            if mutated:
+                                delta["content"] = new_fragments
+                                chunk_modified = True
+                            content_builder.add_structured(new_fragments)
+                            for attachment_id in attachment_ids:
+                                content_builder.register_attachment(attachment_id)
+
+                        delta_images = delta.get("images")
+                        if isinstance(delta_images, list) and delta_images:
+                            http_client: httpx.AsyncClient | None = None
+                            if hasattr(self._client, "_get_http_client"):
+                                if http_client_cache is None:
+                                    http_client_cache = await self._client._get_http_client()
+                                http_client = http_client_cache
+                            normalized_images, image_attachment_ids, images_mutated = (
+                                await _normalize_structured_fragments(
+                                    delta_images,
+                                    session_id,
+                                    self._attachment_service,
+                                    http_client,
+                                )
+                            )
+                            if images_mutated:
+                                delta["images"] = normalized_images
+                                chunk_modified = True
+                            content_builder.add_structured(normalized_images)
+                            for attachment_id in image_attachment_ids:
+                                content_builder.register_attachment(attachment_id)
 
                         if tool_deltas := delta.get("tool_calls"):
                             _merge_tool_calls(streamed_tool_calls, tool_deltas)
@@ -420,7 +471,48 @@ class StreamingHandler:
                             )
                             content_builder.add_text(message_content)
                         elif isinstance(message_content, list):
-                            content_builder.add_structured(message_content)
+                            http_client: httpx.AsyncClient | None = None
+                            if hasattr(self._client, "_get_http_client"):
+                                if http_client_cache is None:
+                                    http_client_cache = await self._client._get_http_client()
+                                http_client = http_client_cache
+                            new_fragments, attachment_ids, mutated = await _normalize_structured_fragments(
+                                message_content,
+                                session_id,
+                                self._attachment_service,
+                                http_client,
+                            )
+                            if mutated:
+                                message_payload["content"] = new_fragments
+                                chunk_modified = True
+                            content_builder.add_structured(new_fragments)
+                            for attachment_id in attachment_ids:
+                                content_builder.register_attachment(attachment_id)
+
+                        message_images = message_payload.get("images")
+                        if isinstance(message_images, list) and message_images:
+                            http_client: httpx.AsyncClient | None = None
+                            if hasattr(self._client, "_get_http_client"):
+                                if http_client_cache is None:
+                                    http_client_cache = await self._client._get_http_client()
+                                http_client = http_client_cache
+                            normalized_images, image_attachment_ids, images_mutated = (
+                                await _normalize_structured_fragments(
+                                    message_images,
+                                    session_id,
+                                    self._attachment_service,
+                                    http_client,
+                                )
+                            )
+                            if images_mutated:
+                                message_payload["images"] = normalized_images
+                                chunk_modified = True
+                            content_builder.add_structured(normalized_images)
+                            for attachment_id in image_attachment_ids:
+                                content_builder.register_attachment(attachment_id)
+
+                    if chunk_modified:
+                        event["data"] = json.dumps(chunk)
 
                     yield event
             except OpenRouterError as exc:
@@ -455,6 +547,10 @@ class StreamingHandler:
             assistant_content = await content_builder.finalize(
                 session_id,
                 self._attachment_service,
+                # Reuse the OpenRouter HTTP client pool for image downloads (if available)
+                (await self._client._get_http_client())
+                if hasattr(self._client, "_get_http_client")
+                else None,
             )
             new_attachment_ids = list(content_builder.created_attachment_ids)
 
@@ -745,6 +841,7 @@ _MIME_EXTENSION_MAP = {
     "image/jpeg": "jpg",
     "image/jpg": "jpg",
     "image/webp": "webp",
+    "image/avif": "avif",
     "image/gif": "gif",
     "image/bmp": "bmp",
     "image/heic": "heic",
@@ -805,7 +902,12 @@ async def _process_assistant_fragment(
     fragment: dict[str, Any],
     session_id: str,
     attachment_service: AttachmentService | None,
+    http_client: httpx.AsyncClient | None,
 ) -> tuple[dict[str, Any] | None, str | None]:
+    # If already persisted (has attachment metadata), return as-is to avoid duplicates
+    meta = fragment.get("metadata")
+    if isinstance(meta, dict) and isinstance(meta.get("attachment_id"), str):
+        return _deep_copy_jsonable(fragment), None
     fragment_type = fragment.get("type")
     normalized_type = (
         fragment_type.lower().strip() if isinstance(fragment_type, str) else ""
@@ -837,7 +939,7 @@ async def _process_assistant_fragment(
 
     if (
         normalized_type in {"image_url", "image"}
-        or "image" in normalized_type
+        or normalized_type.startswith("image")
         or has_explicit_image_payload
     ):
         logger.info(
@@ -850,6 +952,7 @@ async def _process_assistant_fragment(
             fragment,
             session_id,
             attachment_service,
+            http_client,
         )
         logger.info(
             "[IMG-GEN] Image fragment processing complete: attachment_id=%s, processed=%s",
@@ -865,6 +968,7 @@ async def _persist_image_fragment(
     fragment: dict[str, Any],
     session_id: str,
     attachment_service: AttachmentService | None,
+    http_client: httpx.AsyncClient | None,
 ) -> tuple[dict[str, Any] | None, str | None]:
     logger.info("[IMG-GEN] === STARTING IMAGE PERSISTENCE ===")
     logger.debug("[IMG-GEN] Fragment keys: %s", list(fragment.keys()))
@@ -886,10 +990,63 @@ async def _persist_image_fragment(
 
     if data_bytes is None:
         logger.debug(
-            "[IMG-GEN] No decodable bytes found in fragment (source=%s); returning copy",
+            "[IMG-GEN] No decodable inline bytes found in fragment (source=%s)",
             payload_source,
         )
-        return _deep_copy_jsonable(fragment), None
+        # Attempt remote fetch if a URL is present and allowed
+        url_value: str | None = None
+        if isinstance(image_payload, dict):
+            candidate_url = image_payload.get("url")
+            if isinstance(candidate_url, str) and candidate_url.strip():
+                url_value = candidate_url.strip()
+        if not url_value:
+            # Some providers nest the URL one level higher
+            candidate_url = fragment.get("url")
+            if isinstance(candidate_url, str) and candidate_url.strip():
+                url_value = candidate_url.strip()
+
+        if url_value and _is_http_url(url_value):
+            settings = get_settings()
+            if _is_allowed_host(url_value, settings.image_download_allowed_hosts):
+                if http_client is None:
+                    logger.warning(
+                        "[IMG-GEN] Cannot fetch image URL; no HTTP client available"
+                    )
+                else:
+                    logger.info(
+                        "[IMG-GEN] Fetching image from URL: %s (session=%s)",
+                        _redact_url(url_value),
+                        session_id,
+                    )
+                    try:
+                        fetched_bytes, fetched_mime = await _download_image(
+                            http_client,
+                            url_value,
+                            timeout_seconds=float(
+                                settings.image_download_timeout_seconds
+                            ),
+                            max_bytes=int(settings.image_download_max_bytes),
+                        )
+                        if fetched_bytes:
+                            data_bytes = fetched_bytes
+                            # Prefer decoded/guessed mime over fragment hint
+                            mime_type = fetched_mime or mime_type
+                            logger.info(
+                                "[IMG-GEN] ✓ Downloaded %d bytes from provider URL",
+                                len(data_bytes),
+                            )
+                        else:
+                            logger.warning(
+                                "[IMG-GEN] Failed to download image bytes from URL"
+                            )
+                    except Exception as exc:  # pragma: no cover - transport issues
+                        logger.warning(
+                            "[IMG-GEN] Error downloading image from %s: %s",
+                            _redact_url(url_value),
+                            exc,
+                        )
+        if data_bytes is None:
+            return _deep_copy_jsonable(fragment), None
 
     if attachment_service is None:
         logger.error(
@@ -898,7 +1055,7 @@ async def _persist_image_fragment(
         )
         return _deep_copy_jsonable(fragment), None
 
-    normalized_mime = (mime_type or "image/png").lower()
+    normalized_mime = (mime_type or _sniff_mime_from_bytes(data_bytes) or "image/png").lower()
     filename = filename_hint or _guess_filename_from_mime(normalized_mime)
 
     logger.info(
@@ -947,6 +1104,40 @@ async def _persist_image_fragment(
     return fragment_payload, attachment_id if isinstance(attachment_id, str) else None
 
 
+async def _normalize_structured_fragments(
+    fragments: Sequence[Any],
+    session_id: str,
+    attachment_service: AttachmentService | None,
+    http_client: httpx.AsyncClient | None,
+) -> tuple[list[Any], list[str], bool]:
+    """Persist image fragments and return updated fragments, attachment IDs, and mutation flag."""
+
+    normalized: list[Any] = []
+    created_ids: list[str] = []
+    mutated = False
+
+    for index, fragment in enumerate(fragments):
+        if isinstance(fragment, dict):
+            processed, attachment_id = await _process_assistant_fragment(
+                fragment,
+                session_id,
+                attachment_service,
+                http_client,
+            )
+            if processed is not None:
+                normalized.append(processed)
+                if processed is not fragment:
+                    mutated = True
+            else:
+                normalized.append(fragment)
+            if attachment_id:
+                created_ids.append(attachment_id)
+        else:
+            normalized.append(fragment)
+
+    return normalized, created_ids, mutated
+
+
 def _decode_data_uri(value: str) -> tuple[bytes | None, str | None]:
     if not isinstance(value, str) or not value.startswith("data:"):
         return None, None
@@ -985,6 +1176,109 @@ def _safe_b64decode(value: str) -> bytes | None:
         return base64.b64decode(cleaned, validate=True)
     except (binascii.Error, ValueError):
         return None
+
+
+def _is_http_url(value: str) -> bool:
+    return value.lower().startswith("http://") or value.lower().startswith("https://")
+
+
+def _is_allowed_host(url: str, allowlist: list[str] | None) -> bool:
+    """Return True if URL hostname matches the allowlist. Empty allowlist allows all."""
+    try:
+        from urllib.parse import urlparse
+
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+    except Exception:
+        return False
+    if not allowlist:
+        return True
+    for allowed in allowlist:
+        candidate = allowed.strip().lower()
+        if not candidate:
+            continue
+        if host == candidate or host.endswith("." + candidate):
+            return True
+    return False
+
+
+def _redact_url(url: str) -> str:
+    try:
+        from urllib.parse import urlparse, urlunparse
+
+        parsed = urlparse(url)
+        # Drop query/fragment when logging
+        return urlunparse(parsed._replace(query="", fragment=""))
+    except Exception:
+        return url
+
+
+async def _download_image(
+    client: httpx.AsyncClient,
+    url: str,
+    *,
+    timeout_seconds: float,
+    max_bytes: int,
+) -> tuple[bytes | None, str | None]:
+    """Fetch image bytes with size limit and basic content-type checks."""
+
+    timeout = httpx.Timeout(timeout_seconds, connect=10.0)
+    headers = {"Accept": "image/*"}
+    async with client.stream("GET", url, timeout=timeout, headers=headers) as resp:
+        resp.raise_for_status()
+
+        content_type = resp.headers.get("Content-Type", "").split(";")[0].strip()
+        if content_type and not content_type.lower().startswith("image/"):
+            # Continue, but we will sniff after download
+            logger.debug(
+                "[IMG-GEN] Non-image content-type '%s' from %s",
+                content_type,
+                _redact_url(url),
+            )
+
+        chunks: list[bytes] = []
+        total = 0
+        async for chunk in resp.aiter_bytes():
+            if not chunk:
+                continue
+            total += len(chunk)
+            if total > max_bytes:
+                raise ValueError(
+                    f"Downloaded image exceeds maximum size of {max_bytes} bytes"
+                )
+            chunks.append(chunk)
+
+        data = b"".join(chunks)
+        mime = content_type or _sniff_mime_from_bytes(data)
+        if not mime or not mime.lower().startswith("image/"):
+            raise ValueError("Fetched content is not a valid image")
+        return data, mime
+
+
+def _sniff_mime_from_bytes(data: bytes) -> str | None:
+    """Guess image mime type from magic bytes for common formats."""
+
+    if not data or len(data) < 12:
+        return None
+    # PNG
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    # JPEG
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    # GIF
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return "image/gif"
+    # WEBP: RIFF....WEBP
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    # BMP
+    if data.startswith(b"BM"):
+        return "image/bmp"
+    # HEIC/HEIF (rough check for 'ftypheic'/'ftypheif')
+    if b"ftypheic" in data[:64] or b"ftypheif" in data[:64]:
+        return "image/heic"
+    return None
 
 
 _IMAGE_DATA_KEYS: tuple[str, ...] = (
@@ -1046,8 +1340,15 @@ def _extract_image_payload(
     return None, "", None, fragment_mime, fragment_filename
 
 
-def _decode_payload_bytes(payload: dict[str, Any]) -> bytes | None:
-    """Attempt to decode inline bytes from a payload mapping."""
+def _decode_payload_bytes(payload: dict[str, Any], *, _depth: int = 0) -> bytes | None:
+    """Attempt to decode inline bytes from a payload mapping.
+
+    Uses a conservative recursion depth limit to avoid pathological inputs.
+    """
+
+    if _depth > 5:
+        logger.debug("[IMG-GEN] Max decode depth reached; aborting nested decode")
+        return None
 
     for key in _IMAGE_DATA_KEYS:
         candidate = payload.get(key)
@@ -1069,7 +1370,7 @@ def _decode_payload_bytes(payload: dict[str, Any]) -> bytes | None:
 
     data_field = payload.get("data")
     if isinstance(data_field, dict):
-        nested = _decode_payload_bytes(data_field)
+        nested = _decode_payload_bytes(data_field, _depth=_depth + 1)
         if nested is not None:
             return nested
     elif isinstance(data_field, str) and data_field:

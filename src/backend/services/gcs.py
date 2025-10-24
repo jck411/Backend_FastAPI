@@ -65,14 +65,23 @@ def upload_bytes(blob_name: str, data: bytes, *, content_type: str) -> None:
     """Upload raw bytes to the configured bucket."""
 
     blob = get_bucket().blob(blob_name)
-    blob.upload_from_string(data, content_type=content_type)
+    # Atomic create: prevent overwriting an existing object
+    blob.upload_from_string(
+        data,
+        content_type=content_type,
+        if_generation_match=0,
+    )
 
 
 def upload_filelike(blob_name: str, file_like: BinaryIO, *, content_type: str) -> None:
     """Upload a file-like object to the configured bucket."""
 
     blob = get_bucket().blob(blob_name)
-    blob.upload_from_file(file_like, content_type=content_type)
+    blob.upload_from_file(
+        file_like,
+        content_type=content_type,
+        if_generation_match=0,
+    )
 
 
 def delete_blob(blob_name: str) -> None:

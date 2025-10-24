@@ -6,15 +6,16 @@ import base64
 import binascii
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Iterable, Protocol, Sequence
 from urllib.parse import unquote_to_bytes
 
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..repository import ChatRepository, format_timestamp_for_client
+from ..schemas.chat import ChatCompletionRequest
 from ..services.attachments import AttachmentService
 from ..services.model_settings import ModelSettingsService
-from ..schemas.chat import ChatCompletionRequest
 
 
 class ToolExecutor(Protocol):
@@ -25,6 +26,7 @@ class ToolExecutor(Protocol):
     def get_openai_tools(self) -> list[dict[str, Any]]: ...
 
     def format_tool_result(self, result: Any) -> str: ...
+
 
 logger = logging.getLogger(__name__)
 
@@ -74,15 +76,87 @@ class _AssistantContentBuilder:
     def add_text(self, text: str) -> None:
         if not isinstance(text, str) or not text:
             return
-        self._segments.append(("text", text))
+
+        logger.debug(
+            "[IMG-GEN] add_text incoming segment len=%d preview=%r",
+            len(text),
+            text[:120],
+        )
+
+        # Merge consecutive text segments so data URIs split across chunks join correctly.
+        if self._segments and self._segments[-1][0] == "text":
+            _, previous_value = self._segments.pop()
+            if isinstance(previous_value, str):
+                logger.debug(
+                    "[IMG-GEN] Merging consecutive text segments: prev_len=%d, new_len=%d",
+                    len(previous_value),
+                    len(text),
+                )
+                text = previous_value + text
+            else:
+                self._segments.append(("text", previous_value))
+
+        segments = list(_split_text_and_inline_images(text))
+        logger.debug(
+            "[IMG-GEN] add_text received %d segments after split", len(segments)
+        )
+        if not segments:
+            return
+
+        if len(segments) == 1 and segments[0][0] == "text":
+            text_segment = segments[0][1]
+            logger.debug(
+                "[IMG-GEN] add_text storing plain text segment len=%d preview=%r",
+                len(text_segment),
+                text_segment[:120],
+            )
+            self._segments.append(("text", text_segment))
+            return
+
+        for kind, value in segments:
+            if kind == "text":
+                if value:
+                    logger.debug(
+                        "[IMG-GEN] Adding text sub-segment len=%d preview=%r",
+                        len(value),
+                        value[:80],
+                    )
+                    self._segments.append(("text", value))
+            elif kind == "image":
+                logger.info(
+                    "[IMG-GEN] Detected inline image data URI in text content, length=%d",
+                    len(value),
+                )
+                self._segments.append(
+                    (
+                        "fragment",
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": value.strip()},
+                        },
+                    )
+                )
 
     def add_structured(self, fragments: Sequence[Any]) -> None:
         if not fragments:
             return
-        for fragment in fragments:
+        logger.debug(
+            "[IMG-GEN] add_structured called with %d fragments", len(fragments)
+        )
+        for idx, fragment in enumerate(fragments):
             if isinstance(fragment, dict):
+                fragment_type = fragment.get("type")
+                logger.debug(
+                    "[IMG-GEN] Fragment %d: type=%s, keys=%s",
+                    idx,
+                    fragment_type,
+                    list(fragment.keys()),
+                )
                 self._segments.append(("fragment", fragment))
             elif isinstance(fragment, str):
+                logger.debug(
+                    "[IMG-GEN] Fragment %d: string with length %d", idx, len(fragment)
+                )
                 self.add_text(fragment)
 
     @property
@@ -195,7 +269,10 @@ class StreamingHandler:
             active_model = self._default_model
             overrides: dict[str, Any] = {}
             if self._model_settings is not None:
-                model_override, overrides = await self._model_settings.get_openrouter_overrides()
+                (
+                    model_override,
+                    overrides,
+                ) = await self._model_settings.get_openrouter_overrides()
                 if model_override:
                     active_model = model_override
                 overrides = dict(overrides) if overrides else {}
@@ -273,6 +350,11 @@ class StreamingHandler:
 
                         delta_content = delta.get("content")
                         if isinstance(delta_content, str):
+                            logger.debug(
+                                "[IMG-GEN] delta content str len=%d preview=%r",
+                                len(delta_content),
+                                delta_content[:120],
+                            )
                             content_builder.add_text(delta_content)
                         elif isinstance(delta_content, list):
                             content_builder.add_structured(delta_content)
@@ -285,7 +367,9 @@ class StreamingHandler:
                             finish_reason = choice_finish
 
                         if "reasoning" in delta:
-                            new_segments = _extract_reasoning_segments(delta["reasoning"])
+                            new_segments = _extract_reasoning_segments(
+                                delta["reasoning"]
+                            )
                             _extend_reasoning_segments(
                                 reasoning_segments, new_segments, seen_reasoning
                             )
@@ -323,16 +407,32 @@ class StreamingHandler:
                     message_payload = chunk.get("message")
                     if isinstance(message_payload, dict):
                         message_content = message_payload.get("content")
+                        if message_content is not None:
+                            logger.debug(
+                                "[IMG-GEN] message payload content type=%s",
+                                type(message_content).__name__,
+                            )
                         if isinstance(message_content, str):
+                            logger.debug(
+                                "[IMG-GEN] message content str len=%d preview=%r",
+                                len(message_content),
+                                message_content[:120],
+                            )
                             content_builder.add_text(message_content)
                         elif isinstance(message_content, list):
                             content_builder.add_structured(message_content)
 
                     yield event
             except OpenRouterError as exc:
-                if allow_tools and can_retry_without_tools and _is_tool_support_error(exc):
+                if (
+                    allow_tools
+                    and can_retry_without_tools
+                    and _is_tool_support_error(exc)
+                ):
                     logger.info(
-                        "Retrying without tools for session %s: %s", session_id, exc.detail
+                        "Retrying without tools for session %s: %s",
+                        session_id,
+                        exc.detail,
                     )
                     tools_disabled = True
                     warning_text = (
@@ -417,10 +517,14 @@ class StreamingHandler:
                 "meta": assistant_turn.meta,
                 "generation_id": assistant_turn.generation_id,
                 "reasoning": assistant_turn.reasoning,
-                "tool_calls": assistant_turn.tool_calls if assistant_turn.tool_calls else None,
+                "tool_calls": assistant_turn.tool_calls
+                if assistant_turn.tool_calls
+                else None,
             }
             if assistant_client_message_id is not None:
-                metadata_event_payload["client_message_id"] = assistant_client_message_id
+                metadata_event_payload["client_message_id"] = (
+                    assistant_client_message_id
+                )
             metadata_event_payload["message_id"] = assistant_record_id
             if assistant_turn.created_at is not None:
                 metadata_event_payload["created_at"] = assistant_turn.created_at
@@ -553,7 +657,9 @@ class StreamingHandler:
                                 result = await self._tool_client.call_tool(
                                     tool_name, working_arguments
                                 )
-                                result_text = self._tool_client.format_tool_result(result)
+                                result_text = self._tool_client.format_tool_result(
+                                    result
+                                )
                                 status = "error" if result.isError else "finished"
                             except Exception as exc:  # pragma: no cover - MCP errors
                                 logger.exception(
@@ -610,7 +716,9 @@ def _is_tool_support_error(error: OpenRouterError) -> bool:
     detail = error.detail
     message = ""
     if isinstance(detail, dict):
-        message = " ".join(str(value) for value in detail.values() if isinstance(value, str))
+        message = " ".join(
+            str(value) for value in detail.values() if isinstance(value, str)
+        )
     elif detail is not None:
         message = str(detail)
 
@@ -624,10 +732,13 @@ def _is_tool_support_error(error: OpenRouterError) -> bool:
 
 
 def _tool_requires_session_id(tool_name: str) -> bool:
-    return tool_name == _SESSION_AWARE_TOOL_NAME or tool_name.endswith(_SESSION_AWARE_TOOL_SUFFIX)
+    return tool_name == _SESSION_AWARE_TOOL_NAME or tool_name.endswith(
+        _SESSION_AWARE_TOOL_SUFFIX
+    )
 
 
 _TEXT_FRAGMENT_TYPES = {"text", "output_text"}
+
 
 _MIME_EXTENSION_MAP = {
     "image/png": "png",
@@ -640,6 +751,55 @@ _MIME_EXTENSION_MAP = {
     "image/heif": "heif",
 }
 
+_INLINE_DATA_URI_PATTERN = re.compile(
+    r"data:image/[a-z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+",
+    re.IGNORECASE,
+)
+
+
+def _split_text_and_inline_images(text: str) -> list[tuple[str, str]]:
+    """Split text into tuples of (kind, value) for text and inline images."""
+
+    if not text:
+        return []
+
+    segments: list[tuple[str, str]] = []
+    cursor = 0
+    for match in _INLINE_DATA_URI_PATTERN.finditer(text):
+        start, end = match.span()
+        if start > cursor:
+            segments.append(("text", text[cursor:start]))
+        data_uri = match.group(0).strip()
+        logger.debug(
+            "[IMG-GEN] Inline image data URI match span=(%d,%d) preview=%r",
+            start,
+            end,
+            data_uri[:40],
+        )
+
+        if segments and segments[-1][0] == "text":
+            prefix_text = segments[-1][1]
+            md_match = re.search(r"!\[([^\]]*)\]\($", prefix_text)
+            if md_match:
+                segments.pop()
+                before_prefix = prefix_text[: md_match.start()]
+                if before_prefix:
+                    segments.append(("text", before_prefix))
+                alt_text = md_match.group(1).strip()
+                if alt_text:
+                    segments.append(("text", f"{alt_text}: "))
+
+        segments.append(("image", data_uri))
+        cursor = end
+
+    if cursor < len(text):
+        segments.append(("text", text[cursor:]))
+    logger.debug(
+        "[IMG-GEN] _split_text_and_inline_images produced %d segments", len(segments)
+    )
+
+    return segments
+
 
 async def _process_assistant_fragment(
     fragment: dict[str, Any],
@@ -647,9 +807,20 @@ async def _process_assistant_fragment(
     attachment_service: AttachmentService | None,
 ) -> tuple[dict[str, Any] | None, str | None]:
     fragment_type = fragment.get("type")
-    normalized_type = fragment_type.lower().strip() if isinstance(fragment_type, str) else ""
+    normalized_type = (
+        fragment_type.lower().strip() if isinstance(fragment_type, str) else ""
+    )
+
+    logger.debug(
+        "[IMG-GEN] _process_assistant_fragment: type=%s, normalized=%s, has_image_url=%s, all_keys=%s",
+        fragment_type,
+        normalized_type,
+        "image_url" in fragment,
+        list(fragment.keys()),
+    )
 
     if normalized_type in _TEXT_FRAGMENT_TYPES:
+        logger.debug("[IMG-GEN] Detected text fragment type: %s", normalized_type)
         text_value = fragment.get("text")
         if isinstance(text_value, str):
             return {"type": "text", "text": text_value}, None
@@ -660,10 +831,21 @@ async def _process_assistant_fragment(
         return {"type": "text", "text": fallback_text}, None
 
     if normalized_type in {"image_url", "image"} or "image_url" in fragment:
+        logger.info(
+            "[IMG-GEN] IMAGE FRAGMENT DETECTED! session=%s, type=%s, has_image_url_key=%s",
+            session_id,
+            normalized_type,
+            "image_url" in fragment,
+        )
         processed, attachment_id = await _persist_image_fragment(
             fragment,
             session_id,
             attachment_service,
+        )
+        logger.info(
+            "[IMG-GEN] Image fragment processing complete: attachment_id=%s, processed=%s",
+            attachment_id,
+            "success" if processed else "failed",
         )
         return processed, attachment_id
 
@@ -675,15 +857,39 @@ async def _persist_image_fragment(
     session_id: str,
     attachment_service: AttachmentService | None,
 ) -> tuple[dict[str, Any] | None, str | None]:
+    logger.info("[IMG-GEN] === STARTING IMAGE PERSISTENCE ===")
+    logger.debug("[IMG-GEN] Fragment keys: %s", list(fragment.keys()))
+
     image_payload = fragment.get("image_url")
+    logger.debug(
+        "[IMG-GEN] image_payload type: %s, is_dict: %s",
+        type(image_payload).__name__,
+        isinstance(image_payload, dict),
+    )
+
     if not isinstance(image_payload, dict):
+        logger.warning(
+            "[IMG-GEN] image_payload is not a dict, returning fragment as-is"
+        )
         return _deep_copy_jsonable(fragment), None
 
     data_bytes: bytes | None = None
     mime_type: str | None = image_payload.get("mime_type")
     filename_hint = image_payload.get("file_name") or image_payload.get("filename")
 
+    logger.debug(
+        "[IMG-GEN] Image payload structure: keys=%s, mime_type=%s, filename_hint=%s",
+        list(image_payload.keys()),
+        mime_type,
+        filename_hint,
+    )
+
     b64_value = image_payload.get("b64_json")
+    logger.debug(
+        "[IMG-GEN] b64_json field: exists=%s, type=%s",
+        b64_value is not None,
+        type(b64_value).__name__ if b64_value else "None",
+    )
     if isinstance(b64_value, str) and b64_value:
         data_bytes = _safe_b64decode(b64_value)
         if data_bytes is None:
@@ -691,12 +897,37 @@ async def _persist_image_fragment(
 
     if data_bytes is None:
         url_value = image_payload.get("url")
+        logger.debug(
+            "[IMG-GEN] url field: exists=%s, type=%s",
+            url_value is not None,
+            type(url_value).__name__ if url_value else "None",
+        )
         if isinstance(url_value, str) and url_value:
+            logger.debug(
+                "[IMG-GEN] Attempting to decode url field (length: %d, starts_with: %s)",
+                len(url_value),
+                url_value[:50],
+            )
             data_bytes, derived_mime = _decode_data_uri(url_value)
             if data_bytes is None:
+                logger.debug(
+                    "[IMG-GEN] url is not a data URI, trying direct base64 decode"
+                )
                 decoded_inline = _safe_b64decode(url_value)
                 if decoded_inline is not None:
+                    logger.info(
+                        "[IMG-GEN] ✓ Successfully decoded url as inline base64: %d bytes",
+                        len(decoded_inline),
+                    )
                     data_bytes = decoded_inline
+                else:
+                    logger.warning("[IMG-GEN] Failed to decode url as base64")
+            else:
+                logger.info(
+                    "[IMG-GEN] ✓ Successfully decoded data URI: %d bytes, mime=%s",
+                    len(data_bytes),
+                    derived_mime,
+                )
             if data_bytes is not None and not mime_type:
                 mime_type = derived_mime
 
@@ -704,8 +935,8 @@ async def _persist_image_fragment(
         return _deep_copy_jsonable(fragment), None
 
     if attachment_service is None:
-        logger.warning(
-            "Generated image content received for session %s but no attachment service is configured",
+        logger.error(
+            "[IMG-GEN] ✗ FAILED: Generated image content received for session %s but no attachment service is configured",
             session_id,
         )
         return _deep_copy_jsonable(fragment), None
@@ -713,15 +944,34 @@ async def _persist_image_fragment(
     normalized_mime = (mime_type or "image/png").lower()
     filename = filename_hint or _guess_filename_from_mime(normalized_mime)
 
+    logger.info(
+        "[IMG-GEN] Preparing to save image: size=%d bytes, mime=%s, filename=%s, session=%s",
+        len(data_bytes),
+        normalized_mime,
+        filename,
+        session_id,
+    )
+
     try:
+        logger.debug("[IMG-GEN] Calling attachment_service.save_model_image_bytes...")
         record = await attachment_service.save_model_image_bytes(
             session_id=session_id,
             data=data_bytes,
             mime_type=normalized_mime,
             filename_hint=filename,
         )
-    except Exception:  # pragma: no cover - defensive persistence handling
-        logger.warning("Failed to persist generated image for session %s", session_id, exc_info=True)
+        logger.info(
+            "[IMG-GEN] ✓ SUCCESS: Image saved with attachment_id=%s, url=%s",
+            record.get("attachment_id"),
+            record.get("url"),
+        )
+    except Exception as e:  # pragma: no cover - defensive persistence handling
+        logger.error(
+            "[IMG-GEN] ✗ FAILED: Exception while persisting image for session %s: %s",
+            session_id,
+            str(e),
+            exc_info=True,
+        )
         return _deep_copy_jsonable(fragment), None
 
     metadata = _build_attachment_metadata(record)
@@ -850,10 +1100,10 @@ def _merge_tool_calls(
             entry["type"] = delta_type
 
         function_delta = delta.get("function") or {}
-        if (function_name := function_delta.get("name")):
+        if function_name := function_delta.get("name"):
             entry.setdefault("function", {"name": None, "arguments": ""})
             entry["function"]["name"] = function_name
-        if (arguments_fragment := function_delta.get("arguments")):
+        if arguments_fragment := function_delta.get("arguments"):
             entry.setdefault("function", {"name": None, "arguments": ""})
             entry["function"]["arguments"] += arguments_fragment
 
@@ -956,7 +1206,15 @@ def _extract_reasoning_segments(payload: Any) -> list[dict[str, Any]]:
                 normalized_type = current_type
 
             extracted = False
-            for key in ("text", "output", "content", "reasoning", "message", "details", "explanation"):
+            for key in (
+                "text",
+                "output",
+                "content",
+                "reasoning",
+                "message",
+                "details",
+                "explanation",
+            ):
                 if key not in node:
                     continue
                 value = node[key]

@@ -99,6 +99,58 @@
       "name": "4omini",
       "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack and live in Olrlando, Fl",
       "updated_at": "2025-10-19T03:27:28.746888Z"
+    },
+    {
+      "created_at": "2025-10-24T01:44:35.184462Z",
+      "is_default": false,
+      "mcp_servers": [
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "custom-gmail",
+          "module": "backend.mcp_servers.gmail_server"
+        },
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "custom-gdrive",
+          "module": "backend.mcp_servers.gdrive_server"
+        },
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "custom-pdf",
+          "module": "backend.mcp_servers.pdf_server"
+        },
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "custom-calendar",
+          "module": "backend.mcp_servers.calendar_server"
+        },
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "local-calculator",
+          "module": "backend.mcp_servers.calculator_server"
+        },
+        {
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "housekeeping",
+          "module": "backend.mcp_servers.housekeeping_server"
+        }
+      ],
+      "model": "google/gemini-2.5-flash-image",
+      "name": "image",
+      "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack and live in Olrlando, Fl",
+      "updated_at": "2025-10-24T01:44:35.184462Z"
     }
   ]
 }

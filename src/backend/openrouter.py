@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Iterable, Optional
 
@@ -12,6 +13,8 @@ from fastapi import status
 
 from .config import Settings
 from .schemas.chat import ChatCompletionRequest
+
+logger = logging.getLogger(__name__)
 
 
 class OpenRouterError(Exception):
@@ -59,9 +62,7 @@ class OpenRouterClient:
         async with self.__class__._client_lock:
             client = self.__class__._client_pool.get(key)
             if client is None:
-                timeout = httpx.Timeout(
-                    self._settings.request_timeout, connect=10.0
-                )
+                timeout = httpx.Timeout(self._settings.request_timeout, connect=10.0)
                 limits = httpx.Limits(
                     max_connections=50,
                     max_keepalive_connections=20,
@@ -131,7 +132,37 @@ class OpenRouterClient:
                         "data": json.dumps(routing_headers),
                     }
 
+                logger.debug("[IMG-GEN] Starting to read OpenRouter SSE stream")
                 async for event in self._iter_events(response):
+                    # Log if event contains structured content
+                    if event.data and event.data != "[DONE]":
+                        try:
+                            chunk = json.loads(event.data)
+                            if "choices" in chunk and chunk["choices"]:
+                                choice = chunk["choices"][0]
+                                delta = choice.get("delta", {})
+                                if "content" in delta:
+                                    content = delta["content"]
+                                    if isinstance(content, list):
+                                        logger.debug(
+                                            "[IMG-GEN] OpenRouter delta with structured content array: %d items",
+                                            len(content),
+                                        )
+                                        for i, item in enumerate(content):
+                                            if isinstance(item, dict):
+                                                logger.debug(
+                                                    "[IMG-GEN]   Content item %d: type=%s, keys=%s",
+                                                    i,
+                                                    item.get("type"),
+                                                    list(item.keys()),
+                                                )
+                                    elif isinstance(content, str) and len(content) > 0:
+                                        logger.debug(
+                                            "[IMG-GEN] OpenRouter delta with text content: %d chars",
+                                            len(content),
+                                        )
+                        except (json.JSONDecodeError, KeyError, TypeError):
+                            pass  # Skip logging errors for non-standard chunks
                     yield event.asdict()
         except httpx.HTTPError as exc:
             raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc

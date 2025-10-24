@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
@@ -27,7 +28,33 @@ from .services.model_settings import ModelSettingsService
 from .services.presets import PresetService
 
 
+def _configure_logging() -> None:
+    """Configure logging based on LOG_LEVEL environment variable."""
+    log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, log_level_str, logging.INFO)
+
+    # Configure root logger
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        force=True,  # Override any existing configuration
+    )
+
+    # Ensure our backend modules use the configured level
+    backend_logger = logging.getLogger("backend")
+    backend_logger.setLevel(log_level)
+
+    # Optionally quiet down noisy third-party libraries
+    if log_level > logging.DEBUG:
+        logging.getLogger("httpx").setLevel(logging.WARNING)
+        logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+
 def create_app() -> FastAPI:
+    # Configure logging first thing
+    _configure_logging()
+
     settings = get_settings()
 
     project_root = Path(__file__).resolve().parent.parent.parent

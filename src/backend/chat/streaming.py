@@ -830,7 +830,16 @@ async def _process_assistant_fragment(
     if not normalized_type and isinstance(fallback_text, str):
         return {"type": "text", "text": fallback_text}, None
 
-    if normalized_type in {"image_url", "image"} or "image_url" in fragment:
+    has_explicit_image_payload = any(
+        key in fragment
+        for key in ("image_url", "image", "b64_json", "image_base64", "image_b64")
+    )
+
+    if (
+        normalized_type in {"image_url", "image"}
+        or "image" in normalized_type
+        or has_explicit_image_payload
+    ):
         logger.info(
             "[IMG-GEN] IMAGE FRAGMENT DETECTED! session=%s, type=%s, has_image_url_key=%s",
             session_id,
@@ -860,78 +869,26 @@ async def _persist_image_fragment(
     logger.info("[IMG-GEN] === STARTING IMAGE PERSISTENCE ===")
     logger.debug("[IMG-GEN] Fragment keys: %s", list(fragment.keys()))
 
-    image_payload = fragment.get("image_url")
-    logger.debug(
-        "[IMG-GEN] image_payload type: %s, is_dict: %s",
-        type(image_payload).__name__,
-        isinstance(image_payload, dict),
-    )
-
-    if not isinstance(image_payload, dict):
-        logger.warning(
-            "[IMG-GEN] image_payload is not a dict, returning fragment as-is"
-        )
-        return _deep_copy_jsonable(fragment), None
-
-    data_bytes: bytes | None = None
-    mime_type: str | None = image_payload.get("mime_type")
-    filename_hint = image_payload.get("file_name") or image_payload.get("filename")
-
-    logger.debug(
-        "[IMG-GEN] Image payload structure: keys=%s, mime_type=%s, filename_hint=%s",
-        list(image_payload.keys()),
+    (
+        image_payload,
+        payload_source,
+        data_bytes,
         mime_type,
         filename_hint,
-    )
+    ) = _extract_image_payload(fragment)
 
-    b64_value = image_payload.get("b64_json")
-    logger.debug(
-        "[IMG-GEN] b64_json field: exists=%s, type=%s",
-        b64_value is not None,
-        type(b64_value).__name__ if b64_value else "None",
-    )
-    if isinstance(b64_value, str) and b64_value:
-        data_bytes = _safe_b64decode(b64_value)
-        if data_bytes is None:
-            logger.debug("Failed to decode image payload b64_json")
-
-    if data_bytes is None:
-        url_value = image_payload.get("url")
+    if image_payload is not None:
         logger.debug(
-            "[IMG-GEN] url field: exists=%s, type=%s",
-            url_value is not None,
-            type(url_value).__name__ if url_value else "None",
+            "[IMG-GEN] Selected image payload source=%s keys=%s",
+            payload_source or "unknown",
+            list(image_payload.keys()),
         )
-        if isinstance(url_value, str) and url_value:
-            logger.debug(
-                "[IMG-GEN] Attempting to decode url field (length: %d, starts_with: %s)",
-                len(url_value),
-                url_value[:50],
-            )
-            data_bytes, derived_mime = _decode_data_uri(url_value)
-            if data_bytes is None:
-                logger.debug(
-                    "[IMG-GEN] url is not a data URI, trying direct base64 decode"
-                )
-                decoded_inline = _safe_b64decode(url_value)
-                if decoded_inline is not None:
-                    logger.info(
-                        "[IMG-GEN] ✓ Successfully decoded url as inline base64: %d bytes",
-                        len(decoded_inline),
-                    )
-                    data_bytes = decoded_inline
-                else:
-                    logger.warning("[IMG-GEN] Failed to decode url as base64")
-            else:
-                logger.info(
-                    "[IMG-GEN] ✓ Successfully decoded data URI: %d bytes, mime=%s",
-                    len(data_bytes),
-                    derived_mime,
-                )
-            if data_bytes is not None and not mime_type:
-                mime_type = derived_mime
 
     if data_bytes is None:
+        logger.debug(
+            "[IMG-GEN] No decodable bytes found in fragment (source=%s); returning copy",
+            payload_source,
+        )
         return _deep_copy_jsonable(fragment), None
 
     if attachment_service is None:
@@ -945,11 +902,12 @@ async def _persist_image_fragment(
     filename = filename_hint or _guess_filename_from_mime(normalized_mime)
 
     logger.info(
-        "[IMG-GEN] Preparing to save image: size=%d bytes, mime=%s, filename=%s, session=%s",
+        "[IMG-GEN] Preparing to save image: size=%d bytes, mime=%s, filename=%s, session=%s, payload_source=%s",
         len(data_bytes),
         normalized_mime,
         filename,
         session_id,
+        payload_source or "unknown",
     )
 
     try:
@@ -975,6 +933,9 @@ async def _persist_image_fragment(
         return _deep_copy_jsonable(fragment), None
 
     metadata = _build_attachment_metadata(record)
+    original_type = fragment.get("type")
+    if isinstance(original_type, str) and original_type:
+        metadata.setdefault("source_fragment_type", original_type)
     fragment_payload = {
         "type": "image_url",
         "image_url": {
@@ -1024,6 +985,136 @@ def _safe_b64decode(value: str) -> bytes | None:
         return base64.b64decode(cleaned, validate=True)
     except (binascii.Error, ValueError):
         return None
+
+
+_IMAGE_DATA_KEYS: tuple[str, ...] = (
+    "b64_json",
+    "image_base64",
+    "image_b64",
+    "base64",
+    "image_bytes",
+    "image_data",
+)
+
+
+def _extract_image_payload(
+    fragment: dict[str, Any],
+) -> tuple[dict[str, Any] | None, str, bytes | None, str | None, str | None]:
+    """Locate and decode inline image bytes within a fragment."""
+
+    candidates: list[tuple[str, dict[str, Any]] | tuple[str, None]] = [
+        ("image_url", fragment.get("image_url")),
+        ("image", fragment.get("image")),
+    ]
+
+    data_field = fragment.get("data")
+    if isinstance(data_field, dict):
+        candidates.append(("data", data_field))
+
+    candidates.append(("fragment", fragment))
+
+    fragment_mime = _coalesce_str(
+        fragment.get("mime_type"),
+        fragment.get("mimeType"),
+    )
+    fragment_filename = _coalesce_str(
+        fragment.get("file_name"),
+        fragment.get("filename"),
+        fragment.get("name"),
+    )
+
+    for source, payload in candidates:
+        if not isinstance(payload, dict):
+            continue
+
+        mime_type = _coalesce_str(
+            payload.get("mime_type"),
+            payload.get("mimeType"),
+            fragment_mime,
+        )
+        filename_hint = _coalesce_str(
+            payload.get("file_name"),
+            payload.get("filename"),
+            payload.get("name"),
+            fragment_filename,
+        )
+
+        data_bytes = _decode_payload_bytes(payload)
+        if data_bytes is not None:
+            return payload, source, data_bytes, mime_type, filename_hint
+
+    return None, "", None, fragment_mime, fragment_filename
+
+
+def _decode_payload_bytes(payload: dict[str, Any]) -> bytes | None:
+    """Attempt to decode inline bytes from a payload mapping."""
+
+    for key in _IMAGE_DATA_KEYS:
+        candidate = payload.get(key)
+        if isinstance(candidate, str) and candidate:
+            logger.debug(
+                "[IMG-GEN] Attempting base64 decode from key=%s (length=%d)",
+                key,
+                len(candidate),
+            )
+            decoded = _safe_b64decode(candidate)
+            if decoded is not None:
+                logger.info(
+                    "[IMG-GEN] ✓ Successfully decoded base64 field '%s': %d bytes",
+                    key,
+                    len(decoded),
+                )
+                return decoded
+            logger.debug("[IMG-GEN] Failed to decode base64 from key=%s", key)
+
+    data_field = payload.get("data")
+    if isinstance(data_field, dict):
+        nested = _decode_payload_bytes(data_field)
+        if nested is not None:
+            return nested
+    elif isinstance(data_field, str) and data_field:
+        logger.debug(
+            "[IMG-GEN] Attempting to decode data field string (length=%d)",
+            len(data_field),
+        )
+        decoded, _ = _decode_data_uri(data_field)
+        if decoded is not None:
+            return decoded
+        inline = _safe_b64decode(data_field)
+        if inline is not None:
+            logger.info(
+                "[IMG-GEN] ✓ Successfully decoded inline base64 from data field: %d bytes",
+                len(inline),
+            )
+            return inline
+
+    url_value = payload.get("url")
+    if isinstance(url_value, str) and url_value:
+        logger.debug(
+            "[IMG-GEN] Attempting to decode url field (length=%d)",
+            len(url_value),
+        )
+        data_bytes, _ = _decode_data_uri(url_value)
+        if data_bytes is not None:
+            return data_bytes
+        inline = _safe_b64decode(url_value)
+        if inline is not None:
+            logger.info(
+                "[IMG-GEN] ✓ Successfully decoded inline base64 from url: %d bytes",
+                len(inline),
+            )
+            return inline
+
+    return None
+
+
+def _coalesce_str(*values: Any) -> str | None:
+    for value in values:
+        if isinstance(value, str):
+            candidate = value.strip()
+            if candidate:
+                return candidate
+    return None
 
 
 def _guess_filename_from_mime(mime_type: str) -> str:

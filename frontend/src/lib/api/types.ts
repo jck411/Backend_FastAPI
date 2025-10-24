@@ -63,7 +63,8 @@ export interface ChatCompletionRequest {
 }
 
 export interface ChatCompletionDelta {
-  content?: string;
+  content?: string | ChatContentFragment[];
+  images?: ChatContentFragment[];
   tool_calls?: Array<Record<string, unknown>>;
   reasoning?: Array<Record<string, unknown>>;
   [key: string]: unknown;

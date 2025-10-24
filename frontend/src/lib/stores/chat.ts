@@ -3,9 +3,14 @@ import { ApiError, deleteChatMessage } from '../api/client';
 import type {
   AttachmentResource,
   ChatCompletionRequest,
+  ChatContentFragment,
   ChatMessageContent,
 } from '../api/types';
-import { buildChatContent, normalizeMessageContent } from '../chat/content';
+import {
+  buildChatContent,
+  normalizeMessageContent,
+  type MessageContentPart,
+} from '../chat/content';
 import {
   mergeReasoningSegments,
   type ReasoningSegment,
@@ -92,6 +97,96 @@ function createId(prefix: string): string {
   }
 
   return `${prefix}_${token.replace(/-/g, '')}`;
+}
+
+function attachmentsFromParts(
+  parts: MessageContentPart[],
+  sessionId: string | null,
+): AttachmentResource[] {
+  const attachments: AttachmentResource[] = [];
+  const seen = new Set<string>();
+
+  for (const part of parts) {
+    if (part.type !== 'image') {
+      continue;
+    }
+    const key = part.attachmentId ?? part.displayUrl ?? part.url;
+    if (!key || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+
+    attachments.push({
+      id: part.attachmentId ?? key,
+      sessionId: part.sessionId ?? sessionId ?? '',
+      mimeType: part.mimeType ?? 'image/png',
+      sizeBytes: part.sizeBytes ?? 0,
+      displayUrl: part.displayUrl || part.url,
+      deliveryUrl: part.displayUrl || part.url,
+      uploadedAt: part.uploadedAt ?? new Date().toISOString(),
+      expiresAt: part.expiresAt ?? null,
+      metadata: part.metadata ?? null,
+    });
+  }
+
+  return attachments;
+}
+
+function mergeMessageContent(
+  existingContent: ChatMessageContent,
+  existingText: string,
+  deltaText: string,
+  deltaFragments: ChatContentFragment[],
+  sessionId: string | null,
+): { content: ChatMessageContent; text: string; attachments: AttachmentResource[] } {
+  const requiresStructured =
+    Array.isArray(existingContent) || deltaFragments.length > 0;
+
+  if (!requiresStructured) {
+    const baseText = typeof existingContent === 'string' ? existingContent : existingText;
+    const nextText = `${baseText ?? ''}${deltaText}`;
+    return {
+      content: nextText,
+      text: nextText,
+      attachments: [],
+    };
+  }
+
+  const fragments: ChatContentFragment[] = Array.isArray(existingContent)
+    ? [...existingContent]
+    : [];
+
+  if (!Array.isArray(existingContent)) {
+    const baseText = typeof existingContent === 'string' ? existingContent : existingText;
+    if (baseText) {
+      fragments.push({ type: 'text', text: baseText });
+    }
+  }
+
+  if (deltaFragments.length > 0) {
+    fragments.push(...deltaFragments);
+  } else if (deltaText) {
+    fragments.push({ type: 'text', text: deltaText });
+  }
+
+  if (fragments.length === 0) {
+    const previousText = typeof existingContent === 'string' ? existingContent : existingText;
+    const nextText = `${previousText ?? ''}${deltaText}`;
+    return {
+      content: nextText,
+      text: nextText,
+      attachments: [],
+    };
+  }
+
+  const normalized = normalizeMessageContent(fragments);
+  const attachments = attachmentsFromParts(normalized.parts, sessionId);
+
+  return {
+    content: fragments,
+    text: normalized.text,
+    attachments,
+  };
 }
 
 function resolveDeletionIdentifiers(message: ConversationMessage): string[] {
@@ -236,19 +331,29 @@ function createChatStore() {
         onSession(sessionId) {
           store.update((value) => ({ ...value, sessionId }));
         },
-        onMessageDelta({ text: deltaText, reasoningSegments, hasReasoningPayload }) {
+        onMessageDelta({
+          text: deltaText,
+          fragments: deltaFragments,
+          reasoningSegments,
+          hasReasoningPayload,
+        }) {
           store.update((value) => {
             const messages = value.messages.map((message) => {
               if (message.id !== assistantMessageId) {
                 return message;
               }
-              const previousText =
-                typeof message.content === 'string' ? message.content : message.text;
-              const nextText = deltaText ? `${previousText}${deltaText}` : previousText;
+              const merged = mergeMessageContent(
+                message.content,
+                message.text,
+                deltaText,
+                deltaFragments,
+                value.sessionId,
+              );
               const updatedMessage: ConversationMessage = {
                 ...message,
-                content: nextText,
-                text: nextText,
+                content: merged.content,
+                text: merged.text,
+                attachments: merged.attachments.length > 0 ? merged.attachments : message.attachments,
               };
 
               if (reasoningSegments.length > 0 || hasReasoningPayload) {

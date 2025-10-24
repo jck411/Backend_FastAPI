@@ -1,9 +1,14 @@
 import { streamChat } from '../api/client';
-import type { ChatCompletionChunk, ChatCompletionRequest } from '../api/types';
+import type {
+  ChatCompletionChunk,
+  ChatCompletionRequest,
+  ChatContentFragment,
+} from '../api/types';
 import { collectReasoningSegmentsFromChunk, type ReasoningSegment } from './reasoning';
 
 export interface ChatStreamMessageDelta {
   text: string;
+  fragments: ChatContentFragment[];
   reasoningSegments: ReasoningSegment[];
   hasReasoningPayload: boolean;
   chunk: ChatCompletionChunk;
@@ -37,16 +42,24 @@ export async function startChatStream(
       const eventType = rawEvent?.event ?? 'message';
 
       if (eventType === 'message') {
-        const deltaText = chunk.choices?.map((choice) => choice.delta?.content ?? '').join('') ?? '';
+        const { text: deltaText, fragments: deltaFragments } = extractDeltaContentAndFragments(
+          chunk,
+        );
         const { segments: reasoningSegments, hasPayload: hasReasoningPayload } =
           collectReasoningSegmentsFromChunk(chunk);
 
-        if (!deltaText && reasoningSegments.length === 0 && !hasReasoningPayload) {
+        if (
+          !deltaText &&
+          deltaFragments.length === 0 &&
+          reasoningSegments.length === 0 &&
+          !hasReasoningPayload
+        ) {
           return;
         }
 
         onMessageDelta?.({
           text: deltaText,
+          fragments: deltaFragments,
           reasoningSegments,
           hasReasoningPayload,
           chunk,
@@ -74,4 +87,42 @@ export async function startChatStream(
       }
     },
   });
+}
+
+function extractDeltaContentAndFragments(
+  chunk: ChatCompletionChunk,
+): { text: string; fragments: ChatContentFragment[] } {
+  const textParts: string[] = [];
+  const fragments: ChatContentFragment[] = [];
+
+  const choices = chunk.choices ?? [];
+  for (const choice of choices) {
+    const delta = choice.delta ?? {};
+    const content = delta.content;
+    if (typeof content === 'string') {
+      if (content) {
+        textParts.push(content);
+      }
+    } else if (Array.isArray(content)) {
+      for (const fragment of content) {
+        if (fragment && typeof fragment === 'object') {
+          fragments.push(fragment as ChatContentFragment);
+        }
+      }
+    }
+
+    const images = delta.images;
+    if (Array.isArray(images)) {
+      for (const image of images) {
+        if (image && typeof image === 'object') {
+          fragments.push(image as ChatContentFragment);
+        }
+      }
+    }
+  }
+
+  return {
+    text: textParts.join(''),
+    fragments,
+  };
 }

@@ -338,6 +338,59 @@ async def test_streaming_merges_request_provider_preferences() -> None:
 
 
 @pytest.mark.anyio("asyncio")
+async def test_streaming_preserves_user_image_fragments() -> None:
+    client = DummyOpenRouterClient()
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        DummyRepository(),  # type: ignore[arg-type]
+        DummyToolClient(),  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    image_url = "https://example.test/generated/a.png"
+    request = ChatCompletionRequest(
+        messages=[
+            ChatMessage(
+                role="user",
+                content=[
+                    {"type": "text", "text": "What color is it?"},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ],
+            )
+        ],
+    )
+    conversation = [
+        {
+            "role": "assistant",
+            "content": [{"type": "image_url", "image_url": {"url": image_url}}],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "What color is it?"},
+                {"type": "image_url", "image_url": {"url": image_url}},
+            ],
+        },
+    ]
+
+    async for _ in handler.stream_conversation(
+        "session-images",
+        request,
+        conversation,
+        [],
+        None,
+    ):
+        pass
+
+    payload = client.payloads[0]
+    user_messages = [message for message in payload["messages"] if message.get("role") == "user"]
+    assert user_messages, "Expected at least one user message in payload"
+    user_message = user_messages[-1]
+    assert user_message["content"][-1]["type"] == "image_url"
+    assert user_message["content"][-1]["image_url"]["url"] == image_url
+
+
+@pytest.mark.anyio("asyncio")
 async def test_streaming_emits_metadata_event() -> None:
     repo = DummyRepository()
     client = DummyOpenRouterClientWithMetadata()

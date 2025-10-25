@@ -8,7 +8,7 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import Any, AsyncGenerator, Iterable, Sequence, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Sequence
 
 from ..config import Settings
 from ..openrouter import OpenRouterClient
@@ -17,6 +17,7 @@ from ..schemas.chat import ChatCompletionRequest
 from ..services.attachment_urls import refresh_message_attachments
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
+from .image_reflection import reflect_assistant_images
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 
@@ -149,12 +150,8 @@ class ChatOrchestrator:
         existing = await self._repo.session_exists(session_id)
         await self._repo.ensure_session(session_id)
 
-        assistant_client_message_id: str | None = None
         assistant_parent_message_id: str | None = None
         if isinstance(request.metadata, dict):
-            candidate = request.metadata.get("client_assistant_message_id")
-            if isinstance(candidate, str):
-                assistant_client_message_id = candidate
             parent_candidate = request.metadata.get("client_parent_message_id")
             if isinstance(parent_candidate, str):
                 assistant_parent_message_id = parent_candidate
@@ -218,6 +215,7 @@ class ChatOrchestrator:
             self._repo,
             ttl=self._settings.attachment_signed_url_ttl,
         )
+        conversation = reflect_assistant_images(conversation)
         tools_payload = self._mcp_client.get_openai_tools()
 
         if not existing:

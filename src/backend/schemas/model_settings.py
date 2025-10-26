@@ -86,6 +86,7 @@ class ActiveModelSettingsPayload(BaseModel):
     model: str
     provider: Optional[ProviderPreferences] = None
     parameters: Optional[ModelHyperparameters] = None
+    supports_tools: Optional[bool] = None
 
     model_config = ConfigDict(extra="forbid")
 

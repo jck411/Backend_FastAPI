@@ -269,6 +269,7 @@ export interface ActiveModelSettingsPayload {
   model: string;
   provider?: ProviderPreferences | null;
   parameters?: ModelHyperparameters | null;
+  supports_tools?: boolean | null;
 }
 
 export interface ActiveModelSettingsResponse extends ActiveModelSettingsPayload {
@@ -346,6 +347,7 @@ export interface PresetConfig {
   model: string;
   provider?: ProviderPreferences | null;
   parameters?: ModelHyperparameters | null;
+  supports_tools?: boolean | null;
   system_prompt?: string | null;
   mcp_servers?: McpServerDefinition[] | null;
   is_default: boolean;

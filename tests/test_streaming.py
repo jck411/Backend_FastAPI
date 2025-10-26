@@ -258,12 +258,18 @@ class DummyToolClient:
 
 
 class DummyModelSettings:
-    def __init__(self, model: str, overrides: dict[str, Any]) -> None:
+    def __init__(
+        self, model: str, overrides: dict[str, Any], *, supports_tools: bool = True
+    ) -> None:
         self._model = model
         self._overrides = overrides
+        self._supports_tools = supports_tools
 
     async def get_openrouter_overrides(self) -> tuple[str, dict[str, Any]]:
         return self._model, self._overrides
+
+    async def model_supports_tools(self) -> bool:
+        return self._supports_tools
 
 
 @pytest.mark.anyio("asyncio")

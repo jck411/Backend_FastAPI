@@ -139,6 +139,7 @@ class PresetService:
             model=settings.model,
             provider=settings.provider,
             parameters=settings.parameters,
+            supports_tools=settings.supports_tools,
             system_prompt=system_prompt,
             mcp_servers=[cfg.model_copy(deep=True) for cfg in mcp_configs],
             created_at=now,
@@ -192,6 +193,7 @@ class PresetService:
             model=preset.model,
             provider=preset.provider,
             parameters=preset.parameters,
+            supports_tools=preset.supports_tools,
         )
         await self._model_settings.replace_settings(payload)
 

@@ -18,7 +18,7 @@ from ..repository import ChatRepository, format_timestamp_for_client
 from ..schemas.chat import ChatCompletionRequest
 from ..services.attachments import AttachmentService
 from ..services.conversation_logging import ConversationLogWriter
-from ..services.model_settings import ModelSettingsService
+from ..services.model_settings import ModelCapabilities, ModelSettingsService
 
 
 class ToolExecutor(Protocol):
@@ -322,6 +322,8 @@ class StreamingHandler:
             routing_headers: dict[str, Any] | None = None
             active_model = self._default_model
             overrides: dict[str, Any] = {}
+            capability: ModelCapabilities | None = None
+            model_supports_tools = True
             if self._model_settings is not None:
                 (
                     model_override,
@@ -350,7 +352,34 @@ class StreamingHandler:
                         continue
                     payload.setdefault(key, value)
 
-            allow_tools = tools_available and not tools_disabled
+            if self._model_settings is not None:
+                if hasattr(self._model_settings, "sanitize_payload_for_model"):
+                    capability = await self._model_settings.sanitize_payload_for_model(  # type: ignore[attr-defined]
+                        active_model,
+                        payload,
+                        client=self._client,
+                    )
+                if capability and capability.supports_tools is not None:
+                    model_supports_tools = capability.supports_tools
+                else:
+                    try:
+                        model_supports_tools = await self._model_settings.model_supports_tools(  # type: ignore[misc]
+                            client=self._client,  # type: ignore[arg-type]
+                        )
+                    except TypeError:
+                        model_supports_tools = await self._model_settings.model_supports_tools()  # type: ignore[misc]
+
+            if (
+                not model_supports_tools
+                and tools_available
+                and not tools_disabled
+            ):
+                logger.debug(
+                    "Skipping tool payload for session %s because active model does not support tool use",
+                    session_id,
+                )
+
+            allow_tools = tools_available and not tools_disabled and model_supports_tools
             if allow_tools:
                 payload["tools"] = tools_payload
                 payload.setdefault("tool_choice", request.tool_choice or "auto")

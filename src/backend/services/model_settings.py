@@ -5,19 +5,127 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
 from pydantic import ValidationError
 
+from ..openrouter import OpenRouterClient, OpenRouterError
 from ..schemas.model_settings import (
     ActiveModelSettingsPayload,
     ActiveModelSettingsResponse,
 )
-from ..openrouter import OpenRouterError
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ModelCapabilities:
+    """Cached capability information fetched from OpenRouter."""
+
+    supports_tools: bool | None
+    supported_parameters: frozenset[str]
+
+
+_PARAMETER_GUARD_LIST: tuple[str, ...] = (
+    "tools",
+    "tool_choice",
+    "parallel_tool_calls",
+)
+
+
+def _is_truthy(value: Any) -> bool:
+    """Best-effort truthiness check for heterogeneous API payloads."""
+
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        return lowered not in {"", "false", "0", "none", "null", "no", "disabled"}
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
+def _normalize_supported_parameter(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text.lower()
+
+
+def _extract_model_capabilities(model_entry: Dict[str, Any]) -> ModelCapabilities:
+    capabilities = model_entry.get("capabilities")
+    supports_tools: bool | None = None
+    negative_flag = False
+
+    if isinstance(capabilities, dict):
+        for key in (
+            "tools",
+            "functions",
+            "function_calling",
+            "tool_choice",
+            "tool_calls",
+        ):
+            value = capabilities.get(key)
+            if value is None:
+                continue
+            if _is_truthy(value):
+                supports_tools = True
+                break
+            if value is False:
+                negative_flag = True
+
+    if supports_tools is None:
+        for key in ("tools", "functions", "supports_tools", "supports_functions"):
+            value = model_entry.get(key)
+            if value is None:
+                continue
+            if _is_truthy(value):
+                supports_tools = True
+                break
+            if value is False:
+                negative_flag = True
+
+    supported_parameters: set[str] = set()
+    raw_params = model_entry.get("supported_parameters")
+    if isinstance(raw_params, (list, tuple, set)):
+        for item in raw_params:
+            normalized = _normalize_supported_parameter(item)
+            if normalized:
+                supported_parameters.add(normalized)
+        if supports_tools is None:
+            indicator_keys = {
+                "tools",
+                "tool_choice",
+                "parallel_tool_calls",
+                "functions",
+                "function_calling",
+            }
+            if indicator_keys.intersection(supported_parameters):
+                supports_tools = True
+            else:
+                negative_flag = True
+
+    if supports_tools is None and negative_flag:
+        supports_tools = False
+
+    if supports_tools:
+        supported_parameters.update(
+            key for key in _PARAMETER_GUARD_LIST if key not in supported_parameters
+        )
+    return ModelCapabilities(
+        supports_tools=supports_tools,
+        supported_parameters=frozenset(supported_parameters),
+    )
 
 
 def _coerce_float(value: Any) -> float | None:
@@ -167,6 +275,8 @@ class ModelSettingsService:
         self._settings = ActiveModelSettingsResponse(model=default_model)
         prompt = (default_system_prompt or "").strip() if default_system_prompt else None
         self._system_prompt: str | None = prompt if prompt else None
+        self._capabilities_lock = asyncio.Lock()
+        self._capabilities_cache: dict[str, ModelCapabilities] = {}
         self._load_from_disk()
         if self._system_prompt is None and prompt:
             self._system_prompt = prompt
@@ -233,7 +343,125 @@ class ModelSettingsService:
                 updated_at=datetime.now(timezone.utc),
             )
             self._save_to_disk()
+            async with self._capabilities_lock:
+                self._capabilities_cache.pop(self._settings.model, None)
             return self._settings.model_copy(deep=True)
+
+    async def _record_support_flag(
+        self,
+        model_id: str,
+        supports_tools: bool | None,
+    ) -> None:
+        if supports_tools is None:
+            return
+        async with self._lock:
+            if self._settings.model != model_id:
+                return
+            if self._settings.supports_tools is not None:
+                return
+            self._settings.supports_tools = supports_tools
+            self._save_to_disk()
+
+    async def _get_model_capabilities(
+        self,
+        model_id: str,
+        *,
+        client: OpenRouterClient | None = None,
+    ) -> ModelCapabilities | None:
+        async with self._capabilities_lock:
+            cached = self._capabilities_cache.get(model_id)
+        if cached is not None:
+            return cached
+
+        if client is None:
+            return None
+
+        try:
+            payload = await client.list_models()
+        except OpenRouterError as exc:
+            logger.info(
+                "Unable to refresh model capabilities for %s: %s", model_id, exc.detail
+            )
+            return None
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "Unexpected error refreshing model capabilities for %s: %s",
+                model_id,
+                exc,
+            )
+            return None
+
+        capability: ModelCapabilities | None = None
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and item.get("id") == model_id:
+                    capability = _extract_model_capabilities(item)
+                    break
+
+        if capability is None:
+            capability = ModelCapabilities(None, frozenset())
+
+        async with self._capabilities_lock:
+            self._capabilities_cache[model_id] = capability
+
+        await self._record_support_flag(model_id, capability.supports_tools)
+        return capability
+
+    async def get_model_capabilities(
+        self,
+        *,
+        model_id: str | None = None,
+        client: OpenRouterClient | None = None,
+    ) -> ModelCapabilities | None:
+        if model_id is None:
+            async with self._lock:
+                model_id = self._settings.model
+        if not model_id:
+            return None
+        return await self._get_model_capabilities(model_id, client=client)
+
+    async def model_supports_tools(
+        self, *, client: OpenRouterClient | None = None
+    ) -> bool:
+        """Return whether the active model is flagged as supporting tool use."""
+
+        async with self._lock:
+            supports = self._settings.supports_tools
+            model_id = self._settings.model
+        if supports is not None:
+            return bool(supports)
+
+        capability = await self._get_model_capabilities(model_id, client=client)
+        if capability and capability.supports_tools is not None:
+            return capability.supports_tools
+        return True
+
+    async def sanitize_payload_for_model(
+        self,
+        model_id: str,
+        payload: Dict[str, Any],
+        *,
+        client: OpenRouterClient | None = None,
+    ) -> ModelCapabilities | None:
+        capability = await self._get_model_capabilities(model_id, client=client)
+        if capability is None:
+            return None
+
+        if capability.supported_parameters:
+            normalized_allowed = capability.supported_parameters
+            for key in list(payload.keys()):
+                if key in _PARAMETER_GUARD_LIST and key.lower() not in normalized_allowed:
+                    payload.pop(key, None)
+
+        if (
+            capability.supports_tools is False
+            and any(key in payload for key in _PARAMETER_GUARD_LIST)
+        ):
+            for key in _PARAMETER_GUARD_LIST:
+                payload.pop(key, None)
+
+        return capability
 
     async def get_openrouter_overrides(self) -> Tuple[str, Dict[str, Any]]:
         """Return the active model id and OpenRouter payload overrides."""
@@ -462,4 +690,4 @@ class ModelSettingsService:
             }
 
 
-__all__ = ["ModelSettingsService"]
+__all__ = ["ModelCapabilities", "ModelSettingsService"]

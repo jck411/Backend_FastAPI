@@ -84,6 +84,12 @@ export function createModelSettingsStore() {
       model: snapshot.data.model,
       provider: snapshot.data.provider ?? null,
     };
+    if ('supports_tools' in snapshot.data) {
+      payload.supports_tools =
+        snapshot.data.supports_tools === undefined
+          ? null
+          : snapshot.data.supports_tools;
+    }
     const sanitized = sanitizeParameters(snapshot.data.parameters);
     if (sanitized) {
       payload.parameters = sanitized;

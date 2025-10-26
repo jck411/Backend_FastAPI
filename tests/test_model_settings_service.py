@@ -144,3 +144,27 @@ async def test_get_active_provider_info_handles_provider_api_failure(tmp_path: P
     assert info["provider_type"] == "dynamic_sort"
     assert info["provider_slug"] == "anthropic"
     assert info["selected_endpoint"]["summary"].startswith("Anthropic")
+
+
+@pytest.mark.anyio
+async def test_model_supports_tools_flag(tmp_path: Path) -> None:
+    service = ModelSettingsService(tmp_path / "settings.json", "google/gemini-2.5-flash-image")
+
+    # Default should assume tool support unless explicitly disabled.
+    assert await service.model_supports_tools() is True
+
+    await service.replace_settings(
+        ActiveModelSettingsPayload(
+            model="google/gemini-2.5-flash-image",
+            supports_tools=False,
+        )
+    )
+    assert await service.model_supports_tools() is False
+
+    await service.replace_settings(
+        ActiveModelSettingsPayload(
+            model="meta-llama/llama-3-8b-instruct",
+            supports_tools=True,
+        )
+    )
+    assert await service.model_supports_tools() is True

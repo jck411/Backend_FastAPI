@@ -24,6 +24,10 @@ class PresetConfig(BaseModel):
     parameters: Optional[ModelHyperparameters] = Field(
         default=None, description="Model hyperparameter overrides"
     )
+    supports_tools: Optional[bool] = Field(
+        default=None,
+        description="Whether the selected model supports tool use",
+    )
     system_prompt: Optional[str] = Field(
         default=None,
         description="Active system prompt",

@@ -43,8 +43,27 @@ async def read_model_settings(
 async def update_model_settings(
     payload: ActiveModelSettingsPayload,
     service: ModelSettingsService = Depends(get_model_settings_service),
+    orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
 ) -> ActiveModelSettingsResponse:
-    return await service.replace_settings(payload)
+    supports_tools = payload.supports_tools
+
+    if supports_tools is None:
+        client = orchestrator.get_openrouter_client()
+        try:
+            models_payload = await _get_models_payload(client)
+        except Exception:  # pragma: no cover - fallback to default behaviour
+            models_payload = {}
+        data = models_payload.get("data") if isinstance(models_payload, dict) else None
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and item.get("id") == payload.model:
+                    supports_tools = _model_supports_tools(item)
+                    break
+
+    payload_data = payload.model_dump(exclude_none=False)
+    payload_data["supports_tools"] = supports_tools
+    normalized_payload = ActiveModelSettingsPayload.model_validate(payload_data)
+    return await service.replace_settings(normalized_payload)
 
 
 @router.get("/model/active-provider")

@@ -1,5 +1,6 @@
 {
-  "model": "openai/gpt-4o-mini-2024-07-18",
+  "model": "google/gemini-2.5-flash-image",
+  "supports_tools": false,
   "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack and live in Olrlando, Fl",
-  "updated_at": "2025-10-26T02:35:59.506740+00:00"
+  "updated_at": "2025-10-26T05:20:54.570060+00:00"
 }

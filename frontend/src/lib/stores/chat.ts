@@ -12,18 +12,6 @@ import {
   type MessageContentPart,
 } from '../chat/content';
 import {
-  assignSessionToPendingRecords,
-  createImageRecords,
-  createReflectedAttachmentResources,
-  detectImageReflectionIntent,
-  extractImageUrlsFromFragments,
-  markAssistantImagesFinalized,
-  mergeRecentAssistantImages,
-  removeAssistantImagesForMessage,
-  selectImagesForReflection,
-  type AssistantImageRecord,
-} from '../chat/imageReflection';
-import {
   mergeReasoningSegments,
   type ReasoningSegment,
   type ReasoningStatus,
@@ -75,7 +63,6 @@ interface ChatState {
   isStreaming: boolean;
   error: string | null;
   selectedModel: string;
-  recentAssistantImages: AssistantImageRecord[];
 }
 
 const initialState: ChatState = {
@@ -84,7 +71,6 @@ const initialState: ChatState = {
   isStreaming: false,
   error: null,
   selectedModel: 'openrouter/auto',
-  recentAssistantImages: [],
 };
 
 function createId(prefix: string): string {
@@ -281,36 +267,24 @@ function createChatStore() {
 
   async function sendMessage(draft: OutgoingMessageDraft): Promise<void> {
     const rawText = draft.text ?? '';
-    const baseAttachments = draft.attachments ?? [];
-    const reflectionIntent = baseAttachments.length === 0 ? detectImageReflectionIntent(rawText) : null;
-    const preparedText = reflectionIntent ? reflectionIntent.cleanedText : rawText;
+    const attachments = (draft.attachments ?? []).map((item) => ({ ...item }));
+    const trimmedText = rawText.trim();
 
     const state = get(store);
     if (state.isStreaming) {
       currentAbort?.abort();
     }
 
-    const reflectedUrls =
-      reflectionIntent && reflectionIntent.shouldAttach
-        ? selectImagesForReflection(state.recentAssistantImages, state.sessionId, reflectionIntent)
-        : [];
-    const reflectedAttachments =
-      reflectionIntent && reflectedUrls.length > 0
-        ? createReflectedAttachmentResources(reflectedUrls, state.sessionId, createId)
-        : [];
-    const combinedAttachments = [...baseAttachments, ...reflectedAttachments];
-    const hasText = preparedText.trim().length > 0;
-
-    if (!hasText && combinedAttachments.length === 0) {
+    if (!trimmedText && attachments.length === 0) {
       return;
     }
 
     const userMessageId = createId('user');
     const assistantMessageId = createId('assistant');
 
-    const messageContent = buildChatContent(preparedText, combinedAttachments);
+    const messageContent = buildChatContent(trimmedText, attachments);
     const normalized = normalizeMessageContent(messageContent);
-    const userAttachments = combinedAttachments.map((item) => ({ ...item }));
+    const userAttachments = attachments;
 
     const payload = toChatPayload(
       state,
@@ -360,10 +334,6 @@ function createChatStore() {
           store.update((value) => ({
             ...value,
             sessionId,
-            recentAssistantImages: assignSessionToPendingRecords(
-              value.recentAssistantImages,
-              sessionId,
-            ),
           }));
         },
         onMessageDelta({
@@ -373,9 +343,6 @@ function createChatStore() {
           hasReasoningPayload,
         }) {
           store.update((value) => {
-            const collectedUrls: string[] = [
-              ...extractImageUrlsFromFragments(deltaFragments ?? []),
-            ];
             const messages = value.messages.map((message) => {
               if (message.id !== assistantMessageId) {
                 return message;
@@ -389,19 +356,6 @@ function createChatStore() {
               );
               const nextAttachments =
                 merged.attachments.length > 0 ? merged.attachments : message.attachments;
-              if (nextAttachments && nextAttachments.length > 0) {
-                const previousUrls = new Set(
-                  (message.attachments ?? []).map(
-                    (attachment) => attachment.deliveryUrl || attachment.displayUrl || '',
-                  ),
-                );
-                for (const attachment of nextAttachments) {
-                  const url = attachment.deliveryUrl || attachment.displayUrl;
-                  if (url && !previousUrls.has(url)) {
-                    collectedUrls.push(url);
-                  }
-                }
-              }
               const updatedMessage: ConversationMessage = {
                 ...message,
                 content: merged.content,
@@ -426,18 +380,7 @@ function createChatStore() {
 
               return updatedMessage;
             });
-            const uniqueUrls = Array.from(new Set(collectedUrls.filter((item) => typeof item === 'string' && item)));
-            let nextRecentImages = value.recentAssistantImages;
-            if (uniqueUrls.length > 0) {
-              const additions = createImageRecords(
-                uniqueUrls,
-                value.sessionId,
-                assistantMessageId,
-                new Date().toISOString(),
-              );
-              nextRecentImages = mergeRecentAssistantImages(nextRecentImages, additions);
-            }
-            return { ...value, messages, recentAssistantImages: nextRecentImages };
+            return { ...value, messages };
           });
         },
         onMetadata(metadata) {
@@ -638,16 +581,10 @@ function createChatStore() {
                 createdAtUtc: message.createdAtUtc ?? finalizedCreatedAt,
               };
             });
-            const recentAssistantImages = markAssistantImagesFinalized(
-              value.recentAssistantImages,
-              assistantMessageId,
-              value.sessionId,
-            );
             return {
               ...value,
               isStreaming: false,
               messages,
-              recentAssistantImages,
             };
           });
         },
@@ -660,10 +597,6 @@ function createChatStore() {
             messages: value.messages.filter(
               (message) =>
                 message.id !== assistantMessageId && !(message.role === 'tool' && message.pending),
-            ),
-            recentAssistantImages: removeAssistantImagesForMessage(
-              value.recentAssistantImages,
-              assistantMessageId,
             ),
           }));
         },
@@ -681,10 +614,6 @@ function createChatStore() {
         messages: value.messages.filter(
           (msg) => msg.id !== assistantMessageId && !(msg.role === 'tool' && msg.pending),
         ),
-        recentAssistantImages: removeAssistantImagesForMessage(
-          value.recentAssistantImages,
-          assistantMessageId,
-        ),
       }));
     } finally {
       currentAbort = null;
@@ -696,12 +625,6 @@ function createChatStore() {
       currentAbort.abort();
       currentAbort = null;
       store.update((value) => {
-        const pendingAssistantIds = value.messages
-          .filter(
-            (message) =>
-              message.role === 'assistant' && message.pending && !message.text,
-          )
-          .map((message) => message.id);
         const messages = value.messages.filter(
           (message) =>
             !(
@@ -709,15 +632,10 @@ function createChatStore() {
               (message.role === 'tool' && message.pending)
             ),
         );
-        let recentAssistantImages = value.recentAssistantImages;
-        for (const id of pendingAssistantIds) {
-          recentAssistantImages = removeAssistantImagesForMessage(recentAssistantImages, id);
-        }
         return {
           ...value,
           isStreaming: false,
           messages,
-          recentAssistantImages,
         };
       });
     }
@@ -763,15 +681,9 @@ function createChatStore() {
       }
     }
 
-    let recentAssistantImages = state.recentAssistantImages;
-    for (const id of removedAssistantIds) {
-      recentAssistantImages = removeAssistantImagesForMessage(recentAssistantImages, id);
-    }
-
     return {
       ...state,
       messages: nextMessages,
-      recentAssistantImages,
     };
   }
 

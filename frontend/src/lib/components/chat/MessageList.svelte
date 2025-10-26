@@ -1,5 +1,6 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher, onDestroy } from "svelte";
+  import type { AttachmentResource } from "../../api/types";
   import type { ConversationMessage, ConversationRole } from "../../stores/chat";
   import ToolUsageModal from "./ToolUsageModal.svelte";
   import ReasoningModal from "./ReasoningModal.svelte";
@@ -30,6 +31,10 @@
     deleteMessage: { id: string };
     retryMessage: { id: string };
     editMessage: { id: string };
+    editAssistantAttachment: {
+      message: ConversationMessage;
+      attachment: AttachmentResource;
+    };
   }>();
 
   afterUpdate(() => {
@@ -130,6 +135,16 @@
     dispatch('editMessage', { id: message.id });
   }
 
+  function handleAssistantAttachmentEdit(detail: {
+    message: ConversationMessage;
+    attachment: AttachmentResource;
+  }): void {
+    if (!detail?.message || !detail?.attachment) {
+      return;
+    }
+    dispatch('editAssistantAttachment', detail);
+  }
+
   $: toolUsageModal.syncEntries(messages, messageIndexMap, TOOL_ROLE);
   $: reasoningModal.syncFromMessages(messages);
 </script>
@@ -149,6 +164,7 @@
         on:delete={(event) => handleDeleteMessage(event.detail.message)}
         on:retry={(event) => handleRetryMessage(event.detail.message)}
         on:edit={(event) => handleEditMessage(event.detail.message)}
+        on:editAttachment={(event) => handleAssistantAttachmentEdit(event.detail)}
       />
     </div>
   {/each}

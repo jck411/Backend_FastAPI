@@ -10,6 +10,10 @@ Tools provided
   block content) via `/v1/pages/{page_id}` and `/v1/blocks/{page_id}/children`.
 * ``notion_create_page`` – create simple notes in a page or database using
   `/v1/pages`.
+* ``notion_append_block_children`` – append new blocks to an existing page or
+  block using `/v1/blocks/{block_id}/children`.
+* ``notion_update_block`` – patch block content (for example to replace the
+  text of a paragraph) via `/v1/blocks/{block_id}`.
 
 Required environment variables
 ------------------------------
@@ -104,6 +108,19 @@ class NotionCreatePageInput(TypedDict, total=False):
     children: List[Dict[str, Any]]
     icon: Dict[str, Any]
     cover: Dict[str, Any]
+
+
+class NotionAppendChildrenInput(TypedDict, total=False):
+    block_id: str
+    children: List[Dict[str, Any]]
+    paragraphs: Iterable[str]
+
+
+class NotionUpdateBlockInput(TypedDict, total=False):
+    block_id: str
+    block: Dict[str, Any]
+    paragraph: str
+    archived: bool
 
 
 class NotionAPIError(RuntimeError):
@@ -223,6 +240,15 @@ def _build_rich_text(title: str) -> List[Dict[str, Any]]:
         {
             "type": "text",
             "text": {"content": title},
+            "plain_text": title,
+            "annotations": {
+                "bold": False,
+                "italic": False,
+                "strikethrough": False,
+                "underline": False,
+                "code": False,
+                "color": "default",
+            },
         }
     ]
 
@@ -271,7 +297,15 @@ def _merge_properties(
         properties.update(explicit_properties)
 
     if title:
-        key = title_property or ("Name" if parent_type == "database" else "title")
+        key: str
+        if parent_type == "database":
+            key = title_property or "Name"
+        else:
+            # Notion requires the canonical "title" property when creating
+            # pages beneath a page parent. Allow callers to provide
+            # ``title_property`` but ignore the override so the API accepts the
+            # payload instead of raising ``Invalid property identifier``.
+            key = "title"
         existing = properties.get(key)
         if existing is None:
             properties[key] = {"title": _build_rich_text(title)}
@@ -338,6 +372,14 @@ def _extract_title(data: Dict[str, Any]) -> Optional[str]:
         if isinstance(first, dict):
             return first.get("plain_text")
     return data.get("name") or data.get("id")
+
+
+def _build_paragraph_block(text: str) -> Dict[str, Any]:
+    return {
+        "object": "block",
+        "type": "paragraph",
+        "paragraph": {"rich_text": _build_rich_text(text)},
+    }
 
 
 def _format_result_heading(entry: Dict[str, Any]) -> str:
@@ -573,6 +615,75 @@ async def notion_create_page(
     url = response.get("url") or "(no public URL)"
     identifier = response.get("id", "(unknown id)")
     return f"Created Notion page '{title}' with ID {identifier}. URL: {url}"
+
+
+def _build_children_payload(data: NotionAppendChildrenInput) -> Dict[str, Any]:
+    children: List[Dict[str, Any]] = []
+    if paragraphs := data.get("paragraphs"):
+        for value in paragraphs:
+            text = str(value)
+            if text.strip():
+                children.append(_build_paragraph_block(text))
+    if explicit_children := data.get("children"):
+        children.extend(explicit_children)
+    if not children:
+        raise NotionAPIError(
+            "Unable to append Notion blocks. Provide 'paragraphs' text or the raw 'children' payload matching Notion's schema."
+        )
+    return {"children": children}
+
+
+@mcp.tool("notion_append_block_children")
+async def notion_append_block_children(data: NotionAppendChildrenInput) -> str:
+    """Append blocks to an existing Notion page or block."""
+
+    block_id = data.get("block_id")
+    if not block_id:
+        raise NotionAPIError("block_id is required to append Notion blocks.")
+
+    payload = _build_children_payload(data)
+    response = await _request("PATCH", f"/blocks/{block_id}/children", json=payload)
+    appended = len(response.get("results") or payload.get("children", []))
+    return f"Appended {appended} block(s) to Notion block {block_id}."
+
+
+def _build_block_update_payload(data: NotionUpdateBlockInput) -> Dict[str, Any]:
+    if explicit := data.get("block"):
+        payload = dict(explicit)
+    elif paragraph := data.get("paragraph"):
+        payload = {
+            "paragraph": {
+                "rich_text": _build_rich_text(paragraph),
+            }
+        }
+    else:
+        raise NotionAPIError(
+            "Unable to build Notion block update payload. Provide 'paragraph' text or the full 'block' body."
+        )
+
+    if "object" in payload:
+        payload.pop("object")
+    if "id" in payload:
+        payload.pop("id")
+
+    if "archived" not in payload and "archived" in data:
+        payload["archived"] = data["archived"]
+
+    return payload
+
+
+@mcp.tool("notion_update_block")
+async def notion_update_block(data: NotionUpdateBlockInput) -> str:
+    """Update an existing Notion block's content or metadata."""
+
+    block_id = data.get("block_id")
+    if not block_id:
+        raise NotionAPIError("block_id is required to update a Notion block.")
+
+    payload = _build_block_update_payload(data)
+    response = await _request("PATCH", f"/blocks/{block_id}", json=payload)
+    block_type = response.get("type", payload.keys())
+    return f"Updated Notion block {block_id} ({block_type})."
 
 
 if __name__ == "__main__":

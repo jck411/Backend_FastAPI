@@ -1,6 +1,12 @@
 {
   "servers": [
     {
+      "enabled": true,
+      "env": {},
+      "id": "custom-notion",
+      "module": "backend.mcp_servers.notion_server"
+    },
+    {
       "disabled_tools": [],
       "enabled": true,
       "env": {},

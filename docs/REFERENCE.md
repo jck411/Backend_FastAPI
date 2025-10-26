@@ -46,6 +46,12 @@ Use it as a quick refresher on how the major subsystems hang together.
     aggregator hot-reloads definitions so the running instance stays in sync.
   - The aggregator prefixes tool names when multiple servers expose the same
     tool, which keeps OpenAI-compatible tool payloads conflict-free.
+  - The bundled Notion integration (`custom-notion`) reads the exported MCP
+    manifest and sets `tool_prefix="custom-notion"` so helpers like
+    `notion_search` surface as `custom-notion__notion_search`.
+  - Set `NOTION_TOKEN` (or `NOTION_API_KEY`) in the environment before enabling
+    the Notion server. Optional knobs include `NOTION_VERSION`,
+    `NOTION_PAGE_ID`, and `NOTION_DATABASE_ID`.
 
 ## Attachments and Gmail tooling
 

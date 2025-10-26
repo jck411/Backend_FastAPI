@@ -10,6 +10,8 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Sequence
 
+from dotenv import dotenv_values
+
 from ..config import Settings
 from ..openrouter import OpenRouterClient
 from ..repository import ChatRepository
@@ -41,6 +43,19 @@ def _iter_attachment_ids(content: Any) -> Iterable[str]:
                     yield candidate
 
 
+def _build_mcp_base_env(project_root: Path) -> dict[str, str]:
+    """Return the environment passed to launched MCP servers."""
+
+    env = os.environ.copy()
+    dotenv_path = project_root / ".env"
+    if dotenv_path.exists():
+        for key, value in dotenv_values(dotenv_path).items():
+            if not key or value is None:
+                continue
+            env.setdefault(key, value)
+    return env
+
+
 class ChatOrchestrator:
     """High-level coordination for chat sessions."""
 
@@ -57,7 +72,7 @@ class ChatOrchestrator:
         if not db_path.is_absolute():
             db_path = project_root / db_path
 
-        env = os.environ.copy()
+        env = _build_mcp_base_env(project_root)
         pythonpath = env.get("PYTHONPATH", "")
         src_str = str(src_dir)
         if src_str not in pythonpath.split(os.pathsep):

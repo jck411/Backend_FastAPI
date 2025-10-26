@@ -110,6 +110,22 @@ def make_fake_client_factory(
     return FakeClient
 
 
+def build_notion_export(**overrides: Any) -> dict[str, Any]:
+    server = {
+        "id": "custom-notion",
+        "command": [
+            "uv",
+            "run",
+            "backend.mcp_servers.notion_server",
+        ],
+        "env": {"NOTION_TOKEN": "${NOTION_TOKEN}"},
+        "tool_prefix": "custom-notion",
+        "enabled": True,
+    }
+    server.update(overrides)
+    return {"servers": [server]}
+
+
 def test_load_server_configs_uses_fallback(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"
     fallback = [{"id": "local", "module": "backend.mcp_servers.calculator_server"}]
@@ -144,6 +160,32 @@ def test_load_server_configs_overrides_fallback(tmp_path: Path) -> None:
     assert len(configs) == 1
     assert configs[0].module == "custom.server"
     assert configs[0].enabled is False
+
+
+def test_load_server_configs_prefers_notion_export(tmp_path: Path) -> None:
+    path = tmp_path / "servers.json"
+    path.write_text(json.dumps(build_notion_export()), encoding="utf-8")
+
+    fallback = [
+        {
+            "id": "custom-notion",
+            "module": "backend.mcp_servers.notion_server",
+        }
+    ]
+
+    configs = load_server_configs(path, fallback=fallback)
+
+    assert len(configs) == 1
+    config = configs[0]
+    assert config.id == "custom-notion"
+    assert config.command == [
+        "uv",
+        "run",
+        "backend.mcp_servers.notion_server",
+    ]
+    assert config.module is None
+    assert config.tool_prefix == "custom-notion"
+    assert config.env == {"NOTION_TOKEN": "${NOTION_TOKEN}"}
 
 
 async def test_aggregator_preserves_unique_names(
@@ -301,3 +343,50 @@ async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -
             await asyncio.wait_for(aggregator.close(), timeout=5.0)
         except asyncio.TimeoutError:
             pass  # Log already issued in close() method
+
+
+async def test_notion_export_tools_are_prefixed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    export_path = tmp_path / "servers.json"
+    export_path.write_text(json.dumps(build_notion_export()), encoding="utf-8")
+
+    fallback = [
+        {
+            "id": "custom-notion",
+            "module": "backend.mcp_servers.notion_server",
+        }
+    ]
+
+    configs = load_server_configs(export_path, fallback=fallback)
+
+    tool_map = {
+        "custom-notion": [
+            build_tool_definition("notion_search", "Search Notion"),
+            build_tool_definition("notion_create_page", "Create Notion page"),
+        ]
+    }
+    created: dict[str, Any] = {}
+    fake_client_cls = make_fake_client_factory(tool_map, created)
+    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
+
+    aggregator = MCPToolAggregator(configs)
+    await aggregator.connect()
+
+    try:
+        tool_names = {
+            entry["function"]["name"] for entry in aggregator.get_openai_tools()
+        }
+        assert tool_names == {
+            "custom-notion__notion_search",
+            "custom-notion__notion_create_page",
+        }
+
+        await aggregator.call_tool(
+            "custom-notion__notion_search", {"query": "meeting notes"}
+        )
+        assert created["custom-notion"].calls == [
+            ("notion_search", {"query": "meeting notes"})
+        ]
+    finally:
+        await aggregator.close()

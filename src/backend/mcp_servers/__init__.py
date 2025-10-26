@@ -18,11 +18,31 @@ Consumers should import submodules directly, e.g.::
 This works because Python automatically loads submodules for ``from pkg import name``.
 """
 
+from __future__ import annotations
+
+from importlib import import_module
+from types import ModuleType
+
 __all__ = [
     "calculator_server",
     "calendar_server",
     "gdrive_server",
     "gmail_server",
     "housekeeping_server",
+    "notion_server",
     "pdf_server",
 ]
+
+_SUBMODULES: dict[str, str] = {name: f"{__name__}.{name}" for name in __all__}
+
+
+def __getattr__(name: str) -> ModuleType:
+    if name not in _SUBMODULES:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module = import_module(_SUBMODULES[name])
+    globals()[name] = module
+    return module
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(__all__))

@@ -79,6 +79,30 @@ expired links when chat history is read. Size and retention are controlled via
 `LEGACY_ATTACHMENTS_DIR` knob remains for MCP servers that still stage files on
 disk during development.
 
+## Notion MCP server
+
+The backend ships with a bundled Notion MCP server (`custom-notion`). Provide a
+workspace integration token before enabling it:
+
+1. Create a Notion integration at <https://www.notion.so/profile/integrations>
+   and copy the secret value.
+2. Add the following variables to your `.env` file:
+
+   ```bash
+   NOTION_TOKEN=notion_secret_xxx  # or NOTION_API_KEY
+   # Optional overrides:
+   NOTION_VERSION=2022-06-28
+   NOTION_PAGE_ID=<default parent page>
+   NOTION_DATABASE_ID=<default parent database>
+   ```
+
+3. Share the desired pages or databases with the integration from the Notion
+   UI so the MCP tools can access them.
+
+The orchestrator automatically loads the exported configuration, which sets a
+`custom-notion__` tool prefix to avoid collisions when other MCP servers expose
+similarly named tools.
+
 ## Frontend companion app
 
 A Svelte + TypeScript client lives in `frontend/`. It proxies `/api/*` requests

@@ -30,7 +30,10 @@ Payload schemas
 ``notion_search`` accepts Notion's search body members: ``query`` (string),
 ``filter`` and ``sort`` objects, ``start_cursor`` (string) and ``page_size``
 (int). The helper ``_build_search_payload`` ensures optional keys are removed
-when empty so the payload matches the upstream JSON schema.
+when empty so the payload matches the upstream JSON schema. Additional optional
+parameters ``include_content`` (bool, defaults to ``True``) and
+``content_block_limit`` (int, defaults to ``20``) control whether matching page
+contents are embedded in the response and how many blocks are fetched per page.
 
 ``notion_retrieve_page`` requires a ``page_id`` string. Optional parameters are
 ``filter_properties`` (list of property IDs to include), ``include_children``
@@ -51,8 +54,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+import textwrap
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence, TypedDict
 
 import httpx
 
@@ -70,6 +74,7 @@ else:  # Runtime import
 
 NOTION_BASE_URL = "https://api.notion.com/v1"
 DEFAULT_NOTION_VERSION = "2022-06-28"
+DEFAULT_SEARCH_BLOCK_LIMIT = 20
 
 
 @dataclass(slots=True)
@@ -335,17 +340,29 @@ def _extract_title(data: Dict[str, Any]) -> Optional[str]:
     return data.get("name") or data.get("id")
 
 
-def _format_search_results(results: List[Dict[str, Any]], next_cursor: Optional[str]) -> str:
+def _format_result_heading(entry: Dict[str, Any]) -> str:
+    object_type = entry.get("object", "unknown").title()
+    identifier = entry.get("id", "(unknown id)")
+    title = _extract_title(entry) or "(untitled)"
+    return f"{object_type} • {title} • ID: {identifier}"
+
+
+def _format_search_results(
+    results: List[Dict[str, Any]],
+    details: Sequence[Optional[str]],
+    next_cursor: Optional[str],
+) -> str:
     if not results:
         return "No matching Notion pages or databases were found."
 
     lines = [f"Found {len(results)} Notion results:", ""]
-    for entry in results:
-        object_type = entry.get("object", "unknown")
-        identifier = entry.get("id", "(unknown id)")
-        title = _extract_title(entry) or "(untitled)"
-        url = entry.get("url")
-        lines.append(f"- {object_type.title()} • {title} • ID: {identifier}{f' • URL: {url}' if url else ''}")
+    for index, (entry, detail) in enumerate(zip(results, details), start=1):
+        heading = f"{index}. {_format_result_heading(entry)}"
+        lines.append(heading)
+        if detail:
+            lines.append(textwrap.indent(detail, "   "))
+        if index < len(results):
+            lines.append("")
     if next_cursor:
         lines.append("")
         lines.append(f"More results available. Use start_cursor='{next_cursor}' to continue.")
@@ -428,6 +445,35 @@ async def _fetch_block_children(
 mcp: FastMCP = FastMCP("custom-notion")
 
 
+async def _render_entry_detail(
+    entry: Dict[str, Any],
+    *,
+    block_limit: int,
+) -> Optional[str]:
+    if entry.get("object") != "page":
+        return None
+    identifier = entry.get("id")
+    if not identifier:
+        return None
+    try:
+        return await notion_retrieve_page(
+            identifier,
+            include_children=True,
+            page_size=block_limit,
+        )
+    except NotionAPIError as exc:  # pragma: no cover - network errors during tests
+        return f"Failed to load page content: {exc}"
+
+
+async def _collect_search_details(
+    results: List[Dict[str, Any]],
+    *,
+    block_limit: int,
+) -> List[Optional[str]]:
+    tasks = [_render_entry_detail(entry, block_limit=block_limit) for entry in results]
+    return await asyncio.gather(*tasks)
+
+
 @mcp.tool("notion_search")
 async def notion_search(
     query: Optional[str] = None,
@@ -436,12 +482,16 @@ async def notion_search(
     sort: Optional[Dict[str, Any]] = None,
     start_cursor: Optional[str] = None,
     page_size: Optional[int] = None,
+    include_content: bool = True,
+    content_block_limit: Optional[int] = None,
 ) -> str:
     """Search pages and databases in the connected Notion workspace.
 
     Authentication requires ``NOTION_TOKEN`` (preferred) or ``NOTION_API_KEY`` to
     be present in the environment. Optional ``NOTION_VERSION`` mirrors the
-    upstream configuration and defaults to ``2022-06-28``.
+    upstream configuration and defaults to ``2022-06-28``. Set
+    ``include_content=False`` to return metadata only. ``content_block_limit``
+    controls how many child blocks are retrieved per page (defaults to 20).
     """
 
     payload = _build_search_payload(
@@ -452,7 +502,14 @@ async def notion_search(
         page_size=page_size,
     )
     response = await _request("POST", "/search", json=payload)
-    return _format_search_results(response.get("results", []), response.get("next_cursor"))
+    results = response.get("results") or []
+    block_limit = max(1, content_block_limit or DEFAULT_SEARCH_BLOCK_LIMIT)
+    details = (
+        await _collect_search_details(results, block_limit=block_limit)
+        if include_content and results
+        else [None] * len(results)
+    )
+    return _format_search_results(results, details, response.get("next_cursor"))
 
 
 @mcp.tool("notion_retrieve_page")

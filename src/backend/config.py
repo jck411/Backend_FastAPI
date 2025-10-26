@@ -96,6 +96,13 @@ class Settings(BaseSettings):
         default_factory=lambda: Path("data/chat_sessions.db"),
         validation_alias=AliasChoices("CHAT_DATABASE_PATH", "chat_db"),
     )
+    conversation_log_dir: Path = Field(
+        default_factory=lambda: Path("logs/conversations"),
+        validation_alias=AliasChoices(
+            "CONVERSATION_LOG_DIR",
+            "conversation_log_dir",
+        ),
+    )
 
     attachments_max_size_bytes: int = Field(
         default=10 * 1024 * 1024,

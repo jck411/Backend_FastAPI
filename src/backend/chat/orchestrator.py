@@ -15,6 +15,8 @@ from ..openrouter import OpenRouterClient
 from ..repository import ChatRepository
 from ..schemas.chat import ChatCompletionRequest
 from ..services.attachment_urls import refresh_message_attachments
+from ..logging_settings import parse_logging_settings
+from ..services.conversation_logging import ConversationLogWriter
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
 from .image_reflection import reflect_assistant_images
@@ -68,6 +70,14 @@ class ChatOrchestrator:
             base_env=env,
             default_cwd=project_root,
         )
+        conversation_log_dir = settings.conversation_log_dir
+        if not conversation_log_dir.is_absolute():
+            conversation_log_dir = project_root / conversation_log_dir
+        logging_settings = parse_logging_settings(project_root / "logging_settings.conf")
+        self._conversation_logger = ConversationLogWriter(
+            conversation_log_dir,
+            min_level=logging_settings.conversations_level,
+        )
         self._model_settings = model_settings
         self._mcp_settings = mcp_settings
         self._streaming = StreamingHandler(
@@ -76,6 +86,7 @@ class ChatOrchestrator:
             self._mcp_client,
             default_model=settings.default_model,
             model_settings=model_settings,
+            conversation_logger=self._conversation_logger,
         )
         self._settings = settings
         self._init_lock = asyncio.Lock()

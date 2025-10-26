@@ -215,6 +215,32 @@ class ChatRepository:
         await cursor.close()
         return row is not None
 
+    async def get_session_metadata(self, session_id: str) -> dict[str, Any] | None:
+        """Return metadata for a stored session, if available."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            """
+            SELECT session_id, created_at, timezone
+            FROM conversations
+            WHERE session_id = ?
+            LIMIT 1
+            """,
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row is None:
+            return None
+
+        created_at = _normalize_db_timestamp(row["created_at"])
+        timezone_value = row["timezone"]
+        return {
+            "session_id": row["session_id"],
+            "created_at": created_at,
+            "timezone": timezone_value,
+        }
+
     async def clear_session(self, session_id: str) -> None:
         """Remove all messages and events for the given session."""
 

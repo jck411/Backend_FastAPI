@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from .chat import ChatOrchestrator
 from .config import get_settings
+from .logging_handlers import DateStampedFileHandler
+from .logging_settings import parse_logging_settings
 from .routers.chat import router as chat_router
 from .routers.google_auth import router as google_auth_router
 from .routers.mcp_servers import router as mcp_router
@@ -30,21 +30,16 @@ from .services.presets import PresetService
 
 
 def _configure_logging() -> None:
-    """Configure logging based on LOG_LEVEL environment variable."""
-    # Load .env file first to ensure LOG_FILE is available
-    load_dotenv()
+    """Configure application logging from the simple settings file."""
 
-    log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
-    log_level = getattr(logging, log_level_str, logging.INFO)
+    project_root = Path(__file__).resolve().parent.parent.parent
+    raw_settings = parse_logging_settings(project_root / "logging_settings.conf")
 
-    # Create logs directory if it doesn't exist
-    log_file = os.getenv("LOG_FILE")
     handlers: list[logging.Handler] = []
 
-    if log_file:
-        log_path = Path(log_file)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    if raw_settings.sessions_level is not None:
+        file_handler = DateStampedFileHandler(directory="logs/app", encoding="utf-8")
+        file_handler.setLevel(raw_settings.sessions_level)
         file_handler.setFormatter(
             logging.Formatter(
                 "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -53,45 +48,41 @@ def _configure_logging() -> None:
         )
         handlers.append(file_handler)
 
-    # Always add console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(
-        logging.Formatter(
-            "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-    )
-    handlers.append(console_handler)
+    if raw_settings.terminal_level is not None:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(raw_settings.terminal_level)
+        console_handler.setFormatter(logging.Formatter("%(message)s"))
+        handlers.append(console_handler)
 
-    # Configure root logger with no message truncation
+    level_candidates = [
+        level for level in (raw_settings.sessions_level, raw_settings.terminal_level)
+        if level is not None
+    ]
+    root_level = min(level_candidates) if level_candidates else logging.CRITICAL
+
+    if not handlers:
+        handlers.append(logging.NullHandler())
+
     logging.basicConfig(
-        level=log_level,
+        level=root_level,
         handlers=handlers,
-        force=True,  # Override any existing configuration
+        force=True,
+    )
+
+    # Align common loggers with the configured levels
+    backend_level = raw_settings.sessions_level or logging.CRITICAL + 1
+    logging.getLogger("backend").setLevel(backend_level)
+    logging.getLogger("uvicorn").setLevel(backend_level)
+    logging.getLogger("uvicorn.error").setLevel(backend_level)
+    logging.getLogger("uvicorn.access").setLevel(backend_level)
+    logging.getLogger("watchfiles").setLevel(
+        max(backend_level, logging.WARNING)
     )
 
     # Disable any max length restrictions on log records
     logging.logMultiprocessing = False
     logging.logProcesses = False
     logging.logThreads = False
-
-    # Ensure our backend modules use the configured level
-    backend_logger = logging.getLogger("backend")
-    backend_logger.setLevel(log_level)
-
-    # Also capture uvicorn logs
-    logging.getLogger("uvicorn").setLevel(log_level)
-    logging.getLogger("uvicorn.access").setLevel(log_level)
-    logging.getLogger("uvicorn.error").setLevel(log_level)
-
-    # Ensure httpx and httpcore show full content at DEBUG level
-    logging.getLogger("httpx").setLevel(log_level)
-    logging.getLogger("httpcore").setLevel(log_level)
-
-    # Optionally quiet down noisy third-party libraries
-    if log_level > logging.DEBUG:
-        logging.getLogger("httpx").setLevel(logging.WARNING)
-        logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def create_app() -> FastAPI:

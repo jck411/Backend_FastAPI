@@ -11,13 +11,14 @@ from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Iterable, Protocol, Sequence
 from urllib.parse import unquote_to_bytes
 
+import httpx
+from ..config import get_settings
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..repository import ChatRepository, format_timestamp_for_client
 from ..schemas.chat import ChatCompletionRequest
 from ..services.attachments import AttachmentService
+from ..services.conversation_logging import ConversationLogWriter
 from ..services.model_settings import ModelSettingsService
-from ..config import get_settings
-import httpx
 
 
 class ToolExecutor(Protocol):
@@ -232,6 +233,7 @@ class StreamingHandler:
         tool_hop_limit: int = 3,
         model_settings: ModelSettingsService | None = None,
         attachment_service: AttachmentService | None = None,
+        conversation_logger: ConversationLogWriter | None = None,
     ) -> None:
         self._client = client
         self._repo = repository
@@ -240,11 +242,53 @@ class StreamingHandler:
         self._tool_hop_limit = tool_hop_limit
         self._model_settings = model_settings
         self._attachment_service = attachment_service
+        self._conversation_logger = conversation_logger
 
     def set_attachment_service(self, service: AttachmentService | None) -> None:
         """Attach or replace the attachment service used for image persistence."""
 
         self._attachment_service = service
+
+    async def _log_conversation_snapshot(
+        self,
+        session_id: str,
+        request: ChatCompletionRequest,
+    ) -> None:
+        """Persist the latest conversation state for debugging and replay."""
+
+        if self._conversation_logger is None:
+            return
+
+        try:
+            conversation = await self._repo.get_messages(session_id)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "Failed to load conversation for session %s: %s", session_id, exc
+            )
+            return
+
+        try:
+            metadata = await self._repo.get_session_metadata(session_id)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "Failed to load session metadata for session %s: %s", session_id, exc
+            )
+            metadata = None
+
+        request_snapshot = request.model_dump(mode="json", exclude_none=True)
+        request_snapshot.pop("session_id", None)
+
+        try:
+            await self._conversation_logger.write(
+                session_id=session_id,
+                session_created_at=(metadata or {}).get("created_at"),
+                request_snapshot=request_snapshot,
+                conversation=conversation,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning(
+                "Failed to write conversation log for session %s: %s", session_id, exc
+            )
 
     async def stream_conversation(
         self,
@@ -804,6 +848,9 @@ class StreamingHandler:
                 }
 
             hop_count += 1
+
+        if self._conversation_logger is not None:
+            await self._log_conversation_snapshot(session_id, request)
 
         yield {"event": "message", "data": "[DONE]"}
 

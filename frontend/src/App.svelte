@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { fetchGenerationDetails } from "./lib/api/client";
-  import type { GenerationDetails, ModelRecord } from "./lib/api/types";
+  import type { AttachmentResource, GenerationDetails, ModelRecord } from "./lib/api/types";
   import type { GenerationDetailField } from "./lib/chat/constants";
   import { GENERATION_DETAIL_FIELDS } from "./lib/chat/constants";
   import ChatHeader from "./lib/components/chat/ChatHeader.svelte";
@@ -22,6 +22,7 @@
     stopSpeech,
   } from "./lib/speech/speechController";
   import { chatStore } from "./lib/stores/chat";
+  import type { ConversationMessage } from "./lib/stores/chat";
   import { modelStore } from "./lib/stores/models";
   import { presetsStore } from "./lib/stores/presets";
 
@@ -45,6 +46,7 @@
   } = modelStore;
 
   let prompt = "";
+  let presetAttachments: AttachmentResource[] = [];
   let explorerOpen = false;
   let generationModalOpen = false;
   let modelSettingsOpen = false;
@@ -125,6 +127,23 @@
 
   function handleRetryMessage(id: string): void {
     void retryMessage(id);
+  }
+
+  function handleAssistantAttachmentEdit(detail: {
+    message: ConversationMessage;
+    attachment: AttachmentResource;
+  }): void {
+    if (!detail?.attachment) {
+      return;
+    }
+    cancelEditing();
+    const cloned: AttachmentResource = {
+      ...detail.attachment,
+      metadata: detail.attachment.metadata ? { ...detail.attachment.metadata } : null,
+    };
+    presetAttachments = [cloned];
+    const nextPrompt = detail.message?.text?.trim() ?? "";
+    prompt = nextPrompt;
   }
 
   function beginEditingMessage(id: string): void {
@@ -244,7 +263,11 @@
     modelsError={$modelsError}
     hasMessages={$chatStore.messages.length > 0}
     on:openExplorer={() => (explorerOpen = true)}
-    on:clear={clearConversation}
+    on:clear={() => {
+      presetAttachments = [];
+      prompt = "";
+      clearConversation();
+    }}
     on:modelChange={(event) => handleModelChange(event.detail.id)}
     on:openModelSettings={() => (modelSettingsOpen = true)}
     on:openSystemSettings={() => (systemSettingsOpen = true)}
@@ -264,6 +287,7 @@
     on:deleteMessage={handleDeleteMessage}
     on:retryMessage={(event) => handleRetryMessage(event.detail.id)}
     on:editMessage={(event) => beginEditingMessage(event.detail.id)}
+    on:editAssistantAttachment={(event) => handleAssistantAttachmentEdit(event.detail)}
     disableDelete={$chatStore.isStreaming}
   />
 
@@ -286,6 +310,7 @@
   {:else}
     <Composer
       bind:prompt
+      {presetAttachments}
       isStreaming={$chatStore.isStreaming}
       on:submit={(event) => sendMessage(event.detail)}
       on:cancel={cancelStream}

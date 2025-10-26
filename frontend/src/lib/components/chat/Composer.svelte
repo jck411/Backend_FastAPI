@@ -9,13 +9,14 @@
 
   export let prompt = '';
   export let isStreaming = false;
+  export let presetAttachments: AttachmentResource[] = [];
 
   type AttachmentStatus = 'uploading' | 'ready' | 'error';
 
   interface AttachmentDraft {
     id: string;
-    file: File;
-    previewUrl: string;
+    file: File | null;
+    previewUrl: string | null;
     status: AttachmentStatus;
     resource?: AttachmentResource;
     error?: string | null;
@@ -34,6 +35,7 @@
   let attachments: AttachmentDraft[] = [];
   let composerError: string | null = null;
   let fileInput: HTMLInputElement | null = null;
+  let previousPreset: AttachmentResource[] | null = null;
 
   $: trimmedPrompt = prompt.trim();
   $: hasUploading = attachments.some((item) => item.status === 'uploading');
@@ -47,6 +49,54 @@
       return `attachment_${globalThis.crypto.randomUUID().replace(/-/g, '')}`;
     }
     return `attachment_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  function releasePreview(url: string | null): void {
+    if (!url || typeof url !== 'string') {
+      return;
+    }
+    if (url.startsWith('blob:')) {
+      try {
+        URL.revokeObjectURL(url);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  function applyPresetAttachments(resources: AttachmentResource[]): void {
+    resetAttachments();
+    if (!resources || resources.length === 0) {
+      composerError = null;
+      return;
+    }
+    const drafts: AttachmentDraft[] = [];
+    for (const resource of resources) {
+      if (!resource) {
+        continue;
+      }
+      const preview = resource.displayUrl ?? resource.deliveryUrl ?? null;
+      if (!preview) {
+        continue;
+      }
+      drafts.push({
+        id: resource.id ?? createLocalId(),
+        file: null,
+        previewUrl: preview,
+        status: 'ready',
+        resource: {
+          ...resource,
+          metadata: resource.metadata ? { ...resource.metadata } : null,
+        },
+      });
+    }
+    attachments = drafts;
+    composerError = null;
+  }
+
+  $: if (presetAttachments !== previousPreset) {
+    applyPresetAttachments(presetAttachments);
+    previousPreset = presetAttachments;
   }
 
   function handleSubmit(): void {
@@ -155,6 +205,9 @@
   }
 
   async function uploadDraftAttachment(draft: AttachmentDraft, sessionId: string): Promise<void> {
+    if (!draft.file) {
+      return;
+    }
     try {
       const { attachment } = await uploadAttachment(draft.file, sessionId);
       attachments = attachments.map((item) =>
@@ -170,10 +223,11 @@
 
   function removeAttachment(id: string): void {
     attachments = attachments.filter((item) => {
-      if (item.id === id && item.previewUrl) {
-        URL.revokeObjectURL(item.previewUrl);
+      if (item.id === id) {
+        releasePreview(item.previewUrl);
+        return false;
       }
-      return item.id !== id;
+      return true;
     });
     if (!attachments.length) {
       composerError = null;
@@ -182,9 +236,7 @@
 
   function resetAttachments(): void {
     attachments.forEach((item) => {
-      if (item.previewUrl) {
-        URL.revokeObjectURL(item.previewUrl);
-      }
+      releasePreview(item.previewUrl);
     });
     attachments = [];
   }
@@ -204,7 +256,16 @@
             class:uploading={attachment.status === 'uploading'}
             class:error={attachment.status === 'error'}
           >
-            <img src={attachment.previewUrl} alt="Attachment preview" loading="lazy" />
+            <img
+              src={
+                attachment.previewUrl ??
+                attachment.resource?.displayUrl ??
+                attachment.resource?.deliveryUrl ??
+                ''
+              }
+              alt="Attachment preview"
+              loading="lazy"
+            />
             {#if attachment.status === 'uploading'}
               <span class="chip-status">Uploading…</span>
             {/if}

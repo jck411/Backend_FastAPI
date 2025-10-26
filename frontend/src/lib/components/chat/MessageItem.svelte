@@ -26,6 +26,7 @@
     openReasoning: { message: ConversationMessage };
     openUsage: { id: string };
     edit: { message: ConversationMessage };
+    editAttachment: { message: ConversationMessage; attachment: AttachmentResource };
     retry: { message: ConversationMessage };
     delete: { message: ConversationMessage };
   }>();
@@ -69,6 +70,10 @@
       return;
     }
     dispatch("delete", { message });
+  }
+
+  function handleAttachmentEdit(attachment: AttachmentResource): void {
+    dispatch("editAttachment", { message, attachment });
   }
 
   function attachmentFilename(attachment: AttachmentResource): string | null {
@@ -259,18 +264,33 @@
         <div class="message-attachments">
           {#each message.attachments as attachment (attachment.id ?? attachment.displayUrl ?? attachment.deliveryUrl)}
             <figure class="attachment-card">
-              <a
-                href={attachment.displayUrl || attachment.deliveryUrl}
-                target="_blank"
-                rel="noreferrer"
-                aria-label={attachmentLabel(attachment)}
-              >
-                <img
-                  src={attachment.displayUrl || attachment.deliveryUrl}
-                  alt={attachmentAlt(attachment)}
-                  loading="lazy"
-                />
-              </a>
+              <div class="attachment-shell">
+                <a
+                  class="attachment-link"
+                  href={attachment.displayUrl || attachment.deliveryUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label={attachmentLabel(attachment)}
+                >
+                  <img
+                    src={attachment.displayUrl || attachment.deliveryUrl}
+                    alt={attachmentAlt(attachment)}
+                    loading="lazy"
+                  />
+                </a>
+                {#if message.role === "assistant"}
+                  <button
+                    type="button"
+                    class="attachment-edit"
+                    aria-label="Edit and resend image"
+                    title="Edit and resend image"
+                    on:click={() => handleAttachmentEdit(attachment)}
+                  >
+                    <Pencil size={14} strokeWidth={1.8} aria-hidden="true" />
+                    <span class="attachment-edit-label">Edit &amp; send</span>
+                  </button>
+                {/if}
+              </div>
             </figure>
           {/each}
         </div>
@@ -563,7 +583,10 @@
     margin: 0;
     width: 100%;
   }
-  .message-attachments .attachment-card a {
+  .message-attachments .attachment-card .attachment-shell {
+    position: relative;
+  }
+  .message-attachments .attachment-card .attachment-link {
     display: block;
     width: 100%;
     border-radius: 0.75rem;
@@ -574,11 +597,11 @@
       transform 0.12s ease,
       border-color 0.12s ease;
   }
-  .message.user .message-attachments .attachment-card a {
+  .message.user .message-attachments .attachment-card .attachment-link {
     background: rgba(42, 59, 96, 0.6);
   }
-  .message-attachments .attachment-card a:hover,
-  .message-attachments .attachment-card a:focus-visible {
+  .message-attachments .attachment-card .attachment-link:hover,
+  .message-attachments .attachment-card .attachment-link:focus-visible {
     border-color: rgba(147, 197, 253, 0.65);
     transform: translateY(-1px);
     outline: none;
@@ -589,6 +612,47 @@
     height: auto;
     max-height: 70vh;
     object-fit: contain;
+  }
+  .message-attachments .attachment-edit {
+    position: absolute;
+    left: 50%;
+    bottom: 0.85rem;
+    transform: translate(-50%, 8px);
+    opacity: 0;
+    pointer-events: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid rgba(147, 197, 253, 0.75);
+    background: rgba(8, 14, 28, 0.82);
+    color: #e2e8f0;
+    font-size: 0.75rem;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    transition:
+      opacity 0.15s ease,
+      transform 0.15s ease;
+    z-index: 2;
+  }
+  .message-attachments .attachment-shell:hover .attachment-edit,
+  .message-attachments .attachment-edit:focus-visible {
+    opacity: 1;
+    transform: translate(-50%, 0);
+    pointer-events: auto;
+    outline: none;
+  }
+  .message-attachments .attachment-edit:hover {
+    background: rgba(30, 42, 72, 0.92);
+    border-color: rgba(180, 207, 255, 0.85);
+  }
+  .message-attachments .attachment-edit :global(svg) {
+    width: 0.85rem;
+    height: 0.85rem;
+  }
+  .message-attachments .attachment-edit-label {
+    font-weight: 600;
   }
   .message-actions {
     position: absolute;

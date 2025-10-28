@@ -1,6 +1,6 @@
 # Using Notion MCP Server for Reminders and Memory
 
-The Notion MCP server has been optimized to help you store and retrieve information like names, reminders, and notes. This guide shows how the LLM will use these tools to help you remember things.
+The Notion MCP server provides enhanced tool descriptions to help you store and retrieve information like names, reminders, and notes. This guide shows how the LLM will use these tools to help you remember things.
 
 ## Overview
 
@@ -148,7 +148,7 @@ The tool descriptions include:
 
 - **Concrete examples** of common use cases
 - **Action-oriented language** ("search for names", "add to your list")
-- **Context about when to use each tool** 
+- **Context about when to use each tool**
 - **Guidance on the typical workflow** (search → create → append → update)
 
 This guides the LLM to use the tools appropriately without requiring explicit instructions from the user.

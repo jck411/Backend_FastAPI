@@ -6,26 +6,26 @@ for storing and retrieving reminders, notes, and information you want to remembe
 
 Tools provided
 --------------
-* ``notion_search`` – search for reminders, notes, and stored information (e.g., 
+* ``notion_search`` – search for reminders, notes, and stored information (e.g.,
   "names to remember", "project ideas"). Wraps the `/v1/search` endpoint.
 * ``notion_retrieve_page`` – retrieve detailed content from a reminder or note page,
-  fetching metadata and block content via `/v1/pages/{page_id}` and 
+  fetching metadata and block content via `/v1/pages/{page_id}` and
   `/v1/blocks/{page_id}/children`.
 * ``notion_create_page`` – create new reminder notes or memory storage pages (e.g.,
   "Names to Remember", "Books to Read") using `/v1/pages`.
 * ``notion_append_block_children`` – add new content to existing reminders or notes
-  (e.g., add a new name to your "names to remember" page) via 
+  (e.g., add a new name to your "names to remember" page) via
   `/v1/blocks/{block_id}/children`.
 * ``notion_update_block`` – update or modify content in existing reminder blocks
   via `/v1/blocks/{block_id}`.
 
 Common use cases
 ----------------
-* Remember names: Create a "Names to Remember" page, search it when needed, and 
+* Remember names: Create a "Names to Remember" page, search it when needed, and
   add new names as you meet people.
-* Store information: Create topic-specific notes (e.g., "Project Ideas", 
+* Store information: Create topic-specific notes (e.g., "Project Ideas",
   "Books to Read") that you can search and update later.
-* Manage reminders: Build lists and notes that help you remember important 
+* Manage reminders: Build lists and notes that help you remember important
   information, tasks, or ideas.
 
 Required environment variables
@@ -91,7 +91,7 @@ else:  # Runtime import
 
 NOTION_BASE_URL = "https://api.notion.com/v1"
 DEFAULT_NOTION_VERSION = "2022-06-28"
-DEFAULT_SEARCH_BLOCK_LIMIT = 20
+DEFAULT_SEARCH_BLOCK_LIMIT = 100
 
 
 @dataclass(slots=True)
@@ -399,7 +399,7 @@ def _format_result_heading(entry: Dict[str, Any]) -> str:
     object_type = entry.get("object", "unknown").title()
     identifier = entry.get("id", "(unknown id)")
     title = _extract_title(entry) or "(untitled)"
-    return f"{object_type} • {title} • ID: {identifier}"
+    return f"{object_type} • {title} • PAGE ID: {identifier}"
 
 
 def _format_search_results(
@@ -426,12 +426,13 @@ def _format_search_results(
 
 def _format_page_summary(page: Dict[str, Any]) -> str:
     title = _extract_title(page) or "(untitled)"
+    page_id = page.get("id", "(unknown id)")
     url = page.get("url")
     last_edited = page.get("last_edited_time")
     created_time = page.get("created_time")
     properties = page.get("properties", {})
 
-    lines = [f"Title: {title}"]
+    lines = [f"Title: {title}", f"PAGE ID: {page_id}"]
     if url:
         lines.append(f"URL: {url}")
     if created_time:
@@ -531,30 +532,30 @@ async def _collect_search_details(
 
 def _generate_search_variations(query: Optional[str]) -> List[str]:
     """Generate search query variations to improve match likelihood.
-    
+
     This function creates multiple search strategies:
     1. The original query as-is
     2. Individual significant words (4+ characters) from the query
     3. Common phrase patterns
-    
+
     This helps overcome Notion API's exact-match limitations.
     """
     if not query:
         return []
-    
+
     variations = [query.strip()]
-    
+
     # Split query into words and add significant terms individually
     words = query.strip().lower().split()
-    
+
     # Filter for words that are 4+ characters (skip "to", "at", "the", "and", etc.)
     significant_words = [w for w in words if len(w) >= 4]
-    
+
     # Add individual significant words as search variations
     for word in significant_words:
         if word not in variations:
             variations.append(word)
-    
+
     # Add common multi-word combinations if query has multiple words
     if len(significant_words) >= 2:
         # Try pairs of adjacent words
@@ -562,7 +563,7 @@ def _generate_search_variations(query: Optional[str]) -> List[str]:
             pair = f"{significant_words[i]} {significant_words[i + 1]}"
             if pair not in variations:
                 variations.append(pair)
-    
+
     return variations
 
 
@@ -576,10 +577,10 @@ async def _perform_enhanced_search(
     max_variations: int = 3,
 ) -> tuple[List[Dict[str, Any]], Optional[str]]:
     """Perform enhanced search with multiple query variations.
-    
+
     Tries the original query first, and if results are insufficient,
     attempts searches with query variations to find more relevant matches.
-    
+
     Returns deduplicated results and the next cursor from the best search.
     """
     # Try the original query first
@@ -593,14 +594,14 @@ async def _perform_enhanced_search(
     response = await _request("POST", "/search", json=payload)
     results = response.get("results") or []
     next_cursor = response.get("next_cursor")
-    
+
     # If we got good results or there's no query, return immediately
     if len(results) >= 3 or not query or start_cursor:
         return results, next_cursor
-    
+
     # Try search variations to find more matches
     variations = _generate_search_variations(query)
-    
+
     # Skip the first variation (original query) since we already tried it
     # Limit the number of additional API calls
     for variation in variations[1:max_variations]:
@@ -613,7 +614,7 @@ async def _perform_enhanced_search(
         try:
             variation_response = await _request("POST", "/search", json=variation_payload)
             variation_results = variation_response.get("results") or []
-            
+
             # Deduplicate results by ID
             existing_ids = {r.get("id") for r in results}
             for result in variation_results:
@@ -621,18 +622,37 @@ async def _perform_enhanced_search(
                 if result_id and result_id not in existing_ids:
                     results.append(result)
                     existing_ids.add(result_id)
-            
+
             # If we now have enough results, stop searching
             if len(results) >= 5:
                 break
         except NotionAPIError:
             # If a variation search fails, continue with others
             continue
-    
+
     return results, next_cursor
 
 
-@mcp.tool("notion_search")
+@mcp.tool(
+    "notion_search",
+    description=(
+        "Search Notion for reminders, notes, and information you want to remember. "
+        "Returns matching pages with their PAGE IDs (look for 'ID: ...' in results). "
+        "Use this to find pages like 'Names to Remember', 'Project Ideas', or any stored information. "
+        "When searching for specific details (like someone's name), this will return relevant pages WITH their content. "
+        "If you see 'Additional blocks available' in the results, the content was truncated - "
+        "immediately call notion_retrieve_page using the PAGE ID (not block IDs) with include_children=true to get ALL content. "
+        "\n\n"
+        "CRITICAL SEARCH STRATEGY for finding specific information: "
+        "When user asks about a specific person/thing (e.g., 'who is the old lady at the park'), "
+        "DO NOT search for that exact phrase. Instead: "
+        "1. Search for the relevant page by title (e.g., 'Names' or 'Names to Remember'). "
+        "2. Read through ALL the returned content to find matching entries. "
+        "3. If no results or truncated, use notion_retrieve_page to get COMPLETE content. "
+        "Notion search is literal - 'old lady at the park' won't match 'old lady park' in the content. "
+        "Always retrieve the full page and search through it yourself for specific details."
+    )
+)
 async def notion_search(
     query: Optional[str] = None,
     *,
@@ -650,21 +670,17 @@ async def notion_search(
     - Finding notes about specific topics or subjects
     - Retrieving stored reminders and memory aids
     - Looking up information you've saved for later recall
-    
-    This search now uses an enhanced multi-strategy approach that tries query variations
-    to overcome Notion API's exact-match limitations, making it better at finding
-    relevant pages even with partial or fuzzy queries.
-    
+
     Examples:
-    - Search "names to remember" to find a note containing names
+    - Search "names to remember" or "Names" to find a note containing names
     - Search "project ideas" to retrieve saved project notes
     - Search "books to read" to find your reading list
-    
+
     Authentication requires ``NOTION_TOKEN`` (preferred) or ``NOTION_API_KEY`` to
     be present in the environment. Optional ``NOTION_VERSION`` mirrors the
     upstream configuration and defaults to ``2022-06-28``. Set
     ``include_content=False`` to return metadata only. ``content_block_limit``
-    controls how many child blocks are retrieved per page (defaults to 20).
+    controls how many child blocks are retrieved per page (defaults to 100).
     """
 
     # Use enhanced search that tries multiple query variations
@@ -675,7 +691,7 @@ async def notion_search(
         start_cursor=start_cursor,
         page_size=page_size,
     )
-    
+
     block_limit = max(1, content_block_limit or DEFAULT_SEARCH_BLOCK_LIMIT)
     details = (
         await _collect_search_details(results, block_limit=block_limit)
@@ -685,25 +701,37 @@ async def notion_search(
     return _format_search_results(results, details, next_cursor)
 
 
-@mcp.tool("notion_retrieve_page")
+@mcp.tool(
+    "notion_retrieve_page",
+    description=(
+        "Retrieve the COMPLETE content of a specific Notion page/note by its PAGE ID. "
+        "IMPORTANT: Use the PAGE ID from search results (e.g., 'ID: 29896b0b-3790-8118-...'), NOT block IDs. "
+        "Use this when notion_search returns truncated content and you need ALL blocks from the page. "
+        "Perfect for reading entire 'Names to Remember' lists or any page where you need to search through ALL entries. "
+        "Always use include_children=true when you need to find specific information within a page."
+    )
+)
 async def notion_retrieve_page(
     page_id: str,
     *,
     filter_properties: Optional[List[str]] = None,
-    include_children: bool = False,
+    include_children: bool = True,
     start_cursor: Optional[str] = None,
     page_size: Optional[int] = None,
 ) -> str:
     """Retrieve detailed content from a reminder or note page in Notion.
 
+    IMPORTANT: page_id must be the PAGE ID from search results (e.g., '29896b0b-3790-8118-b115-e843978e56ba'),
+    NOT a block ID (which appears in parentheses after block types like 'Paragraph (block-id)').
+
     Use this tool to read the full content of a specific reminder, note, or stored information.
     Perfect for accessing complete details after finding a page via search.
-    
+
     Common use cases:
     - Read all names from a "names to remember" note
     - Review detailed information from a reminder page
     - Check the full content of a note you've found
-    
+
     Set ``include_children=True`` to fetch the complete page content with all blocks.
     Use ``start_cursor`` and ``page_size`` to paginate through long documents.
 
@@ -735,7 +763,14 @@ async def notion_retrieve_page(
     return f"{summary}\n\n{blocks_output}"
 
 
-@mcp.tool("notion_create_page")
+@mcp.tool(
+    "notion_create_page",
+    description=(
+        "Create a new reminder note or memory storage page in Notion. "
+        "Use this to create pages like 'Names to Remember', 'Books to Read', 'Project Ideas', etc. "
+        "You can set a title and optionally add initial content blocks."
+    )
+)
 async def notion_create_page(
     data: NotionCreatePageInput,
 ) -> str:
@@ -747,14 +782,14 @@ async def notion_create_page(
     - Saving reminders about tasks or things to do
     - Creating notes about topics you want to remember
     - Storing information for future reference
-    
+
     Examples:
     - Create a page titled "Names to Remember" with initial names
     - Create a "Project Ideas" page to store your ideas
     - Create reminder notes with titles like "Things to Buy" or "Books to Read"
-    
-    If ``parent_id`` is omitted the server will fall back to ``NOTION_DATABASE_ID`` 
-    or ``NOTION_PAGE_ID``. Provide ``title`` for simple notes or supply ``properties`` 
+
+    If ``parent_id`` is omitted the server will fall back to ``NOTION_DATABASE_ID``
+    or ``NOTION_PAGE_ID``. Provide ``title`` for simple notes or supply ``properties``
     that match your database schema when creating structured entries.
 
     Authentication requires ``NOTION_TOKEN`` (preferred) or ``NOTION_API_KEY``.
@@ -785,7 +820,14 @@ def _build_children_payload(data: NotionAppendChildrenInput) -> Dict[str, Any]:
     return {"children": children}
 
 
-@mcp.tool("notion_append_block_children")
+@mcp.tool(
+    "notion_append_block_children",
+    description=(
+        "Add new content to an existing Notion page/note. "
+        "Use this to append new entries to lists like adding a new name to 'Names to Remember', "
+        "a new book to 'Books to Read', or any new reminder to an existing page."
+    )
+)
 async def notion_append_block_children(data: NotionAppendChildrenInput) -> str:
     """Add new content to an existing reminder or note page in Notion.
 
@@ -793,7 +835,7 @@ async def notion_append_block_children(data: NotionAppendChildrenInput) -> str:
     - Adding a new name to your "names to remember" note
     - Appending new items to an existing reminder list
     - Adding additional information to a note you've already created
-    
+
     Examples:
     - Add "John Smith - met at conference" to your names note
     - Append new book titles to your reading list
@@ -835,7 +877,13 @@ def _build_block_update_payload(data: NotionUpdateBlockInput) -> Dict[str, Any]:
     return payload
 
 
-@mcp.tool("notion_update_block")
+@mcp.tool(
+    "notion_update_block",
+    description=(
+        "Update or modify existing content in a Notion reminder or note. "
+        "Use this to correct information, update details, or archive old reminders."
+    )
+)
 async def notion_update_block(data: NotionUpdateBlockInput) -> str:
     """Update or modify content in an existing reminder or note block.
 
@@ -844,7 +892,7 @@ async def notion_update_block(data: NotionUpdateBlockInput) -> str:
     - Updating a name with additional context or corrections
     - Modifying reminder text to reflect changes
     - Correcting or enhancing stored information
-    
+
     Examples:
     - Update "John" to "John Smith - CEO at Tech Corp"
     - Change a reminder note with updated details

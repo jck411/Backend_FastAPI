@@ -148,11 +148,12 @@ def test_generate_search_variations_filters_short_words() -> None:
     variations = _generate_search_variations("old lady at the park")
     
     assert "old lady at the park" in variations  # Original query
-    assert "old" in variations  # Significant word
     assert "lady" in variations  # Significant word
     assert "park" in variations  # Significant word
-    # "at" and "the" should not be individual variations (too short)
-    short_words_count = sum(1 for v in variations if v in ["at", "the"])
+    # "old" (3 chars), "at", and "the" should not be individual variations (too short)
+    # Only words with 4+ characters become individual search terms
+    assert "old" not in variations
+    short_words_count = sum(1 for v in variations if v in ["at", "the", "old"])
     assert short_words_count == 0
 
 

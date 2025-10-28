@@ -534,7 +534,7 @@ def _generate_search_variations(query: Optional[str]) -> List[str]:
     
     This function creates multiple search strategies:
     1. The original query as-is
-    2. Individual significant words (3+ characters) from the query
+    2. Individual significant words (4+ characters) from the query
     3. Common phrase patterns
     
     This helps overcome Notion API's exact-match limitations.
@@ -547,8 +547,8 @@ def _generate_search_variations(query: Optional[str]) -> List[str]:
     # Split query into words and add significant terms individually
     words = query.strip().lower().split()
     
-    # Filter for words that are 3+ characters (skip "to", "at", etc.)
-    significant_words = [w for w in words if len(w) >= 3]
+    # Filter for words that are 4+ characters (skip "to", "at", "the", "and", etc.)
+    significant_words = [w for w in words if len(w) >= 4]
     
     # Add individual significant words as search variations
     for word in significant_words:

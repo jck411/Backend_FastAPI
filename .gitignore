@@ -50,6 +50,8 @@ google_tasks_credentials.json
 google_tasks_token.json
 credentials/
 data/tokens/
+.credentials/
+secrets/
 
 # Node modules
 node_modules/

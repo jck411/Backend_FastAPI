@@ -7,6 +7,20 @@
       "module": "backend.mcp_servers.notion_server"
     },
     {
+      "command": [
+        "uvx",
+        "workspace-mcp",
+        "--tools",
+        "calendar",
+        "--tool-tier",
+        "complete"
+      ],
+      "disabled_tools": [],
+      "enabled": true,
+      "env": {},
+      "id": "google-workspace"
+    },
+    {
       "disabled_tools": [],
       "enabled": true,
       "env": {},

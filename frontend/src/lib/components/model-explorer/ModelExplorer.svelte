@@ -10,7 +10,7 @@
   import FilterPanel from "./FilterPanel.svelte";
   import ModelExplorerHeader from "./ModelExplorerHeader.svelte";
   import ModelResults from "./ModelResults.svelte";
-  import type { FilterChip, FilterCategoryKey } from "./types";
+  import type { FilterCategoryKey, FilterChip } from "./types";
 
   export let open = false;
 
@@ -19,7 +19,14 @@
     close: void;
   }>();
 
-  const { filtered, filters, setSearch, setSort, activeFilters, setSelectionState } = modelStore;
+  const {
+    filtered,
+    filters,
+    setSearch,
+    setSort,
+    activeFilters,
+    setSelectionState,
+  } = modelStore;
 
   const filterCategories: Record<FilterCategoryKey, { label: string }> = {
     inputModalities: { label: "Input" },
@@ -221,7 +228,7 @@
       <ModelResults
         models={filteredModels}
         {filtersActive}
-        filterChips={filterChips}
+        {filterChips}
         onSelect={handleSelect}
         on:clearFilter={handleFilterChipClear}
       />

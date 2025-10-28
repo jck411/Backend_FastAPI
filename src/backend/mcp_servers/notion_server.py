@@ -1,19 +1,32 @@
-"""Custom MCP server exposing a focused subset of the Notion API.
+"""Custom MCP server exposing a focused subset of the Notion API for reminders and memory.
 
 This lightweight adapter mirrors the public `notion-mcp-server` reference
-implementation while remaining fully async and dependency-light.
+implementation while remaining fully async and dependency-light. It's optimized
+for storing and retrieving reminders, notes, and information you want to remember.
 
 Tools provided
 --------------
-* ``notion_search`` – wrap the `/v1/search` endpoint for workspace discovery.
-* ``notion_retrieve_page`` – fetch page metadata (and optionally the rich text
-  block content) via `/v1/pages/{page_id}` and `/v1/blocks/{page_id}/children`.
-* ``notion_create_page`` – create simple notes in a page or database using
-  `/v1/pages`.
-* ``notion_append_block_children`` – append new blocks to an existing page or
-  block using `/v1/blocks/{block_id}/children`.
-* ``notion_update_block`` – patch block content (for example to replace the
-  text of a paragraph) via `/v1/blocks/{block_id}`.
+* ``notion_search`` – search for reminders, notes, and stored information (e.g., 
+  "names to remember", "project ideas"). Wraps the `/v1/search` endpoint.
+* ``notion_retrieve_page`` – retrieve detailed content from a reminder or note page,
+  fetching metadata and block content via `/v1/pages/{page_id}` and 
+  `/v1/blocks/{page_id}/children`.
+* ``notion_create_page`` – create new reminder notes or memory storage pages (e.g.,
+  "Names to Remember", "Books to Read") using `/v1/pages`.
+* ``notion_append_block_children`` – add new content to existing reminders or notes
+  (e.g., add a new name to your "names to remember" page) via 
+  `/v1/blocks/{block_id}/children`.
+* ``notion_update_block`` – update or modify content in existing reminder blocks
+  via `/v1/blocks/{block_id}`.
+
+Common use cases
+----------------
+* Remember names: Create a "Names to Remember" page, search it when needed, and 
+  add new names as you meet people.
+* Store information: Create topic-specific notes (e.g., "Project Ideas", 
+  "Books to Read") that you can search and update later.
+* Manage reminders: Build lists and notes that help you remember important 
+  information, tasks, or ideas.
 
 Required environment variables
 ------------------------------
@@ -527,8 +540,19 @@ async def notion_search(
     include_content: bool = True,
     content_block_limit: Optional[int] = None,
 ) -> str:
-    """Search pages and databases in the connected Notion workspace.
+    """Search for reminders, notes, and stored information in Notion workspace.
 
+    Use this tool to find previously saved information, reminders, or notes. Perfect for:
+    - Searching for names to remember (e.g., "names to remember", "people I met")
+    - Finding notes about specific topics or subjects
+    - Retrieving stored reminders and memory aids
+    - Looking up information you've saved for later recall
+    
+    Examples:
+    - Search "names to remember" to find a note containing names
+    - Search "project ideas" to retrieve saved project notes
+    - Search "books to read" to find your reading list
+    
     Authentication requires ``NOTION_TOKEN`` (preferred) or ``NOTION_API_KEY`` to
     be present in the environment. Optional ``NOTION_VERSION`` mirrors the
     upstream configuration and defaults to ``2022-06-28``. Set
@@ -563,11 +587,20 @@ async def notion_retrieve_page(
     start_cursor: Optional[str] = None,
     page_size: Optional[int] = None,
 ) -> str:
-    """Retrieve metadata (and optionally block content) for a Notion page.
+    """Retrieve detailed content from a reminder or note page in Notion.
+
+    Use this tool to read the full content of a specific reminder, note, or stored information.
+    Perfect for accessing complete details after finding a page via search.
+    
+    Common use cases:
+    - Read all names from a "names to remember" note
+    - Review detailed information from a reminder page
+    - Check the full content of a note you've found
+    
+    Set ``include_children=True`` to fetch the complete page content with all blocks.
+    Use ``start_cursor`` and ``page_size`` to paginate through long documents.
 
     Authentication requires ``NOTION_TOKEN`` (preferred) or ``NOTION_API_KEY``.
-    Provide ``include_children=True`` to fetch the first page of block content;
-    use ``start_cursor`` and ``page_size`` to paginate through long documents.
     """
 
     params: Dict[str, Any] = {}
@@ -599,13 +632,25 @@ async def notion_retrieve_page(
 async def notion_create_page(
     data: NotionCreatePageInput,
 ) -> str:
-    """Create a page or database entry using the Notion API.
+    """Create a new reminder, note, or memory storage page in Notion.
+
+    Use this tool to save new information, create reminders, or store things to remember later.
+    Perfect for:
+    - Creating a "names to remember" note to store new names
+    - Saving reminders about tasks or things to do
+    - Creating notes about topics you want to remember
+    - Storing information for future reference
+    
+    Examples:
+    - Create a page titled "Names to Remember" with initial names
+    - Create a "Project Ideas" page to store your ideas
+    - Create reminder notes with titles like "Things to Buy" or "Books to Read"
+    
+    If ``parent_id`` is omitted the server will fall back to ``NOTION_DATABASE_ID`` 
+    or ``NOTION_PAGE_ID``. Provide ``title`` for simple notes or supply ``properties`` 
+    that match your database schema when creating structured entries.
 
     Authentication requires ``NOTION_TOKEN`` (preferred) or ``NOTION_API_KEY``.
-    If ``parent_id`` is omitted the server will fall back to
-    ``NOTION_DATABASE_ID`` or ``NOTION_PAGE_ID``. Provide ``title`` for simple
-    notes or supply ``properties`` that match your database schema when creating
-    structured entries.
     """
 
     config = await _get_config()
@@ -635,7 +680,18 @@ def _build_children_payload(data: NotionAppendChildrenInput) -> Dict[str, Any]:
 
 @mcp.tool("notion_append_block_children")
 async def notion_append_block_children(data: NotionAppendChildrenInput) -> str:
-    """Append blocks to an existing Notion page or block."""
+    """Add new content to an existing reminder or note page in Notion.
+
+    Use this tool to add more information to existing notes or reminders. Perfect for:
+    - Adding a new name to your "names to remember" note
+    - Appending new items to an existing reminder list
+    - Adding additional information to a note you've already created
+    
+    Examples:
+    - Add "John Smith - met at conference" to your names note
+    - Append new book titles to your reading list
+    - Add new items to your shopping list or todo reminders
+    """
 
     block_id = data.get("block_id")
     if not block_id:
@@ -674,7 +730,19 @@ def _build_block_update_payload(data: NotionUpdateBlockInput) -> Dict[str, Any]:
 
 @mcp.tool("notion_update_block")
 async def notion_update_block(data: NotionUpdateBlockInput) -> str:
-    """Update an existing Notion block's content or metadata."""
+    """Update or modify content in an existing reminder or note block.
+
+    Use this tool to edit, correct, or update information in your notes and reminders.
+    Perfect for:
+    - Updating a name with additional context or corrections
+    - Modifying reminder text to reflect changes
+    - Correcting or enhancing stored information
+    
+    Examples:
+    - Update "John" to "John Smith - CEO at Tech Corp"
+    - Change a reminder note with updated details
+    - Edit stored information to keep it current and accurate
+    """
 
     block_id = data.get("block_id")
     if not block_id:

@@ -9,6 +9,8 @@
     {
       "command": [
         "uvx",
+        "--with",
+        "packaging",
         "workspace-mcp",
         "--tools",
         "calendar",
@@ -17,7 +19,10 @@
       ],
       "disabled_tools": [],
       "enabled": true,
-      "env": {},
+      "env": {
+        "WORKSPACE_MCP_BASE_URI": "http://127.0.0.1",
+        "WORKSPACE_MCP_PORT": "8765"
+      },
       "id": "google-workspace"
     },
     {

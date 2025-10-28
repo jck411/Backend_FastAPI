@@ -73,7 +73,7 @@ import asyncio
 import os
 import textwrap
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence, TypedDict
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Mapping, Optional, Sequence, TypedDict, cast
 
 import httpx
 
@@ -204,7 +204,7 @@ async def _request(
     path: str,
     *,
     params: Optional[Dict[str, Any]] = None,
-    json: Optional[Dict[str, Any]] = None,
+    json: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Perform an HTTP request against the Notion API."""
 
@@ -633,26 +633,7 @@ async def _perform_enhanced_search(
     return results, next_cursor
 
 
-@mcp.tool(
-    "notion_search",
-    description=(
-        "Search Notion for reminders, notes, and information you want to remember. "
-        "Returns matching pages with their PAGE IDs (look for 'ID: ...' in results). "
-        "Use this to find pages like 'Names to Remember', 'Project Ideas', or any stored information. "
-        "When searching for specific details (like someone's name), this will return relevant pages WITH their content. "
-        "If you see 'Additional blocks available' in the results, the content was truncated - "
-        "immediately call notion_retrieve_page using the PAGE ID (not block IDs) with include_children=true to get ALL content. "
-        "\n\n"
-        "CRITICAL SEARCH STRATEGY for finding specific information: "
-        "When user asks about a specific person/thing (e.g., 'who is the old lady at the park'), "
-        "DO NOT search for that exact phrase. Instead: "
-        "1. Search for the relevant page by title (e.g., 'Names' or 'Names to Remember'). "
-        "2. Read through ALL the returned content to find matching entries. "
-        "3. If no results or truncated, use notion_retrieve_page to get COMPLETE content. "
-        "Notion search is literal - 'old lady at the park' won't match 'old lady park' in the content. "
-        "Always retrieve the full page and search through it yourself for specific details."
-    )
-)
+@mcp.tool("notion_search")
 async def notion_search(
     query: Optional[str] = None,
     *,
@@ -670,6 +651,13 @@ async def notion_search(
     - Finding notes about specific topics or subjects
     - Retrieving stored reminders and memory aids
     - Looking up information you've saved for later recall
+
+    CRITICAL SEARCH STRATEGY:
+    - When the user asks about a specific person or detail, do not search for that literal phrase.
+    - First search for the relevant page title (for example "Names" or "Names to Remember").
+    - Retrieve the complete page content (use ``notion_retrieve_page`` if the blocks are truncated).
+    - Scan the returned content for matching entries such as "old lady park" or "guy with pit".
+    - Notion's search API is literal, so phrases like "old lady at the park" will not match "old lady park".
 
     Examples:
     - Search "names to remember" or "Names" to find a note containing names
@@ -701,16 +689,7 @@ async def notion_search(
     return _format_search_results(results, details, next_cursor)
 
 
-@mcp.tool(
-    "notion_retrieve_page",
-    description=(
-        "Retrieve the COMPLETE content of a specific Notion page/note by its PAGE ID. "
-        "IMPORTANT: Use the PAGE ID from search results (e.g., 'ID: 29896b0b-3790-8118-...'), NOT block IDs. "
-        "Use this when notion_search returns truncated content and you need ALL blocks from the page. "
-        "Perfect for reading entire 'Names to Remember' lists or any page where you need to search through ALL entries. "
-        "Always use include_children=true when you need to find specific information within a page."
-    )
-)
+@mcp.tool("notion_retrieve_page")
 async def notion_retrieve_page(
     page_id: str,
     *,
@@ -763,14 +742,7 @@ async def notion_retrieve_page(
     return f"{summary}\n\n{blocks_output}"
 
 
-@mcp.tool(
-    "notion_create_page",
-    description=(
-        "Create a new reminder note or memory storage page in Notion. "
-        "Use this to create pages like 'Names to Remember', 'Books to Read', 'Project Ideas', etc. "
-        "You can set a title and optionally add initial content blocks."
-    )
-)
+@mcp.tool("notion_create_page")
 async def notion_create_page(
     data: NotionCreatePageInput,
 ) -> str:
@@ -820,14 +792,7 @@ def _build_children_payload(data: NotionAppendChildrenInput) -> Dict[str, Any]:
     return {"children": children}
 
 
-@mcp.tool(
-    "notion_append_block_children",
-    description=(
-        "Add new content to an existing Notion page/note. "
-        "Use this to append new entries to lists like adding a new name to 'Names to Remember', "
-        "a new book to 'Books to Read', or any new reminder to an existing page."
-    )
-)
+@mcp.tool("notion_append_block_children")
 async def notion_append_block_children(data: NotionAppendChildrenInput) -> str:
     """Add new content to an existing reminder or note page in Notion.
 
@@ -856,11 +821,14 @@ def _build_block_update_payload(data: NotionUpdateBlockInput) -> Dict[str, Any]:
     if explicit := data.get("block"):
         payload = dict(explicit)
     elif paragraph := data.get("paragraph"):
-        payload = {
+        payload = cast(
+            Dict[str, Any],
+            {
             "paragraph": {
                 "rich_text": _build_rich_text(paragraph),
             }
-        }
+            },
+        )
     else:
         raise NotionAPIError(
             "Unable to build Notion block update payload. Provide 'paragraph' text or the full 'block' body."
@@ -877,13 +845,7 @@ def _build_block_update_payload(data: NotionUpdateBlockInput) -> Dict[str, Any]:
     return payload
 
 
-@mcp.tool(
-    "notion_update_block",
-    description=(
-        "Update or modify existing content in a Notion reminder or note. "
-        "Use this to correct information, update details, or archive old reminders."
-    )
-)
+@mcp.tool("notion_update_block")
 async def notion_update_block(data: NotionUpdateBlockInput) -> str:
     """Update or modify content in an existing reminder or note block.
 

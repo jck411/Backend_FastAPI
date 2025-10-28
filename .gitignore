@@ -42,6 +42,8 @@ data/chat_sessions.db
 # Log files
 logs/
 *.log
+backend.log
+backend.pid
 
 # Credentials and tokens
 *credentials*.json

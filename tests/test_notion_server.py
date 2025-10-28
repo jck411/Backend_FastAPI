@@ -9,7 +9,9 @@ from backend.mcp_servers.notion_server import (
     _build_children_payload,
     _build_paragraph_block,
     _format_search_results,
+    _generate_search_variations,
     _merge_properties,
+    _perform_enhanced_search,
     notion_append_block_children,
     notion_update_block,
 )
@@ -129,3 +131,130 @@ async def test_notion_update_block_accepts_paragraph(monkeypatch: pytest.MonkeyP
     assert captured["path"] == "/blocks/block-42"
     assert captured["json"]["paragraph"]["rich_text"][0]["plain_text"] == "Rewrite content"
     assert "Updated Notion block block-42" in message
+
+
+def test_generate_search_variations_with_multiword_query() -> None:
+    """Test that multi-word queries generate useful variations."""
+    variations = _generate_search_variations("names to remember")
+    
+    assert "names to remember" in variations  # Original query
+    assert "names" in variations  # First significant word
+    assert "remember" in variations  # Second significant word
+    assert "names remember" in variations  # Adjacent pair
+
+
+def test_generate_search_variations_filters_short_words() -> None:
+    """Test that short words are filtered out from individual terms."""
+    variations = _generate_search_variations("old lady at the park")
+    
+    assert "old lady at the park" in variations  # Original query
+    assert "old" in variations  # Significant word
+    assert "lady" in variations  # Significant word
+    assert "park" in variations  # Significant word
+    # "at" and "the" should not be individual variations (too short)
+    short_words_count = sum(1 for v in variations if v in ["at", "the"])
+    assert short_words_count == 0
+
+
+def test_generate_search_variations_single_word() -> None:
+    """Test that single-word queries return just the word."""
+    variations = _generate_search_variations("reminders")
+    
+    assert variations == ["reminders"]
+
+
+def test_generate_search_variations_empty_query() -> None:
+    """Test that empty queries return empty list."""
+    assert _generate_search_variations(None) == []
+    assert _generate_search_variations("") == []
+    assert _generate_search_variations("   ") == []
+
+
+@pytest.mark.asyncio
+async def test_perform_enhanced_search_with_good_results(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that enhanced search returns immediately when initial query has good results."""
+    call_count = 0
+    
+    async def fake_request(method: str, path: str, *, params=None, json=None):
+        nonlocal call_count
+        call_count += 1
+        # Return 3+ results on first call
+        return {
+            "results": [
+                {"id": "1", "object": "page"},
+                {"id": "2", "object": "page"},
+                {"id": "3", "object": "page"},
+            ],
+            "next_cursor": None,
+        }
+    
+    monkeypatch.setattr(notion_server, "_request", fake_request)
+    
+    results, next_cursor = await _perform_enhanced_search("names to remember")
+    
+    # Should only make one API call since we got good results
+    assert call_count == 1
+    assert len(results) == 3
+
+
+@pytest.mark.asyncio
+async def test_perform_enhanced_search_tries_variations(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that enhanced search tries variations when initial query yields few results."""
+    call_count = 0
+    queries_tried = []
+    
+    async def fake_request(method: str, path: str, *, params=None, json=None):
+        nonlocal call_count
+        call_count += 1
+        query = json.get("query", "") if json else ""
+        queries_tried.append(query)
+        
+        # First call returns only 1 result
+        if call_count == 1:
+            return {"results": [{"id": "1", "object": "page"}], "next_cursor": None}
+        # Variation calls return different results
+        elif call_count == 2:
+            return {"results": [{"id": "2", "object": "page"}], "next_cursor": None}
+        else:
+            return {"results": [{"id": "3", "object": "page"}], "next_cursor": None}
+    
+    monkeypatch.setattr(notion_server, "_request", fake_request)
+    
+    results, next_cursor = await _perform_enhanced_search("names to remember")
+    
+    # Should make multiple API calls to try variations
+    assert call_count > 1
+    # Should have tried the original query
+    assert "names to remember" in queries_tried
+    # Should deduplicate results by ID
+    result_ids = [r["id"] for r in results]
+    assert len(result_ids) == len(set(result_ids))  # No duplicates
+
+
+@pytest.mark.asyncio
+async def test_perform_enhanced_search_handles_api_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that enhanced search continues with other variations if one fails."""
+    call_count = 0
+    
+    async def fake_request(method: str, path: str, *, params=None, json=None):
+        nonlocal call_count
+        call_count += 1
+        
+        # First call returns 1 result
+        if call_count == 1:
+            return {"results": [{"id": "1", "object": "page"}], "next_cursor": None}
+        # Second call raises error
+        elif call_count == 2:
+            from backend.mcp_servers.notion_server import NotionAPIError
+            raise NotionAPIError("Test error")
+        # Third call succeeds
+        else:
+            return {"results": [{"id": "2", "object": "page"}], "next_cursor": None}
+    
+    monkeypatch.setattr(notion_server, "_request", fake_request)
+    
+    results, next_cursor = await _perform_enhanced_search("names to remember")
+    
+    # Should still return results from successful calls
+    assert len(results) >= 1
+    assert call_count >= 2  # Should have tried multiple variations

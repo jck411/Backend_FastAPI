@@ -529,6 +529,109 @@ async def _collect_search_details(
     return await asyncio.gather(*tasks)
 
 
+def _generate_search_variations(query: Optional[str]) -> List[str]:
+    """Generate search query variations to improve match likelihood.
+    
+    This function creates multiple search strategies:
+    1. The original query as-is
+    2. Individual significant words (3+ characters) from the query
+    3. Common phrase patterns
+    
+    This helps overcome Notion API's exact-match limitations.
+    """
+    if not query:
+        return []
+    
+    variations = [query.strip()]
+    
+    # Split query into words and add significant terms individually
+    words = query.strip().lower().split()
+    
+    # Filter for words that are 3+ characters (skip "to", "at", etc.)
+    significant_words = [w for w in words if len(w) >= 3]
+    
+    # Add individual significant words as search variations
+    for word in significant_words:
+        if word not in variations:
+            variations.append(word)
+    
+    # Add common multi-word combinations if query has multiple words
+    if len(significant_words) >= 2:
+        # Try pairs of adjacent words
+        for i in range(len(significant_words) - 1):
+            pair = f"{significant_words[i]} {significant_words[i + 1]}"
+            if pair not in variations:
+                variations.append(pair)
+    
+    return variations
+
+
+async def _perform_enhanced_search(
+    query: Optional[str],
+    *,
+    filter: Optional[Dict[str, Any]] = None,
+    sort: Optional[Dict[str, Any]] = None,
+    start_cursor: Optional[str] = None,
+    page_size: Optional[int] = None,
+    max_variations: int = 3,
+) -> tuple[List[Dict[str, Any]], Optional[str]]:
+    """Perform enhanced search with multiple query variations.
+    
+    Tries the original query first, and if results are insufficient,
+    attempts searches with query variations to find more relevant matches.
+    
+    Returns deduplicated results and the next cursor from the best search.
+    """
+    # Try the original query first
+    payload = _build_search_payload(
+        query,
+        filter=filter,
+        sort=sort,
+        start_cursor=start_cursor,
+        page_size=page_size,
+    )
+    response = await _request("POST", "/search", json=payload)
+    results = response.get("results") or []
+    next_cursor = response.get("next_cursor")
+    
+    # If we got good results or there's no query, return immediately
+    if len(results) >= 3 or not query or start_cursor:
+        return results, next_cursor
+    
+    # Try search variations to find more matches
+    variations = _generate_search_variations(query)
+    
+    # Skip the first variation (original query) since we already tried it
+    # Limit the number of additional API calls
+    for variation in variations[1:max_variations]:
+        variation_payload = _build_search_payload(
+            variation,
+            filter=filter,
+            sort=sort,
+            page_size=page_size,
+        )
+        try:
+            variation_response = await _request("POST", "/search", json=variation_payload)
+            variation_results = variation_response.get("results") or []
+            
+            # Deduplicate results by ID
+            existing_ids = {r.get("id") for r in results}
+            for result in variation_results:
+                result_id = result.get("id")
+                if result_id and result_id not in existing_ids:
+                    results.append(result)
+                    existing_ids.add(result_id)
+            
+            # If we now have enough results, stop searching
+            if len(results) >= 5:
+                break
+        except NotionAPIError:
+            # If a variation search fails, continue with others
+            continue
+    
+    return results, next_cursor
+
+
 @mcp.tool("notion_search")
 async def notion_search(
     query: Optional[str] = None,
@@ -548,6 +651,10 @@ async def notion_search(
     - Retrieving stored reminders and memory aids
     - Looking up information you've saved for later recall
     
+    This search now uses an enhanced multi-strategy approach that tries query variations
+    to overcome Notion API's exact-match limitations, making it better at finding
+    relevant pages even with partial or fuzzy queries.
+    
     Examples:
     - Search "names to remember" to find a note containing names
     - Search "project ideas" to retrieve saved project notes
@@ -560,22 +667,22 @@ async def notion_search(
     controls how many child blocks are retrieved per page (defaults to 20).
     """
 
-    payload = _build_search_payload(
+    # Use enhanced search that tries multiple query variations
+    results, next_cursor = await _perform_enhanced_search(
         query,
         filter=filter,
         sort=sort,
         start_cursor=start_cursor,
         page_size=page_size,
     )
-    response = await _request("POST", "/search", json=payload)
-    results = response.get("results") or []
+    
     block_limit = max(1, content_block_limit or DEFAULT_SEARCH_BLOCK_LIMIT)
     details = (
         await _collect_search_details(results, block_limit=block_limit)
         if include_content and results
         else [None] * len(results)
     )
-    return _format_search_results(results, details, response.get("next_cursor"))
+    return _format_search_results(results, details, next_cursor)
 
 
 @mcp.tool("notion_retrieve_page")

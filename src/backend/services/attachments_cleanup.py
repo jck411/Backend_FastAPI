@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timezone
 
 from ..repository import ChatRepository
-from .gcs import delete_blob
+from .gcs import delete_blob, is_gcs_available
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +22,21 @@ async def cleanup_expired_attachments(
     expired = await repository.find_expired_attachments(now=reference)
     removed = 0
 
+    # Check if GCS is available before attempting deletions
+    gcs_available = is_gcs_available()
+    if not gcs_available and expired:
+        logger.warning(
+            "GCS credentials not available. Skipping blob deletion for %d expired attachment(s). "
+            "Database records will still be cleaned up.",
+            len(expired),
+        )
+
     for record in expired:
         attachment_id = record.get("attachment_id")
         if not isinstance(attachment_id, str) or not attachment_id:
             continue
         blob_name = record.get("gcs_blob") or record.get("storage_path")
-        if blob_name:
+        if blob_name and gcs_available:
             try:
                 delete_blob(str(blob_name))
             except Exception:  # pragma: no cover - best effort cleanup

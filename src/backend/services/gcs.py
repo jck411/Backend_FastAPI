@@ -13,6 +13,7 @@ from backend.config import get_settings
 
 _client: storage.Client | None = None
 _bucket: storage.Bucket | None = None
+_credentials_available: bool | None = None
 
 
 def _get_settings():
@@ -28,13 +29,27 @@ def _load_credentials(settings) -> service_account.Credentials | None:
 
     try:
         resolved_path = Path(credentials_path).expanduser().resolve()
-    except FileNotFoundError:
+        if not resolved_path.exists():
+            return None
+        return service_account.Credentials.from_service_account_file(str(resolved_path))
+    except (FileNotFoundError, OSError) as e:
+        # Log the error but don't crash - allow GCS operations to be skipped
+        import logging
+
+        logging.getLogger(__name__).debug(
+            "Could not load GCS credentials from %s: %s", credentials_path, e
+        )
         return None
 
-    if not resolved_path.exists():
-        return None
 
-    return service_account.Credentials.from_service_account_file(resolved_path)
+def is_gcs_available() -> bool:
+    """Check if GCS credentials are available without raising errors."""
+    global _credentials_available
+    if _credentials_available is None:
+        settings = _get_settings()
+        credentials = _load_credentials(settings)
+        _credentials_available = credentials is not None
+    return _credentials_available
 
 
 def get_client() -> storage.Client:
@@ -44,6 +59,11 @@ def get_client() -> storage.Client:
     if _client is None:
         settings = _get_settings()
         credentials = _load_credentials(settings)
+        if credentials is None:
+            raise RuntimeError(
+                "GCS credentials not found. Please configure GOOGLE_APPLICATION_CREDENTIALS "
+                "with a valid service account JSON file."
+            )
         _client = storage.Client(
             project=settings.gcp_project_id,
             credentials=credentials,
@@ -106,6 +126,7 @@ __all__ = [
     "delete_blob",
     "get_bucket",
     "get_client",
+    "is_gcs_available",
     "sign_get_url",
     "upload_bytes",
     "upload_filelike",

@@ -29,6 +29,17 @@ def test_planner_expands_habit_contexts() -> None:
     assert plan.contexts_for_attempt(2) == ["calendar", "tasks", "notes"]
 
 
+def test_plan_reports_additional_contexts() -> None:
+    planner = ToolContextPlanner()
+    request = _make_request("Help me build better habits this month")
+
+    plan = planner.plan(request, [])
+
+    assert plan.additional_contexts_for_attempt(0) == ["tasks"]
+    assert plan.additional_contexts_for_attempt(1) == ["notes"]
+    assert plan.additional_contexts_for_attempt(2) == []
+
+
 def test_planner_routes_documents_to_gdrive() -> None:
     planner = ToolContextPlanner()
     request = _make_request("search docs for last year's budget")

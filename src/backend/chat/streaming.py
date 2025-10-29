@@ -805,11 +805,15 @@ class StreamingHandler:
 
                 arguments_raw = function.get("arguments")
                 status = "finished"
+                result_text = ""
+                result_obj: Any | None = None
+                missing_arguments = False
                 if not arguments_raw or arguments_raw.strip() == "":
                     result_text = (
                         f"Tool {tool_name} requires arguments but none were provided."
                     )
                     status = "error"
+                    missing_arguments = True
                     logger.warning("Missing tool arguments for %s", tool_name)
                 else:
                     try:
@@ -839,13 +843,17 @@ class StreamingHandler:
                             if session_id and _tool_requires_session_id(tool_name):
                                 working_arguments.setdefault("session_id", session_id)
                             try:
-                                result = await self._tool_client.call_tool(
+                                result_obj = await self._tool_client.call_tool(
                                     tool_name, working_arguments
                                 )
                                 result_text = self._tool_client.format_tool_result(
-                                    result
+                                    result_obj
                                 )
-                                status = "error" if result.isError else "finished"
+                                status = (
+                                    "error"
+                                    if getattr(result_obj, "isError", False)
+                                    else "finished"
+                                )
                             except Exception as exc:  # pragma: no cover - MCP errors
                                 logger.exception(
                                     "Tool '%s' raised an exception", tool_name
@@ -892,8 +900,41 @@ class StreamingHandler:
                     ),
                 }
 
-                if status != "error" and _looks_like_no_result(result_text):
-                    expand_contexts = True
+                notice_reason = _classify_tool_followup(
+                    status,
+                    result_text,
+                    tool_error_flag=bool(
+                        getattr(result_obj, "isError", False)
+                    ),
+                    missing_arguments=missing_arguments,
+                )
+                if notice_reason is not None:
+                    next_contexts: list[str] = []
+                    will_use_all_tools = False
+                    if tool_context_plan is not None:
+                        if notice_reason in {"no_results", "empty_result", "tool_error"}:
+                            next_contexts = (
+                                tool_context_plan.additional_contexts_for_attempt(hop_count)
+                            )
+                            will_use_all_tools = (
+                                tool_context_plan.use_all_tools_for_attempt(hop_count + 1)
+                            )
+                    if notice_reason in {"no_results", "empty_result", "tool_error"}:
+                        expand_contexts = True
+                    notice_payload = {
+                        "type": "tool_followup_required",
+                        "tool": tool_name or "unknown",
+                        "reason": notice_reason,
+                        "message": result_text,
+                        "attempt": hop_count,
+                        "next_contexts": next_contexts,
+                        "will_use_all_tools": will_use_all_tools,
+                        "confirmation_required": True,
+                    }
+                    yield {
+                        "event": "notice",
+                        "data": json.dumps(notice_payload),
+                    }
 
             hop_count += 1
 
@@ -942,8 +983,42 @@ def _looks_like_no_result(result_text: str) -> bool:
         "wasn't found",
         "nothing found",
         "no matching",
+        "no events found",
     )
     return any(phrase in lowered for phrase in phrases)
+
+
+def _classify_tool_followup(
+    status: str,
+    result_text: str | None,
+    *,
+    tool_error_flag: bool,
+    missing_arguments: bool,
+) -> str | None:
+    """Classify tool results that require follow-up guidance for the assistant."""
+
+    text = result_text if isinstance(result_text, str) else ""
+    normalized = text.strip().lower()
+
+    if missing_arguments:
+        return "missing_arguments"
+
+    if status == "error":
+        if _looks_like_no_result(text):
+            return "no_results"
+        if tool_error_flag or not normalized:
+            return "tool_error"
+        if "invalid" in normalized and "argument" in normalized:
+            return "tool_error"
+        return "tool_error"
+
+    if not normalized:
+        return "empty_result"
+
+    if _looks_like_no_result(text):
+        return "no_results"
+
+    return None
 
 
 def _is_tool_support_error(error: OpenRouterError) -> bool:

@@ -33,6 +33,33 @@ class ToolContextPlan:
                 merged.append(normalized)
         return merged
 
+    def additional_contexts_for_attempt(self, attempt: int) -> list[str]:
+        """Return new contexts that would be introduced on the next attempt."""
+
+        if not self.stages:
+            return []
+
+        if attempt < 0:
+            attempt = 0
+
+        if attempt + 1 >= len(self.stages):
+            return []
+
+        seen: set[str] = set()
+        for stage in self.stages[: attempt + 1]:
+            for context in stage:
+                normalized = context.strip().lower()
+                if normalized:
+                    seen.add(normalized)
+
+        additions: list[str] = []
+        for context in self.stages[attempt + 1]:
+            normalized = context.strip().lower()
+            if not normalized or normalized in seen or normalized in additions:
+                continue
+            additions.append(normalized)
+        return additions
+
     def use_all_tools_for_attempt(self, attempt: int) -> bool:
         """Return True when the attempt should fall back to every tool."""
 

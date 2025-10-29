@@ -8,6 +8,14 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class MCPServerToolDefinition(BaseModel):
+    """Serializable per-tool override definition."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contexts: list[str] | None = Field(default=None)
+
+
 class MCPServerDefinition(BaseModel):
     """Serializable MCP server definition used for persistence."""
 
@@ -21,6 +29,8 @@ class MCPServerDefinition(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     tool_prefix: str | None = None
     disabled_tools: set[str] | None = Field(default=None)
+    contexts: list[str] = Field(default_factory=list)
+    tool_overrides: dict[str, MCPServerToolDefinition] = Field(default_factory=dict)
 
 
 class MCPServerCollectionPayload(BaseModel):
@@ -41,6 +51,8 @@ class MCPServerUpdatePayload(BaseModel):
     cwd: Path | None = None
     env: dict[str, str] | None = None
     tool_prefix: str | None = None
+    contexts: list[str] | None = None
+    tool_overrides: dict[str, MCPServerToolDefinition] | None = None
 
 
 class MCPServerToolStatus(BaseModel):
@@ -63,6 +75,8 @@ class MCPServerStatus(BaseModel):
     disabled_tools: list[str] = Field(default_factory=list)
     tool_count: int = 0
     tools: list[MCPServerToolStatus] = Field(default_factory=list)
+    contexts: list[str] = Field(default_factory=list)
+    tool_overrides: dict[str, MCPServerToolDefinition] = Field(default_factory=dict)
 
 
 class MCPServerStatusResponse(BaseModel):
@@ -79,4 +93,5 @@ __all__ = [
     "MCPServerStatusResponse",
     "MCPServerToolStatus",
     "MCPServerUpdatePayload",
+    "MCPServerToolDefinition",
 ]

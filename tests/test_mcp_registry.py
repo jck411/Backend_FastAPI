@@ -12,6 +12,7 @@ from mcp.types import CallToolResult, Tool
 
 from backend.chat.mcp_registry import (
     MCPServerConfig,
+    MCPServerToolConfig,
     MCPToolAggregator,
     load_server_configs,
 )
@@ -239,13 +240,72 @@ async def test_aggregator_prefixes_duplicate_tool_names(
     aggregator = MCPToolAggregator(configs)
     await aggregator.connect()
 
-    tool_names = {entry["function"]["name"] for entry in aggregator.get_openai_tools()}
-    assert tool_names == {"server_a__shared", "server_b__shared"}
+    try:
+        tool_names = {
+            entry["function"]["name"] for entry in aggregator.get_openai_tools()
+        }
+        assert tool_names == {"server_a__shared", "server_b__shared"}
 
-    await aggregator.call_tool("server_b__shared", {"value": 42})
-    assert created["server_b"].calls == [("shared", {"value": 42})]
+        await aggregator.call_tool("server_b__shared", {"value": 42})
+        assert created["server_b"].calls == [("shared", {"value": 42})]
+    finally:
+        await aggregator.close()
 
-    await aggregator.close()
+
+async def test_aggregator_filters_tools_by_contexts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool_map = {
+        "server_a": [build_tool_definition("alpha", "Alpha tool")],
+        "server_b": [
+            build_tool_definition("shared", "Shared calendar tool"),
+            build_tool_definition("secondary", "Tasks tool"),
+        ],
+    }
+    created: dict[str, Any] = {}
+    fake_client_cls = make_fake_client_factory(tool_map, created)
+    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
+
+    configs = [
+        MCPServerConfig(id="server_a", module="pkg.alpha", contexts=["calendar"]),
+        MCPServerConfig(
+            id="server_b",
+            module="pkg.beta",
+            contexts=["tasks"],
+            tool_overrides={"shared": MCPServerToolConfig(contexts=["calendar"])},
+        ),
+    ]
+
+    aggregator = MCPToolAggregator(configs)
+    await aggregator.connect()
+
+    try:
+        calendar_tools = {
+            entry["function"]["name"]
+            for entry in aggregator.get_openai_tools_for_contexts(["calendar"])
+        }
+        assert calendar_tools == {"alpha", "shared"}
+
+        task_tools = {
+            entry["function"]["name"]
+            for entry in aggregator.get_openai_tools_for_contexts(["tasks"])
+        }
+        assert task_tools == {"secondary"}
+
+        assert (
+            aggregator.get_openai_tools_for_contexts(["unknown"]) == []
+        ), "Unexpected tools returned for unknown context"
+
+        all_tools = {
+            entry["function"]["name"]
+            for entry in aggregator.get_openai_tools()
+        }
+        assert {
+            entry["function"]["name"]
+            for entry in aggregator.get_openai_tools_for_contexts([])
+        } == all_tools
+    finally:
+        await aggregator.close()
 
 
 async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -> None:

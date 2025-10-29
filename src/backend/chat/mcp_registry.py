@@ -10,7 +10,7 @@ import shlex
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Iterable, Sequence
 
 from mcp.types import CallToolResult, Tool
 from pydantic import (
@@ -25,6 +25,43 @@ from pydantic import (
 from .mcp_client import MCPToolClient
 
 logger = logging.getLogger(__name__)
+
+
+class MCPServerToolConfig(BaseModel):
+    """Per-tool configuration overrides for an MCP server."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contexts: list[str] | None = Field(
+        default=None,
+        description="Optional list of contexts/tags that apply to the specific tool",
+    )
+
+    @field_validator("contexts", mode="before")
+    @classmethod
+    def _normalize_contexts(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, (list, tuple, set)):
+            return [str(item) for item in value if isinstance(item, str)]
+        raise TypeError("contexts must be a sequence of strings or null")
+
+    @field_validator("contexts")
+    @classmethod
+    def _dedupe_contexts(
+        cls, value: list[str] | None
+    ) -> list[str] | None:
+        if value is None:
+            return None
+        unique: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if item not in seen:
+                seen.add(item)
+                unique.append(item)
+        return unique
 
 
 class MCPServerConfig(BaseModel):
@@ -60,6 +97,14 @@ class MCPServerConfig(BaseModel):
         default=None,
         description="Optional set of tool names to hide without disabling the server",
     )
+    contexts: list[str] = Field(
+        default_factory=list,
+        description="Logical contexts/tags advertised by all tools from this server",
+    )
+    tool_overrides: dict[str, MCPServerToolConfig] = Field(
+        default_factory=dict,
+        description="Optional per-tool override settings keyed by tool name",
+    )
 
     @field_validator("command", mode="before")
     @classmethod
@@ -78,6 +123,42 @@ class MCPServerConfig(BaseModel):
         if isinstance(value, str):
             return {value}
         raise TypeError("disabled_tools must be a sequence of strings or null")
+
+    @field_validator("contexts", mode="before")
+    @classmethod
+    def _normalize_contexts(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, (list, tuple, set)):
+            return [str(item) for item in value if isinstance(item, str)]
+        raise TypeError("contexts must be a sequence of strings")
+
+    @field_validator("contexts")
+    @classmethod
+    def _dedupe_contexts(cls, value: list[str]) -> list[str]:
+        unique: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            if item not in seen:
+                seen.add(item)
+                unique.append(item)
+        return unique
+
+    @field_validator("tool_overrides", mode="before")
+    @classmethod
+    def _normalize_tool_overrides(cls, value: Any) -> Any:
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise TypeError("tool_overrides must be a mapping of tool names to overrides")
+        normalized: dict[str, Any] = {}
+        for key, override in value.items():
+            if not isinstance(key, str) or not key:
+                raise TypeError("tool_overrides keys must be non-empty strings")
+            normalized[key] = override
+        return normalized
 
     @model_validator(mode="after")
     def _require_launch_target(self) -> "MCPServerConfig":
@@ -177,6 +258,7 @@ class _ToolBinding:
     tool: Tool
     client: MCPToolClient
     config: MCPServerConfig
+    contexts: tuple[str, ...]
 
 
 class MCPToolAggregator:
@@ -199,6 +281,7 @@ class MCPToolAggregator:
         self._bindings: dict[str, _ToolBinding] = {}
         self._binding_order: list[_ToolBinding] = []
         self._openai_tools: list[dict[str, Any]] = []
+        self._openai_tool_map: dict[str, dict[str, Any]] = {}
         self._lock = asyncio.Lock()
         self._connected = False
         self._tool_catalog: dict[str, list[str]] = {}
@@ -279,7 +362,10 @@ class MCPToolAggregator:
         bindings: list[_ToolBinding] = []
         binding_map: dict[str, _ToolBinding] = {}
         openai_tools: list[dict[str, Any]] = []
-        drafts: list[tuple[MCPServerConfig, MCPToolClient, Tool, dict[str, Any]]] = []
+        openai_tool_map: dict[str, dict[str, Any]] = {}
+        drafts: list[
+            tuple[MCPServerConfig, MCPToolClient, Tool, dict[str, Any], tuple[str, ...]]
+        ] = []
         name_counts: Counter[str] = Counter()
         tool_catalog: dict[str, list[str]] = {}
 
@@ -315,10 +401,16 @@ class MCPToolAggregator:
                 original = specs_by_name.get(tool.name)
                 if not original:
                     continue
-                drafts.append((config, client, tool, original))
+                override = config.tool_overrides.get(tool.name)
+                if override is not None and override.contexts is not None:
+                    context_values = override.contexts
+                else:
+                    context_values = config.contexts
+                contexts_tuple = tuple(context_values)
+                drafts.append((config, client, tool, original, contexts_tuple))
                 name_counts[tool.name] += 1
 
-        for config, client, tool, original in drafts:
+        for config, client, tool, original, contexts in drafts:
             if name_counts[tool.name] == 1 and not config.tool_prefix:
                 qualified_name = tool.name
             else:
@@ -338,6 +430,7 @@ class MCPToolAggregator:
                 tool=tool,
                 client=client,
                 config=config,
+                contexts=contexts,
             )
             bindings.append(binding)
             binding_map[qualified_name] = binding
@@ -352,10 +445,12 @@ class MCPToolAggregator:
                 enriched_function["description"] = f"[{config.id}] {desc}"
             enriched["function"] = enriched_function
             openai_tools.append(enriched)
+            openai_tool_map[qualified_name] = enriched
 
         self._bindings = binding_map
         self._binding_order = bindings
         self._openai_tools = openai_tools
+        self._openai_tool_map = openai_tool_map
         self._tool_catalog = {
             key: value for key, value in tool_catalog.items() if key in self._config_map
         }
@@ -377,12 +472,30 @@ class MCPToolAggregator:
             self._bindings.clear()
             self._binding_order.clear()
             self._openai_tools.clear()
+            self._openai_tool_map.clear()
             self._connected = False
 
     def get_openai_tools(self) -> list[dict[str, Any]]:
         """Return tool descriptors formatted for OpenRouter/OpenAI."""
 
-        return copy.deepcopy(self._openai_tools)
+        return [copy.deepcopy(spec) for spec in self._openai_tools]
+
+    def get_openai_tools_for_contexts(
+        self, contexts: Iterable[str]
+    ) -> list[dict[str, Any]]:
+        """Return tool descriptors filtered by matching contexts."""
+
+        requested = {ctx for ctx in contexts if ctx}
+        if not requested:
+            return self.get_openai_tools()
+
+        matched: list[dict[str, Any]] = []
+        for binding in self._binding_order:
+            if binding.contexts and any(ctx in requested for ctx in binding.contexts):
+                spec = self._openai_tool_map.get(binding.qualified_name)
+                if spec is not None:
+                    matched.append(copy.deepcopy(spec))
+        return matched
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any] | None = None
@@ -461,6 +574,11 @@ class MCPToolAggregator:
                     "disabled_tools": sorted(config.disabled_tools)
                     if config.disabled_tools
                     else [],
+                    "contexts": list(config.contexts),
+                    "tool_overrides": {
+                        name: override.model_dump(exclude_none=True)
+                        for name, override in config.tool_overrides.items()
+                    },
                 }
             )
         return details
@@ -500,6 +618,7 @@ class MCPToolAggregator:
 
 
 __all__ = [
+    "MCPServerToolConfig",
     "MCPServerConfig",
     "MCPToolAggregator",
     "load_server_configs",

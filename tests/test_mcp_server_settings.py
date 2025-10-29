@@ -10,7 +10,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from backend.chat.mcp_registry import MCPServerConfig
+from backend.chat.mcp_registry import MCPServerConfig, MCPServerToolConfig
 from backend.routers.mcp_servers import (
     get_chat_orchestrator,
     get_mcp_settings_service,
@@ -96,6 +96,11 @@ class StubChatOrchestrator:
                     "connected": cfg.enabled,
                     "tool_count": len(tools),
                     "tools": tools,
+                    "contexts": list(cfg.contexts),
+                    "tool_overrides": {
+                        name: override.model_dump(exclude_none=True)
+                        for name, override in cfg.tool_overrides.items()
+                    },
                 }
             )
         self._runtime = runtime
@@ -109,35 +114,59 @@ class StubChatOrchestrator:
 
 async def test_service_loads_fallback_and_persist(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"
-    fallback = [{"id": "alpha", "module": "pkg.alpha"}]
+    fallback = [
+        {
+            "id": "alpha",
+            "module": "pkg.alpha",
+            "contexts": ["calendar"],
+            "tool_overrides": {"alpha_tool": {"contexts": ["calendar"]}},
+        }
+    ]
 
     service = MCPServerSettingsService(path, fallback=fallback)
     configs = await service.get_configs()
 
     assert len(configs) == 1
     assert configs[0].id == "alpha"
+    assert configs[0].contexts == ["calendar"]
+    assert configs[0].tool_overrides["alpha_tool"].contexts == ["calendar"]
 
-    new_config = MCPServerConfig(id="beta", module="pkg.beta", enabled=False)
+    new_config = MCPServerConfig(
+        id="beta",
+        module="pkg.beta",
+        enabled=False,
+        contexts=["tasks"],
+        tool_overrides={"beta_tool": MCPServerToolConfig(contexts=["tasks"])},
+    )
     await service.replace_configs([new_config])
 
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw["servers"][0]["id"] == "beta"
     assert raw["servers"][0]["enabled"] is False
+    assert raw["servers"][0]["contexts"] == ["tasks"]
+    assert raw["servers"][0]["tool_overrides"]["beta_tool"]["contexts"] == ["tasks"]
 
     await service.patch_server("beta", enabled=True)
     configs = await service.get_configs()
     assert configs[0].enabled is True
+    assert configs[0].contexts == ["tasks"]
 
     await service.toggle_tool("beta", "echo", enabled=False)
     configs = await service.get_configs()
     assert configs[0].disabled_tools == {"echo"}
+    assert configs[0].tool_overrides["beta_tool"].contexts == ["tasks"]
 
 
 async def test_router_combines_status() -> None:
     service = StubMCPServerSettingsService(
         [
-            MCPServerConfig(id="alpha", module="pkg.alpha"),
-            MCPServerConfig(id="beta", module="pkg.beta", enabled=False),
+            MCPServerConfig(
+                id="alpha",
+                module="pkg.alpha",
+                contexts=["calendar"],
+                tool_overrides={"ping": MCPServerToolConfig(contexts=["calendar"])}
+            ),
+            MCPServerConfig(id="beta", module="pkg.beta", enabled=False, contexts=["tasks"]),
         ]
     )
     orchestrator = StubChatOrchestrator()
@@ -160,6 +189,8 @@ async def test_router_combines_status() -> None:
     assert alpha["connected"] is True
     assert alpha["tool_count"] == 1
     assert alpha["tools"][0]["qualified_name"] == "alpha__ping"
+    assert alpha["contexts"] == ["calendar"]
+    assert alpha["tool_overrides"]["ping"]["contexts"] == ["calendar"]
 
 
 async def test_router_patch_updates_service_and_runtime() -> None:
@@ -180,13 +211,20 @@ async def test_router_patch_updates_service_and_runtime() -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.patch(
             "/api/mcp/servers/alpha",
-            json={"enabled": False, "disabled_tools": ["ping"]},
+            json={
+                "enabled": False,
+                "disabled_tools": ["ping"],
+                "contexts": ["maintenance"],
+                "tool_overrides": {"ping": {"contexts": ["maintenance"]}},
+            },
         )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["servers"][0]["enabled"] is False
     assert payload["servers"][0]["disabled_tools"] == ["ping"]
+    assert payload["servers"][0]["contexts"] == ["maintenance"]
+    assert payload["servers"][0]["tool_overrides"]["ping"]["contexts"] == ["maintenance"]
     assert orchestrator.applied[-1] == ["alpha"]
 
 

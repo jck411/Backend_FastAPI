@@ -311,6 +311,61 @@ class ToolCallOpenRouterClient(DummyOpenRouterClient):
         yield {"data": "[DONE]"}
 
 
+class MultiToolOpenRouterClient(DummyOpenRouterClient):
+    def __init__(self, tool_calls: list[dict[str, Any]], final_message: str) -> None:
+        super().__init__()
+        self.tool_calls = tool_calls
+        self.final_message = final_message
+        self.call_index = 0
+
+    async def stream_chat_raw(self, payload: dict[str, Any]):
+        self.payloads.append(payload)
+        if self.call_index < len(self.tool_calls):
+            call = self.tool_calls[self.call_index]
+            self.call_index += 1
+            arguments = call.get("arguments", {})
+            if isinstance(arguments, dict):
+                arguments_payload = json.dumps(arguments)
+            else:
+                arguments_payload = str(arguments)
+            chunk = {
+                "id": f"gen-tool-{self.call_index}",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "id": f"call_{self.call_index}",
+                                    "type": "function",
+                                    "function": {
+                                        "name": call.get("name", "calendar_lookup"),
+                                        "arguments": arguments_payload,
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+            }
+            yield {"data": json.dumps(chunk)}
+            yield {"data": "[DONE]"}
+            return
+
+        self.call_index += 1
+        final_chunk = {
+            "id": f"gen-final-{self.call_index}",
+            "choices": [
+                {
+                    "delta": {"content": self.final_message},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        yield {"data": json.dumps(final_chunk)}
+        yield {"data": "[DONE]"}
+
+
 class ExpandingToolClient:
     def __init__(self) -> None:
         self.context_history: list[list[str]] = []
@@ -585,6 +640,18 @@ async def test_streaming_expands_contexts_after_no_result() -> None:
     assert len(client.payloads) == 2
     assert events[-1]["data"] == "[DONE]"
 
+    notice_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "notice"
+    ]
+    assert notice_events, "Expected notice event after empty tool result"
+    notice = notice_events[0]
+    assert notice["reason"] == "no_results"
+    assert notice["tool"] == "calendar_lookup"
+    assert notice["next_contexts"] == ["tasks"]
+    assert notice["confirmation_required"] is True
+
 
 @pytest.mark.anyio("asyncio")
 async def test_structured_tool_choice_does_not_retry_without_tools() -> None:
@@ -625,3 +692,118 @@ async def test_structured_tool_choice_does_not_retry_without_tools() -> None:
             pass
 
     assert client.calls == 1
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_emits_notice_for_missing_arguments() -> None:
+    client = MultiToolOpenRouterClient(
+        [{"name": "calendar_lookup", "arguments": ""}],
+        final_message="Please share more details.",
+    )
+    tool_client = ExpandingToolClient()
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        DummyRepository(),  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Check my calendar today")],
+    )
+    conversation = [{"role": "user", "content": "Check my calendar today"}]
+    plan = ToolContextPlan(stages=[["calendar"], ["tasks"]], broad_search=True)
+    initial_tools = tool_client.get_openai_tools_for_contexts(
+        plan.contexts_for_attempt(0)
+    )
+
+    events: list[dict[str, Any]] = []
+    async for event in handler.stream_conversation(
+        "session-missing-args",
+        request,
+        conversation,
+        initial_tools,
+        None,
+        plan,
+    ):
+        events.append(event)
+
+    notice_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "notice"
+    ]
+
+    assert notice_events, "Expected notice event when tool arguments are missing"
+    notice = notice_events[0]
+    assert notice["reason"] == "missing_arguments"
+    assert notice["tool"] == "calendar_lookup"
+    assert notice["next_contexts"] == []
+    assert notice["confirmation_required"] is True
+    assert tool_client.calls == 0
+    assert len(client.payloads) == 2
+    assert events[-1]["data"] == "[DONE]"
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_handles_multi_stage_notices() -> None:
+    client = MultiToolOpenRouterClient(
+        [
+            {"name": "calendar_lookup", "arguments": {"query": "habit review"}},
+            {"name": "tasks_lookup", "arguments": {"query": "habit review"}},
+        ],
+        final_message="Let's confirm the plan.",
+    )
+    tool_client = ExpandingToolClient()
+    tool_client.results = [
+        "No events found in that window.",
+        "No matching tasks were located.",
+    ]
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        DummyRepository(),  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Help me build better habits")],
+    )
+    conversation = [{"role": "user", "content": "Help me build better habits"}]
+    plan = ToolContextPlan(
+        stages=[["calendar"], ["tasks"], ["notes"]],
+        broad_search=True,
+    )
+    initial_tools = tool_client.get_openai_tools_for_contexts(
+        plan.contexts_for_attempt(0)
+    )
+
+    events: list[dict[str, Any]] = []
+    async for event in handler.stream_conversation(
+        "session-multi-stage",
+        request,
+        conversation,
+        initial_tools,
+        None,
+        plan,
+    ):
+        events.append(event)
+
+    notice_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "notice"
+    ]
+
+    assert len(notice_events) == 2
+    first_notice, second_notice = notice_events
+    assert first_notice["reason"] == "no_results"
+    assert first_notice["next_contexts"] == ["tasks"]
+    assert second_notice["reason"] == "no_results"
+    assert second_notice["next_contexts"] == ["notes"]
+    assert tool_client.context_history[0] == ["calendar"]
+    assert ["calendar", "tasks"] in tool_client.context_history
+    assert ["calendar", "tasks", "notes"] in tool_client.context_history
+    assert tool_client.calls == 2
+    assert len(client.payloads) == 3
+    assert events[-1]["data"] == "[DONE]"

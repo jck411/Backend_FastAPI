@@ -20,6 +20,13 @@ def _config_to_payload(config: MCPServerConfig) -> dict[str, Any]:
     data = config.model_dump(mode="json", exclude_none=True)
     if config.disabled_tools:
         data["disabled_tools"] = sorted(config.disabled_tools)
+    if config.tool_overrides:
+        data["tool_overrides"] = {
+            name: override.model_dump(mode="json", exclude_none=True)
+            for name, override in sorted(config.tool_overrides.items())
+        }
+    if config.contexts:
+        data["contexts"] = list(config.contexts)
     return data
 
 

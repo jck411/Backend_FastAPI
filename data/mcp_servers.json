@@ -4,7 +4,11 @@
       "enabled": true,
       "env": {},
       "id": "custom-notion",
-      "module": "backend.mcp_servers.notion_server"
+      "module": "backend.mcp_servers.notion_server",
+      "contexts": [
+        "notes",
+        "workspace"
+      ]
     },
     {
       "command": [
@@ -23,49 +27,90 @@
         "WORKSPACE_MCP_BASE_URI": "http://127.0.0.1",
         "WORKSPACE_MCP_PORT": "8765"
       },
-      "id": "google-workspace"
+      "id": "google-workspace",
+      "contexts": [
+        "calendar",
+        "tasks"
+      ]
     },
     {
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "custom-gmail",
-      "module": "backend.mcp_servers.gmail_server"
+      "module": "backend.mcp_servers.gmail_server",
+      "contexts": [
+        "email"
+      ]
     },
     {
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "custom-gdrive",
-      "module": "backend.mcp_servers.gdrive_server"
+      "module": "backend.mcp_servers.gdrive_server",
+      "contexts": [
+        "files",
+        "storage"
+      ]
     },
     {
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "custom-pdf",
-      "module": "backend.mcp_servers.pdf_server"
+      "module": "backend.mcp_servers.pdf_server",
+      "contexts": [
+        "documents"
+      ]
     },
     {
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "custom-calendar",
-      "module": "backend.mcp_servers.calendar_server"
+      "module": "backend.mcp_servers.calendar_server",
+      "contexts": [
+        "calendar"
+      ]
     },
     {
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "local-calculator",
-      "module": "backend.mcp_servers.calculator_server"
+      "module": "backend.mcp_servers.calculator_server",
+      "contexts": [
+        "math",
+        "utilities"
+      ]
     },
     {
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "housekeeping",
-      "module": "backend.mcp_servers.housekeeping_server"
+      "module": "backend.mcp_servers.housekeeping_server",
+      "contexts": [
+        "system"
+      ],
+      "tool_overrides": {
+        "test_echo": {
+          "contexts": [
+            "diagnostics"
+          ]
+        },
+        "current_time": {
+          "contexts": [
+            "time"
+          ]
+        },
+        "chat_history": {
+          "contexts": [
+            "history"
+          ]
+        }
+      }
     }
   ]
 }

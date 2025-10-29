@@ -61,6 +61,11 @@ async def _build_status_response(
             disabled_tools=sorted(config.disabled_tools) if config.disabled_tools else [],
             tool_count=int(runtime_entry.get("tool_count", 0)),
             tools=tools,
+            contexts=list(config.contexts),
+            tool_overrides={
+                name: override.model_dump(exclude_none=True)
+                for name, override in config.tool_overrides.items()
+            },
         )
         servers.append(status)
 

@@ -19,6 +19,7 @@ from ..schemas.chat import ChatCompletionRequest
 from ..services.attachments import AttachmentService
 from ..services.conversation_logging import ConversationLogWriter
 from ..services.model_settings import ModelCapabilities, ModelSettingsService
+from .tool_context_planner import ToolContextPlan
 
 
 class ToolExecutor(Protocol):
@@ -27,6 +28,10 @@ class ToolExecutor(Protocol):
     ) -> Any: ...
 
     def get_openai_tools(self) -> list[dict[str, Any]]: ...
+
+    def get_openai_tools_for_contexts(
+        self, contexts: Iterable[str]
+    ) -> list[dict[str, Any]]: ...
 
     def format_tool_result(self, result: Any) -> str: ...
 
@@ -297,6 +302,7 @@ class StreamingHandler:
         conversation: list[dict[str, Any]],
         tools_payload: list[dict[str, Any]],
         assistant_parent_message_id: str | None,
+        tool_context_plan: ToolContextPlan | None = None,
     ) -> AsyncGenerator[SseEvent, None]:
         """Yield SSE events while maintaining state and executing tools."""
 
@@ -307,18 +313,26 @@ class StreamingHandler:
             candidate = request.metadata.get("client_assistant_message_id")
             if isinstance(candidate, str):
                 assistant_client_message_id = candidate
-        tools_available = bool(tools_payload)
+        active_tools_payload = list(tools_payload)
+        active_contexts: list[str] | None = None
+        if (
+            tool_context_plan is not None
+            and not tool_context_plan.use_all_tools_for_attempt(0)
+        ):
+            active_contexts = tool_context_plan.contexts_for_attempt(0)
         tool_choice_value = request.tool_choice
         requested_tool_choice = (
             tool_choice_value if isinstance(tool_choice_value, str) else None
         )
-        tools_disabled = requested_tool_choice == "none" or not tools_available
+        base_tools_disabled = requested_tool_choice == "none"
         has_structured_tool_choice = isinstance(tool_choice_value, dict)
         can_retry_without_tools = (
             requested_tool_choice in (None, "auto") and not has_structured_tool_choice
         )
 
         while True:
+            tools_available = bool(active_tools_payload)
+            tools_disabled = base_tools_disabled or not tools_available
             routing_headers: dict[str, Any] | None = None
             active_model = self._default_model
             overrides: dict[str, Any] = {}
@@ -381,7 +395,7 @@ class StreamingHandler:
 
             allow_tools = tools_available and not tools_disabled and model_supports_tools
             if allow_tools:
-                payload["tools"] = tools_payload
+                payload["tools"] = active_tools_payload
                 payload.setdefault("tool_choice", request.tool_choice or "auto")
             else:
                 payload.pop("tools", None)
@@ -723,6 +737,8 @@ class StreamingHandler:
                 }
                 break
 
+            expand_contexts = False
+
             for call_index, tool_call in enumerate(assistant_turn.tool_calls):
                 function = tool_call.get("function") or {}
                 tool_name = function.get("name")
@@ -876,12 +892,58 @@ class StreamingHandler:
                     ),
                 }
 
+                if status != "error" and _looks_like_no_result(result_text):
+                    expand_contexts = True
+
             hop_count += 1
+
+            if (
+                tool_context_plan is not None
+                and expand_contexts
+            ):
+                next_contexts = tool_context_plan.contexts_for_attempt(hop_count)
+                contexts_changed = False
+                if tool_context_plan.use_all_tools_for_attempt(hop_count):
+                    if active_contexts is not None:
+                        contexts_changed = True
+                    active_tools_payload = self._tool_client.get_openai_tools()
+                    active_contexts = None
+                else:
+                    if next_contexts != (active_contexts or []):
+                        active_tools_payload = (
+                            self._tool_client.get_openai_tools_for_contexts(
+                                next_contexts
+                            )
+                        )
+                        active_contexts = next_contexts
+                        contexts_changed = True
+                if contexts_changed:
+                    continue
 
         if self._conversation_logger is not None:
             await self._log_conversation_snapshot(session_id, request)
 
         yield {"event": "message", "data": "[DONE]"}
+
+
+def _looks_like_no_result(result_text: str) -> bool:
+    if not isinstance(result_text, str):
+        return False
+    lowered = result_text.strip().lower()
+    if not lowered:
+        return False
+    phrases = (
+        "not found",
+        "no results",
+        "no result",
+        "could not find",
+        "can't find",
+        "cannot find",
+        "wasn't found",
+        "nothing found",
+        "no matching",
+    )
+    return any(phrase in lowered for phrase in phrases)
 
 
 def _is_tool_support_error(error: OpenRouterError) -> bool:

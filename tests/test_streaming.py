@@ -1,7 +1,8 @@
 """Tests for streaming handler functionality."""
 
 import json
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Iterable
 
 import pytest
 
@@ -10,6 +11,7 @@ from src.backend.chat.streaming import (
     _finalize_tool_calls,
     _merge_tool_calls,
 )
+from src.backend.chat.tool_context_planner import ToolContextPlan
 from src.backend.openrouter import OpenRouterError
 from src.backend.schemas.chat import ChatCompletionRequest, ChatMessage
 
@@ -228,7 +230,7 @@ class DummyRepository:
         metadata: dict[str, Any] | None = None,
         client_message_id: str | None = None,
         parent_client_message_id: str | None = None,
-    ) -> int:
+    ) -> tuple[int, str | None]:
         self._counter += 1
         record = {
             "session_id": session_id,
@@ -241,11 +243,16 @@ class DummyRepository:
             "message_id": self._counter,
         }
         self.messages.append(record)
-        return self._counter
+        return self._counter, None
 
 
 class DummyToolClient:
     def get_openai_tools(self) -> list[dict[str, Any]]:
+        return []
+
+    def get_openai_tools_for_contexts(
+        self, contexts: Iterable[str]
+    ) -> list[dict[str, Any]]:
         return []
 
     async def call_tool(
@@ -254,6 +261,100 @@ class DummyToolClient:
         raise AssertionError("call_tool should not be invoked in these tests")
 
     def format_tool_result(self, result: Any) -> str:  # pragma: no cover
+        return ""
+
+
+class ToolCallOpenRouterClient(DummyOpenRouterClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.call_index = 0
+
+    async def stream_chat_raw(self, payload: dict[str, Any]):
+        self.payloads.append(payload)
+        if self.call_index == 0:
+            self.call_index += 1
+            initial_chunk = {
+                "id": "gen-tool-1",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {
+                                        "name": "calendar_lookup",
+                                        "arguments": json.dumps({"query": "team standup"}),
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+            }
+            yield {"data": json.dumps(initial_chunk)}
+            yield {"data": "[DONE]"}
+            return
+
+        self.call_index += 1
+        final_chunk = {
+            "id": "gen-tool-2",
+            "choices": [
+                {
+                    "delta": {"content": "Here's what I found."},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        yield {"data": json.dumps(final_chunk)}
+        yield {"data": "[DONE]"}
+
+
+class ExpandingToolClient:
+    def __init__(self) -> None:
+        self.context_history: list[list[str]] = []
+        self.results: list[str] = []
+        self.calls = 0
+
+    def get_openai_tools(self) -> list[dict[str, Any]]:
+        self.context_history.append(["__all__"])
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "global_tool",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    def get_openai_tools_for_contexts(
+        self, contexts: Iterable[str]
+    ) -> list[dict[str, Any]]:
+        snapshot = [ctx for ctx in contexts]
+        self.context_history.append(snapshot)
+        label = "_".join(snapshot) if snapshot else "none"
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": f"context_{label}_tool",
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            }
+        ]
+
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any] | None = None
+    ) -> Any:
+        self.calls += 1
+        return SimpleNamespace(isError=False, content={})
+
+    def format_tool_result(self, result: Any) -> str:
+        index = self.calls - 1
+        if 0 <= index < len(self.results):
+            return self.results[index]
         return ""
 
 
@@ -444,6 +545,45 @@ async def test_streaming_emits_metadata_event() -> None:
     assert metadata["routing"]["OpenRouter-Provider"] == "test/provider"
     assert metadata["meta"]["provider"]["name"] == "Meta Test Provider"
     assert metadata["generation_id"] == "gen-abc123"
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_expands_contexts_after_no_result() -> None:
+    client = ToolCallOpenRouterClient()
+    tool_client = ExpandingToolClient()
+    tool_client.results = ["No results found for that query."]
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        DummyRepository(),  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Can you check my schedule?")],
+    )
+    conversation = [{"role": "user", "content": "Can you check my schedule?"}]
+    plan = ToolContextPlan(stages=[["calendar"], ["tasks"]], broad_search=True)
+    initial_tools = tool_client.get_openai_tools_for_contexts(
+        plan.contexts_for_attempt(0)
+    )
+
+    events = []
+    async for event in handler.stream_conversation(
+        "session-expand",
+        request,
+        conversation,
+        initial_tools,
+        None,
+        plan,
+    ):
+        events.append(event)
+
+    assert tool_client.calls == 1
+    assert tool_client.context_history[0] == ["calendar"]
+    assert ["calendar", "tasks"] in tool_client.context_history
+    assert len(client.payloads) == 2
+    assert events[-1]["data"] == "[DONE]"
 
 
 @pytest.mark.anyio("asyncio")

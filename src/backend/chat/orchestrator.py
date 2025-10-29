@@ -24,6 +24,7 @@ from ..services.model_settings import ModelSettingsService
 from .image_reflection import reflect_assistant_images
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
+from .tool_context_planner import ToolContextPlanner
 
 if TYPE_CHECKING:
     from ..services.attachments import AttachmentService
@@ -106,6 +107,7 @@ class ChatOrchestrator:
         self._settings = settings
         self._init_lock = asyncio.Lock()
         self._ready = asyncio.Event()
+        self._tool_planner = ToolContextPlanner()
 
     async def initialize(self) -> None:
         """Initialize database and MCP client once."""
@@ -242,7 +244,14 @@ class ChatOrchestrator:
             ttl=self._settings.attachment_signed_url_ttl,
         )
         conversation = reflect_assistant_images(conversation)
-        tools_payload = self._mcp_client.get_openai_tools()
+        plan = self._tool_planner.plan(request, conversation)
+        if plan.use_all_tools_for_attempt(0):
+            tools_payload = self._mcp_client.get_openai_tools()
+        else:
+            contexts = plan.contexts_for_attempt(0)
+            tools_payload = self._mcp_client.get_openai_tools_for_contexts(contexts)
+            if not tools_payload and plan.broad_search:
+                tools_payload = self._mcp_client.get_openai_tools()
 
         if not existing:
             yield {
@@ -256,6 +265,7 @@ class ChatOrchestrator:
             conversation,
             tools_payload,
             assistant_parent_message_id,
+            plan,
         ):
             yield event
 

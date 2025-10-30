@@ -562,6 +562,25 @@ class MCPToolAggregator:
 
         return [copy.deepcopy(spec) for spec in self._openai_tools]
 
+    def get_openai_tools_by_qualified_names(
+        self, names: Iterable[str]
+    ) -> list[dict[str, Any]]:
+        """Return OpenAI tool specs for the provided qualified names."""
+
+        results: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for name in names:
+            if not isinstance(name, str):
+                continue
+            if not name or name in seen:
+                continue
+            spec = self._openai_tool_map.get(name)
+            if spec is None:
+                continue
+            results.append(copy.deepcopy(spec))
+            seen.add(name)
+        return results
+
     def get_capability_digest(
         self,
         contexts: Iterable[str] | None = None,

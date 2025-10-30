@@ -29,7 +29,9 @@ from .tool_context_planner import merge_model_tool_plan, ToolContextPlanner
 
 _TOOL_RATIONALE_INSTRUCTION = (
     "Before each tool call, emit numbered one-sentence rationales in order (e.g.,"
-    " 'Rationale 1: …') immediately preceding the call."
+    " 'Rationale 1: …') immediately preceding the call. Prefer a lightweight probe"
+    " (count, sample, recent-only) before heavier operations, escalating only if"
+    " the probe yields signal."
 )
 
 if TYPE_CHECKING:

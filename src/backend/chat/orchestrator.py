@@ -28,7 +28,8 @@ from .streaming import SseEvent, StreamingHandler
 from .tool_context_planner import ToolContextPlanner
 
 _TOOL_RATIONALE_INSTRUCTION = (
-    "Before calling any tool, output one sentence explaining why and what you expect."
+    "Before each tool call, emit numbered one-sentence rationales in order (e.g.,"
+    " 'Rationale 1: …') immediately preceding the call."
 )
 
 if TYPE_CHECKING:

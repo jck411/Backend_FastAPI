@@ -104,6 +104,39 @@ def _build_mcp_base_env(project_root: Path) -> dict[str, str]:
     return env
 
 
+def _content_contains_rationale_instruction(content: Any) -> bool:
+    if content is None:
+        return False
+    if isinstance(content, str):
+        return _TOOL_RATIONALE_INSTRUCTION in content
+    if isinstance(content, list):
+        return any(_content_contains_rationale_instruction(item) for item in content)
+    if isinstance(content, dict):
+        return any(
+            _content_contains_rationale_instruction(value)
+            for value in content.values()
+        )
+    return False
+
+
+def _append_rationale_instruction(content: Any) -> Any:
+    if isinstance(content, str):
+        base = content.rstrip()
+        if base:
+            return f"{base}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
+        return _TOOL_RATIONALE_INSTRUCTION
+    if isinstance(content, list):
+        updated = list(content)
+        updated.append({"type": "text", "text": _TOOL_RATIONALE_INSTRUCTION})
+        return updated
+    if content is None:
+        return _TOOL_RATIONALE_INSTRUCTION
+    base = str(content).rstrip()
+    if base:
+        return f"{base}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
+    return _TOOL_RATIONALE_INSTRUCTION
+
+
 class ChatOrchestrator:
     """High-level coordination for chat sessions."""
 
@@ -231,7 +264,36 @@ class ChatOrchestrator:
             if isinstance(parent_candidate, str):
                 assistant_parent_message_id = parent_candidate
         stored_messages = await self._repo.get_messages(session_id)
-        has_system_message = any(msg.get("role") == "system" for msg in stored_messages)
+        system_messages = [
+            message for message in stored_messages if message.get("role") == "system"
+        ]
+        stored_has_rationale_instruction = any(
+            _content_contains_rationale_instruction(message.get("content"))
+            for message in system_messages
+        )
+        has_system_message = bool(system_messages)
+        fallback_add_system_message = False
+        if system_messages and not stored_has_rationale_instruction:
+            latest_system = system_messages[-1]
+            new_content = _append_rationale_instruction(latest_system.get("content"))
+            try:
+                updated = await self._repo.update_latest_system_message(
+                    session_id, new_content
+                )
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                logger.debug(
+                    "Failed to update system message with rationale instruction for session %s: %s",
+                    session_id,
+                    exc,
+                )
+                updated = False
+            if updated:
+                latest_system["content"] = new_content
+                stored_has_rationale_instruction = True
+            else:
+                fallback_add_system_message = True
+        if fallback_add_system_message:
+            has_system_message = False
         incoming_has_system = any(
             message.role == "system" for message in incoming_messages
         )

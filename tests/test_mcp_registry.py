@@ -308,6 +308,49 @@ async def test_aggregator_filters_tools_by_contexts(
         await aggregator.close()
 
 
+async def test_aggregator_returns_tools_by_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool_map = {
+        "server_a": [
+            build_tool_definition("alpha", "Alpha tool"),
+            build_tool_definition("beta", "Beta tool"),
+            build_tool_definition("gamma", "Gamma tool"),
+        ]
+    }
+    created: dict[str, Any] = {}
+    fake_client_cls = make_fake_client_factory(tool_map, created)
+    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
+
+    configs = [
+        MCPServerConfig(id="server_a", module="pkg.alpha", contexts=["calendar"]),
+    ]
+
+    aggregator = MCPToolAggregator(configs)
+    await aggregator.connect()
+
+    try:
+        digest = aggregator.get_capability_digest(
+            ["calendar"], limit=2, include_global=False
+        )
+        names = [entry["name"] for entry in digest.get("calendar", [])]
+        assert names == ["alpha", "beta"]
+
+        reversed_names = list(reversed(names))
+        subset = aggregator.get_openai_tools_by_qualified_names(
+            reversed_names + [names[0]]
+        )
+        assert len(subset) == len(reversed_names)
+        assert [
+            spec["function"]["name"] for spec in subset
+        ] == reversed_names, "Expected tools in requested order"
+
+        # Ensure specs are deep copied
+        subset[0]["function"]["description"] = "mutated"
+        refreshed = aggregator.get_openai_tools_by_qualified_names([reversed_names[0]])
+        assert refreshed[0]["function"].get("description") != "mutated"
+    finally:
+        await aggregator.close()
+
+
 async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -> None:
     import asyncio
 

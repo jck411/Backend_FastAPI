@@ -38,6 +38,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_MAX_RANKED_TOOLS = 5
+
+
 def _iter_attachment_ids(content: Any) -> Iterable[str]:
     if isinstance(content, list):
         for item in content:
@@ -271,6 +274,37 @@ class ChatOrchestrator:
             capability_digest=capability_digest,
         )
         plan_payload = plan.to_dict()
+        contexts = plan.contexts_for_attempt(0)
+        ranked_tool_names: list[str] = []
+        ranked_digest: dict[str, list[dict[str, Any]]] | None = None
+        if contexts:
+            digest_for_contexts = getattr(self._mcp_client, "get_capability_digest", None)
+            if callable(digest_for_contexts):
+                try:
+                    ranked_digest = digest_for_contexts(
+                        contexts, limit=_MAX_RANKED_TOOLS, include_global=False
+                    )
+                except Exception as exc:  # pragma: no cover - defensive fallback
+                    logger.debug(
+                        "Failed to obtain ranked capability digest for contexts %s: %s",
+                        contexts,
+                        exc,
+                    )
+                    ranked_digest = {}
+            if ranked_digest:
+                seen_names: set[str] = set()
+                for context in contexts:
+                    entries = ranked_digest.get(context) or []
+                    for entry in entries:
+                        if not isinstance(entry, dict):
+                            continue
+                        name = entry.get("name")
+                        if not isinstance(name, str) or not name:
+                            continue
+                        if name in seen_names:
+                            continue
+                        seen_names.add(name)
+                        ranked_tool_names.append(name)
         request_event_id: str | None = None
         if isinstance(request.metadata, dict):
             candidate = request.metadata.get("client_request_id")
@@ -292,9 +326,24 @@ class ChatOrchestrator:
         if plan.use_all_tools_for_attempt(0):
             tools_payload = self._mcp_client.get_openai_tools()
         else:
-            contexts = plan.contexts_for_attempt(0)
-            tools_payload = self._mcp_client.get_openai_tools_for_contexts(contexts)
-            if not tools_payload and plan.broad_search:
+            ranked_tools_payload: list[dict[str, Any]] = []
+            if ranked_tool_names:
+                lookup = getattr(
+                    self._mcp_client, "get_openai_tools_by_qualified_names", None
+                )
+                if callable(lookup):
+                    try:
+                        ranked_tools_payload = lookup(ranked_tool_names)
+                    except Exception as exc:  # pragma: no cover - defensive fallback
+                        logger.debug(
+                            "Failed to resolve ranked tool specs for %s: %s",
+                            ranked_tool_names,
+                            exc,
+                        )
+                        ranked_tools_payload = []
+            if ranked_tools_payload:
+                tools_payload = ranked_tools_payload
+            else:
                 tools_payload = self._mcp_client.get_openai_tools()
 
         if not existing:

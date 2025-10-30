@@ -72,6 +72,13 @@ class AssistantTurn:
         return message
 
 
+@dataclass(frozen=True)
+class ToolRationaleInfo:
+    index: int
+    call_id: str
+    text: str | None
+
+
 class _AssistantContentBuilder:
     """Accumulate assistant content fragments and persist generated images."""
 
@@ -353,6 +360,8 @@ class StreamingHandler:
         can_retry_without_tools = (
             requested_tool_choice in (None, "auto") and not has_structured_tool_choice
         )
+
+        total_tool_calls = 0
 
         while True:
             stop_triggered_reason: str | None = None
@@ -706,7 +715,12 @@ class StreamingHandler:
                 generation_id=generation_id,
                 reasoning=reasoning_segments if reasoning_segments else None,
             )
-            assistant_rationale = _extract_tool_rationale(assistant_turn.content)
+            assistant_rationales = _extract_tool_rationale(assistant_turn.content)
+            tool_rationales = _pair_tool_rationales(
+                assistant_turn.tool_calls,
+                assistant_rationales,
+                start_index=total_tool_calls + 1,
+            )
             metadata: dict[str, Any] = {}
             if assistant_turn.finish_reason is not None:
                 metadata["finish_reason"] = assistant_turn.finish_reason
@@ -726,8 +740,15 @@ class StreamingHandler:
                 metadata["routing"] = routing_headers
             if assistant_client_message_id is not None:
                 metadata.setdefault("client_message_id", assistant_client_message_id)
-            if assistant_rationale is not None:
-                metadata["tool_rationale"] = assistant_rationale
+            if assistant_turn.tool_calls:
+                metadata["tool_rationales"] = [
+                    {
+                        "index": info.index,
+                        "call_id": info.call_id,
+                        "text": info.text,
+                    }
+                    for info in tool_rationales
+                ]
 
             assistant_result = await self._repo.add_message(
                 session_id,
@@ -771,8 +792,15 @@ class StreamingHandler:
                 metadata_event_payload["created_at"] = assistant_turn.created_at
             if assistant_turn.created_at_utc is not None:
                 metadata_event_payload["created_at_utc"] = assistant_turn.created_at_utc
-            if assistant_rationale is not None:
-                metadata_event_payload["tool_rationale"] = assistant_rationale
+            if assistant_turn.tool_calls:
+                metadata_event_payload["tool_rationales"] = [
+                    {
+                        "index": info.index,
+                        "call_id": info.call_id,
+                        "text": info.text,
+                    }
+                    for info in tool_rationales
+                ]
             yield {
                 "event": "metadata",
                 "data": json.dumps(metadata_event_payload),
@@ -799,11 +827,30 @@ class StreamingHandler:
 
             expand_contexts = False
 
+            missing_rationale_detected = False
+            processed_tool_calls = 0
+
             for call_index, tool_call in enumerate(assistant_turn.tool_calls):
                 function = tool_call.get("function") or {}
                 tool_name = function.get("name")
-                tool_id = tool_call.get("id") or f"call_{call_index}"
-                rationale_text = assistant_rationale
+                rationale_info = (
+                    tool_rationales[call_index]
+                    if call_index < len(tool_rationales)
+                    else None
+                )
+                rationale_index = (
+                    rationale_info.index
+                    if rationale_info is not None
+                    else total_tool_calls + call_index + 1
+                )
+                tool_id = (
+                    rationale_info.call_id
+                    if rationale_info is not None
+                    else tool_call.get("id") or f"call_{call_index}"
+                )
+                rationale_text = (
+                    rationale_info.text if rationale_info is not None else None
+                )
                 skip_execution = False
                 missing_rationale_flag = False
 
@@ -864,6 +911,7 @@ class StreamingHandler:
                                 "tool": tool_name,
                                 "call_id": tool_id,
                                 "message": rationale_text,
+                                "index": rationale_index,
                             }
                         ),
                     }
@@ -871,8 +919,8 @@ class StreamingHandler:
                     missing_rationale_flag = True
                     skip_execution = True
                     missing_message = (
-                        "Tool execution paused: provide a one-sentence rationale before"
-                        f" calling '{tool_name}'."
+                        "Tool execution paused: provide Rationale "
+                        f"{rationale_index} before calling '{tool_name}'."
                     )
                     yield {
                         "event": "notice",
@@ -883,6 +931,7 @@ class StreamingHandler:
                                 "call_id": tool_id,
                                 "message": missing_message,
                                 "confirmation_required": True,
+                                "index": rationale_index,
                             }
                         ),
                     }
@@ -896,6 +945,7 @@ class StreamingHandler:
                                 "name": tool_name,
                                 "call_id": tool_id,
                                 "rationale": rationale_text,
+                                "rationale_index": rationale_index,
                             }
                         ),
                     }
@@ -910,6 +960,7 @@ class StreamingHandler:
                     result_text = (
                         "Tool call blocked: missing rationale describing why the tool is"
                         " being used and the expected outcome."
+                        f" (expected Rationale {rationale_index})."
                     )
                     status = "error"
                     tool_error_flag = True
@@ -970,6 +1021,7 @@ class StreamingHandler:
                 }
                 if rationale_text is not None:
                     tool_metadata["tool_rationale"] = rationale_text
+                tool_metadata["tool_rationale_index"] = rationale_index
 
                 tool_record_id, tool_created_at = await self._repo.add_message(
                     session_id,
@@ -1004,6 +1056,7 @@ class StreamingHandler:
                             "created_at": edt_iso or tool_created_at,
                             "created_at_utc": utc_iso or tool_created_at,
                             "rationale": rationale_text,
+                            "rationale_index": rationale_index,
                         }
                     ),
                 }
@@ -1040,6 +1093,7 @@ class StreamingHandler:
                         "next_contexts": next_contexts,
                         "will_use_all_tools": will_use_all_tools,
                         "confirmation_required": True,
+                        "rationale_index": rationale_index,
                     }
                     if rationale_text is not None:
                         notice_payload["rationale"] = rationale_text
@@ -1061,6 +1115,17 @@ class StreamingHandler:
                         "event": "notice",
                         "data": json.dumps(notice_payload),
                     }
+
+                processed_tool_calls += 1
+
+                if missing_rationale_flag:
+                    missing_rationale_detected = True
+                    break
+
+            total_tool_calls += processed_tool_calls
+
+            if missing_rationale_detected:
+                break
 
             hop_count += 1
 
@@ -1190,16 +1255,106 @@ def _tool_requires_session_id(tool_name: str) -> bool:
     )
 
 
+_RATIONALE_SENTENCE_PATTERN = re.compile(
+    r"Rationale\s+(?P<index>\d+):\s*(?P<body>.+?(?:(?<=\S)[.!?]|$))(?=\s*(?:Rationale\s+\d+:)|\s*$)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+_RATIONALE_INDEX_PATTERN = re.compile(r"^\s*Rationale\s+(\d+):", re.IGNORECASE)
+
+
 def _extract_tool_rationale(
     content: str | list[dict[str, Any]] | None,
-) -> str | None:
-    """Return the first sentence of assistant text content for tool rationales."""
+) -> list[str]:
+    """Return ordered rationale sentences extracted from assistant content."""
 
-    for segment in _iterate_rationale_segments(content):
-        sentence = _first_sentence(segment)
-        if sentence:
-            return sentence
-    return None
+    segments = list(_iterate_rationale_segments(content))
+    rationales: dict[int, str] = {}
+
+    for segment in segments:
+        if not isinstance(segment, str):
+            continue
+        for match in _RATIONALE_SENTENCE_PATTERN.finditer(segment):
+            index_raw = match.group("index")
+            body_text = match.group("body")
+            if not index_raw:
+                continue
+            try:
+                index = int(index_raw)
+            except (TypeError, ValueError):
+                continue
+            sentence = _first_sentence(body_text)
+            if not sentence:
+                continue
+            normalized = f"Rationale {index}: {sentence}"
+            rationales.setdefault(index, normalized)
+
+    if rationales:
+        return [rationales[key] for key in sorted(rationales)]
+
+    return []
+
+
+def _match_rationale_index(text: str | None) -> int | None:
+    if not isinstance(text, str):
+        return None
+    match = _RATIONALE_INDEX_PATTERN.match(text.strip())
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _pair_tool_rationales(
+    tool_calls: Sequence[dict[str, Any]],
+    rationales: Sequence[str],
+    *,
+    start_index: int = 1,
+) -> list[ToolRationaleInfo]:
+    if not tool_calls:
+        return []
+
+    indexed_rationales: dict[int, str] = {}
+    fallback_queue: list[tuple[int | None, str]] = []
+
+    for text in rationales:
+        normalized = text.strip()
+        if not normalized:
+            continue
+        index = _match_rationale_index(normalized)
+        if index is not None and index not in indexed_rationales:
+            indexed_rationales[index] = normalized
+            continue
+        fallback_queue.append((index, normalized))
+
+    paired: list[ToolRationaleInfo] = []
+    for offset, tool_call in enumerate(tool_calls):
+        expected_index = start_index + offset
+        call_id = tool_call.get("id")
+        if not isinstance(call_id, str) or not call_id.strip():
+            call_id = f"call_{expected_index - 1}"
+
+        text = indexed_rationales.pop(expected_index, None)
+        actual_index = expected_index
+
+        if text is None and fallback_queue:
+            fallback_index, fallback_text = fallback_queue.pop(0)
+            text = fallback_text
+            if fallback_index is not None:
+                actual_index = fallback_index
+
+        if text is not None:
+            parsed_index = _match_rationale_index(text)
+            if parsed_index is not None:
+                actual_index = parsed_index
+
+        paired.append(
+            ToolRationaleInfo(index=actual_index, call_id=call_id, text=text)
+        )
+
+    return paired
 
 
 def _iterate_rationale_segments(

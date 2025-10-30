@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Iterable, Mapping, Protocol, Sequence
+from typing import Any, AsyncGenerator, Iterable, Literal, Mapping, Protocol, Sequence
 from urllib.parse import unquote_to_bytes
 
 import httpx
@@ -394,6 +394,50 @@ class _AssistantContentBuilder:
         return structured_parts if structured_parts else None
 
 
+def _normalize_privacy_consent(
+    value: Any,
+) -> tuple[Literal["granted", "denied"] | None, dict[str, Any] | None]:
+    """Normalize privacy consent metadata into a status and safe payload."""
+
+    status: Literal["granted", "denied"] | None = None
+    details: dict[str, Any] | None = None
+
+    if isinstance(value, bool):
+        status = "granted" if value else "denied"
+    elif isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"granted", "approved", "allow", "allowed", "yes"}:
+            status = "granted"
+        elif normalized in {"denied", "declined", "rejected", "no"}:
+            status = "denied"
+    elif isinstance(value, Mapping):
+        raw_status = value.get("status")
+        normalized_status: str | None
+        if isinstance(raw_status, bool):
+            normalized_status = "granted" if raw_status else "denied"
+        elif isinstance(raw_status, str):
+            normalized_status = raw_status.strip().lower()
+        else:
+            normalized_status = None
+        if normalized_status in {"granted", "denied"}:
+            status = normalized_status  # type: ignore[assignment]
+        sanitized: dict[str, Any] = {}
+        for key, item in value.items():
+            if key == "status":
+                continue
+            if isinstance(item, (str, int, float, bool)) or item is None:
+                sanitized[str(key)] = item
+        details = sanitized or None
+
+    if status is not None:
+        if details is None:
+            details = {"status": status}
+        else:
+            details["status"] = status
+
+    return status, details
+
+
 class StreamingHandler:
     """Stream chat responses, execute tools, and persist conversation state."""
 
@@ -478,10 +522,21 @@ class StreamingHandler:
         hop_count = 0
         conversation_state = list(conversation)
         assistant_client_message_id: str | None = None
+        request_metadata: dict[str, Any] | None = None
+        request_id: str | None = None
+        privacy_consent_status: Literal["granted", "denied"] | None = None
+        privacy_consent_details: dict[str, Any] | None = None
         if isinstance(request.metadata, dict):
-            candidate = request.metadata.get("client_assistant_message_id")
+            request_metadata = request.metadata
+            candidate = request_metadata.get("client_assistant_message_id")
             if isinstance(candidate, str):
                 assistant_client_message_id = candidate
+            request_id_candidate = request_metadata.get("request_id")
+            if isinstance(request_id_candidate, str):
+                request_id = request_id_candidate
+            privacy_consent_status, privacy_consent_details = _normalize_privacy_consent(
+                request_metadata.get("privacy_consent")
+            )
         active_tools_payload = list(tools_payload)
         active_contexts: list[str] | None = None
         if (
@@ -497,22 +552,92 @@ class StreamingHandler:
         privacy_note = (
             tool_context_plan.privacy_note if tool_context_plan is not None else None
         )
+        awaiting_privacy_consent = False
+
+        async def record_privacy_event(
+            status: str, extra: Mapping[str, Any] | None = None
+        ) -> None:
+            payload: dict[str, Any] = {"status": status}
+            if privacy_note:
+                payload["note"] = privacy_note
+            if extra:
+                payload.update(extra)
+            try:
+                await self._repo.add_event(
+                    session_id,
+                    "privacy_consent",
+                    payload,
+                    request_id=request_id,
+                )
+            except Exception as exc:  # pragma: no cover - defensive logging
+                logger.warning(
+                    "Failed to record privacy consent event for session %s: %s",
+                    session_id,
+                    exc,
+                )
+
         if privacy_note:
-            privacy_notice: dict[str, Any] = {
-                "type": "privacy",
-                "message": privacy_note,
-                "contexts": list(tool_context_plan.ranked_contexts),
-                "intent": tool_context_plan.intent,
-            }
-            if tool_context_plan.candidate_tools:
-                privacy_notice["candidate_tools"] = {
-                    context: [candidate.to_dict() for candidate in candidates]
-                    for context, candidates in tool_context_plan.candidate_tools.items()
+            if privacy_consent_status == "granted":
+                await record_privacy_event(
+                    "granted",
+                    privacy_consent_details,
+                )
+                consent_notice: dict[str, Any] = {
+                    "type": "privacy_consent_granted",
+                    "message": privacy_note,
+                    "contexts": list(tool_context_plan.ranked_contexts),
+                    "intent": tool_context_plan.intent,
+                    "status": "granted",
                 }
-            yield {
-                "event": "notice",
-                "data": json.dumps(privacy_notice),
-            }
+                if privacy_consent_details:
+                    consent_notice["details"] = privacy_consent_details
+                yield {
+                    "event": "notice",
+                    "data": json.dumps(consent_notice),
+                }
+            elif privacy_consent_status == "denied":
+                await record_privacy_event(
+                    "denied",
+                    privacy_consent_details,
+                )
+                denial_notice: dict[str, Any] = {
+                    "type": "privacy_consent_denied",
+                    "message": privacy_note,
+                    "contexts": list(tool_context_plan.ranked_contexts),
+                    "intent": tool_context_plan.intent,
+                    "status": "denied",
+                }
+                if privacy_consent_details:
+                    denial_notice["details"] = privacy_consent_details
+                yield {
+                    "event": "notice",
+                    "data": json.dumps(denial_notice),
+                }
+                if self._conversation_logger is not None:
+                    await self._log_conversation_snapshot(session_id, request)
+                yield {"event": "message", "data": "[DONE]"}
+                return
+            else:
+                awaiting_privacy_consent = True
+                await record_privacy_event(
+                    "required",
+                    privacy_consent_details,
+                )
+                privacy_notice: dict[str, Any] = {
+                    "type": "privacy_consent_required",
+                    "message": privacy_note,
+                    "contexts": list(tool_context_plan.ranked_contexts),
+                    "intent": tool_context_plan.intent,
+                }
+                if tool_context_plan.candidate_tools:
+                    privacy_notice["candidate_tools"] = {
+                        context: [candidate.to_dict() for candidate in candidates]
+                        for context, candidates in tool_context_plan.candidate_tools.items()
+                    }
+                yield {
+                    "event": "notice",
+                    "data": json.dumps(privacy_notice),
+                }
         tool_choice_value = request.tool_choice
         requested_tool_choice = (
             tool_choice_value if isinstance(tool_choice_value, str) else None
@@ -545,9 +670,11 @@ class StreamingHandler:
 
             payload = request.to_openrouter_payload(active_model)
             payload_messages = list(conversation_state)
-            digest_message = _build_tool_digest_message(
-                tool_context_plan, active_tools_payload, active_contexts
-            )
+            digest_message = None
+            if not awaiting_privacy_consent:
+                digest_message = _build_tool_digest_message(
+                    tool_context_plan, active_tools_payload, active_contexts
+                )
             if digest_message is not None:
                 payload_messages.append(digest_message)
             payload["messages"] = payload_messages
@@ -595,7 +722,12 @@ class StreamingHandler:
                     session_id,
                 )
 
-            allow_tools = tools_available and not tools_disabled and model_supports_tools
+            allow_tools = (
+                tools_available
+                and not tools_disabled
+                and model_supports_tools
+                and not awaiting_privacy_consent
+            )
             if allow_tools:
                 payload["tools"] = active_tools_payload
                 payload.setdefault("tool_choice", request.tool_choice or "auto")
@@ -997,6 +1129,44 @@ class StreamingHandler:
 
             missing_rationale_detected = False
             processed_tool_calls = 0
+
+            if awaiting_privacy_consent and assistant_turn.tool_calls:
+                blocked_tools: list[dict[str, Any]] = []
+                for call in assistant_turn.tool_calls:
+                    if not isinstance(call, Mapping):
+                        continue
+                    function_payload = call.get("function")
+                    tool_name: str | None = None
+                    if isinstance(function_payload, Mapping):
+                        raw_name = function_payload.get("name")
+                        if isinstance(raw_name, str):
+                            tool_name = raw_name
+                    entry: dict[str, Any] = {}
+                    call_id_value = call.get("id")
+                    if isinstance(call_id_value, str):
+                        entry["call_id"] = call_id_value
+                    if tool_name:
+                        entry["name"] = tool_name
+                    if entry:
+                        blocked_tools.append(entry)
+
+                event_extra: dict[str, Any] = {"reason": "pending_consent"}
+                if blocked_tools:
+                    event_extra["tool_calls"] = blocked_tools
+                await record_privacy_event("blocked", event_extra)
+
+                blocked_notice: dict[str, Any] = {
+                    "type": "privacy_consent_blocked",
+                    "message": "Tool execution requires explicit privacy consent.",
+                    "status": "required",
+                }
+                if blocked_tools:
+                    blocked_notice["tool_calls"] = blocked_tools
+                yield {
+                    "event": "notice",
+                    "data": json.dumps(blocked_notice),
+                }
+                break
 
             for call_index, tool_call in enumerate(assistant_turn.tool_calls):
                 function = tool_call.get("function") or {}

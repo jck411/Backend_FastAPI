@@ -8,7 +8,10 @@ from typing import Any, ClassVar, Iterable, Mapping
 
 import pytest
 
-from src.backend.chat.orchestrator import ChatOrchestrator
+from src.backend.chat.orchestrator import (
+    ChatOrchestrator,
+    _TOOL_RATIONALE_INSTRUCTION,
+)
 from src.backend.config import Settings
 from src.backend.schemas.chat import ChatCompletionRequest, ChatMessage
 
@@ -65,6 +68,18 @@ class StubRepository:
 
     async def get_messages(self, session_id: str) -> list[dict[str, Any]]:
         return [dict(entry) for entry in self.messages if entry["session_id"] == session_id]
+
+    async def update_latest_system_message(
+        self, session_id: str, content: Any
+    ) -> bool:
+        for message in reversed(self.messages):
+            if (
+                message.get("session_id") == session_id
+                and message.get("role") == "system"
+            ):
+                message["content"] = content
+                return True
+        return False
 
     async def mark_attachments_used(
         self, session_id: str, attachment_ids: list[str]
@@ -612,3 +627,100 @@ async def test_orchestrator_falls_back_when_digest_empty(
         entry["function"]["name"] for entry in (handler.last_tools_payload or [])
     ]
     assert payload_names == ["calendar_lookup", "global_tool"]
+
+
+@pytest.mark.anyio("asyncio")
+async def test_orchestrator_updates_legacy_system_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.ChatRepository", StubRepository
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.MCPToolAggregator", StubAggregator
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.StreamingHandler", StubStreamingHandler
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.OpenRouterClient", StubOpenRouterClient
+    )
+
+    settings = Settings(openrouter_api_key="dummy-key")
+    orchestrator = ChatOrchestrator(settings, StubModelSettings(), StubMCPSettings())
+
+    await orchestrator.initialize()
+
+    session_id = "legacy-session"
+    repo = orchestrator.repository
+    await repo.ensure_session(session_id)
+    await repo.add_message(session_id, role="system", content="Legacy base prompt")
+
+    request = ChatCompletionRequest(
+        session_id=session_id,
+        messages=[ChatMessage(role="user", content="Hello there")],
+    )
+
+    events = []
+    async for event in orchestrator.process_stream(request):
+        events.append(event)
+
+    assert events and events[-1]["data"] == "[DONE]"
+
+    system_messages = [
+        entry
+        for entry in repo.messages
+        if entry["session_id"] == session_id and entry["role"] == "system"
+    ]
+    assert len(system_messages) == 1
+    content = system_messages[0]["content"]
+    assert isinstance(content, str)
+    assert content.startswith("Legacy base prompt")
+    assert content.count(_TOOL_RATIONALE_INSTRUCTION) == 1
+
+
+@pytest.mark.anyio("asyncio")
+async def test_orchestrator_avoids_duplicate_rationale_instruction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.ChatRepository", StubRepository
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.MCPToolAggregator", StubAggregator
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.StreamingHandler", StubStreamingHandler
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.OpenRouterClient", StubOpenRouterClient
+    )
+
+    settings = Settings(openrouter_api_key="dummy-key")
+    orchestrator = ChatOrchestrator(settings, StubModelSettings(), StubMCPSettings())
+
+    await orchestrator.initialize()
+
+    session_id = "modern-session"
+    repo = orchestrator.repository
+    await repo.ensure_session(session_id)
+    existing_content = f"Legacy base prompt\n\n{_TOOL_RATIONALE_INSTRUCTION}"
+    await repo.add_message(session_id, role="system", content=existing_content)
+
+    request = ChatCompletionRequest(
+        session_id=session_id,
+        messages=[ChatMessage(role="user", content="Any updates?")],
+    )
+
+    async for _ in orchestrator.process_stream(request):
+        pass
+
+    system_messages = [
+        entry
+        for entry in repo.messages
+        if entry["session_id"] == session_id and entry["role"] == "system"
+    ]
+    assert len(system_messages) == 1
+    content = system_messages[0]["content"]
+    assert isinstance(content, str)
+    assert content.count(_TOOL_RATIONALE_INSTRUCTION) == 1

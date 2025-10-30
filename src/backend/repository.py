@@ -371,6 +371,62 @@ class ChatRepository:
             messages.append(message)
         return messages
 
+    async def update_latest_system_message(
+        self, session_id: str, content: Any
+    ) -> bool:
+        """Update the most recent system message for a session."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            """
+            SELECT id, metadata
+            FROM messages
+            WHERE session_id = ? AND role = ?
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (session_id, "system"),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row is None:
+            return False
+
+        serialized_content, structured = _encode_content(content)
+
+        metadata_json = row["metadata"]
+        metadata: dict[str, Any] | None
+        if metadata_json:
+            try:
+                metadata = json.loads(metadata_json)
+            except json.JSONDecodeError:
+                metadata = None
+        else:
+            metadata = None
+
+        if metadata:
+            metadata = dict(metadata)
+        else:
+            metadata = {}
+
+        if structured:
+            metadata[_CONTENT_JSON_METADATA_KEY] = True
+        else:
+            metadata.pop(_CONTENT_JSON_METADATA_KEY, None)
+
+        metadata_payload = json.dumps(metadata) if metadata else None
+
+        await self._connection.execute(
+            """
+            UPDATE messages
+            SET content = ?, metadata = ?
+            WHERE id = ?
+            """,
+            (serialized_content, metadata_payload, row["id"]),
+        )
+        await self._connection.commit()
+        return True
+
     async def add_event(
         self,
         session_id: str,

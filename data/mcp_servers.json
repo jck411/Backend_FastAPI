@@ -1,14 +1,15 @@
 {
   "servers": [
     {
+      "contexts": [
+        "notes",
+        "workspace"
+      ],
       "enabled": true,
       "env": {},
       "id": "custom-notion",
       "module": "backend.mcp_servers.notion_server",
-      "contexts": [
-        "notes",
-        "workspace"
-      ]
+      "tool_overrides": {}
     },
     {
       "command": [
@@ -21,6 +22,10 @@
         "--tool-tier",
         "complete"
       ],
+      "contexts": [
+        "calendar",
+        "tasks"
+      ],
       "disabled_tools": [],
       "enabled": true,
       "env": {
@@ -28,89 +33,61 @@
         "WORKSPACE_MCP_PORT": "8765"
       },
       "id": "google-workspace",
-      "contexts": [
-        "calendar",
-        "tasks"
-      ]
+      "tool_overrides": {}
     },
     {
+      "contexts": [],
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "custom-gmail",
       "module": "backend.mcp_servers.gmail_server",
-      "contexts": [
-        "email"
-      ]
+      "tool_overrides": {}
     },
     {
+      "contexts": [],
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "custom-gdrive",
       "module": "backend.mcp_servers.gdrive_server",
-      "contexts": [
-        "files",
-        "storage"
-      ]
+      "tool_overrides": {}
     },
     {
+      "contexts": [],
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "custom-pdf",
       "module": "backend.mcp_servers.pdf_server",
-      "contexts": [
-        "documents"
-      ]
+      "tool_overrides": {}
     },
     {
+      "contexts": [],
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "custom-calendar",
       "module": "backend.mcp_servers.calendar_server",
-      "contexts": [
-        "calendar"
-      ]
+      "tool_overrides": {}
     },
     {
+      "contexts": [],
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "local-calculator",
       "module": "backend.mcp_servers.calculator_server",
-      "contexts": [
-        "math",
-        "utilities"
-      ]
+      "tool_overrides": {}
     },
     {
+      "contexts": [],
       "disabled_tools": [],
       "enabled": true,
       "env": {},
       "id": "housekeeping",
       "module": "backend.mcp_servers.housekeeping_server",
-      "contexts": [
-        "system"
-      ],
-      "tool_overrides": {
-        "test_echo": {
-          "contexts": [
-            "diagnostics"
-          ]
-        },
-        "current_time": {
-          "contexts": [
-            "time"
-          ]
-        },
-        "chat_history": {
-          "contexts": [
-            "history"
-          ]
-        }
-      }
+      "tool_overrides": {}
     }
   ]
 }

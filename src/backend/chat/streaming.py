@@ -12,6 +12,7 @@ from typing import Any, AsyncGenerator, Iterable, Literal, Mapping, Protocol, Se
 from urllib.parse import unquote_to_bytes
 
 import httpx
+
 from ..config import get_settings
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..repository import ChatRepository, format_timestamp_for_client
@@ -448,7 +449,7 @@ class StreamingHandler:
         tool_client: ToolExecutor,
         *,
         default_model: str,
-        tool_hop_limit: int = 3,
+        tool_hop_limit: int = 8,
         model_settings: ModelSettingsService | None = None,
         attachment_service: AttachmentService | None = None,
         conversation_logger: ConversationLogWriter | None = None,
@@ -534,8 +535,8 @@ class StreamingHandler:
             request_id_candidate = request_metadata.get("request_id")
             if isinstance(request_id_candidate, str):
                 request_id = request_id_candidate
-            privacy_consent_status, privacy_consent_details = _normalize_privacy_consent(
-                request_metadata.get("privacy_consent")
+            privacy_consent_status, privacy_consent_details = (
+                _normalize_privacy_consent(request_metadata.get("privacy_consent"))
             )
         active_tools_payload = list(tools_payload)
         active_contexts: list[str] | None = None
@@ -706,17 +707,17 @@ class StreamingHandler:
                     model_supports_tools = capability.supports_tools
                 else:
                     try:
-                        model_supports_tools = await self._model_settings.model_supports_tools(  # type: ignore[misc]
-                            client=self._client,  # type: ignore[arg-type]
+                        model_supports_tools = (
+                            await self._model_settings.model_supports_tools(  # type: ignore[misc]
+                                client=self._client,  # type: ignore[arg-type]
+                            )
                         )
                     except TypeError:
-                        model_supports_tools = await self._model_settings.model_supports_tools()  # type: ignore[misc]
+                        model_supports_tools = (
+                            await self._model_settings.model_supports_tools()
+                        )  # type: ignore[misc]
 
-            if (
-                not model_supports_tools
-                and tools_available
-                and not tools_disabled
-            ):
+            if not model_supports_tools and tools_available and not tools_disabled:
                 logger.debug(
                     "Skipping tool payload for session %s because active model does not support tool use",
                     session_id,
@@ -794,9 +795,15 @@ class StreamingHandler:
                             http_client: httpx.AsyncClient | None = None
                             if hasattr(self._client, "_get_http_client"):
                                 if http_client_cache is None:
-                                    http_client_cache = await self._client._get_http_client()
+                                    http_client_cache = (
+                                        await self._client._get_http_client()
+                                    )
                                 http_client = http_client_cache
-                            new_fragments, attachment_ids, mutated = await _normalize_structured_fragments(
+                            (
+                                new_fragments,
+                                attachment_ids,
+                                mutated,
+                            ) = await _normalize_structured_fragments(
                                 delta_content,
                                 session_id,
                                 self._attachment_service,
@@ -814,15 +821,19 @@ class StreamingHandler:
                             http_client: httpx.AsyncClient | None = None
                             if hasattr(self._client, "_get_http_client"):
                                 if http_client_cache is None:
-                                    http_client_cache = await self._client._get_http_client()
+                                    http_client_cache = (
+                                        await self._client._get_http_client()
+                                    )
                                 http_client = http_client_cache
-                            normalized_images, image_attachment_ids, images_mutated = (
-                                await _normalize_structured_fragments(
-                                    delta_images,
-                                    session_id,
-                                    self._attachment_service,
-                                    http_client,
-                                )
+                            (
+                                normalized_images,
+                                image_attachment_ids,
+                                images_mutated,
+                            ) = await _normalize_structured_fragments(
+                                delta_images,
+                                session_id,
+                                self._attachment_service,
+                                http_client,
                             )
                             if images_mutated:
                                 delta["images"] = normalized_images
@@ -895,9 +906,15 @@ class StreamingHandler:
                             http_client: httpx.AsyncClient | None = None
                             if hasattr(self._client, "_get_http_client"):
                                 if http_client_cache is None:
-                                    http_client_cache = await self._client._get_http_client()
+                                    http_client_cache = (
+                                        await self._client._get_http_client()
+                                    )
                                 http_client = http_client_cache
-                            new_fragments, attachment_ids, mutated = await _normalize_structured_fragments(
+                            (
+                                new_fragments,
+                                attachment_ids,
+                                mutated,
+                            ) = await _normalize_structured_fragments(
                                 message_content,
                                 session_id,
                                 self._attachment_service,
@@ -915,15 +932,19 @@ class StreamingHandler:
                             http_client: httpx.AsyncClient | None = None
                             if hasattr(self._client, "_get_http_client"):
                                 if http_client_cache is None:
-                                    http_client_cache = await self._client._get_http_client()
+                                    http_client_cache = (
+                                        await self._client._get_http_client()
+                                    )
                                 http_client = http_client_cache
-                            normalized_images, image_attachment_ids, images_mutated = (
-                                await _normalize_structured_fragments(
-                                    message_images,
-                                    session_id,
-                                    self._attachment_service,
-                                    http_client,
-                                )
+                            (
+                                normalized_images,
+                                image_attachment_ids,
+                                images_mutated,
+                            ) = await _normalize_structured_fragments(
+                                message_images,
+                                session_id,
+                                self._attachment_service,
+                                http_client,
                             )
                             if images_mutated:
                                 message_payload["images"] = normalized_images
@@ -1413,12 +1434,20 @@ class StreamingHandler:
                     next_contexts: list[str] = []
                     will_use_all_tools = False
                     if tool_context_plan is not None:
-                        if notice_reason in {"no_results", "empty_result", "tool_error"}:
+                        if notice_reason in {
+                            "no_results",
+                            "empty_result",
+                            "tool_error",
+                        }:
                             next_contexts = (
-                                tool_context_plan.additional_contexts_for_attempt(hop_count)
+                                tool_context_plan.additional_contexts_for_attempt(
+                                    hop_count
+                                )
                             )
                             will_use_all_tools = (
-                                tool_context_plan.use_all_tools_for_attempt(hop_count + 1)
+                                tool_context_plan.use_all_tools_for_attempt(
+                                    hop_count + 1
+                                )
                             )
                     if notice_reason in {"no_results", "empty_result", "tool_error"}:
                         expand_contexts = True
@@ -1485,10 +1514,7 @@ class StreamingHandler:
                 }
                 break
 
-            if (
-                tool_context_plan is not None
-                and expand_contexts
-            ):
+            if tool_context_plan is not None and expand_contexts:
                 next_contexts = tool_context_plan.contexts_for_attempt(hop_count)
                 contexts_changed = False
                 if tool_context_plan.use_all_tools_for_attempt(hop_count):
@@ -1688,9 +1714,7 @@ def _pair_tool_rationales(
             if parsed_index is not None:
                 actual_index = parsed_index
 
-        paired.append(
-            ToolRationaleInfo(index=actual_index, call_id=call_id, text=text)
-        )
+        paired.append(ToolRationaleInfo(index=actual_index, call_id=call_id, text=text))
 
     return paired
 
@@ -1953,7 +1977,9 @@ async def _persist_image_fragment(
         )
         return _deep_copy_jsonable(fragment), None
 
-    normalized_mime = (mime_type or _sniff_mime_from_bytes(data_bytes) or "image/png").lower()
+    normalized_mime = (
+        mime_type or _sniff_mime_from_bytes(data_bytes) or "image/png"
+    ).lower()
     filename = filename_hint or _guess_filename_from_mime(normalized_mime)
 
     logger.info(

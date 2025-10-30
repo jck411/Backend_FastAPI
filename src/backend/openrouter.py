@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Iterable, Optional
+from typing import Any, AsyncGenerator, Iterable, Mapping, Optional, Sequence
 
 import httpx
 from fastapi import status
@@ -104,6 +104,40 @@ class OpenRouterClient:
         payload = request.to_openrouter_payload(self._settings.default_model)
         async for event in self.stream_chat_raw(payload):
             yield event
+
+    async def request_tool_plan(
+        self,
+        *,
+        request: ChatCompletionRequest,
+        conversation: Sequence[dict[str, Any]] | Iterable[dict[str, Any]],
+        tool_digest: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Request a planning pass ahead of streaming."""
+
+        url = f"{self._base_url}/chat/planner"
+        headers = dict(self._headers)
+        headers["Accept"] = "application/json"
+
+        payload = request.model_dump(
+            by_alias=True,
+            exclude_none=True,
+            exclude={"session_id", "messages", "tools"},
+        )
+        payload.setdefault("model", request.model or self._settings.default_model)
+        payload["messages"] = [dict(message) for message in conversation]
+        payload["tool_digest"] = dict(tool_digest)
+
+        client = await self._get_http_client()
+        try:
+            response = await client.post(url, headers=headers, json=payload)
+        except httpx.HTTPError as exc:
+            raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+        if response.status_code >= 400:
+            detail = self._extract_error_detail(response.content)
+            raise OpenRouterError(response.status_code, detail)
+
+        return response.json()
 
     async def stream_chat_raw(
         self, payload: dict[str, Any]

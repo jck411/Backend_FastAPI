@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Iterable, Mapping
 
 import pytest
 
@@ -16,6 +16,15 @@ from src.backend.schemas.chat import ChatCompletionRequest, ChatMessage
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def reset_stubs() -> None:
+    StubOpenRouterClient.plan_requests = []
+    StubOpenRouterClient.plan_response = {}
+    StubOpenRouterClient.plan_error = None
+    StubStreamingHandler.last_instance = None
+    StubAggregator.last_instance = None
 
 
 class StubRepository:
@@ -176,17 +185,35 @@ class StubAggregator:
             if not entries:
                 continue
             subset = entries if limit <= 0 else entries[:limit]
-            digest[context] = [
-                {
+            summaries: list[dict[str, Any]] = []
+            for entry in subset:
+                if isinstance(entry, Mapping):
+                    name = entry.get("name")
+                    description = entry.get("description")
+                    parameters = entry.get("parameters")
+                    server = entry.get("server", "stub")
+                    score = entry.get("score", 1.0)
+                else:
+                    name = entry
+                    description = None
+                    parameters = None
+                    server = "stub"
+                    score = 1.0
+                if not isinstance(name, str) or not name:
+                    continue
+                summary: dict[str, Any] = {
                     "name": name,
-                    "description": None,
-                    "parameters": {"type": "object", "properties": {}},
-                    "server": "stub",
-                    "score": 1.0,
+                    "description": description,
+                    "parameters": parameters
+                    if isinstance(parameters, Mapping)
+                    else {"type": "object", "properties": {}},
+                    "server": server,
+                    "score": float(score) if isinstance(score, (int, float)) else 1.0,
                     "contexts": [context],
                 }
-                for name in subset
-            ]
+                summaries.append(summary)
+            if summaries:
+                digest[context] = summaries
         if include_global:
             digest.setdefault("__all__", [])
         return digest
@@ -256,8 +283,29 @@ class StubMCPSettings:
 
 
 class StubOpenRouterClient:
+    plan_requests: ClassVar[list[dict[str, Any]]] = []
+    plan_response: ClassVar[Any] = {}
+    plan_error: ClassVar[Exception | None] = None
+
     def __init__(self, *_: Any, **__: Any) -> None:
         return
+
+    async def request_tool_plan(
+        self,
+        *,
+        request: Any,
+        conversation: Iterable[dict[str, Any]],
+        tool_digest: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = {
+            "request": request,
+            "conversation": [dict(message) for message in conversation],
+            "tool_digest": dict(tool_digest),
+        }
+        StubOpenRouterClient.plan_requests.append(payload)
+        if StubOpenRouterClient.plan_error is not None:
+            raise StubOpenRouterClient.plan_error
+        return StubOpenRouterClient.plan_response
 
     async def aclose(self) -> None:  # pragma: no cover - trivial stub
         return
@@ -265,7 +313,17 @@ class StubOpenRouterClient:
 
 @pytest.mark.anyio("asyncio")
 async def test_orchestrator_invokes_planner(monkeypatch: pytest.MonkeyPatch) -> None:
-    StubAggregator.digest_entries_by_context = {"calendar": ["calendar_lookup"]}
+    StubAggregator.digest_entries_by_context = {
+        "calendar": [
+            {
+                "name": "calendar_lookup",
+                "description": "Check calendar events",
+                "parameters": {"type": "object", "properties": {}},
+                "server": "stub",
+                "score": 0.95,
+            }
+        ]
+    }
     StubAggregator.tool_spec_order = ["calendar_lookup", "global_tool"]
     StubAggregator.tool_spec_map = {
         "calendar_lookup": {
@@ -282,6 +340,26 @@ async def test_orchestrator_invokes_planner(monkeypatch: pytest.MonkeyPatch) -> 
                 "parameters": {"type": "object", "properties": {}},
             },
         },
+    }
+
+    StubOpenRouterClient.plan_response = {
+        "plan": {
+            "stages": [["calendar"]],
+            "intent": "Review schedule",
+            "ranked_contexts": ["calendar", "tasks"],
+            "candidate_tools": {
+                "calendar": [
+                    {
+                        "name": "calendar_lookup",
+                        "description": "Check calendar events",
+                        "server": "stub",
+                        "score": 0.95,
+                    }
+                ]
+            },
+            "privacy_note": "Planner note",
+            "stop_conditions": ["satisfied"],
+        }
     }
 
     monkeypatch.setattr(
@@ -314,18 +392,102 @@ async def test_orchestrator_invokes_planner(monkeypatch: pytest.MonkeyPatch) -> 
 
     aggregator = StubAggregator.last_instance
     assert aggregator is not None
-    assert len(aggregator.digest_requests) >= 2
-    assert aggregator.digest_requests[1][0] == ["calendar"]
+    assert any(
+        entry[0] == ["calendar"]
+        for entry in aggregator.digest_requests
+        if entry[0] is not None
+    )
     assert aggregator.ranked_requests[0] == ["calendar_lookup"]
 
     handler = StubStreamingHandler.last_instance
     assert handler is not None
     assert handler.last_plan is not None
     assert handler.last_plan.contexts_for_attempt(0) == ["calendar"]
+    assert handler.last_plan.intent == "Review schedule"
+    assert handler.last_plan.ranked_contexts == ["calendar", "tasks"]
+    assert handler.last_plan.stop_conditions == ["satisfied"]
     assert handler.last_tools_payload is not None
     assert [
         entry["function"]["name"] for entry in handler.last_tools_payload
     ] == ["calendar_lookup"]
+
+    assert StubOpenRouterClient.plan_requests
+    planner_request = StubOpenRouterClient.plan_requests[0]
+    digest_payload = planner_request["tool_digest"]
+    assert "calendar" in digest_payload
+    calendar_digest = digest_payload["calendar"]
+    assert calendar_digest == [
+        {
+            "name": "calendar_lookup",
+            "description": "Check calendar events",
+            "parameters": {"type": "object", "properties": {}},
+            "score": 0.95,
+            "server": "stub",
+        }
+    ]
+
+
+@pytest.mark.anyio("asyncio")
+async def test_orchestrator_falls_back_on_invalid_plan(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    StubAggregator.digest_entries_by_context = {"calendar": ["calendar_lookup"]}
+    StubAggregator.tool_spec_order = ["calendar_lookup", "global_tool"]
+    StubAggregator.tool_spec_map = {
+        "calendar_lookup": {
+            "type": "function",
+            "function": {
+                "name": "calendar_lookup",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+        "global_tool": {
+            "type": "function",
+            "function": {
+                "name": "global_tool",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    }
+
+    StubOpenRouterClient.plan_response = {"plan": {"stages": [["   "]]}}
+
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.ChatRepository", StubRepository
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.MCPToolAggregator", StubAggregator
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.StreamingHandler", StubStreamingHandler
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.OpenRouterClient", StubOpenRouterClient
+    )
+
+    settings = Settings(openrouter_api_key="dummy-key")
+    orchestrator = ChatOrchestrator(settings, StubModelSettings(), StubMCPSettings())
+
+    await orchestrator.initialize()
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="What's on my schedule today?")]
+    )
+
+    async for _ in orchestrator.process_stream(request):
+        pass
+
+    handler = StubStreamingHandler.last_instance
+    assert handler is not None
+    assert handler.last_plan is not None
+    assert handler.last_plan.contexts_for_attempt(0) == ["calendar"]
+    assert handler.last_plan.intent == "Review or update calendar availability"
+
+    aggregator = StubAggregator.last_instance
+    assert aggregator is not None
+    assert aggregator.ranked_requests[0] == ["calendar_lookup"]
+
+    assert StubOpenRouterClient.plan_requests
 
 
 @pytest.mark.anyio("asyncio")

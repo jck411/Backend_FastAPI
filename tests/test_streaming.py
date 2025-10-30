@@ -220,6 +220,7 @@ class DummyRepository:
     def __init__(self) -> None:
         self.messages: list[dict[str, Any]] = []
         self._counter = 0
+        self.events: list[dict[str, Any]] = []
 
     async def add_message(
         self,
@@ -244,6 +245,23 @@ class DummyRepository:
         }
         self.messages.append(record)
         return self._counter, None
+
+    async def add_event(
+        self,
+        session_id: str,
+        kind: str,
+        payload: dict[str, Any],
+        *,
+        request_id: str | None = None,
+    ) -> None:
+        self.events.append(
+            {
+                "session_id": session_id,
+                "kind": kind,
+                "payload": dict(payload),
+                "request_id": request_id,
+            }
+        )
 
 
 class DummyToolClient:
@@ -663,6 +681,134 @@ async def test_streaming_injects_tool_digest_once_per_turn() -> None:
     persisted_system = [msg for msg in repo.messages if msg["role"] == "system"]
     assert not persisted_system, "Digest messages should remain transient"
     assert events[-1]["data"] == "[DONE]"
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_blocks_tools_without_privacy_consent() -> None:
+    client = ToolCallOpenRouterClient()
+    repo = DummyRepository()
+    tool_client = ExpandingToolClient()
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    plan = ToolContextPlan(
+        stages=[["calendar"]],
+        ranked_contexts=["calendar"],
+        candidate_tools={
+            "calendar": [
+                ToolCandidate(
+                    name="context_calendar_tool",
+                    description="Check calendar availability",
+                    parameters={"type": "object", "properties": {}},
+                    server="calendar",
+                )
+            ]
+        },
+        privacy_note="Running calendar tools may read your private events.",
+    )
+    initial_tools = tool_client.get_openai_tools_for_contexts(
+        plan.contexts_for_attempt(0)
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Find my next meeting.")],
+    )
+    conversation = [{"role": "user", "content": "Find my next meeting."}]
+
+    events: list[dict[str, Any]] = []
+    async for event in handler.stream_conversation(
+        "session-privacy-required",
+        request,
+        conversation,
+        initial_tools,
+        None,
+        plan,
+    ):
+        events.append(event)
+
+    assert events[-1]["data"] == "[DONE]"
+    assert client.payloads, "Expected request payloads to be sent"
+    for payload in client.payloads:
+        assert "tools" not in payload
+
+    notice_types = [
+        json.loads(event["data"]).get("type")
+        for event in events
+        if event.get("event") == "notice"
+    ]
+    assert "privacy_consent_required" in notice_types
+    assert "privacy_consent_blocked" in notice_types
+    assert tool_client.calls == 0
+
+    consent_events = [
+        entry for entry in repo.events if entry["kind"] == "privacy_consent"
+    ]
+    statuses = {entry["payload"].get("status") for entry in consent_events}
+    assert "required" in statuses
+    assert "blocked" in statuses
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_resumes_after_privacy_consent_granted() -> None:
+    client = ToolCallOpenRouterClient()
+    repo = DummyRepository()
+    tool_client = ExpandingToolClient()
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    plan = ToolContextPlan(
+        stages=[["calendar"]],
+        ranked_contexts=["calendar"],
+        privacy_note="Running calendar tools may read your private events.",
+    )
+    initial_tools = tool_client.get_openai_tools_for_contexts(
+        plan.contexts_for_attempt(0)
+    )
+
+    request = ChatCompletionRequest(
+        messages=[
+            ChatMessage(role="user", content="Find my next meeting."),
+        ],
+        metadata={"privacy_consent": {"status": "granted"}},
+    )
+    conversation = [{"role": "user", "content": "Find my next meeting."}]
+
+    events: list[dict[str, Any]] = []
+    async for event in handler.stream_conversation(
+        "session-privacy-granted",
+        request,
+        conversation,
+        initial_tools,
+        None,
+        plan,
+    ):
+        events.append(event)
+
+    assert client.payloads, "Expected request payloads to be sent"
+    assert any(payload.get("tools") for payload in client.payloads)
+    assert tool_client.calls > 0
+
+    notice_types = [
+        json.loads(event["data"]).get("type")
+        for event in events
+        if event.get("event") == "notice"
+    ]
+    assert "privacy_consent_granted" in notice_types
+    assert "privacy_consent_blocked" not in notice_types
+
+    consent_events = [
+        entry for entry in repo.events if entry["kind"] == "privacy_consent"
+    ]
+    statuses = {entry["payload"].get("status") for entry in consent_events}
+    assert "granted" in statuses
 
 
 @pytest.mark.anyio("asyncio")

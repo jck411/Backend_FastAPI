@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -244,7 +245,38 @@ class ChatOrchestrator:
             ttl=self._settings.attachment_signed_url_ttl,
         )
         conversation = reflect_assistant_images(conversation)
-        plan = self._tool_planner.plan(request, conversation)
+        capability_digest: dict[str, list[dict[str, Any]]] = {}
+        digest_provider = getattr(self._mcp_client, "get_capability_digest", None)
+        if callable(digest_provider):
+            try:
+                capability_digest = digest_provider()
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                logger.debug("Capability digest unavailable: %s", exc)
+                capability_digest = {}
+        plan = self._tool_planner.plan(
+            request,
+            conversation,
+            capability_digest=capability_digest,
+        )
+        plan_payload = plan.to_dict()
+        request_event_id: str | None = None
+        if isinstance(request.metadata, dict):
+            candidate = request.metadata.get("client_request_id")
+            if isinstance(candidate, str):
+                request_event_id = candidate
+        repo_add_event = getattr(self._repo, "add_event", None)
+        if repo_add_event is not None:
+            try:
+                maybe_coro = repo_add_event(
+                    session_id,
+                    "tool_plan",
+                    {"plan": plan_payload},
+                    request_id=request_event_id,
+                )
+                if inspect.isawaitable(maybe_coro):
+                    await maybe_coro
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                logger.debug("Failed to persist tool plan: %s", exc)
         if plan.use_all_tools_for_attempt(0):
             tools_payload = self._mcp_client.get_openai_tools()
         else:

@@ -8,7 +8,7 @@ import json
 import logging
 import shlex
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -259,6 +259,61 @@ class _ToolBinding:
     client: MCPToolClient
     config: MCPServerConfig
     contexts: tuple[str, ...]
+    description: str | None
+    parameters: dict[str, Any] | None
+
+
+@dataclass(slots=True)
+class _ToolDigestEntry:
+    name: str
+    description: str | None
+    parameters: dict[str, Any] | None
+    server: str
+    contexts: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        self._name_lower = self.name.lower()
+        self._description_lower = (self.description or "").lower()
+        if self.parameters is None:
+            self._parameters_blob = ""
+        else:
+            try:
+                self._parameters_blob = json.dumps(
+                    self.parameters, sort_keys=True
+                ).lower()
+            except TypeError:
+                self._parameters_blob = str(self.parameters).lower()
+
+    _name_lower: str = field(init=False, repr=False)
+    _description_lower: str = field(init=False, repr=False)
+    _parameters_blob: str = field(init=False, repr=False)
+
+    def score_for_context(self, context: str) -> float:
+        if not context or context == "__all__":
+            return 1.0 + 0.05 * len(self.contexts)
+        term = context.lower()
+        score = 0.1
+        if term in self.contexts:
+            score += 4.0
+        if term in self._name_lower:
+            score += 3.0
+        if term and term in self._description_lower:
+            score += 2.0
+        if term and term in self._parameters_blob:
+            score += 1.0
+        return score
+
+    def to_summary(self, score: float) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": self.name,
+            "description": self.description,
+            "server": self.server,
+            "contexts": list(self.contexts),
+            "score": score,
+        }
+        if self.parameters is not None:
+            payload["parameters"] = copy.deepcopy(self.parameters)
+        return payload
 
 
 class MCPToolAggregator:
@@ -285,6 +340,8 @@ class MCPToolAggregator:
         self._lock = asyncio.Lock()
         self._connected = False
         self._tool_catalog: dict[str, list[str]] = {}
+        self._context_digest_index: dict[str, list[_ToolDigestEntry]] = {}
+        self._global_digest: list[_ToolDigestEntry] = []
 
     @property
     def tools(self) -> list[Any]:
@@ -406,7 +463,17 @@ class MCPToolAggregator:
                     context_values = override.contexts
                 else:
                     context_values = config.contexts
-                contexts_tuple = tuple(context_values)
+                normalized_contexts: list[str] = []
+                seen_contexts: set[str] = set()
+                for value in context_values:
+                    if not isinstance(value, str):
+                        continue
+                    normalized = value.strip().lower()
+                    if not normalized or normalized in seen_contexts:
+                        continue
+                    seen_contexts.add(normalized)
+                    normalized_contexts.append(normalized)
+                contexts_tuple = tuple(normalized_contexts)
                 drafts.append((config, client, tool, original, contexts_tuple))
                 name_counts[tool.name] += 1
 
@@ -424,6 +491,16 @@ class MCPToolAggregator:
                 )
                 continue
 
+            function_spec = original.get("function", {})
+            description_value = function_spec.get("description")
+            if not isinstance(description_value, str):
+                description_value = None
+            parameters_value = function_spec.get("parameters")
+            if isinstance(parameters_value, dict):
+                parameters_copy = copy.deepcopy(parameters_value)
+            else:
+                parameters_copy = None
+
             binding = _ToolBinding(
                 qualified_name=qualified_name,
                 original_name=tool.name,
@@ -431,6 +508,8 @@ class MCPToolAggregator:
                 client=client,
                 config=config,
                 contexts=contexts,
+                description=description_value,
+                parameters=parameters_copy,
             )
             bindings.append(binding)
             binding_map[qualified_name] = binding
@@ -451,6 +530,7 @@ class MCPToolAggregator:
         self._binding_order = bindings
         self._openai_tools = openai_tools
         self._openai_tool_map = openai_tool_map
+        self._rebuild_context_digest(bindings)
         self._tool_catalog = {
             key: value for key, value in tool_catalog.items() if key in self._config_map
         }
@@ -473,6 +553,8 @@ class MCPToolAggregator:
             self._binding_order.clear()
             self._openai_tools.clear()
             self._openai_tool_map.clear()
+            self._context_digest_index.clear()
+            self._global_digest = []
             self._connected = False
 
     def get_openai_tools(self) -> list[dict[str, Any]]:
@@ -480,13 +562,66 @@ class MCPToolAggregator:
 
         return [copy.deepcopy(spec) for spec in self._openai_tools]
 
+    def get_capability_digest(
+        self,
+        contexts: Iterable[str] | None = None,
+        *,
+        limit: int = 5,
+        include_global: bool = True,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Return ranked tool summaries grouped by context."""
+
+        if contexts is None:
+            requested = sorted(
+                key
+                for key in self._context_digest_index
+                if key and key not in {"__all__"}
+            )
+        else:
+            requested = []
+            seen: set[str] = set()
+            for context in contexts:
+                if not isinstance(context, str):
+                    continue
+                normalized = context.strip().lower()
+                if not normalized or normalized == "__all__" or normalized in seen:
+                    continue
+                seen.add(normalized)
+                requested.append(normalized)
+
+        digest: dict[str, list[dict[str, Any]]] = {}
+        for context in requested:
+            entries = self._context_digest_index.get(context)
+            if not entries:
+                continue
+            ranked = self._rank_digest_entries(context, entries, limit)
+            if ranked:
+                digest[context] = [entry.to_summary(score) for score, entry in ranked]
+
+        if include_global:
+            if self._global_digest:
+                ranked_global = self._rank_digest_entries(
+                    "__all__", self._global_digest, limit
+                )
+                digest["__all__"] = [
+                    entry.to_summary(score) for score, entry in ranked_global
+                ]
+            else:
+                digest["__all__"] = []
+
+        return digest
+
     def get_openai_tools_for_contexts(
         self, contexts: Iterable[str]
     ) -> list[dict[str, Any]]:
         """Return tool descriptors filtered by matching contexts."""
 
-        requested = {ctx for ctx in contexts if ctx}
-        if not requested:
+        requested = {
+            ctx.strip().lower()
+            for ctx in contexts
+            if isinstance(ctx, str) and ctx.strip()
+        }
+        if not requested or "__all__" in requested:
             return self.get_openai_tools()
 
         matched: list[dict[str, Any]] = []
@@ -496,6 +631,56 @@ class MCPToolAggregator:
                 if spec is not None:
                     matched.append(copy.deepcopy(spec))
         return matched
+
+    def _rank_digest_entries(
+        self,
+        context: str,
+        entries: Sequence[_ToolDigestEntry],
+        limit: int,
+    ) -> list[tuple[float, _ToolDigestEntry]]:
+        if not entries:
+            return []
+        scored: list[tuple[float, _ToolDigestEntry]] = [
+            (entry.score_for_context(context), entry) for entry in entries
+        ]
+        scored.sort(key=lambda item: (-item[0], item[1].name))
+        if limit > 0:
+            return scored[:limit]
+        return scored
+
+    def _rebuild_context_digest(self, bindings: Sequence[_ToolBinding]) -> None:
+        if not bindings:
+            self._context_digest_index = {"__all__": []}
+            self._global_digest = []
+            return
+
+        context_index: dict[str, list[_ToolDigestEntry]] = {}
+        global_entries: list[_ToolDigestEntry] = []
+
+        for binding in bindings:
+            parameters_copy = (
+                copy.deepcopy(binding.parameters)
+                if isinstance(binding.parameters, dict)
+                else None
+            )
+            entry = _ToolDigestEntry(
+                name=binding.qualified_name,
+                description=binding.description,
+                parameters=parameters_copy,
+                server=binding.config.id,
+                contexts=binding.contexts,
+            )
+            global_entries.append(entry)
+
+            if binding.contexts:
+                for context in binding.contexts:
+                    context_index.setdefault(context, []).append(entry)
+            else:
+                context_index.setdefault("__unscoped__", []).append(entry)
+
+        context_index["__all__"] = list(global_entries)
+        self._context_digest_index = context_index
+        self._global_digest = global_entries
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any] | None = None

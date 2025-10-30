@@ -320,6 +320,30 @@ class StreamingHandler:
             and not tool_context_plan.use_all_tools_for_attempt(0)
         ):
             active_contexts = tool_context_plan.contexts_for_attempt(0)
+        stop_reasons = (
+            set(tool_context_plan.stop_conditions)
+            if tool_context_plan is not None
+            else set()
+        )
+        privacy_note = (
+            tool_context_plan.privacy_note if tool_context_plan is not None else None
+        )
+        if privacy_note:
+            privacy_notice: dict[str, Any] = {
+                "type": "privacy",
+                "message": privacy_note,
+                "contexts": list(tool_context_plan.ranked_contexts),
+                "intent": tool_context_plan.intent,
+            }
+            if tool_context_plan.candidate_tools:
+                privacy_notice["candidate_tools"] = {
+                    context: [candidate.to_dict() for candidate in candidates]
+                    for context, candidates in tool_context_plan.candidate_tools.items()
+                }
+            yield {
+                "event": "notice",
+                "data": json.dumps(privacy_notice),
+            }
         tool_choice_value = request.tool_choice
         requested_tool_choice = (
             tool_choice_value if isinstance(tool_choice_value, str) else None
@@ -331,6 +355,7 @@ class StreamingHandler:
         )
 
         while True:
+            stop_triggered_reason: str | None = None
             tools_available = bool(active_tools_payload)
             tools_disabled = base_tools_disabled or not tools_available
             routing_headers: dict[str, Any] | None = None
@@ -631,6 +656,36 @@ class StreamingHandler:
                 raise
 
             tool_calls = _finalize_tool_calls(streamed_tool_calls)
+            if streamed_tool_calls:
+                fallback_calls: list[dict[str, Any]] = []
+                for index, raw_call in enumerate(streamed_tool_calls):
+                    if not isinstance(raw_call, dict):
+                        continue
+                    raw_function = raw_call.get("function")
+                    if not isinstance(raw_function, dict):
+                        continue
+                    name_value = raw_function.get("name")
+                    arguments_value = raw_function.get("arguments")
+                    if not (isinstance(name_value, str) and name_value.strip()):
+                        continue
+                    arguments_str = (
+                        arguments_value if isinstance(arguments_value, str) else ""
+                    )
+                    if arguments_str.strip():
+                        continue
+                    fallback_calls.append(
+                        {
+                            "id": raw_call.get("id")
+                            or f"call_{len(tool_calls) + index}",
+                            "type": raw_call.get("type") or "function",
+                            "function": {
+                                "name": name_value.strip(),
+                                "arguments": arguments_str,
+                            },
+                        }
+                    )
+                if fallback_calls:
+                    tool_calls.extend(fallback_calls)
             assistant_content = await content_builder.finalize(
                 session_id,
                 self._attachment_service,
@@ -931,12 +986,44 @@ class StreamingHandler:
                         "will_use_all_tools": will_use_all_tools,
                         "confirmation_required": True,
                     }
+                    if (
+                        tool_context_plan is not None
+                        and notice_reason == "missing_arguments"
+                    ):
+                        hints = tool_context_plan.argument_hints.get(tool_name or "")
+                        if hints:
+                            notice_payload["argument_hints"] = list(hints)
+                    if (
+                        stop_reasons
+                        and notice_reason in stop_reasons
+                        and stop_triggered_reason is None
+                    ):
+                        stop_triggered_reason = notice_reason
+                        expand_contexts = False
                     yield {
                         "event": "notice",
                         "data": json.dumps(notice_payload),
                     }
 
             hop_count += 1
+
+            if stop_triggered_reason is not None:
+                logger.info(
+                    "Stop condition '%s' triggered for session %s",
+                    stop_triggered_reason,
+                    session_id,
+                )
+                yield {
+                    "event": "notice",
+                    "data": json.dumps(
+                        {
+                            "type": "plan_stop",
+                            "reason": stop_triggered_reason,
+                            "message": "Tool plan stop condition reached.",
+                        }
+                    ),
+                }
+                break
 
             if (
                 tool_context_plan is not None

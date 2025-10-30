@@ -706,6 +706,7 @@ class StreamingHandler:
                 generation_id=generation_id,
                 reasoning=reasoning_segments if reasoning_segments else None,
             )
+            assistant_rationale = _extract_tool_rationale(assistant_turn.content)
             metadata: dict[str, Any] = {}
             if assistant_turn.finish_reason is not None:
                 metadata["finish_reason"] = assistant_turn.finish_reason
@@ -725,6 +726,8 @@ class StreamingHandler:
                 metadata["routing"] = routing_headers
             if assistant_client_message_id is not None:
                 metadata.setdefault("client_message_id", assistant_client_message_id)
+            if assistant_rationale is not None:
+                metadata["tool_rationale"] = assistant_rationale
 
             assistant_result = await self._repo.add_message(
                 session_id,
@@ -768,6 +771,8 @@ class StreamingHandler:
                 metadata_event_payload["created_at"] = assistant_turn.created_at
             if assistant_turn.created_at_utc is not None:
                 metadata_event_payload["created_at_utc"] = assistant_turn.created_at_utc
+            if assistant_rationale is not None:
+                metadata_event_payload["tool_rationale"] = assistant_rationale
             yield {
                 "event": "metadata",
                 "data": json.dumps(metadata_event_payload),
@@ -798,6 +803,9 @@ class StreamingHandler:
                 function = tool_call.get("function") or {}
                 tool_name = function.get("name")
                 tool_id = tool_call.get("id") or f"call_{call_index}"
+                rationale_text = assistant_rationale
+                skip_execution = False
+                missing_rationale_flag = False
 
                 if not tool_name:
                     warning_text = (
@@ -847,23 +855,65 @@ class StreamingHandler:
                     }
                     continue
 
-                yield {
-                    "event": "tool",
-                    "data": json.dumps(
-                        {
-                            "status": "started",
-                            "name": tool_name,
-                            "call_id": tool_id,
-                        }
-                    ),
-                }
+                if rationale_text:
+                    yield {
+                        "event": "notice",
+                        "data": json.dumps(
+                            {
+                                "type": "tool_rationale",
+                                "tool": tool_name,
+                                "call_id": tool_id,
+                                "message": rationale_text,
+                            }
+                        ),
+                    }
+                else:
+                    missing_rationale_flag = True
+                    skip_execution = True
+                    missing_message = (
+                        "Tool execution paused: provide a one-sentence rationale before"
+                        f" calling '{tool_name}'."
+                    )
+                    yield {
+                        "event": "notice",
+                        "data": json.dumps(
+                            {
+                                "type": "tool_rationale_missing",
+                                "tool": tool_name,
+                                "call_id": tool_id,
+                                "message": missing_message,
+                                "confirmation_required": True,
+                            }
+                        ),
+                    }
+
+                if not skip_execution:
+                    yield {
+                        "event": "tool",
+                        "data": json.dumps(
+                            {
+                                "status": "started",
+                                "name": tool_name,
+                                "call_id": tool_id,
+                                "rationale": rationale_text,
+                            }
+                        ),
+                    }
 
                 arguments_raw = function.get("arguments")
                 status = "finished"
                 result_text = ""
                 result_obj: Any | None = None
                 missing_arguments = False
-                if not arguments_raw or arguments_raw.strip() == "":
+                tool_error_flag = False
+                if skip_execution:
+                    result_text = (
+                        "Tool call blocked: missing rationale describing why the tool is"
+                        " being used and the expected outcome."
+                    )
+                    status = "error"
+                    tool_error_flag = True
+                elif not arguments_raw or arguments_raw.strip() == "":
                     result_text = (
                         f"Tool {tool_name} requires arguments but none were provided."
                     )
@@ -904,27 +954,29 @@ class StreamingHandler:
                                 result_text = self._tool_client.format_tool_result(
                                     result_obj
                                 )
-                                status = (
-                                    "error"
-                                    if getattr(result_obj, "isError", False)
-                                    else "finished"
-                                )
+                                tool_error_flag = getattr(result_obj, "isError", False)
+                                status = "error" if tool_error_flag else "finished"
                             except Exception as exc:  # pragma: no cover - MCP errors
                                 logger.exception(
                                     "Tool '%s' raised an exception", tool_name
                                 )
                                 result_text = f"Tool error: {exc}"
                                 status = "error"
+                                tool_error_flag = True
+
+                tool_metadata = {
+                    "tool_name": tool_name,
+                    "parent_client_message_id": assistant_client_message_id,
+                }
+                if rationale_text is not None:
+                    tool_metadata["tool_rationale"] = rationale_text
 
                 tool_record_id, tool_created_at = await self._repo.add_message(
                     session_id,
                     role="tool",
                     content=result_text,
                     tool_call_id=tool_id,
-                    metadata={
-                        "tool_name": tool_name,
-                        "parent_client_message_id": assistant_client_message_id,
-                    },
+                    metadata=tool_metadata,
                     parent_client_message_id=assistant_client_message_id,
                 )
 
@@ -951,17 +1003,20 @@ class StreamingHandler:
                             "message_id": tool_record_id,
                             "created_at": edt_iso or tool_created_at,
                             "created_at_utc": utc_iso or tool_created_at,
+                            "rationale": rationale_text,
                         }
                     ),
                 }
 
-                notice_reason = _classify_tool_followup(
-                    status,
-                    result_text,
-                    tool_error_flag=bool(
-                        getattr(result_obj, "isError", False)
-                    ),
-                    missing_arguments=missing_arguments,
+                notice_reason = (
+                    "missing_rationale"
+                    if missing_rationale_flag
+                    else _classify_tool_followup(
+                        status,
+                        result_text,
+                        tool_error_flag=tool_error_flag,
+                        missing_arguments=missing_arguments,
+                    )
                 )
                 if notice_reason is not None:
                     next_contexts: list[str] = []
@@ -986,6 +1041,8 @@ class StreamingHandler:
                         "will_use_all_tools": will_use_all_tools,
                         "confirmation_required": True,
                     }
+                    if rationale_text is not None:
+                        notice_payload["rationale"] = rationale_text
                     if (
                         tool_context_plan is not None
                         and notice_reason == "missing_arguments"
@@ -1131,6 +1188,54 @@ def _tool_requires_session_id(tool_name: str) -> bool:
     return tool_name == _SESSION_AWARE_TOOL_NAME or tool_name.endswith(
         _SESSION_AWARE_TOOL_SUFFIX
     )
+
+
+def _extract_tool_rationale(
+    content: str | list[dict[str, Any]] | None,
+) -> str | None:
+    """Return the first sentence of assistant text content for tool rationales."""
+
+    for segment in _iterate_rationale_segments(content):
+        sentence = _first_sentence(segment)
+        if sentence:
+            return sentence
+    return None
+
+
+def _iterate_rationale_segments(
+    content: str | list[dict[str, Any]] | None,
+) -> Iterable[str]:
+    if isinstance(content, str):
+        yield content
+        return
+
+    if not isinstance(content, list):
+        return
+
+    for fragment in content:
+        if isinstance(fragment, str):
+            yield fragment
+            continue
+        if isinstance(fragment, dict):
+            for key in ("text", "content", "value"):
+                value = fragment.get(key)
+                if isinstance(value, str) and value.strip():
+                    yield value
+                    break
+
+
+def _first_sentence(text: str | None) -> str | None:
+    if not isinstance(text, str):
+        return None
+
+    normalized = " ".join(text.strip().split())
+    if not normalized:
+        return None
+
+    match = re.search(r"(.+?[.!?])(?=\s|$)", normalized)
+    if match:
+        return match.group(1).strip()
+    return normalized
 
 
 _TEXT_FRAGMENT_TYPES = {"text", "output_text"}

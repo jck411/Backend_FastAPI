@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Iterable, Protocol, Sequence
+from typing import Any, AsyncGenerator, Iterable, Mapping, Protocol, Sequence
 from urllib.parse import unquote_to_bytes
 
 import httpx
@@ -42,6 +42,168 @@ SseEvent = dict[str, str | None]
 
 _SESSION_AWARE_TOOL_NAME = "chat_history"
 _SESSION_AWARE_TOOL_SUFFIX = "__chat_history"
+
+
+def _summarize_tool_parameters(parameters: Mapping[str, Any] | None) -> str:
+    if not isinstance(parameters, Mapping):
+        return "none"
+
+    required_raw = parameters.get("required")
+    required: set[str] = set()
+    if isinstance(required_raw, Sequence):
+        for item in required_raw:
+            if isinstance(item, str) and item.strip():
+                required.add(item.strip())
+
+    props = parameters.get("properties")
+    names: list[str] = []
+    if isinstance(props, Mapping):
+        for key in props.keys():
+            if not isinstance(key, str):
+                continue
+            normalized = key.strip()
+            if not normalized:
+                continue
+            if normalized in required:
+                names.append(f"{normalized}*")
+                required.discard(normalized)
+            else:
+                names.append(normalized)
+
+    if not names and required:
+        for item in sorted(required):
+            names.append(f"{item}*")
+
+    if not names:
+        return "none"
+
+    return ", ".join(names)
+
+
+def _build_tool_digest_message(
+    plan: ToolContextPlan | None,
+    tools_payload: Sequence[dict[str, Any]] | None,
+    active_contexts: Sequence[str] | None,
+) -> dict[str, Any] | None:
+    if plan is None or not tools_payload:
+        return None
+
+    candidate_map = plan.candidate_tools or {}
+    if not candidate_map:
+        return None
+
+    tool_names: list[str] = []
+    tool_specs: dict[str, Mapping[str, Any]] = {}
+    for spec in tools_payload:
+        if not isinstance(spec, Mapping):
+            continue
+        function = spec.get("function")
+        if not isinstance(function, Mapping):
+            continue
+        raw_name = function.get("name")
+        if not isinstance(raw_name, str):
+            continue
+        name = raw_name.strip()
+        if not name or name in tool_specs:
+            continue
+        tool_names.append(name)
+        tool_specs[name] = function
+
+    if not tool_names:
+        return None
+
+    ordered_contexts: list[str] = []
+    seen_contexts: set[str] = set()
+    if active_contexts:
+        for context in active_contexts:
+            if not isinstance(context, str):
+                continue
+            normalized = context.strip().lower()
+            if not normalized or normalized in seen_contexts:
+                continue
+            if normalized in candidate_map:
+                ordered_contexts.append(normalized)
+                seen_contexts.add(normalized)
+    if not ordered_contexts:
+        for context in plan.ranked_contexts:
+            normalized = context.strip().lower()
+            if not normalized or normalized in seen_contexts:
+                continue
+            if normalized in candidate_map:
+                ordered_contexts.append(normalized)
+                seen_contexts.add(normalized)
+    if not ordered_contexts:
+        for context in candidate_map:
+            if context not in seen_contexts:
+                ordered_contexts.append(context)
+                seen_contexts.add(context)
+
+    if not ordered_contexts:
+        return None
+
+    candidate_lookup: dict[str, dict[str, Any]] = {}
+    for context in ordered_contexts:
+        for candidate in candidate_map.get(context, []):
+            if isinstance(candidate, Mapping):
+                name = candidate.get("name")
+                description = candidate.get("description")
+                parameters = candidate.get("parameters")
+                server = candidate.get("server")
+            else:
+                name = getattr(candidate, "name", None)
+                description = getattr(candidate, "description", None)
+                parameters = getattr(candidate, "parameters", None)
+                server = getattr(candidate, "server", None)
+            if not isinstance(name, str) or not name:
+                continue
+            if name not in candidate_lookup:
+                candidate_lookup[name] = {
+                    "description": description,
+                    "parameters": parameters,
+                    "server": server,
+                    "context": context,
+                }
+
+    summaries: list[str] = []
+    for name in tool_names:
+        candidate_info = candidate_lookup.get(name, {})
+        description = candidate_info.get("description")
+        if not isinstance(description, str) or not description.strip():
+            description = None
+        else:
+            description = " ".join(description.strip().split())
+        parameters = candidate_info.get("parameters")
+        if not isinstance(parameters, Mapping):
+            spec = tool_specs.get(name)
+            parameters = spec.get("parameters") if isinstance(spec, Mapping) else None
+        description = description or (
+            tool_specs.get(name, {}).get("description")
+            if isinstance(tool_specs.get(name), Mapping)
+            else None
+        )
+        if not isinstance(description, str) or not description.strip():
+            server = candidate_info.get("server")
+            if isinstance(server, str) and server.strip():
+                description = f"Provided by {server.strip()} server"
+            else:
+                description = "No description provided"
+        params_summary = _summarize_tool_parameters(parameters)
+        summaries.append(f"- {name} — {description} (params: {params_summary})")
+
+    if not summaries:
+        return None
+
+    header_contexts: list[str] = []
+    for context in ordered_contexts:
+        if isinstance(context, str) and context:
+            header_contexts.append(context)
+    if header_contexts:
+        header = "Tool digest for contexts: " + ", ".join(header_contexts)
+    else:
+        header = "Tool digest for active tools"
+
+    message = "\n".join([header, *summaries])
+    return {"role": "system", "content": message}
 
 
 @dataclass
@@ -382,7 +544,13 @@ class StreamingHandler:
                 overrides = dict(overrides) if overrides else {}
 
             payload = request.to_openrouter_payload(active_model)
-            payload["messages"] = conversation_state
+            payload_messages = list(conversation_state)
+            digest_message = _build_tool_digest_message(
+                tool_context_plan, active_tools_payload, active_contexts
+            )
+            if digest_message is not None:
+                payload_messages.append(digest_message)
+            payload["messages"] = payload_messages
 
             if overrides:
                 provider_overrides = overrides.get("provider")

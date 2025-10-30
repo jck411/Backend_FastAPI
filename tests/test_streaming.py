@@ -11,7 +11,7 @@ from src.backend.chat.streaming import (
     _finalize_tool_calls,
     _merge_tool_calls,
 )
-from src.backend.chat.tool_context_planner import ToolContextPlan
+from src.backend.chat.tool_context_planner import ToolCandidate, ToolContextPlan
 from src.backend.openrouter import OpenRouterError
 from src.backend.schemas.chat import ChatCompletionRequest, ChatMessage
 
@@ -571,6 +571,98 @@ async def test_streaming_merges_request_provider_preferences() -> None:
     payload = client.payloads[0]
     assert payload["provider"]["sort"] == "latency"
     assert payload["provider"]["allow_fallbacks"] is False
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_injects_tool_digest_once_per_turn() -> None:
+    client = ToolCallOpenRouterClient()
+    repo = DummyRepository()
+    tool_client = ExpandingToolClient()
+    tool_client.results = ["Meeting scheduled."]
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    plan = ToolContextPlan(
+        stages=[["calendar"]],
+        broad_search=False,
+        ranked_contexts=["calendar"],
+        candidate_tools={
+            "calendar": [
+                ToolCandidate(
+                    name="context_calendar_tool",
+                    description="Check calendar availability",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"},
+                            "window": {"type": "string"},
+                        },
+                        "required": ["query"],
+                    },
+                    server="calendar",
+                )
+            ]
+        },
+    )
+    initial_tools = tool_client.get_openai_tools_for_contexts(
+        plan.contexts_for_attempt(0)
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="What's next on my agenda?")],
+    )
+    conversation = [{"role": "user", "content": "What's next on my agenda?"}]
+
+    events: list[dict[str, Any]] = []
+    async for event in handler.stream_conversation(
+        "session-digest",
+        request,
+        conversation,
+        initial_tools,
+        None,
+        plan,
+    ):
+        events.append(event)
+
+    assert client.payloads, "Expected at least one payload"
+    for payload in client.payloads:
+        tool_names = [
+            function.get("name")
+            for spec in payload.get("tools", [])
+            if isinstance(spec, dict)
+            and isinstance(function := spec.get("function"), dict)
+            and isinstance(function.get("name"), str)
+        ]
+        assert tool_names, "Expected filtered tools in payload"
+        digest_messages = [
+            message
+            for message in payload.get("messages", [])
+            if isinstance(message, dict)
+            and message.get("role") == "system"
+            and isinstance(message.get("content"), str)
+            and message["content"].startswith("Tool digest")
+        ]
+        assert len(digest_messages) == 1, "Digest should be emitted exactly once"
+        digest_text = digest_messages[0]["content"]
+        parsed_names: list[str] = []
+        for line in digest_text.splitlines():
+            if not line.startswith("- "):
+                continue
+            remainder = line[2:]
+            name = remainder.split(" — ", 1)[0].split(" (", 1)[0].strip()
+            if name:
+                parsed_names.append(name)
+        assert parsed_names == tool_names
+        assert "Check calendar availability" in digest_text
+        assert "query*" in digest_text
+
+    persisted_system = [msg for msg in repo.messages if msg["role"] == "system"]
+    assert not persisted_system, "Digest messages should remain transient"
+    assert events[-1]["data"] == "[DONE]"
 
 
 @pytest.mark.anyio("asyncio")

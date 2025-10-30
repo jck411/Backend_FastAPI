@@ -268,16 +268,22 @@ class ToolCallOpenRouterClient(DummyOpenRouterClient):
     def __init__(self) -> None:
         super().__init__()
         self.call_index = 0
+        self.last_rationale: str | None = None
 
     async def stream_chat_raw(self, payload: dict[str, Any]):
         self.payloads.append(payload)
         if self.call_index == 0:
             self.call_index += 1
+            rationale = (
+                "I'll inspect your calendar to find the details you're asking about."
+            )
+            self.last_rationale = rationale
             initial_chunk = {
                 "id": "gen-tool-1",
                 "choices": [
                     {
                         "delta": {
+                            "content": rationale,
                             "tool_calls": [
                                 {
                                     "id": "call_1",
@@ -312,11 +318,19 @@ class ToolCallOpenRouterClient(DummyOpenRouterClient):
 
 
 class MultiToolOpenRouterClient(DummyOpenRouterClient):
-    def __init__(self, tool_calls: list[dict[str, Any]], final_message: str) -> None:
+    def __init__(
+        self,
+        tool_calls: list[dict[str, Any]],
+        final_message: str,
+        *,
+        include_rationale: bool = True,
+    ) -> None:
         super().__init__()
         self.tool_calls = tool_calls
         self.final_message = final_message
         self.call_index = 0
+        self.include_rationale = include_rationale
+        self.rationales: list[str] = []
 
     async def stream_chat_raw(self, payload: dict[str, Any]):
         self.payloads.append(payload)
@@ -328,6 +342,17 @@ class MultiToolOpenRouterClient(DummyOpenRouterClient):
                 arguments_payload = json.dumps(arguments)
             else:
                 arguments_payload = str(arguments)
+            rationale_text: str | None = None
+            if self.include_rationale:
+                raw_rationale = call.get("rationale")
+                if isinstance(raw_rationale, str) and raw_rationale.strip():
+                    rationale_text = raw_rationale.strip()
+                else:
+                    tool_name = call.get("name", "calendar_lookup")
+                    rationale_text = (
+                        f"I'll run {tool_name} to gather information for your request."
+                    )
+                self.rationales.append(rationale_text)
             chunk = {
                 "id": f"gen-tool-{self.call_index}",
                 "choices": [
@@ -348,6 +373,8 @@ class MultiToolOpenRouterClient(DummyOpenRouterClient):
                     }
                 ],
             }
+            if rationale_text:
+                chunk["choices"][0]["delta"]["content"] = rationale_text
             yield {"data": json.dumps(chunk)}
             yield {"data": "[DONE]"}
             return
@@ -607,9 +634,10 @@ async def test_streaming_expands_contexts_after_no_result() -> None:
     client = ToolCallOpenRouterClient()
     tool_client = ExpandingToolClient()
     tool_client.results = ["No results found for that query."]
+    repo = DummyRepository()
     handler = StreamingHandler(
         client,  # type: ignore[arg-type]
-        DummyRepository(),  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
         tool_client,  # type: ignore[arg-type]
         default_model="openrouter/auto",
     )
@@ -645,12 +673,123 @@ async def test_streaming_expands_contexts_after_no_result() -> None:
         for event in events
         if event.get("event") == "notice"
     ]
-    assert notice_events, "Expected notice event after empty tool result"
-    notice = notice_events[0]
+    rationale_events = [
+        notice for notice in notice_events if notice.get("type") == "tool_rationale"
+    ]
+    followup_events = [
+        notice
+        for notice in notice_events
+        if notice.get("type") == "tool_followup_required"
+    ]
+    assert rationale_events, "Expected rationale notice before tool execution"
+    assert followup_events, "Expected follow-up notice after tool execution"
+    rationale_message = rationale_events[0]["message"]
+    assert rationale_message == client.last_rationale
+    notice = followup_events[0]
     assert notice["reason"] == "no_results"
     assert notice["tool"] == "calendar_lookup"
     assert notice["next_contexts"] == ["tasks"]
     assert notice["confirmation_required"] is True
+    assert notice["rationale"] == rationale_message
+
+    tool_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "tool"
+    ]
+    assert tool_events[0]["rationale"] == rationale_message
+
+    metadata_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "metadata"
+    ]
+    assert metadata_events[0]["tool_rationale"] == rationale_message
+
+    assistant_messages = [
+        message for message in repo.messages if message["role"] == "assistant"
+    ]
+    assert assistant_messages
+    assert (
+        assistant_messages[0]["metadata"]["tool_rationale"] == rationale_message
+    )
+    tool_messages = [message for message in repo.messages if message["role"] == "tool"]
+    assert tool_messages
+    assert tool_messages[0]["metadata"]["tool_rationale"] == rationale_message
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_requests_rationale_when_missing() -> None:
+    client = MultiToolOpenRouterClient(
+        [{"name": "calendar_lookup", "arguments": {"query": "habit review"}}],
+        final_message="We'll continue once there's a plan.",
+        include_rationale=False,
+    )
+    tool_client = ExpandingToolClient()
+    repo = DummyRepository()
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Help me review habits")],
+    )
+    conversation = [{"role": "user", "content": "Help me review habits"}]
+    plan = ToolContextPlan(stages=[["calendar"]], broad_search=False)
+    initial_tools = tool_client.get_openai_tools_for_contexts(
+        plan.contexts_for_attempt(0)
+    )
+
+    events: list[dict[str, Any]] = []
+    async for event in handler.stream_conversation(
+        "session-missing-rationale",
+        request,
+        conversation,
+        initial_tools,
+        None,
+        plan,
+    ):
+        events.append(event)
+
+    notice_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "notice"
+    ]
+    missing_rationale = [
+        notice
+        for notice in notice_events
+        if notice.get("type") == "tool_rationale_missing"
+    ]
+    assert missing_rationale
+    assert missing_rationale[0]["tool"] == "calendar_lookup"
+    assert missing_rationale[0]["confirmation_required"] is True
+
+    followup_events = [
+        notice
+        for notice in notice_events
+        if notice.get("type") == "tool_followup_required"
+    ]
+    assert followup_events
+    assert followup_events[0]["reason"] == "missing_rationale"
+
+    tool_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "tool"
+    ]
+    error_events = [event for event in tool_events if event.get("status") == "error"]
+    assert error_events
+    assert "missing rationale" in error_events[0]["result"].lower()
+    assert tool_client.calls == 0
+
+    tool_messages = [message for message in repo.messages if message["role"] == "tool"]
+    assert tool_messages
+    assert "tool_rationale" not in tool_messages[0]["metadata"]
+    assert events[-1]["data"] == "[DONE]"
 
 
 @pytest.mark.anyio("asyncio")
@@ -701,9 +840,10 @@ async def test_streaming_emits_notice_for_missing_arguments() -> None:
         final_message="Please share more details.",
     )
     tool_client = ExpandingToolClient()
+    repo = DummyRepository()
     handler = StreamingHandler(
         client,  # type: ignore[arg-type]
-        DummyRepository(),  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
         tool_client,  # type: ignore[arg-type]
         default_model="openrouter/auto",
     )
@@ -734,15 +874,37 @@ async def test_streaming_emits_notice_for_missing_arguments() -> None:
         if event.get("event") == "notice"
     ]
 
-    assert notice_events, "Expected notice event when tool arguments are missing"
-    notice = notice_events[0]
+    rationale_events = [
+        notice for notice in notice_events if notice.get("type") == "tool_rationale"
+    ]
+    followup_events = [
+        notice
+        for notice in notice_events
+        if notice.get("type") == "tool_followup_required"
+    ]
+
+    assert rationale_events, "Expected rationale notice before tool execution"
+    assert followup_events, "Expected follow-up notice when tool arguments are missing"
+    rationale_message = rationale_events[0]["message"]
+    notice = followup_events[0]
     assert notice["reason"] == "missing_arguments"
     assert notice["tool"] == "calendar_lookup"
     assert notice["next_contexts"] == []
     assert notice["confirmation_required"] is True
+    assert notice["rationale"] == rationale_message
     assert tool_client.calls == 0
     assert len(client.payloads) == 2
     assert events[-1]["data"] == "[DONE]"
+
+    tool_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "tool"
+    ]
+    assert tool_events[0]["rationale"] == rationale_message
+
+    tool_messages = [message for message in repo.messages if message["role"] == "tool"]
+    assert tool_messages[0]["metadata"]["tool_rationale"] == rationale_message
 
 
 @pytest.mark.anyio("asyncio")
@@ -759,9 +921,10 @@ async def test_streaming_handles_multi_stage_notices() -> None:
         "No events found in that window.",
         "No matching tasks were located.",
     ]
+    repo = DummyRepository()
     handler = StreamingHandler(
         client,  # type: ignore[arg-type]
-        DummyRepository(),  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
         tool_client,  # type: ignore[arg-type]
         default_model="openrouter/auto",
     )
@@ -795,15 +958,49 @@ async def test_streaming_handles_multi_stage_notices() -> None:
         if event.get("event") == "notice"
     ]
 
-    assert len(notice_events) == 2
-    first_notice, second_notice = notice_events
+    rationale_events = [
+        notice for notice in notice_events if notice.get("type") == "tool_rationale"
+    ]
+    followup_events = [
+        notice
+        for notice in notice_events
+        if notice.get("type") == "tool_followup_required"
+    ]
+
+    assert len(rationale_events) == 2
+    assert len(followup_events) == 2
+    first_notice, second_notice = followup_events
     assert first_notice["reason"] == "no_results"
     assert first_notice["next_contexts"] == ["tasks"]
     assert second_notice["reason"] == "no_results"
     assert second_notice["next_contexts"] == ["notes"]
+    assert first_notice["rationale"] == rationale_events[0]["message"]
+    assert second_notice["rationale"] == rationale_events[1]["message"]
     assert tool_client.context_history[0] == ["calendar"]
     assert ["calendar", "tasks"] in tool_client.context_history
     assert ["calendar", "tasks", "notes"] in tool_client.context_history
     assert tool_client.calls == 2
     assert len(client.payloads) == 3
     assert events[-1]["data"] == "[DONE]"
+
+    tool_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "tool"
+    ]
+    tool_rationale_map = {
+        event.get("call_id"): event.get("rationale")
+        for event in tool_events
+        if event.get("call_id")
+    }
+    expected_rationales = [event["message"] for event in rationale_events]
+    for index, expected in enumerate(expected_rationales, start=1):
+        assert tool_rationale_map.get(f"call_{index}") == expected
+
+    tool_messages = [message for message in repo.messages if message["role"] == "tool"]
+    stored_rationales = {
+        message["tool_call_id"]: message["metadata"].get("tool_rationale")
+        for message in tool_messages
+    }
+    for index, expected in enumerate(expected_rationales, start=1):
+        assert stored_rationales.get(f"call_{index}") == expected

@@ -27,6 +27,10 @@ from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 from .tool_context_planner import ToolContextPlanner
 
+_TOOL_RATIONALE_INSTRUCTION = (
+    "Before calling any tool, output one sentence explaining why and what you expect."
+)
+
 if TYPE_CHECKING:
     from ..services.attachments import AttachmentService
 
@@ -190,6 +194,13 @@ class ChatOrchestrator:
             message.role == "system" for message in incoming_messages
         )
         system_prompt = await self._model_settings.get_system_prompt()
+        if system_prompt:
+            if _TOOL_RATIONALE_INSTRUCTION not in system_prompt:
+                system_prompt = (
+                    f"{system_prompt.rstrip()}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
+                )
+        else:
+            system_prompt = _TOOL_RATIONALE_INSTRUCTION
 
         if (
             system_prompt

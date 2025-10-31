@@ -17,7 +17,20 @@ def compact_tool_digest(
     - Normalizing data types
     
     Args:
-        digest: Raw capability digest with tool information per context
+        digest: Raw capability digest with tool information per context.
+            Example structure:
+            {
+                "calendar": [
+                    {
+                        "name": "calendar__list",
+                        "description": "List calendar events",
+                        "parameters": {"type": "object", "properties": {...}},
+                        "server": "calendar-server",
+                        "score": 0.9
+                    }
+                ],
+                "tasks": [...]
+            }
         
     Returns:
         Compacted digest with cleaned and normalized tool data

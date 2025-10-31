@@ -103,7 +103,7 @@ class LLMContextPlanner:
         if isinstance(tool_choice, dict):
             return True
         tools = request.tools
-        if tools and any(tools):
+        if tools and len(tools) > 0:
             return True
         return False
 

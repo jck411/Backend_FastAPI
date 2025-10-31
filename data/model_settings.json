@@ -1,5 +1,6 @@
 {
   "model": "openai/gpt-4o-mini-2024-07-18",
+  "supports_tools": true,
   "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack and live in Olrlando, Fl",
-  "updated_at": "2025-10-30T09:29:22.861242+00:00"
+  "updated_at": "2025-10-31T02:59:04.920367+00:00"
 }

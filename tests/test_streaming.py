@@ -418,6 +418,57 @@ class MultiToolOpenRouterClient(DummyOpenRouterClient):
         yield {"data": "[DONE]"}
 
 
+class EmbeddedRationaleOpenRouterClient(DummyOpenRouterClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.phase = 0
+
+    async def stream_chat_raw(self, payload: dict[str, Any]):
+        self.payloads.append(payload)
+        if self.phase == 0:
+            self.phase += 1
+            chunk = {
+                "id": "gen-embedded-1",
+                "choices": [
+                    {
+                        "delta": {
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "rationale": (
+                                        "Checking today's calendar for events. "
+                                        "If there's anything interesting I'll report back."
+                                    ),
+                                    "function": {
+                                        "name": "calendar_lookup",
+                                        "arguments": json.dumps({"query": "today"}),
+                                    },
+                                }
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+            }
+            yield {"data": json.dumps(chunk)}
+            yield {"data": "[DONE]"}
+            return
+
+        self.phase += 1
+        final_chunk = {
+            "id": "gen-embedded-final",
+            "choices": [
+                {
+                    "delta": {"content": "Your calendar is all set."},
+                    "finish_reason": "stop",
+                }
+            ],
+        }
+        yield {"data": json.dumps(final_chunk)}
+        yield {"data": "[DONE]"}
+
+
 class MissingSecondRationaleClient(DummyOpenRouterClient):
     async def stream_chat_raw(self, payload: dict[str, Any]):
         self.payloads.append(payload)
@@ -1052,14 +1103,19 @@ async def test_streaming_requests_rationale_when_missing() -> None:
         for event in events
         if event.get("event") == "notice"
     ]
+    rationale_notices = [
+        notice for notice in notice_events if notice.get("type") == "tool_rationale"
+    ]
+    assert rationale_notices
+    generated_notice = rationale_notices[0]
+    assert generated_notice["tool"] == "calendar_lookup"
+    assert generated_notice["auto_generated"] is True
     missing_rationale = [
         notice
         for notice in notice_events
         if notice.get("type") == "tool_rationale_missing"
     ]
-    assert missing_rationale
-    assert missing_rationale[0]["tool"] == "calendar_lookup"
-    assert missing_rationale[0]["confirmation_required"] is True
+    assert not missing_rationale
 
     followup_events = [
         notice
@@ -1067,17 +1123,22 @@ async def test_streaming_requests_rationale_when_missing() -> None:
         if notice.get("type") == "tool_followup_required"
     ]
     assert followup_events
-    assert followup_events[0]["reason"] == "missing_rationale"
+    assert followup_events[0]["reason"] == "empty_result"
+    assert followup_events[0]["rationale_auto_generated"] is True
 
     tool_events = [
         json.loads(event["data"])
         for event in events
         if event.get("event") == "tool"
     ]
-    error_events = [event for event in tool_events if event.get("status") == "error"]
-    assert error_events
-    assert "missing rationale" in error_events[0]["result"].lower()
-    assert tool_client.calls == 0
+    finished_events = [
+        event
+        for event in tool_events
+        if event.get("status") == "finished" and event.get("name") == "calendar_lookup"
+    ]
+    assert finished_events
+    assert finished_events[0]["rationale_auto_generated"] is True
+    assert tool_client.calls == 1
 
     metadata_events = [
         json.loads(event["data"])
@@ -1086,12 +1147,14 @@ async def test_streaming_requests_rationale_when_missing() -> None:
     ]
     assert metadata_events
     missing_entries = metadata_events[0].get("tool_rationales")
-    assert missing_entries and missing_entries[0]["text"] is None
+    assert missing_entries and missing_entries[0]["auto_generated"] is True
+    assert missing_entries[0]["text"].startswith("Rationale 1:")
     assert missing_entries[0]["index"] == 1
 
     tool_messages = [message for message in repo.messages if message["role"] == "tool"]
     assert tool_messages
-    assert "tool_rationale" not in tool_messages[0]["metadata"]
+    assert tool_messages[0]["metadata"]["tool_rationale_auto_generated"] is True
+    assert tool_messages[0]["metadata"]["tool_rationale"].startswith("Rationale 1:")
     assert tool_messages[0]["metadata"]["tool_rationale_index"] == 1
     assert events[-1]["data"] == "[DONE]"
 
@@ -1159,8 +1222,11 @@ async def test_streaming_blocks_tool_when_followup_rationale_missing() -> None:
     ]
     assert rationale_notices
     assert any(notice.get("index") == 1 for notice in rationale_notices)
-    assert missing_notices
-    assert all(notice.get("index") == 2 for notice in missing_notices)
+    assert missing_notices == []
+    assert any(
+        notice.get("auto_generated") is True and notice.get("index") == 2
+        for notice in rationale_notices
+    )
 
     tool_events = [
         json.loads(event["data"])
@@ -1168,16 +1234,20 @@ async def test_streaming_blocks_tool_when_followup_rationale_missing() -> None:
         if event.get("event") == "tool"
     ]
     finished_tool = next(
-        event for event in tool_events if event.get("call_id") == "call_0" and event.get("status") == "finished"
+        event
+        for event in tool_events
+        if event.get("call_id") == "call_0" and event.get("status") == "finished"
     )
-    blocked_tool = next(
-        event for event in tool_events if event.get("call_id") == "call_1"
+    second_tool = next(
+        event
+        for event in tool_events
+        if event.get("call_id") == "call_1" and event.get("status") == "finished"
     )
     assert finished_tool["rationale_index"] == 1
-    assert blocked_tool["status"] == "error"
-    assert blocked_tool["rationale_index"] == 2
-    assert "missing rationale" in blocked_tool["result"].lower()
-    assert tool_client.calls >= 1
+    assert finished_tool["rationale_auto_generated"] is False
+    assert second_tool["rationale_index"] == 2
+    assert second_tool["rationale_auto_generated"] is True
+    assert tool_client.calls >= 2
 
     metadata_events = [
         json.loads(event["data"])
@@ -1189,8 +1259,10 @@ async def test_streaming_blocks_tool_when_followup_rationale_missing() -> None:
     assert tool_rationales and len(tool_rationales) == 2
     assert tool_rationales[0]["index"] == 1
     assert tool_rationales[0]["text"].startswith("Rationale 1:")
+    assert tool_rationales[0]["auto_generated"] is False
     assert tool_rationales[1]["index"] == 2
-    assert tool_rationales[1]["text"] is None
+    assert tool_rationales[1]["auto_generated"] is True
+    assert tool_rationales[1]["text"].startswith("Rationale 2:")
 
     assistant_messages = [
         message for message in repo.messages if message["role"] == "assistant"
@@ -1201,17 +1273,208 @@ async def test_streaming_blocks_tool_when_followup_rationale_missing() -> None:
     assert assistant_rationales[0]["index"] == 1
     assert assistant_rationales[0]["text"].startswith("Rationale 1:")
     assert assistant_rationales[1]["index"] == 2
-    assert assistant_rationales[1]["text"] is None
+    assert assistant_rationales[1]["auto_generated"] is True
+    assert assistant_rationales[1]["text"].startswith("Rationale 2:")
 
     tool_messages = [message for message in repo.messages if message["role"] == "tool"]
-    tool_message_map = {message["tool_call_id"]: message for message in tool_messages}
+    tool_message_map: dict[str, dict[str, Any]] = {}
+    for message in tool_messages:
+        call_id = message.get("tool_call_id")
+        if isinstance(call_id, str) and call_id not in tool_message_map:
+            tool_message_map[call_id] = message
     assert {"call_0", "call_1"}.issubset(tool_message_map)
     first_message = tool_message_map["call_0"]
     second_message = tool_message_map["call_1"]
     assert first_message["metadata"]["tool_rationale_index"] == 1
     assert first_message["metadata"]["tool_rationale"].startswith("Rationale 1:")
+    assert first_message["metadata"]["tool_rationale_auto_generated"] is False
     assert second_message["metadata"]["tool_rationale_index"] == 2
-    assert "tool_rationale" not in second_message["metadata"]
+    assert second_message["metadata"]["tool_rationale"].startswith("Rationale 2:")
+    assert second_message["metadata"]["tool_rationale_auto_generated"] is True
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_uses_embedded_tool_rationale() -> None:
+    client = EmbeddedRationaleOpenRouterClient()
+    tool_client = ExpandingToolClient()
+    tool_client.results = ["Calendar summary ready."]
+    repo = DummyRepository()
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="What's on my calendar?")],
+    )
+    conversation = [{"role": "user", "content": "What's on my calendar?"}]
+    plan = ToolContextPlan(stages=[["calendar"]], broad_search=False)
+    initial_tools = tool_client.get_openai_tools_for_contexts(
+        plan.contexts_for_attempt(0)
+    )
+
+    events: list[dict[str, Any]] = []
+    async for event in handler.stream_conversation(
+        "session-embedded-rationale",
+        request,
+        conversation,
+        initial_tools,
+        None,
+        plan,
+    ):
+        events.append(event)
+
+    notice_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "notice"
+    ]
+    assert not any(
+        notice.get("type") == "tool_rationale_missing" for notice in notice_events
+    )
+
+    tool_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "tool"
+    ]
+    assert tool_events, "Expected tool event"
+    first_tool = tool_events[0]
+    assert first_tool["rationale_index"] == 1
+    assert (
+        first_tool["rationale"]
+        == "Rationale 1: Checking today's calendar for events."
+    )
+
+    metadata_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "metadata"
+    ]
+    assert metadata_events, "Expected metadata event"
+    stored_rationales = metadata_events[0].get("tool_rationales")
+    assert stored_rationales and stored_rationales[0]["text"].startswith(
+        "Rationale 1:"
+    )
+
+    assistant_messages = [
+        message for message in repo.messages if message["role"] == "assistant"
+    ]
+    assert assistant_messages
+    assistant_metadata = assistant_messages[0]["metadata"] or {}
+    stored_assistant_rationales = assistant_metadata.get("tool_rationales")
+    assert stored_assistant_rationales and stored_assistant_rationales[0]["text"].startswith(
+        "Rationale 1:"
+    )
+
+    tool_messages = [
+        message for message in repo.messages if message["role"] == "tool"
+    ]
+    assert tool_messages
+    assert (
+        tool_messages[0]["metadata"]["tool_rationale"]
+        == "Rationale 1: Checking today's calendar for events."
+    )
+    assert events[-1]["data"] == "[DONE]"
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_generates_fallback_rationale_when_missing() -> None:
+    client = MultiToolOpenRouterClient(
+        [
+            {
+                "name": "list_calendars",
+                "arguments": {"user_google_email": "jack@example.com"},
+            }
+        ],
+        final_message="Calendar review complete.",
+        include_rationale=False,
+    )
+    tool_client = ExpandingToolClient()
+    tool_client.results = ["Calendar summary ready."]
+    repo = DummyRepository()
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="What's on my calendar today?")],
+    )
+    conversation = [{"role": "user", "content": "What's on my calendar today?"}]
+    plan = ToolContextPlan(stages=[["calendar"]], broad_search=False)
+    initial_tools = tool_client.get_openai_tools_for_contexts(
+        plan.contexts_for_attempt(0)
+    )
+
+    events: list[dict[str, Any]] = []
+    async for event in handler.stream_conversation(
+        "session-fallback-rationale",
+        request,
+        conversation,
+        initial_tools,
+        None,
+        plan,
+    ):
+        events.append(event)
+
+    notice_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "notice"
+    ]
+    tool_rationale_notices = [
+        notice for notice in notice_events if notice.get("type") == "tool_rationale"
+    ]
+    assert tool_rationale_notices, "Expected auto-generated rationale notice"
+    generated_notice = tool_rationale_notices[0]
+    assert generated_notice["auto_generated"] is True
+    assert generated_notice["message"].startswith("Rationale 1:")
+    assert generated_notice["tool"] == "list_calendars"
+
+    tool_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "tool"
+    ]
+    assert tool_events, "Expected tool events"
+    finished_tool = next(
+        event for event in tool_events if event.get("status") == "finished"
+    )
+    assert finished_tool["rationale"].startswith("Rationale 1:")
+    assert finished_tool["rationale_auto_generated"] is True
+    started_tool = next(
+        event for event in tool_events if event.get("status") == "started"
+    )
+    assert started_tool["rationale_auto_generated"] is True
+    assert tool_client.calls == 1
+
+    metadata_events = [
+        json.loads(event["data"])
+        for event in events
+        if event.get("event") == "metadata"
+    ]
+    assert metadata_events
+    tool_rationales = metadata_events[0]["tool_rationales"]
+    assert tool_rationales and tool_rationales[0]["auto_generated"] is True
+    assert tool_rationales[0]["text"].startswith("Rationale 1:")
+
+    assistant_messages = [
+        message for message in repo.messages if message["role"] == "assistant"
+    ]
+    assert assistant_messages
+    assistant_rationales = assistant_messages[0]["metadata"]["tool_rationales"]
+    assert assistant_rationales[0]["auto_generated"] is True
+    assert assistant_rationales[0]["text"].startswith("Rationale 1:")
+
+    tool_messages = [message for message in repo.messages if message["role"] == "tool"]
+    assert tool_messages
+    tool_metadata = tool_messages[0]["metadata"]
+    assert tool_metadata["tool_rationale_auto_generated"] is True
+    assert tool_metadata["tool_rationale"].startswith("Rationale 1:")
 
     assert events[-1]["data"] == "[DONE]"
 

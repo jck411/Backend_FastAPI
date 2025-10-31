@@ -12,30 +12,6 @@
       "tool_overrides": {}
     },
     {
-      "command": [
-        "uvx",
-        "--with",
-        "packaging",
-        "workspace-mcp",
-        "--tools",
-        "calendar",
-        "--tool-tier",
-        "complete"
-      ],
-      "contexts": [
-        "calendar",
-        "tasks"
-      ],
-      "disabled_tools": [],
-      "enabled": true,
-      "env": {
-        "WORKSPACE_MCP_BASE_URI": "http://127.0.0.1",
-        "WORKSPACE_MCP_PORT": "8765"
-      },
-      "id": "google-workspace",
-      "tool_overrides": {}
-    },
-    {
       "contexts": [],
       "disabled_tools": [],
       "enabled": true,

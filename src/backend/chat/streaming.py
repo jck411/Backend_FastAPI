@@ -1042,6 +1042,14 @@ class StreamingHandler:
                 assistant_rationales,
                 start_index=total_tool_calls + 1,
             )
+            (
+                tool_rationales,
+                auto_generated_rationales,
+            ) = _ensure_tool_rationale_texts(
+                assistant_turn.tool_calls or [],
+                tool_rationales,
+            )
+            auto_generated_call_ids = set(auto_generated_rationales.keys())
             metadata: dict[str, Any] = {}
             if assistant_turn.finish_reason is not None:
                 metadata["finish_reason"] = assistant_turn.finish_reason
@@ -1067,6 +1075,7 @@ class StreamingHandler:
                         "index": info.index,
                         "call_id": info.call_id,
                         "text": info.text,
+                        "auto_generated": info.call_id in auto_generated_call_ids,
                     }
                     for info in tool_rationales
                 ]
@@ -1119,6 +1128,7 @@ class StreamingHandler:
                         "index": info.index,
                         "call_id": info.call_id,
                         "text": info.text,
+                        "auto_generated": info.call_id in auto_generated_call_ids,
                     }
                     for info in tool_rationales
                 ]
@@ -1210,6 +1220,9 @@ class StreamingHandler:
                 rationale_text = (
                     rationale_info.text if rationale_info is not None else None
                 )
+                if tool_id in auto_generated_rationales:
+                    rationale_text = auto_generated_rationales[tool_id]
+                auto_generated_flag = tool_id in auto_generated_call_ids
                 skip_execution = False
                 missing_rationale_flag = False
 
@@ -1271,6 +1284,7 @@ class StreamingHandler:
                                 "call_id": tool_id,
                                 "message": rationale_text,
                                 "index": rationale_index,
+                                "auto_generated": auto_generated_flag,
                             }
                         ),
                     }
@@ -1305,6 +1319,7 @@ class StreamingHandler:
                                 "call_id": tool_id,
                                 "rationale": rationale_text,
                                 "rationale_index": rationale_index,
+                                "rationale_auto_generated": auto_generated_flag,
                             }
                         ),
                     }
@@ -1380,6 +1395,7 @@ class StreamingHandler:
                 }
                 if rationale_text is not None:
                     tool_metadata["tool_rationale"] = rationale_text
+                tool_metadata["tool_rationale_auto_generated"] = auto_generated_flag
                 tool_metadata["tool_rationale_index"] = rationale_index
 
                 tool_record_id, tool_created_at = await self._repo.add_message(
@@ -1416,6 +1432,7 @@ class StreamingHandler:
                             "created_at_utc": utc_iso or tool_created_at,
                             "rationale": rationale_text,
                             "rationale_index": rationale_index,
+                            "rationale_auto_generated": auto_generated_flag,
                         }
                     ),
                 }
@@ -1461,6 +1478,7 @@ class StreamingHandler:
                         "will_use_all_tools": will_use_all_tools,
                         "confirmation_required": True,
                         "rationale_index": rationale_index,
+                        "rationale_auto_generated": auto_generated_flag,
                     }
                     if rationale_text is not None:
                         notice_payload["rationale"] = rationale_text
@@ -1671,6 +1689,50 @@ def _match_rationale_index(text: str | None) -> int | None:
         return None
 
 
+def _extract_rationale_from_tool_call(call: Mapping[str, Any]) -> str | None:
+    if not isinstance(call, Mapping):
+        return None
+
+    candidates: list[Any] = []
+    direct = call.get("rationale")
+    if direct is not None:
+        candidates.append(direct)
+    function_payload = call.get("function")
+    if isinstance(function_payload, Mapping):
+        function_rationale = function_payload.get("rationale")
+        if function_rationale is not None:
+            candidates.append(function_rationale)
+
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            normalized = candidate.strip()
+            if normalized:
+                return normalized
+
+    return None
+
+
+def _normalize_call_rationale(text: str, expected_index: int) -> tuple[str | None, int]:
+    normalized = " ".join(text.strip().split())
+    if not normalized:
+        return None, expected_index
+
+    parsed_index = _match_rationale_index(normalized)
+    if parsed_index is not None:
+        _prefix, _sep, body = normalized.partition(":")
+        body_text = body.strip()
+        sentence = _first_sentence(body_text)
+        if sentence:
+            return f"Rationale {parsed_index}: {sentence}", parsed_index
+        return normalized, parsed_index
+
+    sentence = _first_sentence(normalized)
+    if not sentence:
+        sentence = normalized
+
+    return f"Rationale {expected_index}: {sentence}", expected_index
+
+
 def _pair_tool_rationales(
     tool_calls: Sequence[dict[str, Any]],
     rationales: Sequence[str],
@@ -1703,6 +1765,15 @@ def _pair_tool_rationales(
         text = indexed_rationales.pop(expected_index, None)
         actual_index = expected_index
 
+        if text is None:
+            call_rationale = _extract_rationale_from_tool_call(tool_call)
+            if call_rationale is not None:
+                normalized_text, normalized_index = _normalize_call_rationale(
+                    call_rationale, expected_index
+                )
+                text = normalized_text
+                actual_index = normalized_index
+
         if text is None and fallback_queue:
             fallback_index, fallback_text = fallback_queue.pop(0)
             text = fallback_text
@@ -1717,6 +1788,82 @@ def _pair_tool_rationales(
         paired.append(ToolRationaleInfo(index=actual_index, call_id=call_id, text=text))
 
     return paired
+
+
+def _format_tool_display_name(tool_name: str | None) -> str | None:
+    if not isinstance(tool_name, str):
+        return None
+    normalized = re.sub(r"[\s_-]+", " ", tool_name).strip()
+    if not normalized:
+        return None
+    return normalized
+
+
+def _synthesize_tool_rationale(
+    tool_call: Mapping[str, Any] | None,
+    index: int,
+) -> str | None:
+    if not isinstance(tool_call, Mapping):
+        return None
+
+    function_payload = tool_call.get("function")
+    tool_name: str | None = None
+    if isinstance(function_payload, Mapping):
+        raw_name = function_payload.get("name")
+        if isinstance(raw_name, str) and raw_name.strip():
+            tool_name = raw_name.strip()
+    if tool_name is None:
+        return None
+
+    display_name = _format_tool_display_name(tool_name) or tool_name
+    return (
+        f"Rationale {index}: Running {display_name} to gather the information"
+        " needed to answer the user's request."
+    )
+
+
+def _ensure_tool_rationale_texts(
+    tool_calls: Sequence[Mapping[str, Any]],
+    rationales: Sequence[ToolRationaleInfo],
+) -> tuple[list[ToolRationaleInfo], dict[str, str]]:
+    normalized: list[ToolRationaleInfo] = list(rationales)
+    generated: dict[str, str] = {}
+
+    for idx, info in enumerate(normalized):
+        if info.text:
+            continue
+
+        tool_call: Mapping[str, Any] | None = None
+        if idx < len(tool_calls):
+            call_candidate = tool_calls[idx]
+            if isinstance(call_candidate, Mapping):
+                tool_call = call_candidate
+
+        synthesized = _synthesize_tool_rationale(tool_call, info.index)
+        if not synthesized:
+            continue
+
+        call_id = info.call_id
+        if tool_call is not None:
+            raw_call_id = tool_call.get("id")
+            if isinstance(raw_call_id, str) and raw_call_id.strip():
+                call_id = raw_call_id.strip()
+
+        logger.info(
+            "No model-supplied rationale for tool '%s'; generated fallback.",
+            (tool_call or {}).get("function", {}).get("name"),
+        )
+        normalized[idx] = ToolRationaleInfo(
+            index=info.index,
+            call_id=call_id,
+            text=synthesized,
+        )
+        generated[call_id] = synthesized
+
+        if tool_call is not None and isinstance(tool_call, dict):
+            tool_call.setdefault("id", call_id)
+
+    return normalized, generated
 
 
 def _iterate_rationale_segments(
@@ -2405,6 +2552,7 @@ def _merge_tool_calls(
                     "id": None,
                     "type": "function",
                     "function": {"name": None, "arguments": ""},
+                    "rationale": "",
                 }
             )
 
@@ -2415,6 +2563,11 @@ def _merge_tool_calls(
         if delta_type := delta.get("type"):
             entry["type"] = delta_type
 
+        rationale_fragment = delta.get("rationale")
+        if isinstance(rationale_fragment, str) and rationale_fragment:
+            entry.setdefault("rationale", "")
+            entry["rationale"] += rationale_fragment
+
         function_delta = delta.get("function") or {}
         if function_name := function_delta.get("name"):
             entry.setdefault("function", {"name": None, "arguments": ""})
@@ -2422,6 +2575,10 @@ def _merge_tool_calls(
         if arguments_fragment := function_delta.get("arguments"):
             entry.setdefault("function", {"name": None, "arguments": ""})
             entry["function"]["arguments"] += arguments_fragment
+        if rationale_fragment := function_delta.get("rationale"):
+            if isinstance(rationale_fragment, str) and rationale_fragment:
+                entry.setdefault("rationale", "")
+                entry["rationale"] += rationale_fragment
 
 
 def _finalize_tool_calls(
@@ -2450,6 +2607,15 @@ def _finalize_tool_calls(
         entry["function"] = entry_function
         if not entry.get("id"):
             entry["id"] = f"call_{index}"
+        rationale_value = entry.get("rationale")
+        if isinstance(rationale_value, str):
+            normalized_rationale = rationale_value.strip()
+            if normalized_rationale:
+                entry["rationale"] = normalized_rationale
+            else:
+                entry.pop("rationale", None)
+        else:
+            entry.pop("rationale", None)
         finalized.append(entry)
 
     return finalized

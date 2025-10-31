@@ -6,6 +6,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from .tool_context_planner import ToolContextPlan, merge_model_tool_plan
+from .tool_utils import compact_tool_digest
 
 if TYPE_CHECKING:
     from ..openrouter import OpenRouterClient
@@ -38,7 +39,7 @@ class LLMContextPlanner:
         fallback_plan = self._create_fallback_plan(request, capability_digest)
         
         # Prepare tool digest for LLM planner
-        compact_digest = self._compact_tool_digest(capability_digest)
+        compact_digest = compact_tool_digest(capability_digest)
         
         # Try to get plan from LLM
         try:
@@ -105,53 +106,6 @@ class LLMContextPlanner:
         if tools and any(tools):
             return True
         return False
-
-    def _compact_tool_digest(
-        self,
-        digest: Mapping[str, Sequence[Mapping[str, Any]]] | None,
-    ) -> dict[str, list[dict[str, Any]]]:
-        """Create a compact version of the capability digest for the LLM."""
-        if not digest:
-            return {}
-        
-        compact: dict[str, list[dict[str, Any]]] = {}
-        for context, entries in digest.items():
-            if not isinstance(entries, (list, tuple)):
-                continue
-            
-            filtered: list[dict[str, Any]] = []
-            for entry in entries:
-                if not isinstance(entry, dict):
-                    continue
-                    
-                name = entry.get("name")
-                if not isinstance(name, str) or not name.strip():
-                    continue
-                
-                compact_entry: dict[str, Any] = {"name": name.strip()}
-                
-                description = entry.get("description")
-                if isinstance(description, str) and description.strip():
-                    compact_entry["description"] = description.strip()
-                
-                parameters = entry.get("parameters")
-                if isinstance(parameters, dict) and parameters:
-                    compact_entry["parameters"] = parameters
-                
-                server = entry.get("server")
-                if isinstance(server, str) and server.strip():
-                    compact_entry["server"] = server.strip()
-                
-                score = entry.get("score")
-                if isinstance(score, (int, float)):
-                    compact_entry["score"] = float(score)
-                
-                filtered.append(compact_entry)
-            
-            if filtered:
-                compact[context] = filtered
-        
-        return compact
 
 
 __all__ = ["LLMContextPlanner"]

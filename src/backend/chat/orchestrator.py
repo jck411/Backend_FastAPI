@@ -27,6 +27,7 @@ from .llm_planner import LLMContextPlanner
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 from .tool_context_planner import merge_model_tool_plan, ToolContextPlanner
+from .tool_utils import compact_tool_digest
 
 _TOOL_RATIONALE_INSTRUCTION = (
     "Before each tool call, emit numbered one-sentence rationales in order (e.g.,"
@@ -42,42 +43,6 @@ logger = logging.getLogger(__name__)
 
 
 _MAX_RANKED_TOOLS = 5
-
-
-def _compact_tool_digest(
-    digest: dict[str, list[dict[str, Any]]] | None,
-) -> dict[str, list[dict[str, Any]]]:
-    if not digest:
-        return {}
-
-    compact: dict[str, list[dict[str, Any]]] = {}
-    for context, entries in digest.items():
-        if not isinstance(entries, list):
-            continue
-        filtered: list[dict[str, Any]] = []
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
-            name = entry.get("name")
-            if not isinstance(name, str) or not name.strip():
-                continue
-            compact_entry: dict[str, Any] = {"name": name.strip()}
-            description = entry.get("description")
-            if isinstance(description, str) and description.strip():
-                compact_entry["description"] = description.strip()
-            parameters = entry.get("parameters")
-            if isinstance(parameters, dict) and parameters:
-                compact_entry["parameters"] = parameters
-            server = entry.get("server")
-            if isinstance(server, str) and server.strip():
-                compact_entry["server"] = server.strip()
-            score = entry.get("score")
-            if isinstance(score, (int, float)):
-                compact_entry["score"] = float(score)
-            filtered.append(compact_entry)
-        if filtered:
-            compact[context] = filtered
-    return compact
 
 
 def _iter_attachment_ids(content: Any) -> Iterable[str]:
@@ -381,39 +346,11 @@ class ChatOrchestrator:
             )
         else:
             # Legacy keyword-based planning with LLM enhancement
-            plan = self._tool_planner.plan(
+            plan = await self._plan_with_legacy_planner(
                 request,
                 conversation,
-                capability_digest=capability_digest,
+                capability_digest,
             )
-            contexts = plan.contexts_for_attempt(0)
-            ranked_digest: dict[str, list[dict[str, Any]]] | None = None
-            digest_for_contexts = getattr(self._mcp_client, "get_capability_digest", None)
-            if contexts and callable(digest_for_contexts):
-                try:
-                    ranked_digest = digest_for_contexts(
-                        contexts, limit=_MAX_RANKED_TOOLS, include_global=False
-                    )
-                except Exception as exc:  # pragma: no cover - defensive fallback
-                    logger.debug(
-                        "Failed to obtain ranked capability digest for contexts %s: %s",
-                        contexts,
-                        exc,
-                    )
-                    ranked_digest = {}
-            plan_request_digest = _compact_tool_digest(ranked_digest)
-            if contexts or plan.broad_search:
-                try:
-                    planner_response = await self._client.request_tool_plan(
-                        request=request,
-                        conversation=conversation,
-                        tool_digest=plan_request_digest,
-                    )
-                except Exception as exc:  # pragma: no cover - remote planner is best effort
-                    logger.debug("Remote tool planning failed: %s", exc)
-                else:
-                    merged_plan = merge_model_tool_plan(plan, planner_response)
-                    plan = merged_plan
         
         # Get contexts and ranked tools from the plan
         contexts = plan.contexts_for_attempt(0)
@@ -554,6 +491,55 @@ class ChatOrchestrator:
         """Trigger a manual refresh of tool catalogs."""
 
         await self._mcp_client.refresh()
+
+    async def _plan_with_legacy_planner(
+        self,
+        request: ChatCompletionRequest,
+        conversation: Sequence[dict[str, Any]],
+        capability_digest: dict[str, list[dict[str, Any]]],
+    ) -> ToolContextPlan:
+        """
+        Use legacy keyword-based planner with LLM enhancement.
+        
+        This method is kept for backward compatibility when use_llm_planner=False.
+        """
+        plan = self._tool_planner.plan(
+            request,
+            conversation,
+            capability_digest=capability_digest,
+        )
+        contexts = plan.contexts_for_attempt(0)
+        ranked_digest: dict[str, list[dict[str, Any]]] | None = None
+        digest_for_contexts = getattr(self._mcp_client, "get_capability_digest", None)
+        
+        if contexts and callable(digest_for_contexts):
+            try:
+                ranked_digest = digest_for_contexts(
+                    contexts, limit=_MAX_RANKED_TOOLS, include_global=False
+                )
+            except Exception as exc:  # pragma: no cover - defensive fallback
+                logger.debug(
+                    "Failed to obtain ranked capability digest for contexts %s: %s",
+                    contexts,
+                    exc,
+                )
+                ranked_digest = {}
+        
+        plan_request_digest = compact_tool_digest(ranked_digest)
+        if contexts or plan.broad_search:
+            try:
+                planner_response = await self._client.request_tool_plan(
+                    request=request,
+                    conversation=conversation,
+                    tool_digest=plan_request_digest,
+                )
+            except Exception as exc:  # pragma: no cover - remote planner is best effort
+                logger.debug("Remote tool planning failed: %s", exc)
+            else:
+                merged_plan = merge_model_tool_plan(plan, planner_response)
+                plan = merged_plan
+        
+        return plan
 
 
 __all__ = ["ChatOrchestrator"]

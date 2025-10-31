@@ -188,6 +188,19 @@ class Settings(BaseSettings):
             "DEEPGRAM_DEV_APIKEY_FALLBACK",
         ),
     )
+    
+    # LLM Context Planning
+    use_llm_planner: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "USE_LLM_PLANNER",
+            "use_llm_planner",
+        ),
+        description=(
+            "When True, use LLM-based context planning as the primary mechanism. "
+            "When False, fall back to keyword-based planning."
+        ),
+    )
 
 
 @lru_cache(maxsize=1)

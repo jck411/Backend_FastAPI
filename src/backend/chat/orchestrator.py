@@ -23,6 +23,7 @@ from ..services.conversation_logging import ConversationLogWriter
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
 from .image_reflection import reflect_assistant_images
+from .llm_planner import LLMContextPlanner
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 from .tool_context_planner import merge_model_tool_plan, ToolContextPlanner
@@ -188,6 +189,7 @@ class ChatOrchestrator:
         self._init_lock = asyncio.Lock()
         self._ready = asyncio.Event()
         self._tool_planner = ToolContextPlanner()
+        self._llm_planner = LLMContextPlanner(self._client)
 
     async def initialize(self) -> None:
         """Initialize database and MCP client once."""
@@ -368,15 +370,57 @@ class ChatOrchestrator:
             except Exception as exc:  # pragma: no cover - defensive fallback
                 logger.debug("Capability digest unavailable: %s", exc)
                 capability_digest = {}
-        plan = self._tool_planner.plan(
-            request,
-            conversation,
-            capability_digest=capability_digest,
-        )
+        
+        # Choose planning strategy based on configuration
+        if self._settings.use_llm_planner:
+            # LLM-first planning: simpler and more direct
+            plan = await self._llm_planner.plan(
+                request,
+                conversation,
+                capability_digest=capability_digest,
+            )
+        else:
+            # Legacy keyword-based planning with LLM enhancement
+            plan = self._tool_planner.plan(
+                request,
+                conversation,
+                capability_digest=capability_digest,
+            )
+            contexts = plan.contexts_for_attempt(0)
+            ranked_digest: dict[str, list[dict[str, Any]]] | None = None
+            digest_for_contexts = getattr(self._mcp_client, "get_capability_digest", None)
+            if contexts and callable(digest_for_contexts):
+                try:
+                    ranked_digest = digest_for_contexts(
+                        contexts, limit=_MAX_RANKED_TOOLS, include_global=False
+                    )
+                except Exception as exc:  # pragma: no cover - defensive fallback
+                    logger.debug(
+                        "Failed to obtain ranked capability digest for contexts %s: %s",
+                        contexts,
+                        exc,
+                    )
+                    ranked_digest = {}
+            plan_request_digest = _compact_tool_digest(ranked_digest)
+            if contexts or plan.broad_search:
+                try:
+                    planner_response = await self._client.request_tool_plan(
+                        request=request,
+                        conversation=conversation,
+                        tool_digest=plan_request_digest,
+                    )
+                except Exception as exc:  # pragma: no cover - remote planner is best effort
+                    logger.debug("Remote tool planning failed: %s", exc)
+                else:
+                    merged_plan = merge_model_tool_plan(plan, planner_response)
+                    plan = merged_plan
+        
+        # Get contexts and ranked tools from the plan
         contexts = plan.contexts_for_attempt(0)
         ranked_tool_names: list[str] = []
         ranked_digest: dict[str, list[dict[str, Any]]] | None = None
         digest_for_contexts = getattr(self._mcp_client, "get_capability_digest", None)
+        
         if contexts and callable(digest_for_contexts):
             try:
                 ranked_digest = digest_for_contexts(
@@ -389,34 +433,8 @@ class ChatOrchestrator:
                     exc,
                 )
                 ranked_digest = {}
-        plan_request_digest = _compact_tool_digest(ranked_digest)
-        if contexts or plan.broad_search:
-            try:
-                planner_response = await self._client.request_tool_plan(
-                    request=request,
-                    conversation=conversation,
-                    tool_digest=plan_request_digest,
-                )
-            except Exception as exc:  # pragma: no cover - remote planner is best effort
-                logger.debug("Remote tool planning failed: %s", exc)
-            else:
-                merged_plan = merge_model_tool_plan(plan, planner_response)
-                plan = merged_plan
-                contexts = plan.contexts_for_attempt(0)
-                if contexts and callable(digest_for_contexts):
-                    try:
-                        ranked_digest = digest_for_contexts(
-                            contexts, limit=_MAX_RANKED_TOOLS, include_global=False
-                        )
-                    except Exception as exc:  # pragma: no cover - defensive fallback
-                        logger.debug(
-                            "Failed to obtain ranked capability digest for contexts %s: %s",
-                            contexts,
-                            exc,
-                        )
-                        ranked_digest = {}
-                else:
-                    ranked_digest = {}
+        else:
+            ranked_digest = {}
 
         if plan.candidate_tools:
             seen_names: set[str] = set()

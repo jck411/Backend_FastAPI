@@ -7,6 +7,8 @@ over Server-Sent Events (SSE) so any client can render tokens as they arrive.
 ## Highlights
 
 - **OpenRouter-first streaming** with HTTP keep-alive so replies start quickly.
+- **LLM-based context planning** that intelligently selects tools using an AI planner,
+  simplifying code by eliminating keyword-based mapping rules.
 - **Persisted chat history** with attachment support and retention controls.
 - **MCP tool aggregation** for Google Calendar, Gmail, Drive, PDF extraction, and
   custom local utilities.
@@ -116,6 +118,24 @@ npm run dev
 
 Set `VITE_API_BASE_URL` in `frontend/.env` if you need to target a remote
 backend.
+
+## Configuration
+
+### LLM Context Planning
+
+The backend uses LLM-based context planning by default, which intelligently selects
+tools based on conversation context. You can control this with:
+
+```bash
+# Enable LLM-first planning (default)
+USE_LLM_PLANNER=true
+
+# Disable and use legacy keyword-based planning
+USE_LLM_PLANNER=false
+```
+
+See [`docs/LLM_PLANNER.md`](docs/LLM_PLANNER.md) for detailed information about the
+LLM-based planning system.
 
 ## Documentation
 

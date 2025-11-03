@@ -585,6 +585,11 @@ async def get_events(
         service = get_calendar_service(user_email)
 
         time_min_rfc = _parse_time_string(time_min)
+        if not time_min_rfc:
+            now_utc = datetime.datetime.now(datetime.timezone.utc).replace(
+                microsecond=0
+            )
+            time_min_rfc = normalize_rfc3339(now_utc)
         time_max_rfc = _parse_time_string(time_max) if time_max else None
 
         # Parse time bounds to datetimes for precise local filtering when

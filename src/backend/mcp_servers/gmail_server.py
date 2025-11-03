@@ -815,8 +815,7 @@ async def read_gmail_attachment_text(
         header = (
             f"Attachment text extracted!\n"
             f"Filename: {filename}\n"
-            f"MIME: {mime_type}\n"
-            f"Saved To: {abs_path}\n\n"
+            f"MIME: {mime_type}\n\n"
         )
         return header + text
 
@@ -848,8 +847,7 @@ async def read_gmail_attachment_text(
                 header = (
                     f"Attachment text extracted (OCR)!\n"
                     f"Filename: {filename}\n"
-                    f"MIME: {mime_type}\n"
-                    f"Saved To: {abs_path}\n\n"
+                    f"MIME: {mime_type}\n\n"
                 )
                 return header + ocr_text
         except Exception:

@@ -1,7 +1,8 @@
 """Tests for the calendar MCP server."""
 
 import datetime
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -32,6 +33,8 @@ from backend.mcp_servers.calendar_server import (
 from backend.mcp_servers.calendar_server import (
     update_task as calendar_update_task,
 )
+
+from backend.tasks.utils import parse_rfc3339_datetime
 
 
 def test_parse_time_string_none():
@@ -118,6 +121,54 @@ async def test_get_events_success(mock_get_calendar_service, mock_get_tasks_serv
     assert "Test Event" in result
     assert "[Calendar: Your Primary Calendar]" in result
     assert mock_service.events().list.call_count == len(DEFAULT_READ_CALENDAR_IDS)
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.calendar_server.TaskService")
+@patch("backend.mcp_servers.calendar_server.get_calendar_service")
+async def test_get_events_defaults_time_min(
+    mock_get_calendar_service, mock_task_service
+):
+    """Default schedules should start at the current moment."""
+
+    before_call = datetime.datetime.now(datetime.timezone.utc)
+
+    mock_service = MagicMock()
+    mock_get_calendar_service.return_value = mock_service
+
+    list_request = MagicMock()
+    list_request.execute.return_value = {
+        "items": [
+            {
+                "id": "future-event",
+                "summary": "Future Planning",
+                "start": {"dateTime": "2100-01-01T09:00:00Z"},
+                "end": {"dateTime": "2100-01-01T10:00:00Z"},
+                "htmlLink": "https://calendar.google.com/event?eid=future",
+            }
+        ]
+    }
+    mock_service.events().list.return_value = list_request
+
+    task_collection = SimpleNamespace(tasks=[], remaining=0, warnings=[])
+    mock_task_service.return_value.collect_scheduled_tasks = AsyncMock(
+        return_value=task_collection
+    )
+
+    result = await get_events()
+
+    after_call = datetime.datetime.now(datetime.timezone.utc)
+
+    assert f"Schedule for {DEFAULT_USER_EMAIL}" in result
+    assert "Future Planning" in result
+    assert mock_service.events().list.call_count == len(DEFAULT_READ_CALENDAR_IDS)
+
+    for call_args in mock_service.events().list.call_args_list:
+        time_min_value = call_args.kwargs.get("timeMin")
+        assert time_min_value is not None
+        parsed = parse_rfc3339_datetime(time_min_value)
+        assert parsed is not None
+        assert before_call - datetime.timedelta(seconds=5) <= parsed <= after_call + datetime.timedelta(seconds=5)
 
 
 @pytest.mark.asyncio

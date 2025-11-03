@@ -14,6 +14,7 @@ from ..schemas.model_settings import (
     SystemPromptResponse,
 )
 from ..services.model_settings import ModelSettingsService
+from .chat import _get_models_payload, _model_supports_tools
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 

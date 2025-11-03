@@ -815,8 +815,8 @@ class MCPToolAggregator:
             return True
 
         comparable_fields = ("module", "command", "cwd", "env")
-        for field in comparable_fields:
-            if getattr(old_cfg, field) != getattr(new_cfg, field):
+        for attr in comparable_fields:
+            if getattr(old_cfg, attr) != getattr(new_cfg, attr):
                 return True
         return False
 

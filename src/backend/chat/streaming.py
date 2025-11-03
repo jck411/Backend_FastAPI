@@ -578,6 +578,9 @@ class StreamingHandler:
                 )
 
         if privacy_note:
+            assert tool_context_plan is not None
+            plan_contexts = list(tool_context_plan.ranked_contexts)
+            plan_intent = tool_context_plan.intent
             if privacy_consent_status == "granted":
                 await record_privacy_event(
                     "granted",
@@ -586,8 +589,8 @@ class StreamingHandler:
                 consent_notice: dict[str, Any] = {
                     "type": "privacy_consent_granted",
                     "message": privacy_note,
-                    "contexts": list(tool_context_plan.ranked_contexts),
-                    "intent": tool_context_plan.intent,
+                    "contexts": plan_contexts,
+                    "intent": plan_intent,
                     "status": "granted",
                 }
                 if privacy_consent_details:
@@ -604,8 +607,8 @@ class StreamingHandler:
                 denial_notice: dict[str, Any] = {
                     "type": "privacy_consent_denied",
                     "message": privacy_note,
-                    "contexts": list(tool_context_plan.ranked_contexts),
-                    "intent": tool_context_plan.intent,
+                    "contexts": plan_contexts,
+                    "intent": plan_intent,
                     "status": "denied",
                 }
                 if privacy_consent_details:
@@ -627,13 +630,14 @@ class StreamingHandler:
                 privacy_notice: dict[str, Any] = {
                     "type": "privacy_consent_required",
                     "message": privacy_note,
-                    "contexts": list(tool_context_plan.ranked_contexts),
-                    "intent": tool_context_plan.intent,
+                    "contexts": plan_contexts,
+                    "intent": plan_intent,
                 }
-                if tool_context_plan.candidate_tools:
+                candidate_tools = tool_context_plan.candidate_tools
+                if candidate_tools:
                     privacy_notice["candidate_tools"] = {
                         context: [candidate.to_dict() for candidate in candidates]
-                        for context, candidates in tool_context_plan.candidate_tools.items()
+                        for context, candidates in candidate_tools.items()
                     }
                 yield {
                     "event": "notice",

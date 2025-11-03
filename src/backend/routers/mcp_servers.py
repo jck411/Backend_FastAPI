@@ -11,6 +11,7 @@ from ..schemas.mcp_servers import (
     MCPServerCollectionPayload,
     MCPServerStatus,
     MCPServerStatusResponse,
+    MCPServerToolDefinition,
     MCPServerToolStatus,
     MCPServerUpdatePayload,
 )
@@ -63,7 +64,7 @@ async def _build_status_response(
             tools=tools,
             contexts=list(config.contexts),
             tool_overrides={
-                name: override.model_dump(exclude_none=True)
+                name: MCPServerToolDefinition(contexts=override.contexts)
                 for name, override in config.tool_overrides.items()
             },
         )

@@ -8,7 +8,7 @@ import logging
 import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Sequence, AsyncContextManager, cast
 
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -88,8 +88,9 @@ class MCPToolClient:
                 log_target = f"module '{self._server_module}'"
 
             logger.info("Starting MCP server %s (id=%s)", log_target, self._server_id)
+            stdio_manager = cast(AsyncContextManager[Any], stdio_client(params))
             read_stream, write_stream = await exit_stack.enter_async_context(
-                stdio_client(params)
+                stdio_manager
             )
 
             session = ClientSession(read_stream, write_stream)

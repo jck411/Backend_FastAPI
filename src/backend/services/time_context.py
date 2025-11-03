@@ -114,27 +114,42 @@ def build_context_lines(
     include_week: bool = True,
     upcoming_anchors: Sequence[tuple[str, _dt.timedelta]] = (
         ("Tomorrow", _dt.timedelta(days=1)),
+        ("Day after tomorrow", _dt.timedelta(days=2)),
         ("In 3 days", _dt.timedelta(days=3)),
-        ("Next week", _dt.timedelta(weeks=1)),
+        ("This weekend", _dt.timedelta(days=5)),
+        ("Next week (7 days)", _dt.timedelta(weeks=1)),
+        ("In 2 weeks", _dt.timedelta(weeks=2)),
     ),
 ) -> Iterable[str]:
     """Yield human-readable context lines for ``snapshot``."""
 
     today_local = snapshot.date
+    yesterday = today_local - _dt.timedelta(days=1)
 
-    yield f"Current date: {today_local.isoformat()} ({snapshot.now_local.strftime('%A')})"
+    yield "=" * 60
+    yield "CURRENT DATE AND TIME CONTEXT"
+    yield "=" * 60
+    yield ""
+    yield f"Today: {today_local.isoformat()} ({snapshot.now_local.strftime('%A')})"
+    yield f"Yesterday: {yesterday.isoformat()} ({yesterday.strftime('%A')})"
     yield f"Current time: {snapshot.format_time()}"
     yield f"Timezone: {snapshot.timezone_display()}"
     yield f"ISO timestamp (local): {snapshot.iso_local}"
     yield f"ISO timestamp (UTC): {snapshot.iso_utc}"
+    yield ""
 
     if include_week:
         start_of_week = today_local - _dt.timedelta(days=today_local.weekday())
         end_of_week = start_of_week + _dt.timedelta(days=6)
-        yield f"Week range: {start_of_week.isoformat()} → {end_of_week.isoformat()}"
+        yield f"Current week: {start_of_week.isoformat()} → {end_of_week.isoformat()}"
+        yield f"  (Monday to Sunday)"
+        yield ""
 
     if upcoming_anchors:
-        yield "Upcoming anchors:"
+        yield "Upcoming date anchors (for calendar queries):"
         for label, delta in upcoming_anchors:
             anchor = today_local + delta
-            yield f"- {label}: {anchor.isoformat()} ({anchor.strftime('%A')})"
+            yield f"  • {label}: {anchor.isoformat()} ({anchor.strftime('%A')})"
+        yield ""
+    
+    yield "=" * 60

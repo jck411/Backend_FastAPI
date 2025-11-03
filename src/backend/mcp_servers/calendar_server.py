@@ -180,8 +180,12 @@ def _require_recent_context() -> Optional[str]:
         return None
 
     return (
-        "Confirm the current date and time using calendar_current_context "
-        "before requesting date-based calendar operations."
+        "⚠️  REQUIRED: Call calendar_current_context first to get the current date and time.\n\n"
+        "Why? Without knowing what day it is RIGHT NOW, any calendar operation using "
+        "relative dates (today, tomorrow, next week) will use stale information and "
+        "produce incorrect results.\n\n"
+        "Action: Call calendar_current_context() now, then retry this operation with "
+        "the accurate date information it provides."
     )
 
 
@@ -630,15 +634,41 @@ async def generate_auth_url(
 
 @mcp.tool("calendar_current_context")
 async def calendar_current_context(timezone: Optional[str] = None) -> str:
-    """Report the up-to-date calendar context and record that it was checked."""
+    """Get the current date and time context for calendar operations.
+    
+    IMPORTANT: Always call this tool FIRST before any calendar operations that involve
+    dates or times. This ensures you have accurate information about:
+    - What day it is today
+    - What day of the week it is
+    - What dates correspond to "tomorrow", "next week", etc.
+    
+    Without this context, you may use outdated date information, leading to incorrect
+    calendar queries or event creation. Call this tool:
+    - At the start of any conversation involving calendar or dates
+    - Before searching for events with relative dates (today, tomorrow, next week)
+    - Before creating or updating events
+    - When the user asks "what's on my schedule" or similar time-based queries
+    
+    The context remains valid for 5 minutes, after which you should refresh it.
+    """
 
     snapshot = create_time_snapshot(timezone)
     _mark_context_checked(snapshot.now_utc)
 
     lines = list(build_context_lines(snapshot))
+    lines.append("")
+    lines.append("✓ Context refreshed and valid for the next 5 minutes.")
+    lines.append("")
     lines.append(
-        "Use these values when preparing time ranges, and re-run this tool if "
-        "your reasoning depends on the current date."
+        "IMPORTANT: Use the exact ISO dates shown above (YYYY-MM-DD format) when "
+        "constructing calendar queries. For example:"
+    )
+    lines.append(f"- To find today's events: use time_min='{snapshot.date.isoformat()}'")
+    lines.append(
+        f"- To find tomorrow's events: use time_min='{(snapshot.date + datetime.timedelta(days=1)).isoformat()}'"
+    )
+    lines.append(
+        "- For date ranges, use the 'Upcoming anchors' shown above as reference points."
     )
 
     return "\n".join(lines)
@@ -655,25 +685,29 @@ async def get_events(
     detailed: bool = False,
 ) -> str:
     """
-    Retrieve events across the user's Google calendars.
+    Retrieve events from Google Calendar.
 
-    Always call ``calendar_current_context`` first so the LLM has an accurate
-    notion of "today". With no ``calendar_id`` (or when using phrases such as
-    "my schedule") the search spans the preconfigured household calendars.
-    Provide a specific ID or friendly name (for example "Family Calendar" or
-    "Dad Work Schedule") to narrow the query to a single calendar.
+    ⚠️  PREREQUISITE: You MUST call calendar_current_context() first, before using
+    this tool. This ensures you have accurate date information for keywords like
+    "today", "tomorrow", etc.
+
+    This tool searches across the user's calendars (or a specific calendar if specified).
+    With no calendar_id (or when using phrases like "my schedule") the search spans
+    all preconfigured household calendars. Provide a specific ID or friendly name
+    (e.g., "Family Calendar", "Dad Work Schedule") to narrow the query.
 
     Args:
         user_email: The user's email address (defaults to Jack's primary account).
         calendar_id: Optional calendar ID or friendly name.
-        time_min: Start time (ISO format or keywords like "today").
+        time_min: Start time (ISO format YYYY-MM-DD or keywords like "today").
+                  Use exact dates from calendar_current_context output.
         time_max: End time (optional, ISO format or keywords).
         max_results: Maximum number of events to return after aggregation.
-        query: Optional search query.
-        detailed: Whether to include full details in results.
+        query: Optional search query for event titles/descriptions.
+        detailed: Whether to include full event details in results.
 
     Returns:
-        Formatted string with event details.
+        Formatted string with event details, or an error if context is stale.
     """
 
     try:
@@ -927,12 +961,17 @@ async def create_event(
     """
     Create a new calendar event.
 
+    💡 BEST PRACTICE: Call calendar_current_context() first to get accurate dates
+    when using relative terms like "today" or "tomorrow".
+
     Args:
         user_email: The user's email address
         summary: Event title/summary
-        start_time: Start time (RFC3339 format or YYYY-MM-DD for all-day)
-        end_time: End time (RFC3339 format or YYYY-MM-DD for all-day)
-        calendar_id: Calendar ID (default: 'primary')
+        start_time: Start time - use ISO format (YYYY-MM-DD for all-day events,
+                    YYYY-MM-DDTHH:MM:SS for timed events). Get exact dates from
+                    calendar_current_context when using relative dates.
+        end_time: End time (same format as start_time)
+        calendar_id: Calendar ID or friendly name (default: 'primary')
         description: Optional event description
         location: Optional event location
         attendees: Optional list of attendee email addresses
@@ -1797,12 +1836,16 @@ async def create_task(
     """
     Create a new Google Task.
 
+    ⚠️  PREREQUISITE: If setting a due date, call calendar_current_context() first
+    to ensure accurate date interpretation (e.g., what "today" or "tomorrow" means).
+
     Args:
         user_email: The user's email address.
         task_list_id: Task list identifier (default: '@default').
         title: Title for the new task.
         notes: Optional detailed notes.
-        due: Optional due date/time (keywords supported).
+        due: Optional due date/time. Use ISO format (YYYY-MM-DD) or keywords
+             (today, tomorrow). Get exact dates from calendar_current_context.
         parent: Optional parent task ID for subtasks.
         previous: Optional sibling task ID for positioning.
 

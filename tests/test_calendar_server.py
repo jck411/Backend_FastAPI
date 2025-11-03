@@ -248,7 +248,8 @@ async def test_get_events_requires_context_gate():
 
     result = await get_events(user_email="test@example.com")
 
-    assert "Confirm the current date and time" in result
+    assert "Call calendar_current_context first" in result
+    assert "REQUIRED" in result
 
 
 @pytest.mark.asyncio

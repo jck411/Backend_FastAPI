@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 from dataclasses import dataclass
 from typing import Any, ClassVar, Iterable, Mapping
@@ -11,6 +12,7 @@ import pytest
 from src.backend.chat.orchestrator import (
     ChatOrchestrator,
     _TOOL_RATIONALE_INSTRUCTION,
+    _build_enhanced_system_prompt,
 )
 from src.backend.config import Settings
 from src.backend.schemas.chat import ChatCompletionRequest, ChatMessage
@@ -28,6 +30,63 @@ def reset_stubs() -> None:
     StubOpenRouterClient.plan_error = None
     StubStreamingHandler.last_instance = None
     StubAggregator.last_instance = None
+
+
+def _make_snapshot_stub() -> Any:
+    tz = dt.timezone(dt.timedelta(hours=-5), name="EST")
+    now_local = dt.datetime(2024, 1, 2, 14, 30, tzinfo=tz)
+    now_utc = dt.datetime(2024, 1, 2, 19, 30, tzinfo=dt.timezone.utc)
+
+    class _StubSnapshot:
+        def __init__(self) -> None:
+            self.tzinfo = tz
+            self.now_local = now_local
+            self.now_utc = now_utc
+            self.iso_utc = now_utc.isoformat()
+
+        @property
+        def date(self) -> dt.date:
+            return self.now_local.date()
+
+        def format_time(self) -> str:
+            return self.now_local.strftime("%H:%M:%S %Z")
+
+        def timezone_display(self) -> str:
+            return "America/New_York"
+
+    return _StubSnapshot()
+
+
+def test_build_enhanced_system_prompt_includes_time_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    snapshot = _make_snapshot_stub()
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.create_time_snapshot",
+        lambda: snapshot,
+    )
+
+    result = _build_enhanced_system_prompt("Base system prompt")
+
+    assert result.startswith("# Current Date & Time Context")
+    assert "- Today's date: 2024-01-02 (Tuesday)" in result
+    assert "- Current time: 14:30:00 EST" in result
+    assert "- Timezone: America/New_York" in result
+    assert f"- ISO timestamp (UTC): {snapshot.iso_utc}" in result
+    assert result.endswith("Base system prompt")
+    assert "\n\nBase system prompt" in result
+
+
+def test_build_enhanced_system_prompt_without_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    snapshot = _make_snapshot_stub()
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.create_time_snapshot",
+        lambda: snapshot,
+    )
+
+    result = _build_enhanced_system_prompt(None)
+
+    assert result.startswith("# Current Date & Time Context")
+    assert "Use this context when interpreting relative dates" in result
+    assert result.endswith("etc.")
 
 
 class StubRepository:
@@ -327,6 +386,67 @@ class StubOpenRouterClient:
 
 
 @pytest.mark.anyio("asyncio")
+async def test_orchestrator_adds_time_context_to_new_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snapshot = _make_snapshot_stub()
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.create_time_snapshot",
+        lambda: snapshot,
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.ChatRepository", StubRepository
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.MCPToolAggregator", StubAggregator
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.StreamingHandler", StubStreamingHandler
+    )
+    monkeypatch.setattr(
+        "src.backend.chat.orchestrator.OpenRouterClient", StubOpenRouterClient
+    )
+
+    model_settings = StubModelSettings()
+
+    async def base_prompt() -> str | None:
+        return "Base system prompt"
+
+    monkeypatch.setattr(model_settings, "get_system_prompt", base_prompt)
+
+    settings = Settings(openrouter_api_key="dummy-key")
+    orchestrator = ChatOrchestrator(settings, model_settings, StubMCPSettings())
+
+    await orchestrator.initialize()
+
+    request = ChatCompletionRequest(
+        session_id="time-session",
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+
+    async for _ in orchestrator.process_stream(request):
+        pass
+
+    repo = orchestrator.repository
+    system_messages = [
+        entry
+        for entry in repo.messages
+        if entry["session_id"] == "time-session" and entry["role"] == "system"
+    ]
+    assert len(system_messages) == 1
+    content = system_messages[0]["content"]
+    assert isinstance(content, str)
+    assert content.startswith("# Current Date & Time Context")
+    assert "- Today's date: 2024-01-02 (Tuesday)" in content
+    assert "- Current time: 14:30:00 EST" in content
+    assert "- Timezone: America/New_York" in content
+    assert f"- ISO timestamp (UTC): {snapshot.iso_utc}" in content
+    assert "Base system prompt" in content
+    assert content.count(_TOOL_RATIONALE_INSTRUCTION) == 1
+    assert content.endswith(_TOOL_RATIONALE_INSTRUCTION)
+
+
+@pytest.mark.anyio("asyncio")
 async def test_orchestrator_invokes_planner(monkeypatch: pytest.MonkeyPatch) -> None:
     StubAggregator.digest_entries_by_context = {
         "calendar": [
@@ -390,7 +510,7 @@ async def test_orchestrator_invokes_planner(monkeypatch: pytest.MonkeyPatch) -> 
         "src.backend.chat.orchestrator.OpenRouterClient", StubOpenRouterClient
     )
 
-    settings = Settings(openrouter_api_key="dummy-key")
+    settings = Settings(openrouter_api_key="dummy-key", use_llm_planner=False)
     orchestrator = ChatOrchestrator(settings, StubModelSettings(), StubMCPSettings())
 
     await orchestrator.initialize()
@@ -480,7 +600,7 @@ async def test_orchestrator_falls_back_on_invalid_plan(
         "src.backend.chat.orchestrator.OpenRouterClient", StubOpenRouterClient
     )
 
-    settings = Settings(openrouter_api_key="dummy-key")
+    settings = Settings(openrouter_api_key="dummy-key", use_llm_planner=False)
     orchestrator = ChatOrchestrator(settings, StubModelSettings(), StubMCPSettings())
 
     await orchestrator.initialize()
@@ -541,7 +661,7 @@ async def test_orchestrator_limits_ranked_tools(monkeypatch: pytest.MonkeyPatch)
         "src.backend.chat.orchestrator.OpenRouterClient", StubOpenRouterClient
     )
 
-    settings = Settings(openrouter_api_key="dummy-key")
+    settings = Settings(openrouter_api_key="dummy-key", use_llm_planner=False)
     orchestrator = ChatOrchestrator(settings, StubModelSettings(), StubMCPSettings())
 
     await orchestrator.initialize()

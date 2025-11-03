@@ -36,7 +36,6 @@ from backend.services.google_auth.auth import (
     get_credentials,
     get_tasks_service as _google_get_tasks_service,
 )
-from backend.services.time_context import build_context_lines, create_time_snapshot
 from backend.tasks import (
     ScheduledTask,
     Task,
@@ -84,58 +83,11 @@ def get_tasks_service(user_email: str):
 
     return _google_get_tasks_service(user_email)
 
-_CONTEXT_TTL = datetime.timedelta(minutes=5)
-_last_context_check: Optional[datetime.datetime] = None
-
-
-def _mark_context_checked(timestamp: Optional[datetime.datetime] = None) -> None:
-    """Record that the caller refreshed the current date context."""
-
-    global _last_context_check
-
-    if timestamp is None:
-        timestamp = datetime.datetime.now(datetime.timezone.utc)
-
-    if timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=datetime.timezone.utc)
-    else:
-        timestamp = timestamp.astimezone(datetime.timezone.utc)
-
-    _last_context_check = timestamp
-
-
-def _reset_context_check() -> None:  # pragma: no cover - testing hook
-    """Clear stored context check state."""
-
-    global _last_context_check
-    _last_context_check = None
-
-
 def _parse_time_string(time_str: Optional[str]) -> Optional[str]:
-    """Convert simple date keywords/strings to RFC3339 (UTC) strings.
-
-    Behavior:
-    - None → None
-    - 'today'/'tomorrow'/'yesterday' → YYYY-MM-DDT00:00:00Z
-    - 'YYYY-MM-DD' → YYYY-MM-DDT00:00:00Z
-    - Naive datetime 'YYYY-MM-DDTHH:MM[:SS]' → append Z
-    - Already offset/Z → returned as-is
-    """
+    """Normalize ISO-like date/time strings to RFC3339 (UTC) strings."""
 
     if not time_str:
         return None
-
-    lowered = time_str.lower()
-    today = datetime.date.today()
-
-    if lowered in {"today", "tomorrow", "yesterday"}:
-        if lowered == "today":
-            d = today
-        elif lowered == "tomorrow":
-            d = today + datetime.timedelta(days=1)
-        else:
-            d = today - datetime.timedelta(days=1)
-        return f"{d.isoformat()}T00:00:00Z"
 
     # ISO date-only
     try:
@@ -153,36 +105,6 @@ def _parse_time_string(time_str: Optional[str]) -> Optional[str]:
         return time_str + "Z"
 
     return time_str
-
-
-def _has_recent_context(now: Optional[datetime.datetime] = None) -> bool:
-    """Return True if the caller recently refreshed the current date context."""
-
-    reference = _last_context_check
-    if reference is None:
-        return False
-
-    if now is None:
-        now = datetime.datetime.now(datetime.timezone.utc)
-
-    if now.tzinfo is None:
-        now = now.replace(tzinfo=datetime.timezone.utc)
-    else:
-        now = now.astimezone(datetime.timezone.utc)
-
-    return now - reference <= _CONTEXT_TTL
-
-
-def _require_recent_context() -> Optional[str]:
-    """Provide a guard message when no recent context check exists."""
-
-    if _has_recent_context():
-        return None
-
-    return (
-        "Confirm the current date and time using calendar_current_context "
-        "before requesting date-based calendar operations."
-    )
 
 
 @dataclass
@@ -628,27 +550,11 @@ async def generate_auth_url(
     )
 
 
-@mcp.tool("calendar_current_context")
-async def calendar_current_context(timezone: Optional[str] = None) -> str:
-    """Report the up-to-date calendar context and record that it was checked."""
-
-    snapshot = create_time_snapshot(timezone)
-    _mark_context_checked(snapshot.now_utc)
-
-    lines = list(build_context_lines(snapshot))
-    lines.append(
-        "Use these values when preparing time ranges, and re-run this tool if "
-        "your reasoning depends on the current date."
-    )
-
-    return "\n".join(lines)
-
-
 @mcp.tool("calendar_get_events")
 async def get_events(
     user_email: str = DEFAULT_USER_EMAIL,
     calendar_id: Optional[str] = None,
-    time_min: Optional[str] = "today",
+    time_min: Optional[str] = None,
     time_max: Optional[str] = None,
     max_results: int = 25,
     query: Optional[str] = None,
@@ -657,17 +563,16 @@ async def get_events(
     """
     Retrieve events across the user's Google calendars.
 
-    Always call ``calendar_current_context`` first so the LLM has an accurate
-    notion of "today". With no ``calendar_id`` (or when using phrases such as
-    "my schedule") the search spans the preconfigured household calendars.
+    With no ``calendar_id`` (or when using phrases such as "my schedule") the
+    search spans the preconfigured household calendars.
     Provide a specific ID or friendly name (for example "Family Calendar" or
     "Dad Work Schedule") to narrow the query to a single calendar.
 
     Args:
         user_email: The user's email address (defaults to Jack's primary account).
         calendar_id: Optional calendar ID or friendly name.
-        time_min: Start time (ISO format or keywords like "today").
-        time_max: End time (optional, ISO format or keywords).
+        time_min: Start time (ISO 8601 or RFC3339 formatted string).
+        time_max: End time (optional, ISO 8601 or RFC3339 formatted string).
         max_results: Maximum number of events to return after aggregation.
         query: Optional search query.
         detailed: Whether to include full details in results.
@@ -677,10 +582,6 @@ async def get_events(
     """
 
     try:
-        guard_message = _require_recent_context()
-        if guard_message:
-            return guard_message
-
         service = get_calendar_service(user_email)
 
         time_min_rfc = _parse_time_string(time_min)
@@ -708,8 +609,10 @@ async def get_events(
             "maxResults": max(max_results, 1),
             "orderBy": "startTime",
             "singleEvents": True,
-            "timeMin": time_min_rfc,
         }
+
+        if time_min_rfc:
+            params["timeMin"] = time_min_rfc
 
         if time_max_rfc:
             params["timeMax"] = time_max_rfc
@@ -1231,8 +1134,8 @@ async def list_tasks(
         show_completed: Whether to include completed tasks.
         show_deleted: Whether to include deleted tasks.
         show_hidden: Whether to include hidden tasks.
-        due_min: Optional lower bound for due dates (keywords supported).
-        due_max: Optional upper bound for due dates (keywords supported).
+        due_min: Optional lower bound for due dates (ISO 8601 or RFC3339).
+        due_max: Optional upper bound for due dates (ISO 8601 or RFC3339).
 
     Returns:
         Formatted string describing tasks.
@@ -1572,8 +1475,8 @@ async def search_all_tasks(
         include_hidden: Whether to include hidden tasks.
         include_deleted: Whether to include deleted tasks.
         search_notes: Whether to search task notes in addition to titles (default: True).
-        due_min: Optional lower bound for due dates (keywords like "today" supported).
-        due_max: Optional upper bound for due dates (keywords supported).
+        due_min: Optional lower bound for due dates (ISO 8601 or RFC3339).
+        due_max: Optional upper bound for due dates (ISO 8601 or RFC3339).
 
     Returns:
         Formatted string with matching tasks and their details.
@@ -1665,9 +1568,6 @@ async def _upcoming_calendar_snapshot(
     max_results: int = 10,
 ) -> str:
     """Fetch upcoming events within the next ``days_ahead`` days."""
-
-    # Ensure context cache is refreshed so calendar_get_events will run.
-    await calendar_current_context()
 
     now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
     window_end = now + datetime.timedelta(days=days_ahead)
@@ -1802,17 +1702,13 @@ async def create_task(
         task_list_id: Task list identifier (default: '@default').
         title: Title for the new task.
         notes: Optional detailed notes.
-        due: Optional due date/time (keywords supported).
+        due: Optional due date/time (ISO 8601 or RFC3339 format).
         parent: Optional parent task ID for subtasks.
         previous: Optional sibling task ID for positioning.
 
     Returns:
         Confirmation message with task details.
     """
-    guard_message = _require_recent_context()
-    if guard_message:
-        return guard_message
-
     try:
         task_service = TaskService(user_email, service_factory=get_tasks_service)
         created = await task_service.create_task(
@@ -1867,7 +1763,7 @@ async def update_task(
         title: Optional new title.
         notes: Optional new notes (pass empty string to clear).
         status: Optional new status ('needsAction' or 'completed').
-        due: Optional new due date/time (keywords supported).
+        due: Optional new due date/time (ISO 8601 or RFC3339).
 
     Returns:
         Confirmation message with task details.
@@ -2112,7 +2008,6 @@ __all__ = [
     "run",
     "auth_status",
     "generate_auth_url",
-    "calendar_current_context",
     "get_events",
     "create_event",
     "update_event",

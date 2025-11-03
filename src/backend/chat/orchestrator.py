@@ -22,6 +22,7 @@ from ..logging_settings import parse_logging_settings
 from ..services.conversation_logging import ConversationLogWriter
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
+from ..services.time_context import create_time_snapshot
 from .image_reflection import reflect_assistant_images
 from .llm_planner import LLMContextPlanner
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
@@ -101,6 +102,32 @@ def _append_rationale_instruction(content: Any) -> Any:
     if base:
         return f"{base}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
     return _TOOL_RATIONALE_INSTRUCTION
+
+
+def _build_enhanced_system_prompt(base_prompt: str | None) -> str:
+    """Prepend the current time context to the configured system prompt."""
+
+    snapshot = create_time_snapshot()
+    context_lines = [
+        "# Current Date & Time Context",
+        (
+            "- Today's date: "
+            f"{snapshot.date.isoformat()} ({snapshot.now_local.strftime('%A')})"
+        ),
+        f"- Current time: {snapshot.format_time()}",
+        f"- Timezone: {snapshot.timezone_display()}",
+        f"- ISO timestamp (UTC): {snapshot.iso_utc}",
+        "",
+        (
+            "Use this context when interpreting relative dates like "
+            "'last month', 'next week', etc."
+        ),
+    ]
+    context_block = "\n".join(context_lines)
+    base = (base_prompt or "").strip()
+    if base:
+        return f"{context_block}\n\n{base}"
+    return context_block
 
 
 class ChatOrchestrator:
@@ -264,14 +291,11 @@ class ChatOrchestrator:
         incoming_has_system = any(
             message.role == "system" for message in incoming_messages
         )
-        system_prompt = await self._model_settings.get_system_prompt()
-        if system_prompt:
-            if _TOOL_RATIONALE_INSTRUCTION not in system_prompt:
-                system_prompt = (
-                    f"{system_prompt.rstrip()}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
-                )
-        else:
-            system_prompt = _TOOL_RATIONALE_INSTRUCTION
+        system_prompt = _build_enhanced_system_prompt(
+            await self._model_settings.get_system_prompt()
+        )
+        if _TOOL_RATIONALE_INSTRUCTION not in system_prompt:
+            system_prompt = f"{system_prompt.rstrip()}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
 
         if (
             system_prompt

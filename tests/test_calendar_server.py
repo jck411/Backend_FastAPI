@@ -5,13 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import backend.mcp_servers.calendar_server as calendar_module
 from backend.mcp_servers.calendar_server import (
     DEFAULT_READ_CALENDAR_IDS,
     DEFAULT_USER_EMAIL,
     _parse_time_string,
     auth_status,
-    calendar_current_context,
     create_event,
     delete_event,
     generate_auth_url,
@@ -36,39 +34,6 @@ from backend.mcp_servers.calendar_server import (
 )
 
 
-@pytest.fixture(autouse=True)
-def reset_context_state():
-    calendar_module._reset_context_check()
-    yield
-    calendar_module._reset_context_check()
-
-
-def test_parse_time_string_today():
-    """Test parsing 'today' keyword."""
-    import datetime
-
-    # Get expected date format
-    date_obj = datetime.date.today()
-    expected = f"{date_obj.isoformat()}T00:00:00Z"
-
-    # Test the function
-    result = _parse_time_string("today")
-    assert result == expected
-
-
-def test_parse_time_string_tomorrow():
-    """Test parsing 'tomorrow' keyword."""
-    import datetime
-
-    # Get expected date format
-    date_obj = datetime.date.today() + datetime.timedelta(days=1)
-    expected = f"{date_obj.isoformat()}T00:00:00Z"
-
-    # Test the function
-    result = _parse_time_string("tomorrow")
-    assert result == expected
-
-
 def test_parse_time_string_none():
     """Test parsing None."""
     assert _parse_time_string(None) is None
@@ -86,14 +51,19 @@ def test_parse_time_string_naive_datetime():
     assert _parse_time_string("2025-10-12T09:30:00") == "2025-10-12T09:30:00Z"
 
 
+def test_parse_time_string_preserves_timezone():
+    """Offset-aware datetimes pass through unchanged."""
+
+    value = "2025-10-12T09:30:00-05:00"
+    assert _parse_time_string(value) == value
+
+
 @pytest.mark.asyncio
 @patch("backend.mcp_servers.calendar_server.get_calendar_service")
 async def test_get_events_authentication_error(mock_get_calendar_service):
     """Test get_events with authentication error."""
     # Mock the service to raise ValueError
     mock_get_calendar_service.side_effect = ValueError("Authentication failed")
-
-    await calendar_current_context(timezone="UTC")
 
     # Call the function
     result = await get_events(user_email="test@example.com")
@@ -139,7 +109,6 @@ async def test_get_events_success(mock_get_calendar_service, mock_get_tasks_serv
     tasklists_list_request.execute.return_value = {"items": []}
     mock_tasks_service.tasklists.return_value.list.return_value = tasklists_list_request
 
-    await calendar_current_context(timezone="UTC")
     result = await get_events(time_min="2023-06-01")
 
     assert (
@@ -173,7 +142,6 @@ async def test_get_events_specific_calendar_alias(mock_get_calendar_service):
 
     mock_service.events().list.return_value = list_mock
 
-    await calendar_current_context(timezone="UTC")
     result = await get_events(
         user_email="test@example.com",
         calendar_id="Family Calendar",
@@ -234,21 +202,11 @@ async def test_get_events_includes_tasks(
     }
     mock_tasks_service.tasks.return_value.list.return_value = tasks_list_request
 
-    await calendar_current_context(timezone="UTC")
     result = await get_events(user_email="test@example.com", max_results=5)
 
     assert "Tasks due or overdue:" in result
     assert "Buy groceries" in result
     assert "No tasks with due dates in this range." not in result
-
-
-@pytest.mark.asyncio
-async def test_get_events_requires_context_gate():
-    """get_events prompts for context when not recently refreshed."""
-
-    result = await get_events(user_email="test@example.com")
-
-    assert "Confirm the current date and time" in result
 
 
 @pytest.mark.asyncio
@@ -498,8 +456,6 @@ async def test_create_task_due_conversion(mock_get_tasks_service):
         "due": "2025-01-01T00:00:00Z",
     }
     mock_service.tasks.return_value.insert.return_value = insert_request
-
-    await calendar_current_context(timezone="UTC")
 
     await calendar_create_task(
         user_email="user@example.com",

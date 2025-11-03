@@ -116,7 +116,6 @@ def build_context_lines(
         ("Tomorrow", _dt.timedelta(days=1)),
         ("Day after tomorrow", _dt.timedelta(days=2)),
         ("In 3 days", _dt.timedelta(days=3)),
-        ("This weekend", _dt.timedelta(days=5)),
         ("Next week (7 days)", _dt.timedelta(weeks=1)),
         ("In 2 weeks", _dt.timedelta(weeks=2)),
     ),
@@ -150,6 +149,17 @@ def build_context_lines(
         for label, delta in upcoming_anchors:
             anchor = today_local + delta
             yield f"  • {label}: {anchor.isoformat()} ({anchor.strftime('%A')})"
+
+        # Add next Saturday/Sunday dynamically
+        # weekday(): Monday=0, Tuesday=1, ..., Saturday=5, Sunday=6
+        days_until_saturday = (5 - today_local.weekday()) % 7
+        if days_until_saturday == 0:
+            # Today is Saturday, show next Saturday
+            days_until_saturday = 7
+        next_saturday = today_local + _dt.timedelta(days=days_until_saturday)
+        next_sunday = next_saturday + _dt.timedelta(days=1)
+
+        yield f"  • Next weekend: {next_saturday.isoformat()} (Saturday)"
         yield ""
-    
+
     yield "=" * 60

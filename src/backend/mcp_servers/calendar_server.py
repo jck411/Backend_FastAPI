@@ -665,7 +665,7 @@ async def calendar_current_context(timezone: Optional[str] = None) -> str:
     )
     lines.append(f"- To find today's events: use time_min='{snapshot.date.isoformat()}'")
     lines.append(
-        f"- To find tomorrow's events: use time_min='{(snapshot.date + datetime.timedelta(days=1)).isoformat()}'"
+        f"- To find tomorrow's events: use time_min='{(snapshot.date + dt.timedelta(days=1)).isoformat()}'"
     )
     lines.append(
         "- For date ranges, use the 'Upcoming anchors' shown above as reference points."

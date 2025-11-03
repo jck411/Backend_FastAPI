@@ -9,7 +9,7 @@ from typing import BinaryIO
 from google.cloud import storage
 from google.oauth2 import service_account
 
-from backend.config import get_settings
+from ..config import get_settings
 
 _client: storage.Client | None = None
 _bucket: storage.Bucket | None = None

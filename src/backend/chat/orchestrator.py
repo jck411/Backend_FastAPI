@@ -9,16 +9,16 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Sequence, Callable, cast
 
 from dotenv import dotenv_values
 
 from ..config import Settings
+from ..logging_settings import parse_logging_settings
 from ..openrouter import OpenRouterClient
 from ..repository import ChatRepository
 from ..schemas.chat import ChatCompletionRequest
 from ..services.attachment_urls import refresh_message_attachments
-from ..logging_settings import parse_logging_settings
 from ..services.conversation_logging import ConversationLogWriter
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
@@ -27,8 +27,6 @@ from .image_reflection import reflect_assistant_images
 from .llm_planner import LLMContextPlanner
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
-from .tool_context_planner import merge_model_tool_plan, ToolContextPlanner
-from .tool_utils import compact_tool_digest
 
 _TOOL_RATIONALE_INSTRUCTION = (
     "Before each tool call, emit numbered one-sentence rationales in order (e.g.,"
@@ -44,6 +42,11 @@ logger = logging.getLogger(__name__)
 
 
 _MAX_RANKED_TOOLS = 5
+
+CapDigest = dict[str, list[dict[str, Any]]]
+ToolPayload = list[dict[str, Any]]
+DigestProvider = Callable[..., CapDigest]
+ToolLookup = Callable[[Iterable[str]], ToolPayload]
 
 
 def _iter_attachment_ids(content: Any) -> Iterable[str]:
@@ -80,8 +83,7 @@ def _content_contains_rationale_instruction(content: Any) -> bool:
         return any(_content_contains_rationale_instruction(item) for item in content)
     if isinstance(content, dict):
         return any(
-            _content_contains_rationale_instruction(value)
-            for value in content.values()
+            _content_contains_rationale_instruction(value) for value in content.values()
         )
     return False
 
@@ -162,7 +164,9 @@ class ChatOrchestrator:
         conversation_log_dir = settings.conversation_log_dir
         if not conversation_log_dir.is_absolute():
             conversation_log_dir = project_root / conversation_log_dir
-        logging_settings = parse_logging_settings(project_root / "logging_settings.conf")
+        logging_settings = parse_logging_settings(
+            project_root / "logging_settings.conf"
+        )
         self._conversation_logger = ConversationLogWriter(
             conversation_log_dir,
             min_level=logging_settings.conversations_level,
@@ -180,7 +184,6 @@ class ChatOrchestrator:
         self._settings = settings
         self._init_lock = asyncio.Lock()
         self._ready = asyncio.Event()
-        self._tool_planner = ToolContextPlanner()
         self._llm_planner = LLMContextPlanner(self._client)
 
     async def initialize(self) -> None:
@@ -351,41 +354,45 @@ class ChatOrchestrator:
             ttl=self._settings.attachment_signed_url_ttl,
         )
         conversation = reflect_assistant_images(conversation)
-        capability_digest: dict[str, list[dict[str, Any]]] = {}
-        digest_provider = getattr(self._mcp_client, "get_capability_digest", None)
-        if callable(digest_provider):
+        capability_digest: CapDigest = {}
+        digest_provider = cast(
+            DigestProvider | None,
+            getattr(self._mcp_client, "get_capability_digest", None),
+        )
+        if digest_provider is not None:
             try:
-                capability_digest = digest_provider()
+                candidate_digest = digest_provider()
             except Exception as exc:  # pragma: no cover - defensive fallback
                 logger.debug("Capability digest unavailable: %s", exc)
                 capability_digest = {}
-        
-        # Choose planning strategy based on configuration
-        if self._settings.use_llm_planner:
-            # LLM-first planning: simpler and more direct
-            plan = await self._llm_planner.plan(
-                request,
-                conversation,
-                capability_digest=capability_digest,
-            )
-        else:
-            # Legacy keyword-based planning with LLM enhancement
-            plan = await self._plan_with_legacy_planner(
-                request,
-                conversation,
-                capability_digest,
-            )
-        
+            else:
+                if isinstance(candidate_digest, dict):
+                    capability_digest = candidate_digest
+                else:  # pragma: no cover - defensive fallback
+                    logger.debug(
+                        "Capability digest returned unexpected type: %s",
+                        type(candidate_digest),
+                    )
+                    capability_digest = {}
+
+        # Use LLM-based planning
+        plan = await self._llm_planner.plan(
+            request,
+            conversation,
+            capability_digest=capability_digest,
+        )
+
         # Get contexts and ranked tools from the plan
         contexts = plan.contexts_for_attempt(0)
         ranked_tool_names: list[str] = []
-        ranked_digest: dict[str, list[dict[str, Any]]] | None = None
-        digest_for_contexts = getattr(self._mcp_client, "get_capability_digest", None)
-        
-        if contexts and callable(digest_for_contexts):
+        ranked_digest: CapDigest | None = None
+
+        if contexts and digest_provider is not None:
             try:
-                ranked_digest = digest_for_contexts(
-                    contexts, limit=_MAX_RANKED_TOOLS, include_global=False
+                candidate_ranked = digest_provider(
+                    contexts,
+                    limit=_MAX_RANKED_TOOLS,
+                    include_global=False,
                 )
             except Exception as exc:  # pragma: no cover - defensive fallback
                 logger.debug(
@@ -394,6 +401,15 @@ class ChatOrchestrator:
                     exc,
                 )
                 ranked_digest = {}
+            else:
+                if isinstance(candidate_ranked, dict):
+                    ranked_digest = candidate_ranked
+                else:  # pragma: no cover - defensive fallback
+                    logger.debug(
+                        "Ranked capability digest returned unexpected type: %s",
+                        type(candidate_ranked),
+                    )
+                    ranked_digest = {}
         else:
             ranked_digest = {}
 
@@ -445,17 +461,21 @@ class ChatOrchestrator:
                     await maybe_coro
             except Exception as exc:  # pragma: no cover - defensive fallback
                 logger.debug("Failed to persist tool plan: %s", exc)
+        tools_payload: ToolPayload
         if plan.use_all_tools_for_attempt(0):
             tools_payload = self._mcp_client.get_openai_tools()
         else:
-            ranked_tools_payload: list[dict[str, Any]] = []
+            ranked_tools_payload: ToolPayload = []
             if ranked_tool_names:
-                lookup = getattr(
-                    self._mcp_client, "get_openai_tools_by_qualified_names", None
+                lookup = cast(
+                    ToolLookup | None,
+                    getattr(
+                        self._mcp_client, "get_openai_tools_by_qualified_names", None
+                    ),
                 )
-                if callable(lookup):
+                if lookup is not None:
                     try:
-                        ranked_tools_payload = lookup(ranked_tool_names)
+                        candidate_tools = lookup(ranked_tool_names)
                     except Exception as exc:  # pragma: no cover - defensive fallback
                         logger.debug(
                             "Failed to resolve ranked tool specs for %s: %s",
@@ -463,6 +483,19 @@ class ChatOrchestrator:
                             exc,
                         )
                         ranked_tools_payload = []
+                    else:
+                        if isinstance(candidate_tools, list):
+                            ranked_tools_payload = [
+                                tool
+                                for tool in candidate_tools
+                                if isinstance(tool, dict)
+                            ]
+                        else:  # pragma: no cover - defensive fallback
+                            logger.debug(
+                                "Ranked tool lookup returned unexpected type: %s",
+                                type(candidate_tools),
+                            )
+                            ranked_tools_payload = []
             if ranked_tools_payload:
                 tools_payload = ranked_tools_payload
             else:
@@ -515,55 +548,6 @@ class ChatOrchestrator:
         """Trigger a manual refresh of tool catalogs."""
 
         await self._mcp_client.refresh()
-
-    async def _plan_with_legacy_planner(
-        self,
-        request: ChatCompletionRequest,
-        conversation: Sequence[dict[str, Any]],
-        capability_digest: dict[str, list[dict[str, Any]]],
-    ) -> ToolContextPlan:
-        """
-        Use legacy keyword-based planner with LLM enhancement.
-        
-        This method is kept for backward compatibility when use_llm_planner=False.
-        """
-        plan = self._tool_planner.plan(
-            request,
-            conversation,
-            capability_digest=capability_digest,
-        )
-        contexts = plan.contexts_for_attempt(0)
-        ranked_digest: dict[str, list[dict[str, Any]]] | None = None
-        digest_for_contexts = getattr(self._mcp_client, "get_capability_digest", None)
-        
-        if contexts and callable(digest_for_contexts):
-            try:
-                ranked_digest = digest_for_contexts(
-                    contexts, limit=_MAX_RANKED_TOOLS, include_global=False
-                )
-            except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.debug(
-                    "Failed to obtain ranked capability digest for contexts %s: %s",
-                    contexts,
-                    exc,
-                )
-                ranked_digest = {}
-        
-        plan_request_digest = compact_tool_digest(ranked_digest)
-        if contexts or plan.broad_search:
-            try:
-                planner_response = await self._client.request_tool_plan(
-                    request=request,
-                    conversation=conversation,
-                    tool_digest=plan_request_digest,
-                )
-            except Exception as exc:  # pragma: no cover - remote planner is best effort
-                logger.debug("Remote tool planning failed: %s", exc)
-            else:
-                merged_plan = merge_model_tool_plan(plan, planner_response)
-                plan = merged_plan
-        
-        return plan
 
 
 __all__ = ["ChatOrchestrator"]

@@ -10,8 +10,8 @@ from typing import Any, ClassVar, Iterable, Mapping
 import pytest
 
 from src.backend.chat.orchestrator import (
-    ChatOrchestrator,
     _TOOL_RATIONALE_INSTRUCTION,
+    ChatOrchestrator,
     _build_enhanced_system_prompt,
 )
 from src.backend.config import Settings
@@ -57,7 +57,9 @@ def _make_snapshot_stub() -> Any:
     return _StubSnapshot()
 
 
-def test_build_enhanced_system_prompt_includes_time_context(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_enhanced_system_prompt_includes_time_context(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     snapshot = _make_snapshot_stub()
     monkeypatch.setattr(
         "src.backend.chat.orchestrator.create_time_snapshot",
@@ -75,7 +77,9 @@ def test_build_enhanced_system_prompt_includes_time_context(monkeypatch: pytest.
     assert "\n\nBase system prompt" in result
 
 
-def test_build_enhanced_system_prompt_without_base(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_enhanced_system_prompt_without_base(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     snapshot = _make_snapshot_stub()
     monkeypatch.setattr(
         "src.backend.chat.orchestrator.create_time_snapshot",
@@ -126,11 +130,11 @@ class StubRepository:
         return len(self.messages)
 
     async def get_messages(self, session_id: str) -> list[dict[str, Any]]:
-        return [dict(entry) for entry in self.messages if entry["session_id"] == session_id]
+        return [
+            dict(entry) for entry in self.messages if entry["session_id"] == session_id
+        ]
 
-    async def update_latest_system_message(
-        self, session_id: str, content: Any
-    ) -> bool:
+    async def update_latest_system_message(self, session_id: str, content: Any) -> bool:
         for message in reversed(self.messages):
             if (
                 message.get("session_id") == session_id
@@ -145,9 +149,7 @@ class StubRepository:
     ) -> None:
         return
 
-    async def get_attachments_by_ids(
-        self, attachment_ids: list[str]
-    ) -> dict[str, Any]:
+    async def get_attachments_by_ids(self, attachment_ids: list[str]) -> dict[str, Any]:
         return {}
 
     async def update_attachment_signed_url(self, attachment_id: str, **_: Any) -> None:
@@ -298,7 +300,9 @@ class StubAggregator:
     def describe_servers(self) -> list[dict[str, Any]]:
         return []
 
-    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> Any:
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any] | None = None
+    ) -> Any:
         raise AssertionError("Tools should not be executed in this stub")
 
     def format_tool_result(self, result: Any) -> str:
@@ -394,9 +398,7 @@ async def test_orchestrator_adds_time_context_to_new_session(
         "src.backend.chat.orchestrator.create_time_snapshot",
         lambda: snapshot,
     )
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.ChatRepository", StubRepository
-    )
+    monkeypatch.setattr("src.backend.chat.orchestrator.ChatRepository", StubRepository)
     monkeypatch.setattr(
         "src.backend.chat.orchestrator.MCPToolAggregator", StubAggregator
     )
@@ -497,9 +499,7 @@ async def test_orchestrator_invokes_planner(monkeypatch: pytest.MonkeyPatch) -> 
         }
     }
 
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.ChatRepository", StubRepository
-    )
+    monkeypatch.setattr("src.backend.chat.orchestrator.ChatRepository", StubRepository)
     monkeypatch.setattr(
         "src.backend.chat.orchestrator.MCPToolAggregator", StubAggregator
     )
@@ -510,7 +510,7 @@ async def test_orchestrator_invokes_planner(monkeypatch: pytest.MonkeyPatch) -> 
         "src.backend.chat.orchestrator.OpenRouterClient", StubOpenRouterClient
     )
 
-    settings = Settings(openrouter_api_key="dummy-key", use_llm_planner=False)
+    settings = Settings(openrouter_api_key="dummy-key")
     orchestrator = ChatOrchestrator(settings, StubModelSettings(), StubMCPSettings())
 
     await orchestrator.initialize()
@@ -542,9 +542,9 @@ async def test_orchestrator_invokes_planner(monkeypatch: pytest.MonkeyPatch) -> 
     assert handler.last_plan.ranked_contexts == ["calendar", "tasks"]
     assert handler.last_plan.stop_conditions == ["satisfied"]
     assert handler.last_tools_payload is not None
-    assert [
-        entry["function"]["name"] for entry in handler.last_tools_payload
-    ] == ["calendar_lookup"]
+    assert [entry["function"]["name"] for entry in handler.last_tools_payload] == [
+        "calendar_lookup"
+    ]
 
     assert StubOpenRouterClient.plan_requests
     planner_request = StubOpenRouterClient.plan_requests[0]
@@ -563,131 +563,13 @@ async def test_orchestrator_invokes_planner(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.anyio("asyncio")
-async def test_orchestrator_falls_back_on_invalid_plan(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    StubAggregator.digest_entries_by_context = {"calendar": ["calendar_lookup"]}
-    StubAggregator.tool_spec_order = ["calendar_lookup", "global_tool"]
-    StubAggregator.tool_spec_map = {
-        "calendar_lookup": {
-            "type": "function",
-            "function": {
-                "name": "calendar_lookup",
-                "parameters": {"type": "object", "properties": {}},
-            },
-        },
-        "global_tool": {
-            "type": "function",
-            "function": {
-                "name": "global_tool",
-                "parameters": {"type": "object", "properties": {}},
-            },
-        },
-    }
+# NOTE: These tests were removed because they tested the legacy keyword-based planner
+# which has been completely removed in favor of the LLM-based planner.
+# The legacy planner used hardcoded keyword matching (e.g., "schedule" → calendar context)
+# while the LLM planner uses AI to determine relevant tools.
 
-    StubOpenRouterClient.plan_response = {"plan": {"stages": [["   "]]}}
-
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.ChatRepository", StubRepository
-    )
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.MCPToolAggregator", StubAggregator
-    )
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.StreamingHandler", StubStreamingHandler
-    )
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.OpenRouterClient", StubOpenRouterClient
-    )
-
-    settings = Settings(openrouter_api_key="dummy-key", use_llm_planner=False)
-    orchestrator = ChatOrchestrator(settings, StubModelSettings(), StubMCPSettings())
-
-    await orchestrator.initialize()
-
-    request = ChatCompletionRequest(
-        messages=[ChatMessage(role="user", content="What's on my schedule today?")]
-    )
-
-    async for _ in orchestrator.process_stream(request):
-        pass
-
-    handler = StubStreamingHandler.last_instance
-    assert handler is not None
-    assert handler.last_plan is not None
-    assert handler.last_plan.contexts_for_attempt(0) == ["calendar"]
-    assert handler.last_plan.intent == "Review or update calendar availability"
-
-    aggregator = StubAggregator.last_instance
-    assert aggregator is not None
-    assert aggregator.ranked_requests[0] == ["calendar_lookup"]
-
-    assert StubOpenRouterClient.plan_requests
-
-
-@pytest.mark.anyio("asyncio")
-async def test_orchestrator_limits_ranked_tools(monkeypatch: pytest.MonkeyPatch) -> None:
-    names = [f"calendar_tool_{index}" for index in range(1, 8)]
-    StubAggregator.digest_entries_by_context = {"calendar": names}
-    StubAggregator.tool_spec_order = names + ["global_tool"]
-    StubAggregator.tool_spec_map = {
-        name: {
-            "type": "function",
-            "function": {
-                "name": name,
-                "parameters": {"type": "object", "properties": {}},
-            },
-        }
-        for name in names
-    }
-    StubAggregator.tool_spec_map["global_tool"] = {
-        "type": "function",
-        "function": {
-            "name": "global_tool",
-            "parameters": {"type": "object", "properties": {}},
-        },
-    }
-
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.ChatRepository", StubRepository
-    )
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.MCPToolAggregator", StubAggregator
-    )
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.StreamingHandler", StubStreamingHandler
-    )
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.OpenRouterClient", StubOpenRouterClient
-    )
-
-    settings = Settings(openrouter_api_key="dummy-key", use_llm_planner=False)
-    orchestrator = ChatOrchestrator(settings, StubModelSettings(), StubMCPSettings())
-
-    await orchestrator.initialize()
-
-    request = ChatCompletionRequest(
-        messages=[ChatMessage(role="user", content="What's on my schedule today?")]
-    )
-
-    async for _ in orchestrator.process_stream(request):
-        pass
-
-    aggregator = StubAggregator.last_instance
-    assert aggregator is not None
-    assert len(aggregator.digest_requests) >= 2
-    _, limit, include_global = aggregator.digest_requests[1]
-    assert include_global is False
-    expected_names = names[:limit]
-    assert aggregator.ranked_requests[0] == expected_names
-    assert aggregator.all_tools_requests == 0
-
-    handler = StubStreamingHandler.last_instance
-    assert handler is not None
-    payload_names = [
-        entry["function"]["name"] for entry in (handler.last_tools_payload or [])
-    ]
-    assert payload_names == expected_names
+# async def test_orchestrator_falls_back_on_invalid_plan(...)
+# async def test_orchestrator_limits_ranked_tools(...)
 
 
 @pytest.mark.anyio("asyncio")
@@ -713,9 +595,7 @@ async def test_orchestrator_falls_back_when_digest_empty(
         },
     }
 
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.ChatRepository", StubRepository
-    )
+    monkeypatch.setattr("src.backend.chat.orchestrator.ChatRepository", StubRepository)
     monkeypatch.setattr(
         "src.backend.chat.orchestrator.MCPToolAggregator", StubAggregator
     )
@@ -753,9 +633,7 @@ async def test_orchestrator_falls_back_when_digest_empty(
 async def test_orchestrator_updates_legacy_system_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.ChatRepository", StubRepository
-    )
+    monkeypatch.setattr("src.backend.chat.orchestrator.ChatRepository", StubRepository)
     monkeypatch.setattr(
         "src.backend.chat.orchestrator.MCPToolAggregator", StubAggregator
     )
@@ -803,9 +681,7 @@ async def test_orchestrator_updates_legacy_system_prompt(
 async def test_orchestrator_avoids_duplicate_rationale_instruction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "src.backend.chat.orchestrator.ChatRepository", StubRepository
-    )
+    monkeypatch.setattr("src.backend.chat.orchestrator.ChatRepository", StubRepository)
     monkeypatch.setattr(
         "src.backend.chat.orchestrator.MCPToolAggregator", StubAggregator
     )

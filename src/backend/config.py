@@ -147,9 +147,7 @@ class Settings(BaseSettings):
             "IMAGE_DOWNLOAD_ALLOWED_HOSTS",
             "image_download_allowed_hosts",
         ),
-        description=(
-            "List of hostnames allowed for server-side image downloads."
-        ),
+        description=("List of hostnames allowed for server-side image downloads."),
     )
     image_download_timeout_seconds: int = Field(
         default=15,
@@ -171,6 +169,7 @@ class Settings(BaseSettings):
     @property
     def attachment_signed_url_ttl(self) -> timedelta:
         return timedelta(days=self.attachments_retention_days)
+
     # Deepgram (optional, only needed if using browser STT)
     deepgram_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("DEEPGRAM_API_KEY")
@@ -186,19 +185,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices(
             "DEEPGRAM_ALLOW_APIKEY_FALLBACK",
             "DEEPGRAM_DEV_APIKEY_FALLBACK",
-        ),
-    )
-    
-    # LLM Context Planning
-    use_llm_planner: bool = Field(
-        default=True,
-        validation_alias=AliasChoices(
-            "USE_LLM_PLANNER",
-            "use_llm_planner",
-        ),
-        description=(
-            "When True, use LLM-based context planning as the primary mechanism. "
-            "When False, fall back to keyword-based planning."
         ),
     )
 

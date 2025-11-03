@@ -49,6 +49,8 @@ class ChatCompletionRequest(BaseModel):
     tools: Optional[List[Dict[str, Any]]] = None
     tool_choice: Optional[Union[str, Dict[str, Any]]] = None
     parallel_tool_calls: Optional[bool] = None
+    plugins: Optional[List[Dict[str, Any]]] = None
+    web_search_options: Optional[Dict[str, Any]] = None
 
     # Response formatting
     response_format: Optional[Dict[str, Any]] = None

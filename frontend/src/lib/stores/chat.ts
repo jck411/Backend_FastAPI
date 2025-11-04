@@ -1,5 +1,7 @@
 import { get, writable } from 'svelte/store';
 import { ApiError, deleteChatMessage } from '../api/client';
+import { collectCitations, type MessageCitation } from '../chat/citations';
+export type { MessageCitation } from '../chat/citations';
 import type {
   AttachmentResource,
   ChatCompletionRequest,
@@ -29,6 +31,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+<<<<<<< ours
 export interface MessageCitation {
   url: string;
   title?: string | null;
@@ -37,6 +40,8 @@ export interface MessageCitation {
   endIndex?: number | null;
 }
 
+=======
+>>>>>>> theirs
 interface ConversationMessageDetails {
   model?: string | null;
   finishReason?: string | null;
@@ -488,7 +493,19 @@ function createChatStore() {
                 nextCitations = null;
               } else if (isRecord(metadata.meta)) {
                 nextMeta = metadata.meta;
+<<<<<<< ours
                 nextCitations = extractCitations(nextMeta);
+=======
+                const extracted = collectCitations(metadata.meta, metadata);
+                if (extracted.length > 0) {
+                  nextCitations = extracted;
+                }
+              } else {
+                const extracted = collectCitations(metadata);
+                if (extracted.length > 0) {
+                  nextCitations = extracted;
+                }
+>>>>>>> theirs
               }
               const createdAt = coalesceTimestamp(
                 metadata.created_at,

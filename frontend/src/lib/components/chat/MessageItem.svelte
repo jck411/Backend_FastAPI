@@ -13,7 +13,12 @@
   import { createEventDispatcher } from "svelte";
   import { copyableCode } from "../../actions/copyableCode";
   import type { AttachmentResource } from "../../api/types";
+<<<<<<< ours
   import type { ConversationMessage, MessageCitation } from "../../stores/chat";
+=======
+  import type { ConversationMessage } from "../../stores/chat";
+  import { collectCitations, type MessageCitation } from "../../chat/citations";
+>>>>>>> theirs
   import { renderMarkdown } from "../../utils/markdown";
 
   export let message: ConversationMessage;
@@ -41,6 +46,7 @@
     Boolean(message.details?.reasoningStatus);
 
   $: {
+<<<<<<< ours
     const rawCitations = message.details?.citations ?? null;
     citations = Array.isArray(rawCitations)
       ? rawCitations.filter(
@@ -48,6 +54,13 @@
             typeof citation?.url === "string" && citation.url.length > 0,
         )
       : [];
+=======
+    citations = collectCitations(
+      message.details?.citations ?? null,
+      message.details?.meta ?? null,
+      message.details ?? null,
+    );
+>>>>>>> theirs
   }
 
   $: hasCitations = citations.length > 0;

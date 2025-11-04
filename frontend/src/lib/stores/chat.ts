@@ -25,6 +25,18 @@ import { modelSettingsStore } from './modelSettings';
 
 export type ConversationRole = 'user' | 'assistant' | 'system' | 'tool';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+export interface MessageCitation {
+  url: string;
+  title?: string | null;
+  content?: string | null;
+  startIndex?: number | null;
+  endIndex?: number | null;
+}
+
 interface ConversationMessageDetails {
   model?: string | null;
   finishReason?: string | null;
@@ -38,6 +50,8 @@ interface ConversationMessageDetails {
   toolStatus?: string | null;
   toolResult?: string | null;
   serverMessageId?: number | null;
+  meta?: Record<string, unknown> | null;
+  citations?: MessageCitation[] | null;
 }
 
 export interface ConversationMessage {
@@ -187,6 +201,64 @@ function mergeMessageContent(
     text: normalized.text,
     attachments,
   };
+}
+
+function extractCitations(
+  meta: Record<string, unknown> | null | undefined,
+): MessageCitation[] | null {
+  if (!meta) {
+    return null;
+  }
+
+  const annotations = meta.annotations;
+  if (!Array.isArray(annotations)) {
+    return null;
+  }
+
+  const citations: MessageCitation[] = [];
+
+  for (const annotation of annotations) {
+    if (!isRecord(annotation)) {
+      continue;
+    }
+    if ((annotation.type ?? null) !== 'url_citation') {
+      continue;
+    }
+    const payload = annotation.url_citation;
+    if (!isRecord(payload)) {
+      continue;
+    }
+    const url = typeof payload.url === 'string' ? payload.url.trim() : '';
+    if (!url) {
+      continue;
+    }
+    const title =
+      typeof payload.title === 'string' && payload.title.trim()
+        ? payload.title.trim()
+        : null;
+    const content =
+      typeof payload.content === 'string' && payload.content.trim()
+        ? payload.content.trim()
+        : null;
+    const startIndex =
+      typeof payload.start_index === 'number' && Number.isFinite(payload.start_index)
+        ? payload.start_index
+        : null;
+    const endIndex =
+      typeof payload.end_index === 'number' && Number.isFinite(payload.end_index)
+        ? payload.end_index
+        : null;
+
+    citations.push({
+      url,
+      title,
+      content,
+      startIndex,
+      endIndex,
+    });
+  }
+
+  return citations.length > 0 ? citations : null;
 }
 
 function resolveDeletionIdentifiers(message: ConversationMessage): string[] {
@@ -409,6 +481,15 @@ function createChatStore() {
                 typeof metadata.message_id === 'number'
                   ? metadata.message_id
                   : existingDetails.serverMessageId ?? null;
+              let nextMeta = existingDetails.meta ?? null;
+              let nextCitations = existingDetails.citations ?? null;
+              if (metadata.meta === null) {
+                nextMeta = null;
+                nextCitations = null;
+              } else if (isRecord(metadata.meta)) {
+                nextMeta = metadata.meta;
+                nextCitations = extractCitations(nextMeta);
+              }
               const createdAt = coalesceTimestamp(
                 metadata.created_at,
                 metadata.created_at_utc,
@@ -449,6 +530,8 @@ function createChatStore() {
                       ? metadata.generation_id
                       : existingDetails.generationId ?? null,
                   serverMessageId,
+                  meta: nextMeta,
+                  citations: nextCitations,
                 },
                 createdAt,
                 createdAtUtc,

@@ -4,6 +4,7 @@
     Brain,
     Check,
     ClipboardCopy,
+    Globe,
     Pencil,
     RefreshCcw,
     Trash2,
@@ -12,7 +13,7 @@
   import { createEventDispatcher } from "svelte";
   import { copyableCode } from "../../actions/copyableCode";
   import type { AttachmentResource } from "../../api/types";
-  import type { ConversationMessage } from "../../stores/chat";
+  import type { ConversationMessage, MessageCitation } from "../../stores/chat";
   import { renderMarkdown } from "../../utils/markdown";
 
   export let message: ConversationMessage;
@@ -32,10 +33,28 @@
   }>();
 
   let hasReasoningSegments = false;
+  let citationsOpen = false;
+  let citations: MessageCitation[] = [];
 
   $: hasReasoningSegments =
     (message.details?.reasoning?.length ?? 0) > 0 ||
     Boolean(message.details?.reasoningStatus);
+
+  $: {
+    const rawCitations = message.details?.citations ?? null;
+    citations = Array.isArray(rawCitations)
+      ? rawCitations.filter(
+          (citation): citation is MessageCitation =>
+            typeof citation?.url === "string" && citation.url.length > 0,
+        )
+      : [];
+  }
+
+  $: hasCitations = citations.length > 0;
+
+  $: if (!hasCitations) {
+    citationsOpen = false;
+  }
 
   function handleCopy(): void {
     dispatch("copy", { message });
@@ -89,6 +108,21 @@
   function attachmentAlt(attachment: AttachmentResource): string {
     const filename = attachmentFilename(attachment);
     return filename ?? "Attachment preview";
+  }
+
+  function toggleCitations(): void {
+    if (!hasCitations) {
+      return;
+    }
+    citationsOpen = !citationsOpen;
+  }
+
+  function handleCitationIndicatorKeydown(event: KeyboardEvent): void {
+    if (event.key === "Escape" && citationsOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      citationsOpen = false;
+    }
   }
 
   $: hasAttachments = (message.attachments?.length ?? 0) > 0;
@@ -239,6 +273,46 @@
                 >
                   <Brain size={14} strokeWidth={1.8} aria-hidden="true" />
                 </button>
+              {/if}
+              {#if hasCitations}
+                <div class="sender-citation" data-open={citationsOpen}>
+                  <button
+                    type="button"
+                    class="sender-citation-indicator"
+                    aria-label={citationsOpen ? "Hide web citations" : "Show web citations"}
+                    title={citationsOpen ? "Hide web citations" : "Show web citations"}
+                    aria-expanded={citationsOpen}
+                    on:click={toggleCitations}
+                    on:keydown={handleCitationIndicatorKeydown}
+                  >
+                    <Globe size={14} strokeWidth={1.8} aria-hidden="true" />
+                  </button>
+                  {#if citationsOpen}
+                    <div class="citations-popover" role="group" aria-label="Web citations">
+                      <p class="citations-title">Web citations</p>
+                      <ul class="citations-list">
+                        {#each citations as citation, index}
+                          <li class="citation-item">
+                            <a
+                              class="citation-link"
+                              href={citation.url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Citation {index + 1}
+                            </a>
+                            {#if citation.title}
+                              <div class="citation-title-text">{citation.title}</div>
+                            {/if}
+                            {#if citation.content}
+                              <p class="citation-snippet">{citation.content}</p>
+                            {/if}
+                          </li>
+                        {/each}
+                      </ul>
+                    </div>
+                  {/if}
+                </div>
               {/if}
               {#if showToolIndicator}
                 <button
@@ -457,6 +531,86 @@
   .sender-tool-indicator:focus-visible {
     color: #7dd3fc;
     outline: none;
+  }
+  .sender-citation {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .sender-citation-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1rem;
+    height: 1rem;
+    color: #facc15;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    transition: color 0.18s ease;
+  }
+  .sender-citation-indicator:hover,
+  .sender-citation-indicator:focus-visible {
+    color: #fde68a;
+    outline: none;
+  }
+  .sender-citation[data-open="true"] .sender-citation-indicator {
+    color: #fde047;
+  }
+  .citations-popover {
+    position: absolute;
+    top: 1.65rem;
+    right: 0;
+    z-index: 20;
+    min-width: 16rem;
+    max-width: 20rem;
+    padding: 0.85rem 0.95rem;
+    border-radius: 0.65rem;
+    border: 1px solid rgba(72, 93, 136, 0.45);
+    background: rgba(10, 18, 32, 0.95);
+    box-shadow: 0 16px 36px rgba(5, 11, 22, 0.6);
+  }
+  .citations-title {
+    margin: 0;
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: rgba(248, 250, 252, 0.7);
+  }
+  .citations-list {
+    margin: 0.65rem 0 0;
+    padding: 0;
+    list-style: none;
+    display: grid;
+    gap: 0.6rem;
+  }
+  .citation-item {
+    display: grid;
+    gap: 0.35rem;
+  }
+  .citation-link {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #38bdf8;
+    text-decoration: none;
+  }
+  .citation-link:hover,
+  .citation-link:focus-visible {
+    color: #7dd3fc;
+    text-decoration: underline;
+    outline: none;
+  }
+  .citation-title-text {
+    font-size: 0.75rem;
+    color: rgba(224, 231, 255, 0.8);
+  }
+  .citation-snippet {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: rgba(191, 207, 255, 0.75);
   }
   .message-content {
     line-height: 1.55;

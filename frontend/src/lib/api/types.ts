@@ -332,6 +332,17 @@ export interface McpServerUpdatePayload {
   tool_prefix?: string | null;
 }
 
+/* Suggestions */
+
+export interface Suggestion {
+  label: string;
+  text: string;
+}
+
+export interface SuggestionsResponse {
+  suggestions: Suggestion[];
+}
+
 /* Presets */
 
 export interface PresetListItem {
@@ -350,6 +361,7 @@ export interface PresetConfig {
   supports_tools?: boolean | null;
   system_prompt?: string | null;
   mcp_servers?: McpServerDefinition[] | null;
+  suggestions?: Suggestion[] | null;
   is_default: boolean;
   created_at: string;
   updated_at: string;

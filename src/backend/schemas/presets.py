@@ -11,6 +11,15 @@ from ..chat.mcp_registry import MCPServerConfig
 from ..schemas.model_settings import ModelHyperparameters, ProviderPreferences
 
 
+class Suggestion(BaseModel):
+    """A quick prompt suggestion button."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    label: str = Field(..., min_length=1, description="Button label")
+    text: str = Field(..., min_length=1, description="Prompt text to use")
+
+
 class PresetConfig(BaseModel):
     """A full snapshot of chat configuration saved under a name."""
 
@@ -35,6 +44,10 @@ class PresetConfig(BaseModel):
     mcp_servers: Optional[List[MCPServerConfig]] = Field(
         default=None,
         description="MCP server configurations (enabled state, disabled tools, env overrides, etc.)",
+    )
+    suggestions: Optional[List[Suggestion]] = Field(
+        default=None,
+        description="Quick prompt suggestions shown at the top of the screen",
     )
     is_default: bool = Field(
         default=False,
@@ -79,6 +92,7 @@ class PresetSaveSnapshotPayload(BaseModel):
 
 
 __all__ = [
+    "Suggestion",
     "PresetConfig",
     "PresetListItem",
     "PresetCreatePayload",

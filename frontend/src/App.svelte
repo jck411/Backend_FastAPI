@@ -1,7 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { fetchGenerationDetails } from "./lib/api/client";
-  import type { AttachmentResource, GenerationDetails, ModelRecord } from "./lib/api/types";
+  import type {
+    AttachmentResource,
+    GenerationDetails,
+    ModelRecord,
+  } from "./lib/api/types";
   import type { GenerationDetailField } from "./lib/chat/constants";
   import { GENERATION_DETAIL_FIELDS } from "./lib/chat/constants";
   import ChatHeader from "./lib/components/chat/ChatHeader.svelte";
@@ -21,10 +25,11 @@
     startDictation,
     stopSpeech,
   } from "./lib/speech/speechController";
-  import { chatStore } from "./lib/stores/chat";
   import type { ConversationMessage } from "./lib/stores/chat";
+  import { chatStore } from "./lib/stores/chat";
   import { modelStore } from "./lib/stores/models";
   import { presetsStore } from "./lib/stores/presets";
+  import { suggestionsStore } from "./lib/stores/suggestions";
 
   const {
     sendMessage,
@@ -47,6 +52,7 @@
 
   let prompt = "";
   let presetAttachments: AttachmentResource[] = [];
+  let quickPromptsComponent: QuickPrompts;
   let explorerOpen = false;
   let generationModalOpen = false;
   let modelSettingsOpen = false;
@@ -69,6 +75,7 @@
 
   onMount(async () => {
     await loadModels();
+    await suggestionsStore.load();
     // Load and apply default preset if one is set
     const defaultPreset = await presetsStore.loadDefault();
     if (defaultPreset) {
@@ -78,6 +85,20 @@
       }
     }
   });
+
+  async function handleSuggestionAdd(): Promise<void> {
+    if (!quickPromptsComponent) return;
+    const newSuggestion = quickPromptsComponent.getNewSuggestion();
+    if (newSuggestion) {
+      await suggestionsStore.add(newSuggestion.label, newSuggestion.text);
+    }
+  }
+
+  async function handleSuggestionDelete(
+    event: CustomEvent<{ index: number }>,
+  ): Promise<void> {
+    await suggestionsStore.remove(event.detail.index);
+  }
 
   $: {
     if (typeof document !== "undefined") {
@@ -139,7 +160,9 @@
     cancelEditing();
     const cloned: AttachmentResource = {
       ...detail.attachment,
-      metadata: detail.attachment.metadata ? { ...detail.attachment.metadata } : null,
+      metadata: detail.attachment.metadata
+        ? { ...detail.attachment.metadata }
+        : null,
     };
     presetAttachments = [cloned];
     const nextPrompt = detail.message?.text?.trim() ?? "";
@@ -277,6 +300,11 @@
 
   {#if !$chatStore.messages.length}
     <QuickPrompts
+      bind:this={quickPromptsComponent}
+      suggestions={$suggestionsStore.items}
+      deleting={$suggestionsStore.deleting}
+      on:add={handleSuggestionAdd}
+      on:delete={handleSuggestionDelete}
       on:select={(event) => handlePromptSelect(event.detail.text)}
     />
   {/if}
@@ -287,7 +315,8 @@
     on:deleteMessage={handleDeleteMessage}
     on:retryMessage={(event) => handleRetryMessage(event.detail.id)}
     on:editMessage={(event) => beginEditingMessage(event.detail.id)}
-    on:editAssistantAttachment={(event) => handleAssistantAttachmentEdit(event.detail)}
+    on:editAssistantAttachment={(event) =>
+      handleAssistantAttachmentEdit(event.detail)}
     disableDelete={$chatStore.isStreaming}
   />
 

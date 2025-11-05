@@ -21,12 +21,14 @@ from .routers.mcp_servers import router as mcp_router
 from .routers.presets import router as presets_router
 from .routers.settings import router as settings_router
 from .routers.stt import router as stt_router
+from .routers.suggestions import router as suggestions_router
 from .routers.uploads import router as uploads_router
 from .services.attachments import AttachmentService
 from .services.attachments_cleanup import cleanup_expired_attachments
 from .services.mcp_server_settings import MCPServerSettingsService
 from .services.model_settings import ModelSettingsService
 from .services.presets import PresetService
+from .services.suggestions import SuggestionsService
 
 
 def _configure_logging() -> None:
@@ -55,7 +57,8 @@ def _configure_logging() -> None:
         handlers.append(console_handler)
 
     level_candidates = [
-        level for level in (raw_settings.sessions_level, raw_settings.terminal_level)
+        level
+        for level in (raw_settings.sessions_level, raw_settings.terminal_level)
         if level is not None
     ]
     root_level = min(level_candidates) if level_candidates else logging.CRITICAL
@@ -75,9 +78,7 @@ def _configure_logging() -> None:
     logging.getLogger("uvicorn").setLevel(backend_level)
     logging.getLogger("uvicorn.error").setLevel(backend_level)
     logging.getLogger("uvicorn.access").setLevel(backend_level)
-    logging.getLogger("watchfiles").setLevel(
-        max(backend_level, logging.WARNING)
-    )
+    logging.getLogger("watchfiles").setLevel(max(backend_level, logging.WARNING))
 
     # Disable any max length restrictions on log records
     logging.logMultiprocessing = False
@@ -154,12 +155,17 @@ def create_app() -> FastAPI:
         fallback=default_mcp_servers,
     )
 
+    suggestions_path = _resolve_under(project_root, settings.suggestions_path)
+
+    suggestions_service = SuggestionsService(suggestions_path)
+
     presets_path = _resolve_under(project_root, settings.presets_path)
 
     preset_service = PresetService(
         presets_path,
         model_settings_service,
         mcp_settings_service,
+        suggestions_service,
     )
 
     orchestrator = ChatOrchestrator(
@@ -228,6 +234,7 @@ def create_app() -> FastAPI:
     app.state.mcp_server_settings_service = mcp_settings_service
     app.state.preset_service = preset_service
     app.state.attachment_service = attachment_service
+    app.state.suggestions_service = suggestions_service
 
     app.add_middleware(
         CORSMiddleware,
@@ -242,6 +249,9 @@ def create_app() -> FastAPI:
     app.include_router(presets_router)
     app.include_router(mcp_router)
     app.include_router(stt_router)
+    app.include_router(
+        suggestions_router, prefix="/api/suggestions", tags=["suggestions"]
+    )
     app.include_router(uploads_router)
     app.include_router(
         google_auth_router,

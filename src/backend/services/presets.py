@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import TYPE_CHECKING, Dict, List
 
 from pydantic import ValidationError
 
@@ -16,6 +16,9 @@ from ..schemas.model_settings import ActiveModelSettingsPayload
 from ..schemas.presets import PresetConfig, PresetListItem
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
+
+if TYPE_CHECKING:
+    from ..services.suggestions import SuggestionsService
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +31,12 @@ class PresetService:
         path: Path,
         model_settings: ModelSettingsService,
         mcp_settings: MCPServerSettingsService,
+        suggestions_service: SuggestionsService | None = None,
     ) -> None:
         self._path = path
         self._model_settings = model_settings
         self._mcp_settings = mcp_settings
+        self._suggestions_service = suggestions_service
         self._lock = asyncio.Lock()
         self._presets: Dict[str, PresetConfig] = {}
         self._load_from_disk()
@@ -133,6 +138,11 @@ class PresetService:
         system_prompt = await self._model_settings.get_system_prompt()
         mcp_configs = await self._mcp_settings.get_configs()
 
+        # Capture suggestions if service is available
+        suggestions = None
+        if self._suggestions_service is not None:
+            suggestions = await self._suggestions_service.get_suggestions()
+
         now = datetime.now(timezone.utc)
         snapshot = PresetConfig(
             name=name,
@@ -142,6 +152,7 @@ class PresetService:
             supports_tools=settings.supports_tools,
             system_prompt=system_prompt,
             mcp_servers=[cfg.model_copy(deep=True) for cfg in mcp_configs],
+            suggestions=suggestions if suggestions else None,
             created_at=now,
             updated_at=now,
         )
@@ -218,6 +229,10 @@ class PresetService:
 
             # Persist to disk and update service
             await self._mcp_settings.replace_configs(merged_configs)
+
+        # Apply suggestions if present and service is available
+        if preset.suggestions is not None and self._suggestions_service is not None:
+            await self._suggestions_service.replace_suggestions(preset.suggestions)
 
         # Return a copy of the applied preset
         return await self.get_preset(name)

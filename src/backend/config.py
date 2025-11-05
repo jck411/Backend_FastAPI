@@ -90,6 +90,10 @@ class Settings(BaseSettings):
         default_factory=lambda: Path("data/presets.json"),
         validation_alias=AliasChoices("PRESETS_PATH", "presets_path"),
     )
+    suggestions_path: Path = Field(
+        default_factory=lambda: Path("data/suggestions.json"),
+        validation_alias=AliasChoices("SUGGESTIONS_PATH", "suggestions_path"),
+    )
     request_timeout: float = Field(
         default=120.0,
         validation_alias=AliasChoices("OPENROUTER_TIMEOUT", "timeout"),

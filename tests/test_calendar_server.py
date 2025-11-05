@@ -28,12 +28,12 @@ from backend.mcp_servers.calendar_server import (
     list_task_lists as calendar_list_task_lists,
 )
 from backend.mcp_servers.calendar_server import (
-    list_tasks as calendar_list_tasks,
+    list_tasks as list_tasks_tool,
 )
 from backend.mcp_servers.calendar_server import (
     update_task as calendar_update_task,
 )
-
+from backend.tasks.models import Task, TaskListInfo
 from backend.tasks.utils import parse_rfc3339_datetime
 
 
@@ -168,7 +168,11 @@ async def test_get_events_defaults_time_min(
         assert time_min_value is not None
         parsed = parse_rfc3339_datetime(time_min_value)
         assert parsed is not None
-        assert before_call - datetime.timedelta(seconds=5) <= parsed <= after_call + datetime.timedelta(seconds=5)
+        assert (
+            before_call - datetime.timedelta(seconds=5)
+            <= parsed
+            <= after_call + datetime.timedelta(seconds=5)
+        )
 
 
 @pytest.mark.asyncio
@@ -414,80 +418,143 @@ async def test_list_task_lists_auth_error(mock_get_tasks_service):
 @pytest.mark.asyncio
 @patch("backend.mcp_servers.calendar_server.get_tasks_service")
 async def test_list_tasks_authentication_error(mock_get_tasks_service):
-    """calendar_list_tasks handles missing credentials."""
+    """list_tasks surfaces authentication guidance when credentials are missing."""
 
     mock_get_tasks_service.side_effect = ValueError("Missing")
 
-    result = await calendar_list_tasks(user_email="user@example.com")
+    result = await list_tasks_tool(user_email="user@example.com")
 
     assert "Authentication error" in result
     assert "Google Tasks" in result
 
 
 @pytest.mark.asyncio
-@patch("backend.mcp_servers.calendar_server.get_tasks_service")
-async def test_list_tasks_due_across_lists(mock_get_tasks_service):
-    """calendar_list_tasks aggregates only scheduled tasks when no list is provided."""
+@patch(
+    "backend.mcp_servers.calendar_server.TaskService.list_task_lists",
+    new_callable=AsyncMock,
+)
+async def test_list_tasks_requests_list_selection(mock_list_task_lists):
+    """list_tasks prompts the caller to pick a list when none is provided."""
 
-    mock_service = MagicMock()
-    mock_get_tasks_service.return_value = mock_service
+    mock_list_task_lists.return_value = (
+        [
+            TaskListInfo(id="list-1", title="Personal"),
+            TaskListInfo(id="list-2", title="Work"),
+        ],
+        None,
+    )
 
-    tasklists_request = MagicMock()
-    tasklists_request.execute.return_value = {
-        "items": [
-            {"id": "list-1", "title": "Personal", "updated": "2024-05-01T12:00:00Z"},
-            {"id": "list-2", "title": "Work", "updated": "2024-05-02T12:00:00Z"},
-        ]
-    }
-    mock_service.tasklists.return_value.list.return_value = tasklists_request
+    result = await list_tasks_tool(user_email="user@example.com")
 
-    due_one = "2025-10-13T00:00:00Z"
-    due_two = "2025-10-14T12:30:00Z"
+    assert "Task lists" in result
+    assert "Personal" in result
+    assert "Work" in result
 
-    def tasks_list_side_effect(tasklist, **kwargs):
-        request = MagicMock()
-        if tasklist == "list-1":
-            request.execute.return_value = {
-                "items": [
-                    {
-                        "id": "task-1",
-                        "title": "Water plants",
-                        "status": "needsAction",
-                        "due": due_one,
-                        "webViewLink": "https://tasks.google.com/task-1",
-                    },
-                    {
-                        "id": "task-ignored",
-                        "title": "Unscheduled",
-                        "status": "needsAction",
-                    },
-                ]
-            }
-        else:
-            request.execute.return_value = {
-                "items": [
-                    {
-                        "id": "task-2",
-                        "title": "Prepare report",
-                        "status": "needsAction",
-                        "due": due_two,
-                        "notes": "Outline talking points",
-                    }
-                ]
-            }
-        return request
 
-    mock_service.tasks.return_value.list.side_effect = tasks_list_side_effect
+@pytest.mark.asyncio
+@patch(
+    "backend.mcp_servers.calendar_server.TaskService.list_tasks",
+    new_callable=AsyncMock,
+)
+@patch(
+    "backend.mcp_servers.calendar_server.TaskService.get_task_list",
+    new_callable=AsyncMock,
+)
+async def test_list_tasks_combines_scheduled_and_unscheduled(
+    mock_get_task_list,
+    mock_list_tasks,
+):
+    """list_tasks returns both scheduled and unscheduled items sorted by due date."""
 
-    result = await calendar_list_tasks(user_email="user@example.com")
+    mock_get_task_list.return_value = TaskListInfo(id="list-1", title="Personal")
 
-    assert "Due tasks for user@example.com" in result
+    due_time = datetime.datetime(2025, 10, 13, tzinfo=datetime.timezone.utc)
+    tasks = [
+        Task(
+            title="Water plants",
+            status="needsAction",
+            list_title="Personal",
+            list_id="list-1",
+            id="task-1",
+            due=due_time,
+            notes="Use filtered water",
+        ),
+        Task(
+            title="Buy soil",
+            status="needsAction",
+            list_title="Personal",
+            list_id="list-1",
+            id="task-2",
+            due=None,
+        ),
+    ]
+    mock_list_tasks.return_value = (tasks, None)
+
+    result = await list_tasks_tool(user_email="user@example.com", task_list_id="list-1")
+
     assert "Water plants" in result
-    assert "Prepare report" in result
-    assert "Unscheduled" not in result
-    assert "Task lists scanned: Personal, Work" in result
-    assert "Outline talking points" in result
-    assert "Additional due tasks" not in result
+    assert "Due 2025-10-13" in result
+    assert "Buy soil" in result
+    assert "Unscheduled" in result
+    assert result.index("Water plants") < result.index("Buy soil")
+
+
+@pytest.mark.asyncio
+@patch(
+    "backend.mcp_servers.calendar_server.TaskService.list_tasks",
+    new_callable=AsyncMock,
+)
+@patch(
+    "backend.mcp_servers.calendar_server.TaskService.get_task_list",
+    new_callable=AsyncMock,
+)
+async def test_list_tasks_unscheduled_filter(mock_get_task_list, mock_list_tasks):
+    """list_tasks can limit results to unscheduled items only."""
+
+    mock_get_task_list.return_value = TaskListInfo(id="list-1", title="Personal")
+
+    due_time = datetime.datetime(2025, 11, 1, tzinfo=datetime.timezone.utc)
+    tasks = [
+        Task(
+            title="Draft proposal",
+            status="needsAction",
+            list_title="Personal",
+            list_id="list-1",
+            id="task-3",
+            due=due_time,
+        ),
+        Task(
+            title="Clean garage",
+            status="needsAction",
+            list_title="Personal",
+            list_id="list-1",
+            id="task-4",
+            due=None,
+        ),
+    ]
+    mock_list_tasks.return_value = (tasks, None)
+
+    result = await list_tasks_tool(
+        user_email="user@example.com",
+        task_list_id="list-1",
+        task_filter="unscheduled",
+    )
+
+    assert "Clean garage" in result
+    assert "Draft proposal" not in result
+
+
+@pytest.mark.asyncio
+async def test_list_tasks_invalid_filter() -> None:
+    """Invalid task_filter values return a helpful message."""
+
+    result = await list_tasks_tool(
+        user_email="user@example.com",
+        task_list_id="list-1",
+        task_filter="invalid",
+    )
+
+    assert "Invalid task_filter" in result
 
 
 @pytest.mark.asyncio

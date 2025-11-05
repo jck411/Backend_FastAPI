@@ -36,18 +36,6 @@ class ScheduledTaskCollection:
 
 
 @dataclass(slots=True)
-class DueTaskCollection:
-    """Aggregated due task results across task lists."""
-
-    tasks: List[Task]
-    total_found: int
-    truncated: int
-    warnings: List[str]
-    scanned_lists: List[str]
-    has_additional: bool
-
-
-@dataclass(slots=True)
 class TaskSearchResponse:
     """Container for keyword-based task search results."""
 
@@ -589,7 +577,10 @@ class TaskService:
                         haystack_parts.append(notes)
 
                     # If the query matches the list name, treat every task in that list as relevant.
-                    if not list_match and normalized_query not in " ".join(haystack_parts).lower():
+                    if (
+                        not list_match
+                        and normalized_query not in " ".join(haystack_parts).lower()
+                    ):
                         continue
 
                     collected.append(
@@ -641,209 +632,6 @@ class TaskService:
             scanned_lists=scanned_lists,
             truncated=truncated,
         )
-
-    async def collect_due_tasks(
-        self,
-        *,
-        max_results: Optional[int] = None,
-        show_completed: bool = False,
-        show_deleted: bool = False,
-        show_hidden: bool = False,
-        due_min: Optional[str] = None,
-        due_max: Optional[str] = None,
-    ) -> DueTaskCollection:
-        """Gather scheduled tasks across lists for due-date centric views.
-
-        Args:
-            max_results: Optional count to limit returned tasks; when None, include
-                every matching due task across lists.
-        """
-
-        client = self._client_or_raise()
-
-        display_limit = (
-            max(1, max_results) if max_results is not None and max_results > 0 else None
-        )
-        if display_limit is None:
-            per_list_limit: Optional[int] = None
-        else:
-            per_list_limit = min(100, max(display_limit * 3, 25))
-
-        due_min_rfc = parse_time_string(due_min) if due_min else None
-        due_max_rfc = parse_time_string(due_max) if due_max else None
-
-        scanned_lists: List[str] = []
-        warnings: List[str] = []
-        collected: List[Task] = []
-        per_list_overflow = False
-
-        list_page_token: Optional[str] = None
-        seen_lists: set[str] = set()
-
-        while True:
-            tasklists, next_page_token = await self.list_task_lists(
-                max_results=100, page_token=list_page_token
-            )
-
-            if not tasklists:
-                if not next_page_token:
-                    break
-                list_page_token = next_page_token
-                continue
-
-            for list_info in tasklists:
-                if list_info.id in seen_lists:
-                    continue
-                seen_lists.add(list_info.id)
-                scanned_lists.append(list_info.title)
-
-                try:
-                    due_tasks, list_overflow = await self._collect_due_tasks_for_list(
-                        client,
-                        list_info,
-                        per_list_limit,
-                        show_completed,
-                        show_deleted,
-                        show_hidden,
-                        due_min,
-                        due_min_rfc,
-                        due_max,
-                        due_max_rfc,
-                    )
-                except TaskServiceError as exc:
-                    warnings.append(f"{list_info.title}: {exc}")
-                    continue
-
-                collected.extend(due_tasks)
-                if list_overflow:
-                    per_list_overflow = True
-
-            if not next_page_token:
-                break
-
-            list_page_token = next_page_token
-
-        collected = [task for task in collected if task.due is not None]
-        collected.sort(
-            key=lambda task: (
-                task.due or datetime.datetime.max.replace(tzinfo=datetime.timezone.utc),
-                task.updated or "",
-                task.title.lower(),
-            )
-        )
-
-        total_found = len(collected)
-        if display_limit is None:
-            display_tasks = collected
-            truncated = 0
-        else:
-            display_tasks = collected[:display_limit]
-            truncated = max(0, total_found - len(display_tasks))
-
-        has_additional = per_list_overflow or truncated > 0
-
-        return DueTaskCollection(
-            tasks=display_tasks,
-            total_found=total_found,
-            truncated=truncated,
-            warnings=warnings,
-            scanned_lists=scanned_lists,
-            has_additional=has_additional,
-        )
-
-    async def _collect_due_tasks_for_list(
-        self,
-        client: Any,
-        list_info: TaskListInfo,
-        per_list_limit: Optional[int],
-        show_completed: bool,
-        show_deleted: bool,
-        show_hidden: bool,
-        due_min_raw: Optional[str],
-        due_min_rfc: Optional[str],
-        due_max_raw: Optional[str],
-        due_max_rfc: Optional[str],
-    ) -> tuple[List[Task], bool]:
-        """Return scheduled tasks for a single list up to the provided limit."""
-
-        collected: List[Task] = []
-        page_token: Optional[str] = None
-        overflow = False
-
-        while True:
-            max_results_param = 100
-            if per_list_limit is not None:
-                remaining = per_list_limit - len(collected)
-                if remaining <= 0:
-                    overflow = True
-                    break
-                max_results_param = min(100, remaining)
-
-            params: dict[str, Any] = {
-                "tasklist": list_info.id,
-                "maxResults": max_results_param,
-                "showCompleted": show_completed,
-                "showDeleted": show_deleted,
-                "showHidden": show_hidden,
-            }
-
-            if due_min_rfc:
-                params["dueMin"] = due_min_rfc
-            elif due_min_raw:
-                params["dueMin"] = due_min_raw
-
-            if due_max_rfc:
-                params["dueMax"] = due_max_rfc
-            elif due_max_raw:
-                params["dueMax"] = due_max_raw
-
-            if page_token:
-                params["pageToken"] = page_token
-
-            try:
-                response = await self._execute(client.tasks().list(**params))
-            except Exception as exc:
-                raise TaskServiceError(f"Error listing tasks: {exc}") from exc
-
-            items = response.get("items", [])
-            for item in items:
-                due_dt = parse_rfc3339_datetime(item.get("due"))
-                if due_dt is None:
-                    continue
-
-                status = item.get("status", "needsAction")
-                if not show_completed and status.lower() == "completed":
-                    continue
-
-                collected.append(
-                    Task(
-                        title=item.get("title", "(No title)"),
-                        status=status,
-                        list_title=list_info.title,
-                        list_id=list_info.id,
-                        id=item.get("id", ""),
-                        due=due_dt,
-                        notes=item.get("notes"),
-                        updated=item.get("updated"),
-                        completed=item.get("completed"),
-                        web_link=item.get("webViewLink") or item.get("selfLink"),
-                        parent=item.get("parent"),
-                        position=item.get("position"),
-                    )
-                )
-
-                if per_list_limit is not None and len(collected) >= per_list_limit:
-                    overflow = True
-                    break
-
-            if per_list_limit is not None and len(collected) >= per_list_limit:
-                break
-
-            page_token = response.get("nextPageToken")
-            if not page_token:
-                break
-
-        return collected, overflow
 
     @staticmethod
     def _task_from_item(item: dict[str, Any], list_info: TaskListInfo) -> Task:

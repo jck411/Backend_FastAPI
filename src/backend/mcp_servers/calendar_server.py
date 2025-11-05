@@ -1118,7 +1118,7 @@ async def list_task_lists(
     return "\n".join(lines)
 
 
-@mcp.tool("calendar_list_tasks")
+@mcp.tool("list_tasks")
 async def list_tasks(
     user_email: str = DEFAULT_USER_EMAIL,
     task_list_id: Optional[str] = None,
@@ -1129,51 +1129,31 @@ async def list_tasks(
     show_hidden: bool = False,
     due_min: Optional[str] = None,
     due_max: Optional[str] = None,
+    task_filter: str = "all",
 ) -> str:
     """
-    List tasks within a specific task list, or all due tasks when no list is provided.
+    List tasks from a specific Google Tasks list. Both scheduled and unscheduled
+    tasks are returned unless filtered. Requires explicit list selection.
 
     Args:
         user_email: The user's email address.
-        task_list_id: Task list identifier; when omitted, gather due tasks across lists.
-        max_results: Maximum number of tasks to return (capped at 100). Provide
-            None to return all matching tasks.
+        task_list_id: Task list identifier (ID or title). When omitted, returns
+            available lists for user selection.
+        max_results: Maximum number of tasks to return. None returns all.
         page_token: Optional pagination token from a previous call.
         show_completed: Whether to include completed tasks.
         show_deleted: Whether to include deleted tasks.
         show_hidden: Whether to include hidden tasks.
         due_min: Optional lower bound for due dates (ISO 8601 or RFC3339).
         due_max: Optional upper bound for due dates (ISO 8601 or RFC3339).
+        task_filter: Filter tasks by type: 'all' (default), 'scheduled',
+            'unscheduled', 'overdue', or 'upcoming'.
 
     Returns:
-        Formatted string describing tasks.
+        Formatted string describing tasks, sorted by due date.
     """
     try:
         task_service = TaskService(user_email, service_factory=get_tasks_service)
-        effective_list_id: Optional[str] = None
-        list_label: Optional[str] = None
-
-        if task_list_id:
-            # Support passing a human-friendly list title by resolving to ID
-            resolved = await _resolve_task_list_identifier(task_service, task_list_id)
-            if resolved is not None:
-                effective_list_id, list_label = resolved
-            else:
-                effective_list_id, list_label = task_list_id, task_list_id
-
-            list_limit = max_results if max_results is not None else 50
-            due_collection = None
-        else:
-            due_collection = await task_service.collect_due_tasks(
-                max_results=max_results,
-                show_completed=show_completed,
-                show_deleted=show_deleted,
-                show_hidden=show_hidden,
-                due_min=due_min,
-                due_max=due_max,
-            )
-            tasks = due_collection.tasks
-            # No page token in aggregated view here.
     except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
@@ -1182,274 +1162,134 @@ async def list_tasks(
     except TaskServiceError as exc:
         return str(exc)
 
-    if task_list_id:
-        list_limit = max_results if max_results is not None else 50
-        collected_due: list[Task] = []
-        next_page_token = page_token
-        unscheduled_found = False
+    normalized_filter = (task_filter or "all").strip().lower()
+    allowed_filters = {"all", "scheduled", "unscheduled", "overdue", "upcoming"}
+    if normalized_filter not in allowed_filters:
+        return (
+            "Invalid task_filter. Supported: all, scheduled, unscheduled, "
+            "overdue, upcoming."
+        )
 
-        while True:
-            page_tasks, page_next = await task_service.list_tasks(
-                effective_list_id or task_list_id,
-                max_results=list_limit,
-                page_token=next_page_token,
+    if not task_list_id:
+        try:
+            task_lists, _ = await task_service.list_task_lists(max_results=50)
+        except TaskAuthorizationError as exc:
+            return (
+                f"Authentication error: {exc}. "
+                "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+            )
+        except TaskServiceError as exc:
+            return str(exc)
+
+        if not task_lists:
+            return f"No task lists found for {user_email}."
+
+        lines = [
+            f"Task lists for {user_email}. Specify one when calling list_tasks:",
+        ]
+        for tl in task_lists:
+            lines.append(f"- {tl.title} (ID: {tl.id})")
+        return "\n".join(lines)
+
+    try:
+        resolved = await _resolve_task_list_identifier(task_service, task_list_id)
+    except TaskServiceError as exc:
+        return str(exc)
+
+    if resolved is None:
+        effective_list_id, list_label = task_list_id, task_list_id
+    else:
+        effective_list_id, list_label = resolved
+
+    collected: List[Task] = []
+    token = page_token
+    next_token: Optional[str] = None
+
+    def apply_filter(tasks: List[Task]) -> List[Task]:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        if normalized_filter == "scheduled":
+            return [t for t in tasks if t.due is not None]
+        if normalized_filter == "unscheduled":
+            return [t for t in tasks if t.due is None]
+        if normalized_filter == "overdue":
+            return [t for t in tasks if t.due and t.due < now]
+        if normalized_filter == "upcoming":
+            return [t for t in tasks if t.due and t.due >= now]
+        return list(tasks)
+
+    target_count = max_results if max_results is not None else None
+
+    while True:
+        per_page = 100 if target_count is None else max(1, min(target_count, 100))
+
+        try:
+            page_tasks, next_token = await task_service.list_tasks(
+                effective_list_id,
+                max_results=per_page,
+                page_token=token,
                 show_completed=show_completed,
                 show_deleted=show_deleted,
                 show_hidden=show_hidden,
                 due_min=due_min,
                 due_max=due_max,
             )
-
-            if not page_tasks:
-                next_page_token = page_next
-                break
-
-            for task in page_tasks:
-                if task.due:
-                    collected_due.append(task)
-                    if len(collected_due) >= list_limit:
-                        next_page_token = page_next
-                        break
-                else:
-                    unscheduled_found = True
-
-            if len(collected_due) >= list_limit:
-                break
-
-            if not page_next:
-                next_page_token = None
-                break
-
-            next_page_token = page_next
-
-        if not collected_due:
-            message = (
-                f"No tasks with scheduled due dates found in list {list_label or task_list_id} "
-                f"for {user_email}."
+        except TaskAuthorizationError as exc:
+            return (
+                f"Authentication error: {exc}. "
+                "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
             )
-            if unscheduled_found:
-                message += (
-                    " Use tasks_list_unscheduled to view items without due dates."
-                )
-            return message
+        except TaskServiceError as exc:
+            return str(exc)
 
-        lines = [
-            (
-                f"Tasks with scheduled due date/time in list {list_label or task_list_id} for "
-                f"{user_email}:"
-            )
-        ]
+        collected.extend(page_tasks)
+        filtered = apply_filter(collected)
 
-        def append_task_details(target: list[str], task: Task) -> None:
-            target.append(f"- {task.title} (ID: {task.id})")
-            target.append(f"  Status: {task.status}")
-            target.append(f"  Updated: {task.updated or 'N/A'}")
-            if task.due is not None:
-                target.append(f"  Due: {normalize_rfc3339(task.due)}")
-            if task.completed:
-                target.append(f"  Completed: {task.completed}")
-            if task.notes:
-                notes = task.notes.strip()
-                if len(notes) > 200:
-                    notes = notes[:197] + "..."
-                if notes:
-                    target.append(f"  Notes: {notes}")
-            if task.web_link:
-                target.append(f"  Link: {task.web_link}")
+        if target_count is not None and len(filtered) >= target_count:
+            break
+        if not next_token:
+            break
+        token = next_token
 
-        for task in collected_due:
-            append_task_details(lines, task)
+    if not filtered:
+        msg = {
+            "all": "No tasks",
+            "scheduled": "No scheduled tasks",
+            "unscheduled": "No unscheduled tasks",
+            "overdue": "No overdue tasks",
+            "upcoming": "No upcoming tasks",
+        }[normalized_filter]
+        return f"{msg} in '{list_label}' for {user_email}."
 
-        if unscheduled_found:
-            lines.append(
-                """
-Note: Additional tasks without due dates exist; use tasks_list_unscheduled to view them.
-""".strip()
-            )
+    filtered.sort(
+        key=lambda t: (
+            t.due or datetime.datetime.max.replace(tzinfo=datetime.timezone.utc),
+            t.title.lower(),
+        )
+    )
 
-        if next_page_token:
-            lines.append(f"Next page token: {next_page_token}")
+    display = filtered[:target_count] if target_count else filtered
+    has_more = (target_count and len(filtered) > len(display)) or next_token
 
-        return "\n".join(lines)
-
-    # Aggregate due tasks view.
-    assert due_collection is not None
-    due_tasks = tasks
-
-    if not due_tasks:
-        base_message = f"No due tasks found across task lists for {user_email}."
-        if due_collection.has_additional:
-            base_message += (
-                " Additional due tasks may exist; increase max_results or "
-                "adjust the filters to reveal more."
-            )
-        if due_collection.warnings:
-            base_message += " Warnings: " + "; ".join(due_collection.warnings) + "."
-        return base_message
-
-    shown_count = len(due_tasks)
-    task_word = "task" if shown_count == 1 else "tasks"
-    if due_collection.total_found > shown_count:
-        lines = [
-            (
-                f"Due tasks for {user_email}: showing {shown_count} of "
-                f"{due_collection.total_found} {task_word}."
-            )
-        ]
+    header = f"Tasks in '{list_label}' for {user_email}: {len(display)} shown"
+    if normalized_filter != "all":
+        header += f" (filter: {normalized_filter})."
     else:
-        lines = [f"Due tasks for {user_email}: {shown_count} {task_word}."]
+        header += "."
 
-    if due_collection.scanned_lists:
-        if len(due_collection.scanned_lists) <= 10:
-            lines.append(
-                "Task lists scanned: " + ", ".join(due_collection.scanned_lists)
-            )
-        else:
-            displayed_lists = ", ".join(due_collection.scanned_lists[:10])
-            remaining_lists = len(due_collection.scanned_lists) - 10
-            lines.append(
-                f"Task lists scanned: {displayed_lists}, +{remaining_lists} more"
-            )
+    lines = [header]
 
-    for task in due_tasks:
-        lines.append(f"- {task.title} (ID: {task.id})")
-        lines.append(f"  Status: {task.status}")
-        lines.append(f"  Task list: {task.list_title} (ID: {task.list_id})")
-        if task.due:
-            lines.append(f"  Due: {normalize_rfc3339(task.due)}")
-        lines.append(f"  Updated: {task.updated or 'N/A'}")
-        if task.completed:
-            lines.append(f"  Completed: {task.completed}")
+    for task in display:
+        due_text = f"Due {normalize_rfc3339(task.due)}" if task.due else "Unscheduled"
+        lines.append(f"- {task.title} [{task.status}] ({due_text}) ID: {task.id}")
         if task.notes:
-            notes = task.notes.strip()
-            if len(notes) > 200:
-                notes = notes[:197] + "..."
-            if notes:
-                lines.append(f"  Notes: {notes}")
+            lines.append(f"  Notes: {task.notes}")
         if task.web_link:
             lines.append(f"  Link: {task.web_link}")
 
-    if due_collection.truncated > 0:
-        extra = due_collection.truncated
-        extra_word = "task" if extra == 1 else "tasks"
-        lines.append(
-            f"(+{extra} additional due {extra_word} not shown; increase max_results "
-            "or refine the filters to view more.)"
-        )
-    elif due_collection.has_additional:
-        lines.append(
-            "Additional due tasks may exist; increase max_results or adjust the "
-            "filters to view more."
-        )
-
-    if due_collection.warnings:
-        lines.append("Warnings:")
-        for warning in due_collection.warnings:
-            lines.append(f"- {warning}")
-
-    return "\n".join(lines)
-
-
-@mcp.tool("tasks_list_unscheduled")
-async def list_unscheduled_tasks(
-    *,
-    user_email: str = DEFAULT_USER_EMAIL,
-    task_list_id: Optional[str] = None,
-    max_results: Optional[int] = None,
-    page_token: Optional[str] = None,
-    show_completed: bool = False,
-    show_deleted: bool = False,
-    show_hidden: bool = False,
-) -> str:
-    """List tasks that do not have a scheduled due date."""
-
-    if not task_list_id:
-        return "task_list_id is required to list unscheduled tasks."
-
-    try:
-        task_service = TaskService(user_email, service_factory=get_tasks_service)
-        # Resolve friendly titles to canonical IDs when possible
-        effective_list_id = task_list_id
-        list_label = task_list_id
-        resolved = await _resolve_task_list_identifier(task_service, task_list_id)
-        if resolved is not None:
-            effective_list_id, list_label = resolved
-
-        list_limit = max_results if max_results is not None else 50
-        unscheduled_tasks: list[Task] = []
-        next_page_token = page_token
-        scheduled_found = False
-
-        while True:
-            page_tasks, page_next = await task_service.list_tasks(
-                effective_list_id,
-                max_results=list_limit,
-                page_token=next_page_token,
-                show_completed=show_completed,
-                show_deleted=show_deleted,
-                show_hidden=show_hidden,
-            )
-
-            if not page_tasks:
-                next_page_token = page_next
-                break
-
-            for task in page_tasks:
-                if task.due:
-                    scheduled_found = True
-                    continue
-
-                unscheduled_tasks.append(task)
-                if len(unscheduled_tasks) >= list_limit:
-                    next_page_token = page_next
-                    break
-
-            if len(unscheduled_tasks) >= list_limit:
-                break
-
-            if not page_next:
-                next_page_token = None
-                break
-
-            next_page_token = page_next
-
-    except TaskAuthorizationError as exc:
-        return (
-            f"Authentication error: {exc}. Use calendar_generate_auth_url "
-            "with force=true to authorize Google Tasks."
-        )
-    except TaskServiceError as exc:
-        return str(exc)
-
-    if not unscheduled_tasks:
-        message = f"No unscheduled tasks found in list {list_label} for {user_email}."
-        if scheduled_found:
-            message += " Use calendar_list_tasks to view items with due dates."
-        return message
-
-    lines = [(f"Tasks without due date/time in list {list_label} for {user_email}:")]
-
-    for task in unscheduled_tasks:
-        lines.append(f"- {task.title} (ID: {task.id})")
-        lines.append(f"  Status: {task.status}")
-        lines.append(f"  Updated: {task.updated or 'N/A'}")
-        lines.append("  Due: Not scheduled")
-        if task.completed:
-            lines.append(f"  Completed: {task.completed}")
-        if task.notes:
-            notes = task.notes.strip()
-            if len(notes) > 200:
-                notes = notes[:197] + "..."
-            if notes:
-                lines.append(f"  Notes: {notes}")
-        if task.web_link:
-            lines.append(f"  Link: {task.web_link}")
-
-    if scheduled_found:
-        lines.append("Use calendar_list_tasks to view items that have due dates.")
-
-    if next_page_token:
-        lines.append(f"Next page token: {next_page_token}")
+    if has_more and next_token:
+        lines.append(f"Next page token: {next_token}")
+    elif has_more:
+        lines.append("Additional tasks available; adjust max_results.")
 
     return "\n".join(lines)
 
@@ -2031,7 +1871,6 @@ __all__ = [
     "list_calendars",
     "list_task_lists",
     "list_tasks",
-    "list_unscheduled_tasks",
     "search_all_tasks",
     "user_context_from_tasks",
     "get_task",

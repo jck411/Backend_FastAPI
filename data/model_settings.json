@@ -1,5 +1,5 @@
 {
-  "model": "anthropic/claude-3-opus",
-  "system_prompt": "You are a helpful but funny assistant",
-  "updated_at": "2025-11-05T05:28:47.154540+00:00"
+  "model": "openai/gpt-4o-mini-2024-07-18",
+  "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack and live in Olrlando, Fl",
+  "updated_at": "2025-11-05T05:30:14.718608+00:00"
 }

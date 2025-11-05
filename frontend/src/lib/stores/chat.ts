@@ -1,13 +1,12 @@
 import { get, writable } from 'svelte/store';
 import { ApiError, deleteChatMessage } from '../api/client';
-import { collectCitations, type MessageCitation } from '../chat/citations';
-export type { MessageCitation } from '../chat/citations';
 import type {
   AttachmentResource,
   ChatCompletionRequest,
   ChatContentFragment,
   ChatMessageContent,
 } from '../api/types';
+import { collectCitations, type MessageCitation } from '../chat/citations';
 import {
   buildChatContent,
   normalizeMessageContent,
@@ -15,33 +14,22 @@ import {
 } from '../chat/content';
 import {
   mergeReasoningSegments,
-  type ReasoningSegment,
-  type ReasoningStatus,
   reasoningTextLength,
   toReasoningSegments,
+  type ReasoningSegment,
+  type ReasoningStatus,
 } from '../chat/reasoning';
 import { startChatStream } from '../chat/streaming';
 import type { WebSearchSettings } from '../chat/webSearch';
 import { webSearchStore } from '../chat/webSearchStore';
 import { modelSettingsStore } from './modelSettings';
+export type { MessageCitation } from '../chat/citations';
 
 export type ConversationRole = 'user' | 'assistant' | 'system' | 'tool';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
-
-<<<<<<< ours
-export interface MessageCitation {
-  url: string;
-  title?: string | null;
-  content?: string | null;
-  startIndex?: number | null;
-  endIndex?: number | null;
-}
-
-=======
->>>>>>> theirs
 interface ConversationMessageDetails {
   model?: string | null;
   finishReason?: string | null;
@@ -57,6 +45,12 @@ interface ConversationMessageDetails {
   serverMessageId?: number | null;
   meta?: Record<string, unknown> | null;
   citations?: MessageCitation[] | null;
+  webSearchConfig?: {
+    engine: string | null;
+    maxResults: number | null;
+    contextSize: string | null;
+    searchPrompt: string | null;
+  } | null;
 }
 
 export interface ConversationMessage {
@@ -208,64 +202,6 @@ function mergeMessageContent(
   };
 }
 
-function extractCitations(
-  meta: Record<string, unknown> | null | undefined,
-): MessageCitation[] | null {
-  if (!meta) {
-    return null;
-  }
-
-  const annotations = meta.annotations;
-  if (!Array.isArray(annotations)) {
-    return null;
-  }
-
-  const citations: MessageCitation[] = [];
-
-  for (const annotation of annotations) {
-    if (!isRecord(annotation)) {
-      continue;
-    }
-    if ((annotation.type ?? null) !== 'url_citation') {
-      continue;
-    }
-    const payload = annotation.url_citation;
-    if (!isRecord(payload)) {
-      continue;
-    }
-    const url = typeof payload.url === 'string' ? payload.url.trim() : '';
-    if (!url) {
-      continue;
-    }
-    const title =
-      typeof payload.title === 'string' && payload.title.trim()
-        ? payload.title.trim()
-        : null;
-    const content =
-      typeof payload.content === 'string' && payload.content.trim()
-        ? payload.content.trim()
-        : null;
-    const startIndex =
-      typeof payload.start_index === 'number' && Number.isFinite(payload.start_index)
-        ? payload.start_index
-        : null;
-    const endIndex =
-      typeof payload.end_index === 'number' && Number.isFinite(payload.end_index)
-        ? payload.end_index
-        : null;
-
-    citations.push({
-      url,
-      title,
-      content,
-      startIndex,
-      endIndex,
-    });
-  }
-
-  return citations.length > 0 ? citations : null;
-}
-
 function resolveDeletionIdentifiers(message: ConversationMessage): string[] {
   const identifiers: string[] = [];
   const seen = new Set<string>();
@@ -363,10 +299,11 @@ function createChatStore() {
     const normalized = normalizeMessageContent(messageContent);
     const userAttachments = attachments;
 
+    const webSearchConfig = webSearchStore.current;
     const payload = toChatPayload(
       state,
       messageContent,
-      webSearchStore.current,
+      webSearchConfig,
       userMessageId,
       assistantMessageId,
     );
@@ -394,6 +331,16 @@ function createChatStore() {
           pending: true,
           createdAt: null,
           createdAtUtc: null,
+          details: webSearchConfig.enabled
+            ? {
+              webSearchConfig: {
+                engine: webSearchConfig.engine,
+                maxResults: webSearchConfig.maxResults,
+                contextSize: webSearchConfig.contextSize,
+                searchPrompt: webSearchConfig.searchPrompt,
+              },
+            }
+            : undefined,
         },
       ],
       isStreaming: true,
@@ -418,6 +365,7 @@ function createChatStore() {
           fragments: deltaFragments,
           reasoningSegments,
           hasReasoningPayload,
+          chunk,
         }) {
           store.update((value) => {
             const messages = value.messages.map((message) => {
@@ -453,6 +401,22 @@ function createChatStore() {
                   );
                 }
                 updatedMessage.details = nextDetails;
+              }
+
+              const chunkCitations = chunk ? collectCitations(chunk) : [];
+              if (chunkCitations.length > 0) {
+                let nextDetails = updatedMessage.details;
+                if (!nextDetails) {
+                  nextDetails = message.details ? { ...message.details } : {};
+                }
+                const mergedCitations = collectCitations(
+                  nextDetails?.citations ?? null,
+                  chunkCitations,
+                );
+                if (mergedCitations.length > 0) {
+                  nextDetails.citations = mergedCitations;
+                  updatedMessage.details = nextDetails;
+                }
               }
 
               return updatedMessage;
@@ -493,9 +457,6 @@ function createChatStore() {
                 nextCitations = null;
               } else if (isRecord(metadata.meta)) {
                 nextMeta = metadata.meta;
-<<<<<<< ours
-                nextCitations = extractCitations(nextMeta);
-=======
                 const extracted = collectCitations(metadata.meta, metadata);
                 if (extracted.length > 0) {
                   nextCitations = extracted;
@@ -505,7 +466,6 @@ function createChatStore() {
                 if (extracted.length > 0) {
                   nextCitations = extracted;
                 }
->>>>>>> theirs
               }
               const createdAt = coalesceTimestamp(
                 metadata.created_at,
@@ -665,11 +625,11 @@ function createChatStore() {
               }
               const details = message.details
                 ? {
-                    ...message.details,
-                    reasoningStatus: message.details.reasoning
-                      ? 'complete'
-                      : message.details.reasoningStatus ?? null,
-                  }
+                  ...message.details,
+                  reasoningStatus: message.details.reasoning
+                    ? 'complete'
+                    : message.details.reasoningStatus ?? null,
+                }
                 : undefined;
               const fallbackIso = new Date().toISOString();
               const finalizedCreatedAt = message.createdAt ?? fallbackIso;

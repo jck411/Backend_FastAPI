@@ -13,12 +13,8 @@
   import { createEventDispatcher } from "svelte";
   import { copyableCode } from "../../actions/copyableCode";
   import type { AttachmentResource } from "../../api/types";
-<<<<<<< ours
+  import { collectCitations } from "../../chat/citations";
   import type { ConversationMessage, MessageCitation } from "../../stores/chat";
-=======
-  import type { ConversationMessage } from "../../stores/chat";
-  import { collectCitations, type MessageCitation } from "../../chat/citations";
->>>>>>> theirs
   import { renderMarkdown } from "../../utils/markdown";
 
   export let message: ConversationMessage;
@@ -30,44 +26,70 @@
     copy: { message: ConversationMessage };
     openTool: { message: ConversationMessage };
     openReasoning: { message: ConversationMessage };
+    openCitations: { message: ConversationMessage };
+    openWebSearchDetails: { message: ConversationMessage };
     openUsage: { id: string };
     edit: { message: ConversationMessage };
-    editAttachment: { message: ConversationMessage; attachment: AttachmentResource };
+    editAttachment: {
+      message: ConversationMessage;
+      attachment: AttachmentResource;
+    };
     retry: { message: ConversationMessage };
     delete: { message: ConversationMessage };
   }>();
 
   let hasReasoningSegments = false;
-  let citationsOpen = false;
   let citations: MessageCitation[] = [];
+  let hasWebSearchConfig = false;
 
   $: hasReasoningSegments =
     (message.details?.reasoning?.length ?? 0) > 0 ||
     Boolean(message.details?.reasoningStatus);
 
   $: {
-<<<<<<< ours
-    const rawCitations = message.details?.citations ?? null;
-    citations = Array.isArray(rawCitations)
-      ? rawCitations.filter(
-          (citation): citation is MessageCitation =>
-            typeof citation?.url === "string" && citation.url.length > 0,
-        )
-      : [];
-=======
-    citations = collectCitations(
-      message.details?.citations ?? null,
-      message.details?.meta ?? null,
-      message.details ?? null,
-    );
->>>>>>> theirs
+    const webSearchResults = message.details?.meta?.web_search_results;
+
+    // DEBUG: Log EVERYTHING about this message
+    if (message.role === "assistant") {
+      console.log("=== FULL MESSAGE DEBUG ===");
+      console.log("Message ID:", message.id);
+      console.log("Message role:", message.role);
+      console.log("Message.details:", JSON.stringify(message.details, null, 2));
+      console.log("webSearchResults:", webSearchResults);
+      console.log("Is Array?", Array.isArray(webSearchResults));
+      console.log(
+        "Length:",
+        Array.isArray(webSearchResults) ? webSearchResults.length : 0,
+      );
+      console.log("========================");
+    }
+
+    if (Array.isArray(webSearchResults) && webSearchResults.length > 0) {
+      citations = webSearchResults
+        .map((result: any) => ({
+          url: result.url || "",
+          title: result.title || result.name || "",
+          content: result.snippet || result.content || result.description || "",
+        }))
+        .filter((c: any) => c.url);
+      console.log("Citations extracted:", citations);
+    } else {
+      // Extract citations from metadata AND message content (markdown links)
+      citations = collectCitations(
+        message.details?.citations ?? null,
+        message.details?.meta ?? null,
+        message.details ?? null,
+        message.content ?? null,
+        {
+          content: typeof message.content === "string" ? message.content : null,
+        },
+      );
+      console.log("Citations from collectCitations:", citations);
+    }
   }
 
   $: hasCitations = citations.length > 0;
-
-  $: if (!hasCitations) {
-    citationsOpen = false;
-  }
+  $: hasWebSearchConfig = Boolean(message.details?.webSearchConfig);
 
   function handleCopy(): void {
     dispatch("copy", { message });
@@ -79,6 +101,14 @@
 
   function handleOpenTool(): void {
     dispatch("openTool", { message });
+  }
+
+  function handleOpenCitations(): void {
+    dispatch("openCitations", { message });
+  }
+
+  function handleOpenWebSearchDetails(): void {
+    dispatch("openWebSearchDetails", { message });
   }
 
   function handleOpenUsage(): void {
@@ -121,21 +151,6 @@
   function attachmentAlt(attachment: AttachmentResource): string {
     const filename = attachmentFilename(attachment);
     return filename ?? "Attachment preview";
-  }
-
-  function toggleCitations(): void {
-    if (!hasCitations) {
-      return;
-    }
-    citationsOpen = !citationsOpen;
-  }
-
-  function handleCitationIndicatorKeydown(event: KeyboardEvent): void {
-    if (event.key === "Escape" && citationsOpen) {
-      event.preventDefault();
-      event.stopPropagation();
-      citationsOpen = false;
-    }
   }
 
   $: hasAttachments = (message.attachments?.length ?? 0) > 0;
@@ -287,45 +302,16 @@
                   <Brain size={14} strokeWidth={1.8} aria-hidden="true" />
                 </button>
               {/if}
-              {#if hasCitations}
-                <div class="sender-citation" data-open={citationsOpen}>
-                  <button
-                    type="button"
-                    class="sender-citation-indicator"
-                    aria-label={citationsOpen ? "Hide web citations" : "Show web citations"}
-                    title={citationsOpen ? "Hide web citations" : "Show web citations"}
-                    aria-expanded={citationsOpen}
-                    on:click={toggleCitations}
-                    on:keydown={handleCitationIndicatorKeydown}
-                  >
-                    <Globe size={14} strokeWidth={1.8} aria-hidden="true" />
-                  </button>
-                  {#if citationsOpen}
-                    <div class="citations-popover" role="group" aria-label="Web citations">
-                      <p class="citations-title">Web citations</p>
-                      <ul class="citations-list">
-                        {#each citations as citation, index}
-                          <li class="citation-item">
-                            <a
-                              class="citation-link"
-                              href={citation.url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              Citation {index + 1}
-                            </a>
-                            {#if citation.title}
-                              <div class="citation-title-text">{citation.title}</div>
-                            {/if}
-                            {#if citation.content}
-                              <p class="citation-snippet">{citation.content}</p>
-                            {/if}
-                          </li>
-                        {/each}
-                      </ul>
-                    </div>
-                  {/if}
-                </div>
+              {#if hasWebSearchConfig}
+                <button
+                  type="button"
+                  class="sender-citation-indicator"
+                  aria-label="View web search details"
+                  title="View web search details"
+                  on:click={handleOpenWebSearchDetails}
+                >
+                  <Globe size={14} strokeWidth={1.8} aria-hidden="true" />
+                </button>
               {/if}
               {#if showToolIndicator}
                 <button
@@ -545,12 +531,6 @@
     color: #7dd3fc;
     outline: none;
   }
-  .sender-citation {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
   .sender-citation-indicator {
     display: inline-flex;
     align-items: center;
@@ -562,68 +542,11 @@
     border: none;
     padding: 0;
     cursor: pointer;
-    transition: color 0.18s ease;
   }
   .sender-citation-indicator:hover,
   .sender-citation-indicator:focus-visible {
     color: #fde68a;
     outline: none;
-  }
-  .sender-citation[data-open="true"] .sender-citation-indicator {
-    color: #fde047;
-  }
-  .citations-popover {
-    position: absolute;
-    top: 1.65rem;
-    right: 0;
-    z-index: 20;
-    min-width: 16rem;
-    max-width: 20rem;
-    padding: 0.85rem 0.95rem;
-    border-radius: 0.65rem;
-    border: 1px solid rgba(72, 93, 136, 0.45);
-    background: rgba(10, 18, 32, 0.95);
-    box-shadow: 0 16px 36px rgba(5, 11, 22, 0.6);
-  }
-  .citations-title {
-    margin: 0;
-    font-size: 0.7rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: rgba(248, 250, 252, 0.7);
-  }
-  .citations-list {
-    margin: 0.65rem 0 0;
-    padding: 0;
-    list-style: none;
-    display: grid;
-    gap: 0.6rem;
-  }
-  .citation-item {
-    display: grid;
-    gap: 0.35rem;
-  }
-  .citation-link {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: #38bdf8;
-    text-decoration: none;
-  }
-  .citation-link:hover,
-  .citation-link:focus-visible {
-    color: #7dd3fc;
-    text-decoration: underline;
-    outline: none;
-  }
-  .citation-title-text {
-    font-size: 0.75rem;
-    color: rgba(224, 231, 255, 0.8);
-  }
-  .citation-snippet {
-    margin: 0;
-    font-size: 0.72rem;
-    line-height: 1.35;
-    color: rgba(191, 207, 255, 0.75);
   }
   .message-content {
     line-height: 1.55;

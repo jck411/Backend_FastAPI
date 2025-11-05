@@ -89,6 +89,16 @@ class ChatCompletionRequest(BaseModel):
         payload.setdefault("model", default_model)
         payload["stream"] = True
         payload.setdefault("usage", {"include": True})
+
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.info(
+            "🌐 WEB SEARCH in payload: plugins=%s, web_search_options=%s",
+            payload.get("plugins"),
+            payload.get("web_search_options"),
+        )
+
         return payload
 
 

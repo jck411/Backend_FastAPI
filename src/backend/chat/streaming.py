@@ -780,6 +780,17 @@ class StreamingHandler:
                         logger.debug("Skipping non-JSON SSE payload: %s", data)
                         continue
 
+                    # DEBUG: Log full chunk to see what OpenRouter sends
+                    if (
+                        "meta" in chunk
+                        or "plugins" in chunk
+                        or any("web" in str(k).lower() for k in chunk.keys())
+                    ):
+                        logger.info(
+                            "[WEB-SEARCH-DEBUG] Chunk with web-related keys: %s",
+                            json.dumps(chunk, indent=2),
+                        )
+
                     chunk_modified = False
                     http_client_cache: httpx.AsyncClient | None = None
 

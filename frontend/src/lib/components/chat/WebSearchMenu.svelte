@@ -243,10 +243,10 @@
         <label class="prompt">
           <span>Search prompt</span>
           <textarea
-            rows="2"
+            rows="5"
             value={$webSearch.searchPrompt ?? ""}
             disabled={!$webSearch.enabled}
-            placeholder="Use default prompt"
+            placeholder="Default: A web search was conducted on &#123;today's_date&#125;. Incorporate the following web search results into your response. IMPORTANT: Cite them using markdown links named using the domain of the source."
             on:input={commitPrompt}
           ></textarea>
         </label>

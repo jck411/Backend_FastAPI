@@ -125,6 +125,36 @@ function addUniqueCitation(
   collection.push(citation);
 }
 
+/**
+ * Extract markdown links from text content as citations
+ * Matches patterns like [text](url) or just raw URLs
+ */
+function extractMarkdownCitations(text: string): MessageCitation[] {
+  const citations: MessageCitation[] = [];
+  const seen = new Set<string>();
+
+  // Match markdown links: [text](url)
+  const markdownLinkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = markdownLinkRegex.exec(text)) !== null) {
+    const title = match[1].trim();
+    const url = match[2].trim();
+
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      citations.push({
+        url,
+        title: title || undefined,
+        startIndex: match.index,
+        endIndex: match.index + match[0].length,
+      });
+    }
+  }
+
+  return citations;
+}
+
 export function collectCitations(...sources: unknown[]): MessageCitation[] {
   const results: MessageCitation[] = [];
   const seen = new Set<string>();
@@ -188,26 +218,33 @@ export function collectCitations(...sources: unknown[]): MessageCitation[] {
       }
     }
 
-    const nestedCandidates = [
-      current.meta,
-      current.metadata,
-      current.annotations,
-      current.citations,
-      (current as Record<string, unknown>).url_citation,
-      (current as Record<string, unknown>).urlCitation,
-      current.payload,
-      current.data,
-      current.message,
-    ];
+    enqueue(current.meta);
+    enqueue(current.metadata);
+    enqueue(current.annotations);
+    enqueue(current.citations);
+    enqueue((current as Record<string, unknown>).url_citation);
+    enqueue((current as Record<string, unknown>).urlCitation);
+    enqueue(current.payload);
+    enqueue(current.data);
+    enqueue(current.message);
 
-    for (const candidate of nestedCandidates) {
-      if (candidate === undefined || candidate === null) {
+    // Extract markdown citations from content/text fields
+    const contentCandidate = current.content ?? (current as Record<string, unknown>).text;
+    if (typeof contentCandidate === 'string' && contentCandidate.length > 0) {
+      const markdownCitations = extractMarkdownCitations(contentCandidate);
+      for (const citation of markdownCitations) {
+        addUniqueCitation(results, seen, citation);
+      }
+    }
+
+    for (const value of Object.values(current)) {
+      if (value === undefined || value === null) {
         continue;
       }
-      if (Array.isArray(candidate) || isRecord(candidate)) {
-        enqueue(candidate);
+      if (Array.isArray(value) || isRecord(value)) {
+        enqueue(value);
       } else {
-        const normalized = coerceCitation(candidate);
+        const normalized = coerceCitation(value);
         if (normalized) {
           addUniqueCitation(results, seen, normalized);
         }

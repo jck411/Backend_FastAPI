@@ -8,7 +8,7 @@ import logging
 import sys
 from contextlib import AsyncExitStack
 from pathlib import Path
-from typing import Any, Sequence, AsyncContextManager, cast
+from typing import Any, AsyncContextManager, Sequence, cast
 
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -159,6 +159,42 @@ class MCPToolClient:
 
         if self._session is None:
             raise RuntimeError("MCP session has not been initialized")
+
+        # Validate calendar_create_task calls for common mistakes
+        if name == "calendar_create_task" and arguments:
+            title = str(arguments.get("title", "")).lower()
+            notes = str(arguments.get("notes", "")).lower()
+            has_due = arguments.get("due") is not None
+
+            # Check if the title or notes contain scheduling keywords
+            scheduling_keywords = [
+                "today",
+                "tomorrow",
+                "schedule",
+                "due",
+                "deadline",
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+                "next week",
+                "this week",
+            ]
+
+            has_scheduling_keyword = any(
+                keyword in title or keyword in notes for keyword in scheduling_keywords
+            )
+
+            if has_scheduling_keyword and not has_due:
+                logger.warning(
+                    "Creating task with scheduling keywords but missing 'due' parameter. "
+                    "Task will be created unscheduled. Title: %s, Notes: %s",
+                    arguments.get("title"),
+                    arguments.get("notes"),
+                )
 
         logger.debug("Invoking tool '%s' with args=%s", name, arguments)
         return await self._session.call_tool(name, arguments or {})

@@ -62,3 +62,4 @@ node_modules/
 # uv.lock can be committed; comment out next line if you want it tracked
 # uv.lock
 data/model_settings.json
+data/model_settings.json

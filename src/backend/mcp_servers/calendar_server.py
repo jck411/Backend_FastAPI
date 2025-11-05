@@ -34,6 +34,8 @@ from backend.services.google_auth.auth import (
     authorize_user,
     get_calendar_service,
     get_credentials,
+)
+from backend.services.google_auth.auth import (
     get_tasks_service as _google_get_tasks_service,
 )
 from backend.tasks import (
@@ -82,6 +84,7 @@ def get_tasks_service(user_email: str):
     """
 
     return _google_get_tasks_service(user_email)
+
 
 def _parse_time_string(time_str: Optional[str]) -> Optional[str]:
     """Normalize ISO-like date/time strings to RFC3339 (UTC) strings."""
@@ -1702,12 +1705,20 @@ async def create_task(
     """
     Create a new Google Task.
 
+    IMPORTANT: When the user asks to "schedule a task for [date/time]", you MUST
+    include the 'due' parameter to actually schedule it. Without 'due', the task
+    will be created unscheduled. Use 'due="YYYY-MM-DD"' for date-only scheduling
+    or 'due="YYYY-MM-DDTHH:MM:SSZ"' for specific times.
+
+    When scheduling EXISTING tasks, use calendar_update_task instead of creating
+    duplicates.
+
     Args:
         user_email: The user's email address.
         task_list_id: Task list identifier (default: '@default').
         title: Title for the new task.
         notes: Optional detailed notes.
-        due: Optional due date/time (ISO 8601 or RFC3339 format).
+        due: Due date/time (ISO 8601 or RFC3339 format). REQUIRED for scheduling.
         parent: Optional parent task ID for subtasks.
         previous: Optional sibling task ID for positioning.
 

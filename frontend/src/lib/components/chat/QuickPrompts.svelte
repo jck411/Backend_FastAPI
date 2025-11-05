@@ -172,26 +172,32 @@
   }
 
   .add-btn {
-    font-size: 1.5rem;
-    padding: 0;
     border: none;
     background: transparent;
-    color: #a0e0b0;
+    color: #5fe298;
     cursor: pointer;
     font: inherit;
+    font-size: 1.5rem;
     line-height: 1;
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    padding: 0;
+    transition:
+      transform 0.18s ease,
+      color 0.18s ease;
   }
 
-  .add-btn:hover {
-    color: #c2f3d0;
-  }
-
+  .add-btn:hover,
   .add-btn:focus-visible {
-    outline: 2px solid rgba(100, 200, 140, 0.6);
-    outline-offset: 2px;
+    transform: translateY(-1px) scale(1.04);
+    color: #7effb8;
+    text-shadow: 0 0 6px rgba(127, 255, 184, 0.45);
+  }
+
+  .add-btn:active {
+    transform: scale(0.92);
+    text-shadow: none;
   }
 
   .add-form {

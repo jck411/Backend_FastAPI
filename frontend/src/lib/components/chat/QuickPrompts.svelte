@@ -98,7 +98,14 @@
       >
     </div>
   {:else}
-    <button type="button" class="add-btn" on:click={handleAdd}>+ Add</button>
+    <button
+      type="button"
+      class="add-btn"
+      aria-label="Add suggested prompt"
+      on:click={handleAdd}
+    >
+      +
+    </button>
   {/if}
 </section>
 
@@ -165,18 +172,26 @@
   }
 
   .add-btn {
-    font-size: 0.85rem;
-    padding: 0.625rem 1.25rem;
-    border-radius: 999px;
-    background: rgba(20, 80, 51, 0.4);
-    border: 1px solid rgba(57, 114, 76, 0.6);
+    font-size: 1.5rem;
+    padding: 0;
+    border: none;
+    background: transparent;
     color: #a0e0b0;
     cursor: pointer;
     font: inherit;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .add-btn:hover {
-    border-color: rgba(100, 200, 140, 0.6);
+    color: #c2f3d0;
+  }
+
+  .add-btn:focus-visible {
+    outline: 2px solid rgba(100, 200, 140, 0.6);
+    outline-offset: 2px;
   }
 
   .add-form {

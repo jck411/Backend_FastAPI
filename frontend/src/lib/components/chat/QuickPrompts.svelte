@@ -174,7 +174,7 @@
   .add-btn {
     border: none;
     background: transparent;
-    color: #5fe298;
+    color: inherit;
     cursor: pointer;
     font: inherit;
     font-size: 1.5rem;

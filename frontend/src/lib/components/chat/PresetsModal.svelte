@@ -4,6 +4,7 @@
     import { chatStore } from "../../stores/chat";
     import { modelSettingsStore } from "../../stores/modelSettings";
     import { presetsStore } from "../../stores/presets";
+    import { suggestionsStore } from "../../stores/suggestions";
     import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
 
     export let open = false;
@@ -56,6 +57,8 @@
             // Keep chat model synchronized with applied preset
             chatStore.setModel(result.model);
         }
+        // Reload suggestions after applying preset
+        await suggestionsStore.load();
     }
 
     async function handleSaveSnapshot(item: PresetListItem): Promise<void> {

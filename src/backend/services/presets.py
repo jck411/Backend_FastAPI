@@ -230,9 +230,13 @@ class PresetService:
             # Persist to disk and update service
             await self._mcp_settings.replace_configs(merged_configs)
 
-        # Apply suggestions if present and service is available
-        if preset.suggestions is not None and self._suggestions_service is not None:
-            await self._suggestions_service.replace_suggestions(preset.suggestions)
+        # Apply suggestions if service is available
+        # If preset has no suggestions, replace with empty list to clear existing ones
+        if self._suggestions_service is not None:
+            suggestions_to_apply = (
+                preset.suggestions if preset.suggestions is not None else []
+            )
+            await self._suggestions_service.replace_suggestions(suggestions_to_apply)
 
         # Return a copy of the applied preset
         return await self.get_preset(name)

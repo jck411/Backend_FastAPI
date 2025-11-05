@@ -83,6 +83,8 @@
       if (applied?.model) {
         setModel(applied.model);
       }
+      // Reload suggestions after applying preset
+      await suggestionsStore.load();
     }
   });
 

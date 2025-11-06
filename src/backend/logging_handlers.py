@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo
-
 
 _EASTERN = ZoneInfo("America/New_York")
 
@@ -68,4 +67,75 @@ class DateStampedFileHandler(logging.FileHandler):
         )
 
 
-__all__ = ["DateStampedFileHandler"]
+def cleanup_old_logs(
+    log_directories: list[str | Path],
+    retention_hours: int,
+    logger: logging.Logger | None = None,
+) -> tuple[int, int]:
+    """
+    Delete log files older than the specified retention period.
+
+    Args:
+        log_directories: List of directories to clean (e.g., ['logs/app', 'logs/conversations'])
+        retention_hours: Files older than this many hours will be deleted (0 = disabled)
+        logger: Optional logger for reporting cleanup activity
+
+    Returns:
+        Tuple of (files_deleted, errors_encountered)
+    """
+    if retention_hours <= 0:
+        return (0, 0)
+
+    cutoff_time = datetime.now(timezone.utc) - timedelta(hours=retention_hours)
+    files_deleted = 0
+    errors = 0
+
+    for directory in log_directories:
+        dir_path = Path(directory).resolve()
+        if not dir_path.exists():
+            continue
+
+        try:
+            # Recursively find all .log files
+            for log_file in dir_path.rglob("*.log"):
+                try:
+                    # Get file modification time
+                    mtime = datetime.fromtimestamp(
+                        log_file.stat().st_mtime, tz=timezone.utc
+                    )
+
+                    if mtime < cutoff_time:
+                        log_file.unlink()
+                        files_deleted += 1
+                        if logger:
+                            logger.debug(f"Deleted old log file: {log_file}")
+                except (OSError, PermissionError) as e:
+                    errors += 1
+                    if logger:
+                        logger.warning(f"Failed to delete {log_file}: {e}")
+
+            # Clean up empty date directories
+            for date_dir in dir_path.iterdir():
+                if date_dir.is_dir() and not any(date_dir.iterdir()):
+                    try:
+                        date_dir.rmdir()
+                        if logger:
+                            logger.debug(f"Removed empty directory: {date_dir}")
+                    except OSError:
+                        pass  # Ignore errors removing directories
+
+        except Exception as e:
+            errors += 1
+            if logger:
+                logger.error(f"Error cleaning logs in {dir_path}: {e}")
+
+    if logger and files_deleted > 0:
+        logger.info(
+            f"Log cleanup complete: {files_deleted} file(s) deleted, "
+            f"{errors} error(s) encountered"
+        )
+
+    return (files_deleted, errors)
+
+
+__all__ = ["DateStampedFileHandler", "cleanup_old_logs"]

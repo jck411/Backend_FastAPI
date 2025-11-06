@@ -13,7 +13,7 @@ from fastapi.responses import Response
 
 from .chat import ChatOrchestrator
 from .config import get_settings
-from .logging_handlers import DateStampedFileHandler
+from .logging_handlers import DateStampedFileHandler, cleanup_old_logs
 from .logging_settings import parse_logging_settings
 from .routers.chat import router as chat_router
 from .routers.google_auth import router as google_auth_router
@@ -202,6 +202,27 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         nonlocal cleanup_task
         await orchestrator.initialize()
+
+        # Clean up old log files
+        logging_settings = parse_logging_settings(
+            project_root / "logging_settings.conf"
+        )
+        if logging_settings.retention_hours > 0:
+            try:
+                log_dirs = ["logs/app", "logs/conversations"]
+                files_deleted, errors = cleanup_old_logs(
+                    log_dirs,
+                    logging_settings.retention_hours,
+                    logger=logging.getLogger("backend"),
+                )
+                if files_deleted > 0:
+                    logging.info(
+                        f"Cleaned up {files_deleted} old log file(s) "
+                        f"(retention: {logging_settings.retention_hours}h)"
+                    )
+            except Exception as exc:
+                logging.warning("Log cleanup failed: %s", exc)
+
         try:
             await cleanup_expired_attachments(orchestrator.repository)
         except Exception as exc:

@@ -36,13 +36,6 @@ from .llm_planner import LLMContextPlanner
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 
-_TOOL_RATIONALE_INSTRUCTION = (
-    "Before each tool call, emit numbered one-sentence rationales in order (e.g.,"
-    " 'Rationale 1: …') immediately preceding the call. Prefer a lightweight probe"
-    " (count, sample, recent-only) before heavier operations, escalating only if"
-    " the probe yields signal."
-)
-
 if TYPE_CHECKING:
     from ..services.attachments import AttachmentService
 
@@ -80,38 +73,6 @@ def _build_mcp_base_env(project_root: Path) -> dict[str, str]:
                 continue
             env.setdefault(key, value)
     return env
-
-
-def _content_contains_rationale_instruction(content: Any) -> bool:
-    if content is None:
-        return False
-    if isinstance(content, str):
-        return _TOOL_RATIONALE_INSTRUCTION in content
-    if isinstance(content, list):
-        return any(_content_contains_rationale_instruction(item) for item in content)
-    if isinstance(content, dict):
-        return any(
-            _content_contains_rationale_instruction(value) for value in content.values()
-        )
-    return False
-
-
-def _append_rationale_instruction(content: Any) -> Any:
-    if isinstance(content, str):
-        base = content.rstrip()
-        if base:
-            return f"{base}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
-        return _TOOL_RATIONALE_INSTRUCTION
-    if isinstance(content, list):
-        updated = list(content)
-        updated.append({"type": "text", "text": _TOOL_RATIONALE_INSTRUCTION})
-        return updated
-    if content is None:
-        return _TOOL_RATIONALE_INSTRUCTION
-    base = str(content).rstrip()
-    if base:
-        return f"{base}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
-    return _TOOL_RATIONALE_INSTRUCTION
 
 
 def _build_enhanced_system_prompt(base_prompt: str | None) -> str:
@@ -280,42 +241,7 @@ class ChatOrchestrator:
             planner_enabled,
         ) = await self._model_settings.get_orchestrator_settings()
         system_prompt = _build_enhanced_system_prompt(system_prompt_value)
-
-        stored_has_rationale_instruction = any(
-            _content_contains_rationale_instruction(message.get("content"))
-            for message in system_messages
-        )
         has_system_message = bool(system_messages)
-        fallback_add_system_message = False
-
-        if planner_enabled:
-            if system_messages and not stored_has_rationale_instruction:
-                latest_system = system_messages[-1]
-                new_content = _append_rationale_instruction(
-                    latest_system.get("content")
-                )
-                try:
-                    updated = await self._repo.update_latest_system_message(
-                        session_id, new_content
-                    )
-                except Exception as exc:  # pragma: no cover - defensive fallback
-                    logger.debug(
-                        "Failed to update system message with rationale instruction for session %s: %s",
-                        session_id,
-                        exc,
-                    )
-                    updated = False
-                if updated:
-                    latest_system["content"] = new_content
-                    stored_has_rationale_instruction = True
-                else:
-                    fallback_add_system_message = True
-            if fallback_add_system_message:
-                has_system_message = False
-            if _TOOL_RATIONALE_INSTRUCTION not in system_prompt:
-                system_prompt = (
-                    f"{system_prompt.rstrip()}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
-                )
 
         if (
             system_prompt

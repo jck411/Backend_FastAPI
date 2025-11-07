@@ -2,7 +2,7 @@
 
 ## Status: ⚙️ Configurable
 
-The system can use LLM-based tool planning to intelligently select which tools to provide. When enabled, the LLM is instructed to explain its tool selection choices. When disabled, all available tools are provided to the model without intelligent filtering.
+The system can use LLM-based tool planning to intelligently select which tools to provide. When enabled, the LLM analyzes the conversation context to determine relevant tools. When disabled, all available tools are provided without intelligent filtering.
 
 ## How It Works
 
@@ -65,9 +65,12 @@ The `LLMContextPlanner` uses the following approach:
 
 ### Planning Flow
 
-1. **Check planner status**: System prompt receives planning instructions only when LLM planner is enabled
+1. **Check planner status**: Determines whether to use intelligent tool selection
 2. **Prepare minimal fallback**: Creates a simple plan with `broad_search=True` in case the LLM fails
 3. **Compact tool digest**: Reduces the capability digest to essential information for the LLM
+4. **Call LLM planner**: Makes an async request via `client.request_tool_plan()`
+5. **Merge response**: Combines the LLM's plan with the fallback using `merge_model_tool_plan()`
+6. **Return plan**: Returns the merged `ToolContextPlan`
 ## Implementation Details
 
 ### LLMContextPlanner Class
@@ -120,9 +123,9 @@ self._llm_planner = LLMContextPlanner(self._client)
 
 # During request processing
 system_prompt_value, planner_enabled = await self._model_settings.get_orchestrator_settings()
+system_prompt = _build_enhanced_system_prompt(system_prompt_value)
 
 if planner_enabled:
-    # Add planning instructions to system prompt
     # Call LLM planner for intelligent tool selection
     plan = await self._llm_planner.plan(request, conversation, capability_digest)
 else:
@@ -135,7 +138,7 @@ ranked_tool_names = [...]  # Extract from plan.candidate_tools
 tools_payload = self._mcp_client.get_openai_tools_by_qualified_names(ranked_tool_names)
 ```
 
-When the planner is disabled, the system provides all available tools without adding planning instructions to the system prompt.
+When the planner is disabled, the system provides all available tools without intelligent filtering.
 
 ## Testing
 
@@ -163,7 +166,7 @@ Tests cover:
 3. **Easier maintenance**: New tools are automatically considered
 4. **Improved accuracy**: AI-driven tool selection based on full conversation context when enabled
 5. **Graceful degradation**: Falls back to providing all tools if planner fails
-6. **No blocking**: Tools execute immediately without validation delays
+6. **Fast execution**: Tools run immediately without overhead
 
 ## Future Enhancements
 

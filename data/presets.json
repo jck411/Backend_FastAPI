@@ -138,8 +138,8 @@
           "text": "show all my task"
         }
       ],
-      "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack and live in Olrlando, Fl",
-      "updated_at": "2025-11-05T05:32:08.739323Z"
+      "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack  (dad) and lives in Olrlando, Fl",
+      "updated_at": "2025-11-07T03:04:36.151304Z"
     },
     {
       "created_at": "2025-10-24T01:44:35.184462Z",

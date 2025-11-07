@@ -1,65 +1,95 @@
 # OpenRouter Chat Backend
 
-FastAPI backend that proxies streaming chat completions from OpenRouter and keeps
-Model Context Protocol (MCP) tools online for the chat UI. Responses are streamed
-over Server-Sent Events (SSE) so any client can render tokens as they arrive.
+FastAPI backend that proxies streaming chat completions from OpenRouter with integrated Model Context Protocol (MCP) tools. Responses stream over Server-Sent Events (SSE) for real-time rendering.
 
-## Highlights
+## Key Features
 
-- **OpenRouter-first streaming** with HTTP keep-alive so replies start quickly.
-- **LLM-based context planning** that intelligently selects tools using an AI planner,
-  simplifying code by eliminating keyword-based mapping rules.
-- **Persisted chat history** with attachment support and retention controls.
-- **MCP tool aggregation** for Google Calendar, Gmail, Drive, PDF extraction, and
-  custom local utilities.
-- **Browser speech-to-text** helpers that mint short-lived Deepgram tokens.
+- **Streaming chat** via OpenRouter API with HTTP keep-alive for fast response times
+- **LLM-based context planning** — AI-driven tool selection without hardcoded keyword rules
+- **Persistent chat history** with GCS-backed attachment storage and automatic cleanup
+- **MCP tool aggregation** — Google Calendar, Gmail, Drive, Notion, PDF extraction, and custom utilities
+- **Speech-to-text** — Mint short-lived Deepgram tokens for browser-based voice input
+- **Presets** — Save and restore complete chat configurations (model, tools, prompts)
 
 ## Requirements
 
-- Python 3.13+
-- [`uv`](https://github.com/astral-sh/uv) for dependency and task management
-- Local `.env` file (copy from `.env.example` and fill in at least
-  `OPENROUTER_API_KEY`)
-- Google OAuth client credentials stored under `credentials/`
+- **Python 3.13+**
+- **[uv](https://github.com/astral-sh/uv)** for dependency and environment management
+- **Google Cloud** credentials for attachment storage (service account JSON)
+- **Environment variables** in `.env` (see Setup below)
 
-## Setup
+## Quick Start
 
-```bash
-uv sync
-```
+1. **Install uv** if you haven't already:
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
 
-`uv` will reuse a virtual environment under `.venv/` inside the project root.
+2. **Clone and setup**:
+   ```bash
+   uv sync  # Creates .venv/ and installs all dependencies
+   ```
 
-## Running the API
+3. **Configure environment** — create `.env` in project root:
+   ```bash
+   # Required
+   OPENROUTER_API_KEY=sk-or-v1-...
 
-During development you will usually want reload enabled:
+   # Google Cloud Storage (for attachments)
+   GCS_BUCKET_NAME=your-bucket-name
+   GCP_PROJECT_ID=your-project-id
+   GOOGLE_APPLICATION_CREDENTIALS=credentials/sa.json
 
-```bash
-uv run uvicorn backend.app:app --reload --app-dir src
-```
+   # Optional defaults
+   OPENROUTER_DEFAULT_MODEL=openai/gpt-4
+   OPENROUTER_SYSTEM_PROMPT="You are a helpful assistant."
+   USE_LLM_PLANNER=true
+   ATTACHMENTS_MAX_SIZE_BYTES=10485760  # 10MB
+   ATTACHMENTS_RETENTION_DAYS=7
 
-Alternative entrypoints:
+   # Optional: Notion integration
+   NOTION_TOKEN=notion_secret_xxx
 
-```bash
-uv run python -m uvicorn backend.app:app --app-dir src
-uv run fastapi dev backend.app:app --app-dir src  # requires fastapi[standard]
-uv run backend  # CLI wrapper that calls uvicorn with sensible defaults
-```
+   # Optional: Deepgram for speech-to-text
+   DEEPGRAM_API_KEY=...
+   ```
 
-The service exposes a lightweight HTTP surface:
+4. **Add Google credentials**:
+   - Place service account JSON at `credentials/sa.json`
+   - For OAuth flows, add client credentials to `credentials/`
+
+5. **Run the server**:
+   ```bash
+   uv run uvicorn backend.app:app --reload --app-dir src
+   ```
+
+   Alternative commands:
+   ```bash
+   uv run uvicorn backend.app:create_app --factory --reload  # Factory pattern
+   uv run backend  # CLI wrapper with defaults
+   ```
+
+## API Endpoints
 
 | Method & Path | Description |
 |---------------|-------------|
-| `GET /health` | Readiness probe with default/active model hints |
-| `POST /api/chat/stream` | Stream OpenRouter chat completions via SSE |
-| `DELETE /api/chat/session/{id}` | Clear server-side conversation state |
-| `GET /api/models` | Return the OpenRouter catalog (filterable) |
-| `POST /api/stt/deepgram/token` | Mint short-lived Deepgram keys for browser STT |
-| `POST /api/uploads` | Store attachments for reuse in later turns |
-| `GET /api/mcp/servers` | Inspect configured MCP servers and their status |
-| `GET /api/presets/` | Manage presets built from current backend state |
+| `GET /health` | Health check with active model info |
+| `POST /api/chat/stream` | Stream chat completions via SSE |
+| `DELETE /api/chat/session/{id}` | Clear conversation history |
+| `GET /api/models` | List available OpenRouter models |
+| `GET /api/settings/model` | Get current model settings |
+| `PUT /api/settings/model` | Update model configuration |
+| `GET /api/settings/system-prompt` | Get system prompt |
+| `PUT /api/settings/system-prompt` | Update system prompt |
+| `POST /api/uploads` | Upload attachment, returns signed GCS URL |
+| `GET /api/mcp/servers` | List MCP server configurations |
+| `PUT /api/mcp/servers` | Update MCP servers (hot-reload) |
+| `GET /api/presets/` | List saved presets |
+| `POST /api/presets/` | Create new preset from current state |
+| `POST /api/presets/{name}/apply` | Apply saved preset |
+| `POST /api/stt/deepgram/token` | Mint browser STT token |
 
-### Streaming example
+### Example: Stream a chat
 
 ```bash
 curl -N \
@@ -67,87 +97,150 @@ curl -N \
   -X POST \
   -d '{
         "model": "openrouter/auto",
-        "messages": [{"role": "user", "content": "Hello from FastAPI!"}]
+        "messages": [{"role": "user", "content": "Hello!"}]
       }' \
   http://localhost:8000/api/chat/stream
 ```
 
-### Attachments
+## Project Structure
 
-Uploads are persisted to private Google Cloud Storage. The `AttachmentService`
-stores metadata in SQLite, returns signed delivery URLs on write, and refreshes
-expired links when chat history is read. Size and retention are controlled via
-`ATTACHMENTS_MAX_SIZE_BYTES` and `ATTACHMENTS_RETENTION_DAYS`. A legacy
-`LEGACY_ATTACHMENTS_DIR` knob remains for MCP servers that still stage files on
-disk during development.
+```
+src/backend/
+  app.py              # FastAPI factory
+  config.py           # Settings via Pydantic
+  repository.py       # SQLite data layer
+  routers/            # API endpoints
+  services/           # Business logic
+  chat/
+    orchestrator.py   # Main chat coordination
+    llm_planner.py    # LLM-based tool selection
+    mcp_registry.py   # MCP tool aggregator
+  mcp_servers/        # Bundled MCP integrations
 
-## Notion MCP server
+data/                 # Runtime state (gitignored)
+  chat_sessions.db    # SQLite database
+  model_settings.json # Active model config
+  presets.json        # Saved presets
+  mcp_servers.json    # MCP configurations
+  tokens/             # OAuth tokens
 
-The backend ships with a bundled Notion MCP server (`custom-notion`). Provide a
-workspace integration token before enabling it:
+tests/                # Pytest suite
+frontend/             # Svelte + TypeScript UI
+```
 
-1. Create a Notion integration at <https://www.notion.so/profile/integrations>
-   and copy the secret value.
-2. Add the following variables to your `.env` file:
+## Frontend Development
 
-   ```bash
-   NOTION_TOKEN=notion_secret_xxx  # or NOTION_API_KEY
-   # Optional overrides:
-   NOTION_VERSION=2022-06-28
-   NOTION_PAGE_ID=<default parent page>
-   NOTION_DATABASE_ID=<default parent database>
-   ```
-
-3. Share the desired pages or databases with the integration from the Notion
-   UI so the MCP tools can access them.
-
-The orchestrator automatically loads the exported configuration, which sets a
-`custom-notion__` tool prefix to avoid collisions when other MCP servers expose
-similarly named tools.
-
-## Frontend companion app
-
-A Svelte + TypeScript client lives in `frontend/`. It proxies `/api/*` requests
-to the FastAPI backend while developing:
+The Svelte UI is in `frontend/` and proxies API requests during development:
 
 ```bash
 cd frontend
 npm install
-npm run dev
+npm run dev  # Defaults to http://localhost:5173
 ```
 
-Set `VITE_API_BASE_URL` in `frontend/.env` if you need to target a remote
-backend.
+Configure backend URL in `frontend/.env`:
+```bash
+VITE_API_BASE_URL=http://localhost:8000
+```
 
-## Configuration
+## Feature Highlights
+
+### Attachments
+
+All uploads (images, PDFs) are stored in **private Google Cloud Storage**:
+- Metadata stored in SQLite
+- Signed URLs with configurable expiration (default 7 days)
+- Automatic URL refresh when serving chat history
+- Background cleanup job removes expired attachments
+
+Supported types: `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `application/pdf`
 
 ### LLM Context Planning
 
-The backend uses LLM-based context planning by default, which intelligently selects
-tools based on conversation context. You can control this with:
+By default, an LLM planner selects which tools to make available based on conversation context. This eliminates brittle keyword-based rules. Toggle with `USE_LLM_PLANNER=true/false`.
 
-```bash
-# Enable LLM-first planning (default)
-USE_LLM_PLANNER=true
+See [`docs/LLM_PLANNER.md`](docs/LLM_PLANNER.md) for details.
 
-# Disable and use legacy keyword-based planning
-USE_LLM_PLANNER=false
-```
+### MCP Tool Integration
 
-See [`docs/LLM_PLANNER.md`](docs/LLM_PLANNER.md) for detailed information about the
-LLM-based planning system.
+MCP servers are configured in `data/mcp_servers.json` and hot-reloaded via API. Built-in integrations:
 
-## Documentation
+- **Google Calendar** — create/search events
+- **Gmail** — read/send messages, manage drafts
+- **Google Drive** — search/read/create files
+- **Notion** — create/search pages, manage databases
+- **PDF tools** — extract text and metadata
+- **Calculator & utilities** — housekeeping helpers
 
-Additional implementation notes (model settings, MCP orchestration, speech
-settings, attachment tooling, and data layout) live in
-[`docs/REFERENCE.md`](docs/REFERENCE.md).
+Each server's tools are prefixed (e.g., `custom-notion__notion_search`) to avoid naming conflicts.
+
+### Notion Setup
+
+1. Create integration at https://www.notion.so/profile/integrations
+2. Add `NOTION_TOKEN=notion_secret_xxx` to `.env`
+3. Share target pages/databases with your integration
+4. Enable in MCP settings via UI or API
+
+See [`docs/NOTION_REMINDERS.md`](docs/NOTION_REMINDERS.md) for usage patterns.
+
+### Presets
+
+Save complete configurations (model, tools, prompt, parameters) and restore them later. Presets capture:
+- Active model ID
+- Provider/parameter overrides
+- System prompt
+- Enabled MCP servers
+
+Use the UI or `GET/POST /api/presets/` endpoints.
 
 ## Testing
 
 ```bash
-uv run pytest
+uv run pytest              # Run all tests
+uv run pytest tests/test_attachments.py  # Specific test file
+uv run pytest -v          # Verbose output
 ```
 
-The test suite currently covers attachment storage helpers, SSE parsing, and MCP
-aggregation utilities.
+Tests use isolated SQLite databases in `tests/data/` and clean up automatically.
+
+## Documentation
+
+- **[REFERENCE.md](docs/REFERENCE.md)** — Operations guide, system details, troubleshooting
+- **[LLM_PLANNER.md](docs/LLM_PLANNER.md)** — LLM-based context planning architecture
+- **[NOTION_REMINDERS.md](docs/NOTION_REMINDERS.md)** — Notion MCP usage patterns
+- **[GCS_STORAGE.md](docs/GCS_STORAGE.md)** — GCS attachment storage implementation
+
+## Development Guidelines
+
+- **Code style**: PEP 8, type hints required, `ruff` for linting
+- **Async first**: Use `async`/`await` for all I/O operations
+- **Error handling**: Fail fast with clear errors, catch broad exceptions only at boundaries
+- **Tests**: `pytest` + `pytest-asyncio`, one test file per module
+- **Dependencies**: Manage via `uv`, sync with `uv sync`
+- **Secrets**: Never commit credentials, use `.env` only
+
+See [`.github/copilot-instructions.md`](.github/copilot-instructions.md) for AI agent guidelines.
+
+## Troubleshooting
+
+**Import errors after adding dependencies:**
+```bash
+uv sync  # Regenerate .venv
+```
+
+**Attachments not uploading:**
+- Verify GCS bucket exists and service account has `storage.objects.create` permission
+- Check `GOOGLE_APPLICATION_CREDENTIALS` points to valid JSON
+
+**MCP tools not appearing:**
+- Check `data/mcp_servers.json` has enabled servers
+- Verify required env vars (e.g., `NOTION_TOKEN`) are set
+- Use `POST /api/mcp/servers/refresh` to hot-reload
+
+**Tests failing:**
+- Run `uv sync` to ensure dependencies are current
+- Check `tests/data/` for stale SQLite files (usually auto-cleaned)
+
+## License
+
+See LICENSE file for details.

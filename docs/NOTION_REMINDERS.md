@@ -1,6 +1,8 @@
-# Using Notion MCP Server for Reminders and Memory
+# Notion MCP Server Usage Guide
 
-The Notion MCP server provides enhanced tool descriptions to help you store and retrieve information like names, reminders, and notes. This guide shows how the LLM will use these tools to help you remember things.
+## Status: ✅ Available (requires `NOTION_TOKEN` in `.env`)
+
+The Notion MCP server (`custom-notion`) helps you store and retrieve information like names, reminders, notes, and ideas. This guide shows how the LLM automatically uses these tools.
 
 ## Overview
 

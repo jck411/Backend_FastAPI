@@ -1,8 +1,8 @@
 # LLM-Based Context Planning
 
-## Overview
+## Status: ✅ Implemented & Active by Default
 
-The LLM-based context planner simplifies the tool selection logic by delegating context planning directly to a Language Model, eliminating the need for complex keyword-based mapping rules.
+The LLM-based context planner simplifies tool selection by delegating planning directly to a Language Model, eliminating complex keyword-based mapping rules.
 
 ## Motivation
 
@@ -96,7 +96,7 @@ The `LLMContextPlanner` class has a simple interface:
 class LLMContextPlanner:
     def __init__(self, client: OpenRouterClient):
         self._client = client
-    
+
     async def plan(
         self,
         request: ChatCompletionRequest,

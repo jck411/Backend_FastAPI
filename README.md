@@ -43,7 +43,6 @@ FastAPI backend that proxies streaming chat completions from OpenRouter with int
    # Optional defaults
    OPENROUTER_DEFAULT_MODEL=openai/gpt-4
    OPENROUTER_SYSTEM_PROMPT="You are a helpful assistant."
-   USE_LLM_PLANNER=true
    ATTACHMENTS_MAX_SIZE_BYTES=10485760  # 10MB
    ATTACHMENTS_RETENTION_DAYS=7
 
@@ -157,7 +156,7 @@ Supported types: `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `applicat
 
 ### LLM Context Planning
 
-By default, an LLM planner selects which tools to make available based on conversation context. This eliminates brittle keyword-based rules. Toggle with `USE_LLM_PLANNER=true/false`.
+The system uses an LLM to intelligently select which tools to make available based on conversation context. No configuration needed—it's always active and falls back gracefully if the planner fails.
 
 See [`docs/LLM_PLANNER.md`](docs/LLM_PLANNER.md) for details.
 

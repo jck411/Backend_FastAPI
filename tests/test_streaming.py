@@ -309,10 +309,12 @@ class ToolCallOpenRouterClient(DummyOpenRouterClient):
                                     "type": "function",
                                     "function": {
                                         "name": "calendar_lookup",
-                                        "arguments": json.dumps({"query": "team standup"}),
+                                        "arguments": json.dumps(
+                                            {"query": "team standup"}
+                                        ),
                                     },
                                 }
-                            ]
+                            ],
                         },
                         "finish_reason": "tool_calls",
                     }
@@ -796,11 +798,13 @@ async def test_streaming_emits_fallback_plan_notice() -> None:
         default_model="openrouter/auto",
     )
 
+    # Fallback WITH a reason (planner error) should show a notice
     plan = ToolContextPlan(
         stages=[],
         broad_search=True,
         intent="General assistance",
         used_fallback=True,
+        fallback_reason="OpenRouter returned an error",
     )
 
     request = ChatCompletionRequest(
@@ -823,12 +827,60 @@ async def test_streaming_emits_fallback_plan_notice() -> None:
         if payload.get("type") == "tool_plan_status":
             plan_notices.append(payload)
 
-    assert plan_notices, "Expected fallback plan notice"
+    assert plan_notices, "Expected fallback plan notice when planner fails"
     notice = plan_notices[0]
     assert notice["used_fallback"] is True
     assert notice["contexts"] == []
     assert "Fallback tool plan active" in notice["message"]
+    assert "OpenRouter returned an error" in notice["message"]
     assert notice["message"].startswith("*") and notice["message"].endswith("*")
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_no_notice_when_planner_disabled() -> None:
+    """When planner is intentionally disabled, no notice should be shown."""
+    client = DummyOpenRouterClient()
+    repo = DummyRepository()
+    tool_client = DummyToolClient()
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    # Fallback WITHOUT a reason (planner disabled) should NOT show a notice
+    plan = ToolContextPlan(
+        stages=[],
+        broad_search=True,
+        intent="General assistance",
+        used_fallback=True,
+        fallback_reason=None,
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+    conversation = [{"role": "user", "content": "Hello"}]
+
+    plan_notices: list[dict[str, Any]] = []
+    async for event in handler.stream_conversation(
+        "session-planner-disabled",
+        request,
+        conversation,
+        [],
+        None,
+        plan,
+    ):
+        if event.get("event") != "notice" or not event.get("data"):
+            continue
+        payload = json.loads(event["data"])
+        if payload.get("type") == "tool_plan_status":
+            plan_notices.append(payload)
+
+    assert not plan_notices, (
+        "Should not show notice when planner is intentionally disabled"
+    )
 
 
 @pytest.mark.anyio("asyncio")
@@ -1005,7 +1057,9 @@ async def test_streaming_preserves_user_image_fragments() -> None:
         pass
 
     payload = client.payloads[0]
-    user_messages = [message for message in payload["messages"] if message.get("role") == "user"]
+    user_messages = [
+        message for message in payload["messages"] if message.get("role") == "user"
+    ]
     assert user_messages, "Expected at least one user message in payload"
     user_message = user_messages[-1]
     assert user_message["content"][-1]["type"] == "image_url"
@@ -1107,9 +1161,7 @@ async def test_streaming_expands_contexts_after_no_result() -> None:
     assert events[-1]["data"] == "[DONE]"
 
     notice_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "notice"
+        json.loads(event["data"]) for event in events if event.get("event") == "notice"
     ]
     rationale_events = [
         notice for notice in notice_events if notice.get("type") == "tool_rationale"
@@ -1122,20 +1174,24 @@ async def test_streaming_expands_contexts_after_no_result() -> None:
     assert rationale_events, "Expected rationale notice before tool execution"
     assert followup_events, "Expected follow-up notice after tool execution"
     rationale_message = rationale_events[0]["message"]
-    assert rationale_message == client.last_rationale
+    # Rationale is wrapped in italic markdown (*text*), strip for comparison
+    rationale_text = (
+        rationale_message.strip("*")
+        if rationale_message.startswith("*")
+        else rationale_message
+    )
+    assert rationale_text == client.last_rationale
     notice = followup_events[0]
     assert notice["reason"] == "no_results"
     assert notice["tool"] == "calendar_lookup"
     assert notice["next_contexts"] == ["tasks"]
     assert notice["confirmation_required"] is True
-    assert notice["rationale"] == rationale_message
+    assert notice["rationale"] == rationale_text
 
     tool_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "tool"
+        json.loads(event["data"]) for event in events if event.get("event") == "tool"
     ]
-    assert tool_events[0]["rationale"] == rationale_message
+    assert tool_events[0]["rationale"] == rationale_text
 
     metadata_events = [
         json.loads(event["data"])
@@ -1143,7 +1199,7 @@ async def test_streaming_expands_contexts_after_no_result() -> None:
         if event.get("event") == "metadata"
     ]
     tool_rationales = metadata_events[0].get("tool_rationales")
-    assert tool_rationales and tool_rationales[0]["text"] == rationale_message
+    assert tool_rationales and tool_rationales[0]["text"] == rationale_text
     assert tool_rationales[0]["index"] == 1
 
     assistant_messages = [
@@ -1151,11 +1207,11 @@ async def test_streaming_expands_contexts_after_no_result() -> None:
     ]
     assert assistant_messages
     assistant_rationales = assistant_messages[0]["metadata"].get("tool_rationales")
-    assert assistant_rationales and assistant_rationales[0]["text"] == rationale_message
+    assert assistant_rationales and assistant_rationales[0]["text"] == rationale_text
     assert assistant_rationales[0]["index"] == 1
     tool_messages = [message for message in repo.messages if message["role"] == "tool"]
     assert tool_messages
-    assert tool_messages[0]["metadata"]["tool_rationale"] == rationale_message
+    assert tool_messages[0]["metadata"]["tool_rationale"] == rationale_text
     assert tool_messages[0]["metadata"]["tool_rationale_index"] == 1
 
 
@@ -1196,9 +1252,7 @@ async def test_streaming_requests_rationale_when_missing() -> None:
         events.append(event)
 
     notice_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "notice"
+        json.loads(event["data"]) for event in events if event.get("event") == "notice"
     ]
     rationale_notices = [
         notice for notice in notice_events if notice.get("type") == "tool_rationale"
@@ -1224,9 +1278,7 @@ async def test_streaming_requests_rationale_when_missing() -> None:
     assert followup_events[0]["rationale_auto_generated"] is True
 
     tool_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "tool"
+        json.loads(event["data"]) for event in events if event.get("event") == "tool"
     ]
     finished_events = [
         event
@@ -1305,9 +1357,7 @@ async def test_streaming_blocks_tool_when_followup_rationale_missing() -> None:
         events.append(event)
 
     notice_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "notice"
+        json.loads(event["data"]) for event in events if event.get("event") == "notice"
     ]
     rationale_notices = [
         notice for notice in notice_events if notice.get("type") == "tool_rationale"
@@ -1326,9 +1376,7 @@ async def test_streaming_blocks_tool_when_followup_rationale_missing() -> None:
     )
 
     tool_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "tool"
+        json.loads(event["data"]) for event in events if event.get("event") == "tool"
     ]
     finished_tool = next(
         event
@@ -1389,6 +1437,7 @@ async def test_streaming_blocks_tool_when_followup_rationale_missing() -> None:
     assert second_message["metadata"]["tool_rationale"].startswith("Rationale 2:")
     assert second_message["metadata"]["tool_rationale_auto_generated"] is True
 
+
 @pytest.mark.anyio("asyncio")
 async def test_streaming_uses_embedded_tool_rationale() -> None:
     client = EmbeddedRationaleOpenRouterClient()
@@ -1423,25 +1472,20 @@ async def test_streaming_uses_embedded_tool_rationale() -> None:
         events.append(event)
 
     notice_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "notice"
+        json.loads(event["data"]) for event in events if event.get("event") == "notice"
     ]
     assert not any(
         notice.get("type") == "tool_rationale_missing" for notice in notice_events
     )
 
     tool_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "tool"
+        json.loads(event["data"]) for event in events if event.get("event") == "tool"
     ]
     assert tool_events, "Expected tool event"
     first_tool = tool_events[0]
     assert first_tool["rationale_index"] == 1
     assert (
-        first_tool["rationale"]
-        == "Rationale 1: Checking today's calendar for events."
+        first_tool["rationale"] == "Rationale 1: Checking today's calendar for events."
     )
 
     metadata_events = [
@@ -1451,9 +1495,7 @@ async def test_streaming_uses_embedded_tool_rationale() -> None:
     ]
     assert metadata_events, "Expected metadata event"
     stored_rationales = metadata_events[0].get("tool_rationales")
-    assert stored_rationales and stored_rationales[0]["text"].startswith(
-        "Rationale 1:"
-    )
+    assert stored_rationales and stored_rationales[0]["text"].startswith("Rationale 1:")
 
     assistant_messages = [
         message for message in repo.messages if message["role"] == "assistant"
@@ -1461,13 +1503,11 @@ async def test_streaming_uses_embedded_tool_rationale() -> None:
     assert assistant_messages
     assistant_metadata = assistant_messages[0]["metadata"] or {}
     stored_assistant_rationales = assistant_metadata.get("tool_rationales")
-    assert stored_assistant_rationales and stored_assistant_rationales[0]["text"].startswith(
-        "Rationale 1:"
-    )
+    assert stored_assistant_rationales and stored_assistant_rationales[0][
+        "text"
+    ].startswith("Rationale 1:")
 
-    tool_messages = [
-        message for message in repo.messages if message["role"] == "tool"
-    ]
+    tool_messages = [message for message in repo.messages if message["role"] == "tool"]
     assert tool_messages
     assert (
         tool_messages[0]["metadata"]["tool_rationale"]
@@ -1519,9 +1559,7 @@ async def test_streaming_generates_fallback_rationale_when_missing() -> None:
         events.append(event)
 
     notice_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "notice"
+        json.loads(event["data"]) for event in events if event.get("event") == "notice"
     ]
     tool_rationale_notices = [
         notice for notice in notice_events if notice.get("type") == "tool_rationale"
@@ -1529,13 +1567,13 @@ async def test_streaming_generates_fallback_rationale_when_missing() -> None:
     assert tool_rationale_notices, "Expected auto-generated rationale notice"
     generated_notice = tool_rationale_notices[0]
     assert generated_notice["auto_generated"] is True
-    assert generated_notice["message"].startswith("Rationale 1:")
+    # Verify rationale is wrapped in italic markdown
+    assert generated_notice["message"].startswith("*Rationale 1:")
+    assert generated_notice["message"].endswith("*")
     assert generated_notice["tool"] == "list_calendars"
 
     tool_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "tool"
+        json.loads(event["data"]) for event in events if event.get("event") == "tool"
     ]
     assert tool_events, "Expected tool events"
     finished_tool = next(
@@ -1653,9 +1691,7 @@ async def test_streaming_emits_notice_for_missing_arguments() -> None:
         events.append(event)
 
     notice_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "notice"
+        json.loads(event["data"]) for event in events if event.get("event") == "notice"
     ]
 
     rationale_events = [
@@ -1670,27 +1706,30 @@ async def test_streaming_emits_notice_for_missing_arguments() -> None:
     assert rationale_events, "Expected rationale notice before tool execution"
     assert followup_events, "Expected follow-up notice when tool arguments are missing"
     rationale_message = rationale_events[0]["message"]
+    rationale_text = (
+        rationale_message.strip("*")
+        if rationale_message.startswith("*")
+        else rationale_message
+    )
     assert rationale_events[0]["index"] == 1
     notice = followup_events[0]
     assert notice["reason"] == "missing_arguments"
     assert notice["tool"] == "calendar_lookup"
     assert notice["next_contexts"] == []
     assert notice["confirmation_required"] is True
-    assert notice["rationale"] == rationale_message
+    assert notice["rationale"] == rationale_text
     assert tool_client.calls == 0
     assert len(client.payloads) == 2
     assert events[-1]["data"] == "[DONE]"
 
     tool_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "tool"
+        json.loads(event["data"]) for event in events if event.get("event") == "tool"
     ]
-    assert tool_events[0]["rationale"] == rationale_message
+    assert tool_events[0]["rationale"] == rationale_text
     assert tool_events[0]["rationale_index"] == 1
 
     tool_messages = [message for message in repo.messages if message["role"] == "tool"]
-    assert tool_messages[0]["metadata"]["tool_rationale"] == rationale_message
+    assert tool_messages[0]["metadata"]["tool_rationale"] == rationale_text
     assert tool_messages[0]["metadata"]["tool_rationale_index"] == 1
 
 
@@ -1740,9 +1779,7 @@ async def test_streaming_handles_multi_stage_notices() -> None:
         events.append(event)
 
     notice_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "notice"
+        json.loads(event["data"]) for event in events if event.get("event") == "notice"
     ]
 
     rationale_events = [
@@ -1761,8 +1798,21 @@ async def test_streaming_handles_multi_stage_notices() -> None:
     assert first_notice["next_contexts"] == ["tasks"]
     assert second_notice["reason"] == "no_results"
     assert second_notice["next_contexts"] == ["notes"]
-    assert first_notice["rationale"] == rationale_events[0]["message"]
-    assert second_notice["rationale"] == rationale_events[1]["message"]
+    # Rationale in followup notices is stored without italics, but notice message has them
+    first_rationale_message = rationale_events[0]["message"]
+    first_rationale_text = (
+        first_rationale_message.strip("*")
+        if first_rationale_message.startswith("*")
+        else first_rationale_message
+    )
+    second_rationale_message = rationale_events[1]["message"]
+    second_rationale_text = (
+        second_rationale_message.strip("*")
+        if second_rationale_message.startswith("*")
+        else second_rationale_message
+    )
+    assert first_notice["rationale"] == first_rationale_text
+    assert second_notice["rationale"] == second_rationale_text
     assert rationale_events[0]["index"] == 1
     assert rationale_events[1]["index"] == 2
     assert tool_client.context_history[0] == ["calendar"]
@@ -1773,9 +1823,7 @@ async def test_streaming_handles_multi_stage_notices() -> None:
     assert events[-1]["data"] == "[DONE]"
 
     tool_events = [
-        json.loads(event["data"])
-        for event in events
-        if event.get("event") == "tool"
+        json.loads(event["data"]) for event in events if event.get("event") == "tool"
     ]
     tool_rationale_map = {
         event.get("call_id"): (
@@ -1785,8 +1833,15 @@ async def test_streaming_handles_multi_stage_notices() -> None:
         for event in tool_events
         if event.get("call_id")
     }
+    # Strip asterisks from rationale messages for comparison
     expected_rationales = [
-        (event["message"], event["index"]) for event in rationale_events
+        (
+            event["message"].strip("*")
+            if event["message"].startswith("*")
+            else event["message"],
+            event["index"],
+        )
+        for event in rationale_events
     ]
     for index, (expected_text, expected_index) in enumerate(
         expected_rationales, start=1

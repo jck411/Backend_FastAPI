@@ -47,6 +47,17 @@
     Boolean(message.details?.reasoningStatus);
 
   $: {
+    if (message.role === "assistant") {
+      console.log("[MessageItem] Assistant message details:", {
+        id: message.id,
+        hasPlanNotice: Boolean(message.details?.planNotice),
+        planNotice: message.details?.planNotice,
+        planUsedFallback: message.details?.planUsedFallback,
+      });
+    }
+  }
+
+  $: {
     const webSearchResults = message.details?.meta?.web_search_results;
 
     // DEBUG: Log EVERYTHING about this message
@@ -331,7 +342,9 @@
     {/if}
     <div class="message-content" use:copyableCode>
       {#if message.role === "assistant" && message.details?.planNotice}
-        <p class="assistant-note">{@html renderMarkdown(message.details.planNotice)}</p>
+        <p class="assistant-note">
+          {@html renderMarkdown(message.details.planNotice)}
+        </p>
       {/if}
       {#if message.text}
         {@html renderMarkdown(message.text)}

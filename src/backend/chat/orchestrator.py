@@ -9,7 +9,15 @@ import logging
 import os
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Iterable, Sequence, Callable, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncGenerator,
+    Callable,
+    Iterable,
+    Sequence,
+    cast,
+)
 
 from dotenv import dotenv_values
 
@@ -264,40 +272,50 @@ class ChatOrchestrator:
         system_messages = [
             message for message in stored_messages if message.get("role") == "system"
         ]
+        incoming_has_system = any(
+            message.role == "system" for message in incoming_messages
+        )
+        (
+            system_prompt_value,
+            planner_enabled,
+        ) = await self._model_settings.get_orchestrator_settings()
+        system_prompt = _build_enhanced_system_prompt(system_prompt_value)
+
         stored_has_rationale_instruction = any(
             _content_contains_rationale_instruction(message.get("content"))
             for message in system_messages
         )
         has_system_message = bool(system_messages)
         fallback_add_system_message = False
-        if system_messages and not stored_has_rationale_instruction:
-            latest_system = system_messages[-1]
-            new_content = _append_rationale_instruction(latest_system.get("content"))
-            try:
-                updated = await self._repo.update_latest_system_message(
-                    session_id, new_content
+
+        if planner_enabled:
+            if system_messages and not stored_has_rationale_instruction:
+                latest_system = system_messages[-1]
+                new_content = _append_rationale_instruction(
+                    latest_system.get("content")
                 )
-            except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.debug(
-                    "Failed to update system message with rationale instruction for session %s: %s",
-                    session_id,
-                    exc,
+                try:
+                    updated = await self._repo.update_latest_system_message(
+                        session_id, new_content
+                    )
+                except Exception as exc:  # pragma: no cover - defensive fallback
+                    logger.debug(
+                        "Failed to update system message with rationale instruction for session %s: %s",
+                        session_id,
+                        exc,
+                    )
+                    updated = False
+                if updated:
+                    latest_system["content"] = new_content
+                    stored_has_rationale_instruction = True
+                else:
+                    fallback_add_system_message = True
+            if fallback_add_system_message:
+                has_system_message = False
+            if _TOOL_RATIONALE_INSTRUCTION not in system_prompt:
+                system_prompt = (
+                    f"{system_prompt.rstrip()}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
                 )
-                updated = False
-            if updated:
-                latest_system["content"] = new_content
-                stored_has_rationale_instruction = True
-            else:
-                fallback_add_system_message = True
-        if fallback_add_system_message:
-            has_system_message = False
-        incoming_has_system = any(
-            message.role == "system" for message in incoming_messages
-        )
-        system_prompt_value, planner_enabled = await self._model_settings.get_orchestrator_settings()
-        system_prompt = _build_enhanced_system_prompt(system_prompt_value)
-        if _TOOL_RATIONALE_INSTRUCTION not in system_prompt:
-            system_prompt = f"{system_prompt.rstrip()}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
 
         if (
             system_prompt

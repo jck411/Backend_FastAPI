@@ -243,12 +243,18 @@ def _collect_plan_contexts(
 def _build_context_plan_notice(
     plan: ToolContextPlan, active_contexts: Sequence[str] | None
 ) -> dict[str, Any]:
+    """Build a tool plan notice for display in the frontend.
+
+    Note: Caller should check if notice should be shown before calling this function.
+    """
     contexts = _collect_plan_contexts(plan, active_contexts)
     display_contexts = [
         label for context in contexts if (label := _format_context_label(context))
     ]
 
-    headline = "Fallback tool plan active" if plan.used_fallback else "Context planner active"
+    headline = (
+        "Fallback tool plan active" if plan.used_fallback else "Context planner active"
+    )
 
     detail_segments: list[str] = []
     if display_contexts:
@@ -258,6 +264,9 @@ def _build_context_plan_notice(
 
     if plan.intent:
         detail_segments.append(f"Intent: {plan.intent}")
+
+    if plan.used_fallback and plan.fallback_reason:
+        detail_segments.append(f"Reason: {plan.fallback_reason}")
 
     if plan.used_fallback and not detail_segments:
         detail_segments.append("using all available tools")
@@ -273,6 +282,7 @@ def _build_context_plan_notice(
         "type": "tool_plan_status",
         "message": italic_message,
         "used_fallback": plan.used_fallback,
+        "fallback_reason": plan.fallback_reason,
         "contexts": contexts,
         "display_contexts": display_contexts,
         "intent": plan.intent,
@@ -311,13 +321,6 @@ class AssistantTurn:
         if self.created_at_utc is not None:
             message["created_at_utc"] = self.created_at_utc
         return message
-
-
-@dataclass(frozen=True)
-class ToolRationaleInfo:
-    index: int
-    call_id: str
-    text: str | None
 
 
 class _AssistantContentBuilder:
@@ -634,22 +637,15 @@ class StreamingHandler:
         awaiting_privacy_consent = False
 
         if tool_context_plan is not None:
-            # Build a short, italicized planner status line and prepend it to the
-            # assistant output as the first streamed delta so clients don't need
-            # a separate notice channel to show planner state.
-            plan_notice = _build_context_plan_notice(tool_context_plan, active_contexts)
-            italic = plan_notice.get("message") if isinstance(plan_notice, dict) else None
-            if isinstance(italic, str) and italic:
-                preface_chunk = {
-                    "choices": [
-                        {
-                            "delta": {
-                                "content": f"{italic}\n\n",
-                            }
-                        }
-                    ]
-                }
-                yield {"event": "message", "data": json.dumps(preface_chunk)}
+            # Only show notice if planner was used OR failed (not when intentionally disabled)
+            should_show_notice = (
+                not tool_context_plan.used_fallback or tool_context_plan.fallback_reason
+            )
+            if should_show_notice:
+                plan_notice = _build_context_plan_notice(
+                    tool_context_plan, active_contexts
+                )
+                yield {"event": "notice", "data": json.dumps(plan_notice)}
 
         async def record_privacy_event(
             status: str, extra: Mapping[str, Any] | None = None
@@ -1147,20 +1143,6 @@ class StreamingHandler:
                 generation_id=generation_id,
                 reasoning=reasoning_segments if reasoning_segments else None,
             )
-            assistant_rationales = _extract_tool_rationale(assistant_turn.content)
-            tool_rationales = _pair_tool_rationales(
-                assistant_turn.tool_calls,
-                assistant_rationales,
-                start_index=total_tool_calls + 1,
-            )
-            (
-                tool_rationales,
-                auto_generated_rationales,
-            ) = _ensure_tool_rationale_texts(
-                assistant_turn.tool_calls or [],
-                tool_rationales,
-            )
-            auto_generated_call_ids = set(auto_generated_rationales.keys())
             metadata: dict[str, Any] = {}
             if assistant_turn.finish_reason is not None:
                 metadata["finish_reason"] = assistant_turn.finish_reason
@@ -1180,16 +1162,6 @@ class StreamingHandler:
                 metadata["routing"] = routing_headers
             if assistant_client_message_id is not None:
                 metadata.setdefault("client_message_id", assistant_client_message_id)
-            if assistant_turn.tool_calls:
-                metadata["tool_rationales"] = [
-                    {
-                        "index": info.index,
-                        "call_id": info.call_id,
-                        "text": info.text,
-                        "auto_generated": info.call_id in auto_generated_call_ids,
-                    }
-                    for info in tool_rationales
-                ]
 
             assistant_result = await self._repo.add_message(
                 session_id,
@@ -1233,16 +1205,6 @@ class StreamingHandler:
                 metadata_event_payload["created_at"] = assistant_turn.created_at
             if assistant_turn.created_at_utc is not None:
                 metadata_event_payload["created_at_utc"] = assistant_turn.created_at_utc
-            if assistant_turn.tool_calls:
-                metadata_event_payload["tool_rationales"] = [
-                    {
-                        "index": info.index,
-                        "call_id": info.call_id,
-                        "text": info.text,
-                        "auto_generated": info.call_id in auto_generated_call_ids,
-                    }
-                    for info in tool_rationales
-                ]
             yield {
                 "event": "metadata",
                 "data": json.dumps(metadata_event_payload),
@@ -1269,7 +1231,6 @@ class StreamingHandler:
 
             expand_contexts = False
 
-            missing_rationale_detected = False
             processed_tool_calls = 0
 
             if awaiting_privacy_consent and assistant_turn.tool_calls:
@@ -1313,29 +1274,7 @@ class StreamingHandler:
             for call_index, tool_call in enumerate(assistant_turn.tool_calls):
                 function = tool_call.get("function") or {}
                 tool_name = function.get("name")
-                rationale_info = (
-                    tool_rationales[call_index]
-                    if call_index < len(tool_rationales)
-                    else None
-                )
-                rationale_index = (
-                    rationale_info.index
-                    if rationale_info is not None
-                    else total_tool_calls + call_index + 1
-                )
-                tool_id = (
-                    rationale_info.call_id
-                    if rationale_info is not None
-                    else tool_call.get("id") or f"call_{call_index}"
-                )
-                rationale_text = (
-                    rationale_info.text if rationale_info is not None else None
-                )
-                if tool_id in auto_generated_rationales:
-                    rationale_text = auto_generated_rationales[tool_id]
-                auto_generated_flag = tool_id in auto_generated_call_ids
-                skip_execution = False
-                missing_rationale_flag = False
+                tool_id = tool_call.get("id") or f"call_{call_index}"
 
                 if not tool_name:
                     warning_text = (
@@ -1385,55 +1324,18 @@ class StreamingHandler:
                     }
                     continue
 
-                if rationale_text:
-                    yield {
-                        "event": "notice",
-                        "data": json.dumps(
-                            {
-                                "type": "tool_rationale",
-                                "tool": tool_name,
-                                "call_id": tool_id,
-                                "message": rationale_text,
-                                "index": rationale_index,
-                                "auto_generated": auto_generated_flag,
-                            }
-                        ),
-                    }
-                else:
-                    missing_rationale_flag = True
-                    skip_execution = True
-                    missing_message = (
-                        "Tool execution paused: provide Rationale "
-                        f"{rationale_index} before calling '{tool_name}'."
-                    )
-                    yield {
-                        "event": "notice",
-                        "data": json.dumps(
-                            {
-                                "type": "tool_rationale_missing",
-                                "tool": tool_name,
-                                "call_id": tool_id,
-                                "message": missing_message,
-                                "confirmation_required": True,
-                                "index": rationale_index,
-                            }
-                        ),
-                    }
+                # Rationale validation removed - execute tools regardless
 
-                if not skip_execution:
-                    yield {
-                        "event": "tool",
-                        "data": json.dumps(
-                            {
-                                "status": "started",
-                                "name": tool_name,
-                                "call_id": tool_id,
-                                "rationale": rationale_text,
-                                "rationale_index": rationale_index,
-                                "rationale_auto_generated": auto_generated_flag,
-                            }
-                        ),
-                    }
+                yield {
+                    "event": "tool",
+                    "data": json.dumps(
+                        {
+                            "status": "started",
+                            "name": tool_name,
+                            "call_id": tool_id,
+                        }
+                    ),
+                }
 
                 arguments_raw = function.get("arguments")
                 status = "finished"
@@ -1441,15 +1343,7 @@ class StreamingHandler:
                 result_obj: Any | None = None
                 missing_arguments = False
                 tool_error_flag = False
-                if skip_execution:
-                    result_text = (
-                        "Tool call blocked: missing rationale describing why the tool is"
-                        " being used and the expected outcome."
-                        f" (expected Rationale {rationale_index})."
-                    )
-                    status = "error"
-                    tool_error_flag = True
-                elif not arguments_raw or arguments_raw.strip() == "":
+                if not arguments_raw or arguments_raw.strip() == "":
                     result_text = (
                         f"Tool {tool_name} requires arguments but none were provided."
                     )
@@ -1504,10 +1398,6 @@ class StreamingHandler:
                     "tool_name": tool_name,
                     "parent_client_message_id": assistant_client_message_id,
                 }
-                if rationale_text is not None:
-                    tool_metadata["tool_rationale"] = rationale_text
-                tool_metadata["tool_rationale_auto_generated"] = auto_generated_flag
-                tool_metadata["tool_rationale_index"] = rationale_index
 
                 tool_record_id, tool_created_at = await self._repo.add_message(
                     session_id,
@@ -1541,22 +1431,15 @@ class StreamingHandler:
                             "message_id": tool_record_id,
                             "created_at": edt_iso or tool_created_at,
                             "created_at_utc": utc_iso or tool_created_at,
-                            "rationale": rationale_text,
-                            "rationale_index": rationale_index,
-                            "rationale_auto_generated": auto_generated_flag,
                         }
                     ),
                 }
 
-                notice_reason = (
-                    "missing_rationale"
-                    if missing_rationale_flag
-                    else _classify_tool_followup(
-                        status,
-                        result_text,
-                        tool_error_flag=tool_error_flag,
-                        missing_arguments=missing_arguments,
-                    )
+                notice_reason = _classify_tool_followup(
+                    status,
+                    result_text,
+                    tool_error_flag=tool_error_flag,
+                    missing_arguments=missing_arguments,
                 )
                 if notice_reason is not None:
                     next_contexts: list[str] = []
@@ -1588,11 +1471,7 @@ class StreamingHandler:
                         "next_contexts": next_contexts,
                         "will_use_all_tools": will_use_all_tools,
                         "confirmation_required": True,
-                        "rationale_index": rationale_index,
-                        "rationale_auto_generated": auto_generated_flag,
                     }
-                    if rationale_text is not None:
-                        notice_payload["rationale"] = rationale_text
                     if (
                         tool_context_plan is not None
                         and notice_reason == "missing_arguments"
@@ -1614,14 +1493,7 @@ class StreamingHandler:
 
                 processed_tool_calls += 1
 
-                if missing_rationale_flag:
-                    missing_rationale_detected = True
-                    break
-
             total_tool_calls += processed_tool_calls
-
-            if missing_rationale_detected:
-                break
 
             hop_count += 1
 
@@ -1746,271 +1618,6 @@ def _tool_requires_session_id(tool_name: str) -> bool:
     return tool_name == _SESSION_AWARE_TOOL_NAME or tool_name.endswith(
         _SESSION_AWARE_TOOL_SUFFIX
     )
-
-
-_RATIONALE_SENTENCE_PATTERN = re.compile(
-    r"Rationale\s+(?P<index>\d+):\s*(?P<body>.+?(?:(?<=\S)[.!?]|$))(?=\s*(?:Rationale\s+\d+:)|\s*$)",
-    re.IGNORECASE | re.DOTALL,
-)
-
-_RATIONALE_INDEX_PATTERN = re.compile(r"^\s*Rationale\s+(\d+):", re.IGNORECASE)
-
-
-def _extract_tool_rationale(
-    content: str | list[dict[str, Any]] | None,
-) -> list[str]:
-    """Return ordered rationale sentences extracted from assistant content."""
-
-    segments = list(_iterate_rationale_segments(content))
-    rationales: dict[int, str] = {}
-
-    for segment in segments:
-        if not isinstance(segment, str):
-            continue
-        for match in _RATIONALE_SENTENCE_PATTERN.finditer(segment):
-            index_raw = match.group("index")
-            body_text = match.group("body")
-            if not index_raw:
-                continue
-            try:
-                index = int(index_raw)
-            except (TypeError, ValueError):
-                continue
-            sentence = _first_sentence(body_text)
-            if not sentence:
-                continue
-            normalized = f"Rationale {index}: {sentence}"
-            rationales.setdefault(index, normalized)
-
-    if rationales:
-        return [rationales[key] for key in sorted(rationales)]
-
-    return []
-
-
-def _match_rationale_index(text: str | None) -> int | None:
-    if not isinstance(text, str):
-        return None
-    match = _RATIONALE_INDEX_PATTERN.match(text.strip())
-    if not match:
-        return None
-    try:
-        return int(match.group(1))
-    except (TypeError, ValueError):
-        return None
-
-
-def _extract_rationale_from_tool_call(call: Mapping[str, Any]) -> str | None:
-    if not isinstance(call, Mapping):
-        return None
-
-    candidates: list[Any] = []
-    direct = call.get("rationale")
-    if direct is not None:
-        candidates.append(direct)
-    function_payload = call.get("function")
-    if isinstance(function_payload, Mapping):
-        function_rationale = function_payload.get("rationale")
-        if function_rationale is not None:
-            candidates.append(function_rationale)
-
-    for candidate in candidates:
-        if isinstance(candidate, str):
-            normalized = candidate.strip()
-            if normalized:
-                return normalized
-
-    return None
-
-
-def _normalize_call_rationale(text: str, expected_index: int) -> tuple[str | None, int]:
-    normalized = " ".join(text.strip().split())
-    if not normalized:
-        return None, expected_index
-
-    parsed_index = _match_rationale_index(normalized)
-    if parsed_index is not None:
-        _prefix, _sep, body = normalized.partition(":")
-        body_text = body.strip()
-        sentence = _first_sentence(body_text)
-        if sentence:
-            return f"Rationale {parsed_index}: {sentence}", parsed_index
-        return normalized, parsed_index
-
-    sentence = _first_sentence(normalized)
-    if not sentence:
-        sentence = normalized
-
-    return f"Rationale {expected_index}: {sentence}", expected_index
-
-
-def _pair_tool_rationales(
-    tool_calls: Sequence[dict[str, Any]],
-    rationales: Sequence[str],
-    *,
-    start_index: int = 1,
-) -> list[ToolRationaleInfo]:
-    if not tool_calls:
-        return []
-
-    indexed_rationales: dict[int, str] = {}
-    fallback_queue: list[tuple[int | None, str]] = []
-
-    for text in rationales:
-        normalized = text.strip()
-        if not normalized:
-            continue
-        index = _match_rationale_index(normalized)
-        if index is not None and index not in indexed_rationales:
-            indexed_rationales[index] = normalized
-            continue
-        fallback_queue.append((index, normalized))
-
-    paired: list[ToolRationaleInfo] = []
-    for offset, tool_call in enumerate(tool_calls):
-        expected_index = start_index + offset
-        call_id = tool_call.get("id")
-        if not isinstance(call_id, str) or not call_id.strip():
-            call_id = f"call_{expected_index - 1}"
-
-        text = indexed_rationales.pop(expected_index, None)
-        actual_index = expected_index
-
-        if text is None:
-            call_rationale = _extract_rationale_from_tool_call(tool_call)
-            if call_rationale is not None:
-                normalized_text, normalized_index = _normalize_call_rationale(
-                    call_rationale, expected_index
-                )
-                text = normalized_text
-                actual_index = normalized_index
-
-        if text is None and fallback_queue:
-            fallback_index, fallback_text = fallback_queue.pop(0)
-            text = fallback_text
-            if fallback_index is not None:
-                actual_index = fallback_index
-
-        if text is not None:
-            parsed_index = _match_rationale_index(text)
-            if parsed_index is not None:
-                actual_index = parsed_index
-
-        paired.append(ToolRationaleInfo(index=actual_index, call_id=call_id, text=text))
-
-    return paired
-
-
-def _format_tool_display_name(tool_name: str | None) -> str | None:
-    if not isinstance(tool_name, str):
-        return None
-    normalized = re.sub(r"[\s_-]+", " ", tool_name).strip()
-    if not normalized:
-        return None
-    return normalized
-
-
-def _synthesize_tool_rationale(
-    tool_call: Mapping[str, Any] | None,
-    index: int,
-) -> str | None:
-    if not isinstance(tool_call, Mapping):
-        return None
-
-    function_payload = tool_call.get("function")
-    tool_name: str | None = None
-    if isinstance(function_payload, Mapping):
-        raw_name = function_payload.get("name")
-        if isinstance(raw_name, str) and raw_name.strip():
-            tool_name = raw_name.strip()
-    if tool_name is None:
-        return None
-
-    display_name = _format_tool_display_name(tool_name) or tool_name
-    return (
-        f"Rationale {index}: Running {display_name} to gather the information"
-        " needed to answer the user's request."
-    )
-
-
-def _ensure_tool_rationale_texts(
-    tool_calls: Sequence[Mapping[str, Any]],
-    rationales: Sequence[ToolRationaleInfo],
-) -> tuple[list[ToolRationaleInfo], dict[str, str]]:
-    normalized: list[ToolRationaleInfo] = list(rationales)
-    generated: dict[str, str] = {}
-
-    for idx, info in enumerate(normalized):
-        if info.text:
-            continue
-
-        tool_call: Mapping[str, Any] | None = None
-        if idx < len(tool_calls):
-            call_candidate = tool_calls[idx]
-            if isinstance(call_candidate, Mapping):
-                tool_call = call_candidate
-
-        synthesized = _synthesize_tool_rationale(tool_call, info.index)
-        if not synthesized:
-            continue
-
-        call_id = info.call_id
-        if tool_call is not None:
-            raw_call_id = tool_call.get("id")
-            if isinstance(raw_call_id, str) and raw_call_id.strip():
-                call_id = raw_call_id.strip()
-
-        logger.info(
-            "No model-supplied rationale for tool '%s'; generated fallback.",
-            (tool_call or {}).get("function", {}).get("name"),
-        )
-        normalized[idx] = ToolRationaleInfo(
-            index=info.index,
-            call_id=call_id,
-            text=synthesized,
-        )
-        generated[call_id] = synthesized
-
-        if tool_call is not None and isinstance(tool_call, dict):
-            tool_call.setdefault("id", call_id)
-
-    return normalized, generated
-
-
-def _iterate_rationale_segments(
-    content: str | list[dict[str, Any]] | None,
-) -> Iterable[str]:
-    if isinstance(content, str):
-        yield content
-        return
-
-    if not isinstance(content, list):
-        return
-
-    for fragment in content:
-        if isinstance(fragment, str):
-            yield fragment
-            continue
-        if isinstance(fragment, dict):
-            for key in ("text", "content", "value"):
-                value = fragment.get(key)
-                if isinstance(value, str) and value.strip():
-                    yield value
-                    break
-
-
-def _first_sentence(text: str | None) -> str | None:
-    if not isinstance(text, str):
-        return None
-
-    normalized = " ".join(text.strip().split())
-    if not normalized:
-        return None
-
-    match = re.search(r"(.+?[.!?])(?=\s|$)", normalized)
-    if match:
-        return match.group(1).strip()
-    return normalized
 
 
 _TEXT_FRAGMENT_TYPES = {"text", "output_text"}
@@ -2718,15 +2325,8 @@ def _finalize_tool_calls(
         entry["function"] = entry_function
         if not entry.get("id"):
             entry["id"] = f"call_{index}"
-        rationale_value = entry.get("rationale")
-        if isinstance(rationale_value, str):
-            normalized_rationale = rationale_value.strip()
-            if normalized_rationale:
-                entry["rationale"] = normalized_rationale
-            else:
-                entry.pop("rationale", None)
-        else:
-            entry.pop("rationale", None)
+        # Remove any rationale field from tool calls
+        entry.pop("rationale", None)
         finalized.append(entry)
 
     return finalized

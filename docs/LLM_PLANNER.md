@@ -1,8 +1,8 @@
 # LLM-Based Context Planning
 
-## Status: ✅ Active (Always On)
+## Status: ⚙️ Configurable
 
-The system uses LLM-based tool planning exclusively. There is no keyword-based fallback or configuration option to disable it.
+The system can use LLM-based tool planning to intelligently select which tools to provide. When enabled, the LLM is instructed to explain its tool selection choices. When disabled, all available tools are provided to the model without intelligent filtering.
 
 ## How It Works
 
@@ -65,8 +65,9 @@ The `LLMContextPlanner` uses the following approach:
 
 ### Planning Flow
 
-1. **Prepare minimal fallback**: Creates a simple plan with `broad_search=True` in case the LLM fails
-2. **Compact tool digest**: Reduces the capability digest to essential information for the LLM
+1. **Check planner status**: System prompt receives planning instructions only when LLM planner is enabled
+2. **Prepare minimal fallback**: Creates a simple plan with `broad_search=True` in case the LLM fails
+3. **Compact tool digest**: Reduces the capability digest to essential information for the LLM
 ## Implementation Details
 
 ### LLMContextPlanner Class
@@ -109,20 +110,24 @@ ToolContextPlan(
 
 This provides **all available tools** to the model, ensuring the system remains functional.
 
-## Code Simplification
+## Implementation Details
 
-The current implementation is straightforward:
+The current implementation conditionally enables planning:
 
 ```python
 # In ChatOrchestrator
 self._llm_planner = LLMContextPlanner(self._client)
 
 # During request processing
-plan = await self._llm_planner.plan(
-    request,
-    conversation,
-    capability_digest=capability_digest,
-)
+system_prompt_value, planner_enabled = await self._model_settings.get_orchestrator_settings()
+
+if planner_enabled:
+    # Add planning instructions to system prompt
+    # Call LLM planner for intelligent tool selection
+    plan = await self._llm_planner.plan(request, conversation, capability_digest)
+else:
+    # Use simple fallback plan (all tools available)
+    plan = self._llm_planner.fallback_plan(request, capability_digest)
 
 # Use the plan to select tools
 contexts = plan.contexts_for_attempt(0)
@@ -130,7 +135,7 @@ ranked_tool_names = [...]  # Extract from plan.candidate_tools
 tools_payload = self._mcp_client.get_openai_tools_by_qualified_names(ranked_tool_names)
 ```
 
-All planning logic is encapsulated in the `LLMContextPlanner` class.
+When the planner is disabled, the system provides all available tools without adding planning instructions to the system prompt.
 
 ## Testing
 
@@ -154,11 +159,11 @@ Tests cover:
 ## Benefits
 
 1. **Simpler code**: No keyword mapping logic to maintain
-2. **Better adaptability**: LLM understands nuanced queries and context
-3. **Easier maintenance**: New tools are automatically considered by the LLM
-4. **Improved accuracy**: AI-driven tool selection based on full conversation context
+2. **Better adaptability**: When enabled, LLM understands nuanced queries and context
+3. **Easier maintenance**: New tools are automatically considered
+4. **Improved accuracy**: AI-driven tool selection based on full conversation context when enabled
 5. **Graceful degradation**: Falls back to providing all tools if planner fails
-No changes required! The system automatically uses the best available planning method.
+6. **No blocking**: Tools execute immediately without validation delays
 
 ## Future Enhancements
 

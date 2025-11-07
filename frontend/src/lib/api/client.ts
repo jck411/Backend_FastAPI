@@ -204,7 +204,7 @@ const NEWLINE_BUFFER = /\n\n|\r\r|\r\n\r\n/;
 
 export async function streamChat(
   payload: ChatCompletionRequest,
-  { onChunk, onDone, onError, onSession, signal }: ChatStreamOptions = {},
+  { onChunk, onDone, onError, onSession, onNotice, signal }: ChatStreamOptions = {},
 ): Promise<void> {
   const response = await fetch(resolveApiPath('/api/chat/stream'), {
     method: 'POST',

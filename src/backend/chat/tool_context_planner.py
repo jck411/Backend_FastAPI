@@ -19,6 +19,7 @@ class ToolContextPlan:
     privacy_note: str | None = None
     stop_conditions: list[str] = field(default_factory=list)
     used_fallback: bool = False
+    fallback_reason: str | None = None
 
     def contexts_for_attempt(self, attempt: int) -> list[str]:
         """Return the merged context list for the given attempt index."""
@@ -90,8 +91,9 @@ class ToolContextPlan:
                 name: list(hints) for name, hints in self.argument_hints.items()
             },
             "privacy_note": self.privacy_note,
-            "stop_conditions": list(self.stop_conditions),
+            "stop_conditions": self.stop_conditions,
             "used_fallback": self.used_fallback,
+            "fallback_reason": self.fallback_reason,
         }
 
 

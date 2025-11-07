@@ -29,7 +29,7 @@ class LLMContextPlanner:
     ) -> ToolContextPlan:
         """
         Generate a tool context plan using the LLM directly.
-        
+
         This simplifies the planning logic by:
         1. Calling the LLM planner with full tool context
         2. Using a minimal fallback only if LLM planning fails
@@ -37,10 +37,10 @@ class LLMContextPlanner:
         """
         # Create minimal fallback plan in case LLM planning fails
         fallback_plan = self._create_fallback_plan(request, capability_digest)
-        
+
         # Prepare tool digest for LLM planner
         compact_digest = compact_tool_digest(capability_digest)
-        
+
         # Try to get plan from LLM
         try:
             planner_response = await self._client.request_tool_plan(
@@ -48,7 +48,7 @@ class LLMContextPlanner:
                 conversation=conversation,
                 tool_digest=compact_digest,
             )
-            
+
             # Merge LLM response with fallback
             plan = merge_model_tool_plan(fallback_plan, planner_response)
             logger.debug(
@@ -57,13 +57,15 @@ class LLMContextPlanner:
                 len(plan.ranked_contexts),
             )
             return plan
-            
+
         except Exception as exc:
-            # Log failure and return fallback
+            # Log failure and return fallback with reason
+            reason = str(exc) if exc else "Unknown error"
             logger.warning(
                 "LLM planning failed, using fallback plan: %s",
-                exc,
+                reason,
             )
+            fallback_plan.fallback_reason = reason
             return fallback_plan
 
     def _create_fallback_plan(
@@ -73,13 +75,13 @@ class LLMContextPlanner:
     ) -> ToolContextPlan:
         """
         Create a simple fallback plan when LLM planning is unavailable.
-        
+
         This is much simpler than the keyword-based planner - it just
         provides all tools with broad search enabled.
         """
         # Check if user explicitly requested specific tools
         explicit_tool_request = self._is_explicit_tool_request(request)
-        
+
         if explicit_tool_request:
             # User specified tools, use them directly
             return ToolContextPlan(

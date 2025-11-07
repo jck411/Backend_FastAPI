@@ -5,7 +5,7 @@ FastAPI backend that proxies streaming chat completions from OpenRouter with int
 ## Key Features
 
 - **Streaming chat** via OpenRouter API with HTTP keep-alive for fast response times
-- **LLM-based context planning** — AI-driven tool selection without hardcoded keyword rules
+- **Configurable LLM planning** — Optional AI-driven tool selection without hardcoded keyword rules
 - **Persistent chat history** with GCS-backed attachment storage and automatic cleanup
 - **MCP tool aggregation** — Google Calendar, Gmail, Drive, Notion, PDF extraction, and custom utilities
 - **Speech-to-text** — Mint short-lived Deepgram tokens for browser-based voice input
@@ -156,7 +156,7 @@ Supported types: `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `applicat
 
 ### LLM Context Planning
 
-The system uses an LLM to intelligently select which tools to make available based on conversation context. No configuration needed—it's always active and falls back gracefully if the planner fails.
+The system can optionally use an LLM to intelligently select which tools to make available based on conversation context. When enabled, the system adds planning instructions to the system prompt. When disabled, all tools are available without intelligent filtering. The planner falls back gracefully if it fails.
 
 See [`docs/LLM_PLANNER.md`](docs/LLM_PLANNER.md) for details.
 

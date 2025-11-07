@@ -173,6 +173,14 @@ class Settings(BaseSettings):
         ),
     )
 
+    enable_llm_planner: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "ENABLE_LLM_PLANNER",
+            "enable_llm_planner",
+        ),
+    )
+
     @property
     def attachment_signed_url_ttl(self) -> timedelta:
         return timedelta(days=self.attachments_retention_days)

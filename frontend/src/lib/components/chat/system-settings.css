@@ -98,6 +98,17 @@
   border-color: #38bdf8;
 }
 
+.planner-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.planner-toggle .status {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
 .server-list {
   list-style: none;
   margin: 0;

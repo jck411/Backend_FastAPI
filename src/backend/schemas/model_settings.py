@@ -116,12 +116,15 @@ class SystemPromptPayload(BaseModel):
     """Request payload for updating the orchestrator system prompt."""
 
     system_prompt: Optional[str] = None
+    llm_planner_enabled: Optional[bool] = None
 
     model_config = ConfigDict(extra="forbid")
 
 
 class SystemPromptResponse(SystemPromptPayload):
     """Response wrapper returning the active system prompt."""
+
+    llm_planner_enabled: bool
 
     model_config = ConfigDict(extra="forbid")
 

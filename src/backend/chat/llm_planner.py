@@ -95,6 +95,15 @@ class LLMContextPlanner:
             intent="General assistance with all available tools",
         )
 
+    def fallback_plan(
+        self,
+        request: "ChatCompletionRequest",
+        capability_digest: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
+    ) -> ToolContextPlan:
+        """Expose the fallback plan builder for callers that skip LLM planning."""
+
+        return self._create_fallback_plan(request, capability_digest)
+
     def _is_explicit_tool_request(self, request: "ChatCompletionRequest") -> bool:
         """Check if the request explicitly specifies tool requirements."""
         tool_choice = request.tool_choice

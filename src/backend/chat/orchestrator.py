@@ -294,9 +294,8 @@ class ChatOrchestrator:
         incoming_has_system = any(
             message.role == "system" for message in incoming_messages
         )
-        system_prompt = _build_enhanced_system_prompt(
-            await self._model_settings.get_system_prompt()
-        )
+        system_prompt_value, planner_enabled = await self._model_settings.get_orchestrator_settings()
+        system_prompt = _build_enhanced_system_prompt(system_prompt_value)
         if _TOOL_RATIONALE_INSTRUCTION not in system_prompt:
             system_prompt = f"{system_prompt.rstrip()}\n\n{_TOOL_RATIONALE_INSTRUCTION}"
 
@@ -375,12 +374,17 @@ class ChatOrchestrator:
                     )
                     capability_digest = {}
 
-        # Use LLM-based planning
-        plan = await self._llm_planner.plan(
-            request,
-            conversation,
-            capability_digest=capability_digest,
-        )
+        if planner_enabled:
+            plan = await self._llm_planner.plan(
+                request,
+                conversation,
+                capability_digest=capability_digest,
+            )
+        else:
+            plan = self._llm_planner.fallback_plan(
+                request,
+                capability_digest=capability_digest,
+            )
 
         # Get contexts and ranked tools from the plan
         contexts = plan.contexts_for_attempt(0)

@@ -207,6 +207,84 @@ def _build_tool_digest_message(
     return {"role": "system", "content": message}
 
 
+def _format_context_label(context: str) -> str | None:
+    if not isinstance(context, str):
+        return None
+    normalized = context.strip()
+    if not normalized:
+        return None
+    if normalized == "__all__":
+        return "All tools"
+    parts = [segment for segment in normalized.replace("_", " ").split(" ") if segment]
+    if not parts:
+        return None
+    return " ".join(part.capitalize() for part in parts)
+
+
+def _collect_plan_contexts(
+    plan: ToolContextPlan, active_contexts: Sequence[str] | None
+) -> list[str]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for source in (active_contexts, plan.contexts_for_attempt(0), plan.ranked_contexts):
+        if not source:
+            continue
+        for context in source:
+            if not isinstance(context, str):
+                continue
+            normalized = context.strip()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            ordered.append(normalized)
+    return ordered
+
+
+def _build_context_plan_notice(
+    plan: ToolContextPlan, active_contexts: Sequence[str] | None
+) -> dict[str, Any]:
+    contexts = _collect_plan_contexts(plan, active_contexts)
+    display_contexts = [
+        label for context in contexts if (label := _format_context_label(context))
+    ]
+
+    headline = "Fallback tool plan active" if plan.used_fallback else "Context planner active"
+
+    detail_segments: list[str] = []
+    if display_contexts:
+        detail_segments.append("focusing on " + ", ".join(display_contexts))
+    elif plan.broad_search:
+        detail_segments.append("searching all available tools")
+
+    if plan.intent:
+        detail_segments.append(f"Intent: {plan.intent}")
+
+    if plan.used_fallback and not detail_segments:
+        detail_segments.append("using all available tools")
+
+    if detail_segments:
+        message = f"{headline} — {'; '.join(detail_segments)}."
+    else:
+        message = f"{headline}."
+
+    italic_message = f"*{message}*"
+
+    payload: dict[str, Any] = {
+        "type": "tool_plan_status",
+        "message": italic_message,
+        "used_fallback": plan.used_fallback,
+        "contexts": contexts,
+        "display_contexts": display_contexts,
+        "intent": plan.intent,
+        "broad_search": plan.broad_search,
+    }
+
+    if plan.candidate_tools:
+        payload["candidate_contexts"] = sorted(plan.candidate_tools.keys())
+
+    return payload
+
+
 @dataclass
 class AssistantTurn:
     content: str | list[dict[str, Any]] | None
@@ -554,6 +632,24 @@ class StreamingHandler:
             tool_context_plan.privacy_note if tool_context_plan is not None else None
         )
         awaiting_privacy_consent = False
+
+        if tool_context_plan is not None:
+            # Build a short, italicized planner status line and prepend it to the
+            # assistant output as the first streamed delta so clients don't need
+            # a separate notice channel to show planner state.
+            plan_notice = _build_context_plan_notice(tool_context_plan, active_contexts)
+            italic = plan_notice.get("message") if isinstance(plan_notice, dict) else None
+            if isinstance(italic, str) and italic:
+                preface_chunk = {
+                    "choices": [
+                        {
+                            "delta": {
+                                "content": f"{italic}\n\n",
+                            }
+                        }
+                    ]
+                }
+                yield {"event": "message", "data": json.dumps(preface_chunk)}
 
         async def record_privacy_event(
             status: str, extra: Mapping[str, Any] | None = None

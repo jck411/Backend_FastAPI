@@ -330,6 +330,9 @@
       </span>
     {/if}
     <div class="message-content" use:copyableCode>
+      {#if message.role === "assistant" && message.details?.planNotice}
+        <p class="assistant-note">{@html renderMarkdown(message.details.planNotice)}</p>
+      {/if}
       {#if message.text}
         {@html renderMarkdown(message.text)}
       {/if}
@@ -553,6 +556,12 @@
     font-size: 0.95rem;
     color: #e2e8f8;
     overflow: visible;
+  }
+  .message-content :global(.assistant-note),
+  .assistant-note {
+    margin: 0 0 0.6rem;
+    color: #cbd5f7;
+    font-style: italic;
   }
   .message-content :global(p) {
     margin: 0 0 0.85rem;

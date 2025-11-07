@@ -86,13 +86,15 @@ class LLMContextPlanner:
                 stages=[],
                 broad_search=True,
                 intent="Use specified tools",
+                used_fallback=True,
             )
-        
+
         # Default fallback: provide all available tools
         return ToolContextPlan(
             stages=[],
             broad_search=True,
             intent="General assistance with all available tools",
+            used_fallback=True,
         )
 
     def fallback_plan(

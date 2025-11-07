@@ -193,6 +193,7 @@ export interface ChatStreamCallbacks {
   onChunk?: (chunk: ChatCompletionChunk, rawEvent: SseEvent) => void;
   onDone?: () => void;
   onError?: (error: Error) => void;
+  onNotice?: (payload: Record<string, unknown>) => void;
 }
 
 export interface ChatStreamOptions extends ChatStreamCallbacks {
@@ -251,6 +252,18 @@ export async function streamChat(
             continue;
           }
 
+          if (event.event === 'notice') {
+            if (event.data) {
+              try {
+                const payload = JSON.parse(event.data) as Record<string, unknown>;
+                onNotice?.(payload);
+              } catch (err) {
+                console.warn('Failed to parse notice payload', err, event.data);
+              }
+            }
+            continue;
+          }
+
           if (event.event !== 'message') {
             onChunk?.({
               choices: [],
@@ -291,6 +304,15 @@ export async function streamChat(
             }
           } catch (err) {
             console.warn('Failed to parse session payload', err);
+          }
+        } else if (event.event === 'notice') {
+          if (event.data) {
+            try {
+              const payload = JSON.parse(event.data) as Record<string, unknown>;
+              onNotice?.(payload);
+            } catch (err) {
+              console.warn('Failed to parse notice payload', err, event.data);
+            }
           }
         } else if (event.event === 'message') {
           if (event.data === '[DONE]') {

@@ -33,10 +33,11 @@ async def test_llm_planner_uses_llm_response() -> None:
     conversation = [{"role": "user", "content": "What's on my schedule?"}]
     
     plan = await planner.plan(request, conversation)
-    
+
     assert plan.stages == [["calendar"], ["tasks"]]
     assert plan.intent == "Schedule management"
     assert plan.broad_search is False
+    assert plan.used_fallback is False
     mock_client.request_tool_plan.assert_called_once()
 
 
@@ -53,11 +54,12 @@ async def test_llm_planner_fallback_on_error() -> None:
     conversation = [{"role": "user", "content": "What's on my schedule?"}]
     
     plan = await planner.plan(request, conversation)
-    
+
     # Should get fallback plan with broad search
     assert plan.broad_search is True
     assert plan.stages == []
     assert plan.intent == "General assistance with all available tools"
+    assert plan.used_fallback is True
 
 
 @pytest.mark.asyncio
@@ -76,10 +78,11 @@ async def test_llm_planner_explicit_tool_request() -> None:
     conversation = [{"role": "user", "content": "call calendar__list"}]
     
     plan = await planner.plan(request, conversation)
-    
+
     # Should recognize explicit tool request
     assert plan.broad_search is True
     assert plan.intent == "Use specified tools"
+    assert plan.used_fallback is True
 
 
 @pytest.mark.asyncio
@@ -146,7 +149,8 @@ async def test_llm_planner_handles_invalid_digest() -> None:
     }
     
     plan = await planner.plan(request, conversation, capability_digest)
-    
-    # Should still generate a plan
+
+    # Should still generate a plan from the LLM response
     assert plan is not None
+    assert plan.used_fallback is False
     mock_client.request_tool_plan.assert_called_once()

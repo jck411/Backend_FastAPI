@@ -19,6 +19,7 @@ interface ChatStreamCallbacks {
   onMessageDelta?: (delta: ChatStreamMessageDelta) => void;
   onMetadata?: (payload: Record<string, unknown>) => void;
   onToolEvent?: (payload: Record<string, unknown>) => void;
+  onNotice?: (payload: Record<string, unknown>) => void;
   onDone?: () => void;
   onError?: (error: Error) => void;
 }
@@ -32,12 +33,14 @@ export async function startChatStream(
   options: ChatStreamOptions = {},
 ): Promise<void> {
   const { signal, onSession, onMessageDelta, onMetadata, onToolEvent, onDone, onError } = options;
+  const { onNotice } = options;
 
   await streamChat(payload, {
     signal,
     onSession,
     onDone,
     onError,
+    onNotice,
     onChunk(chunk, rawEvent) {
       const eventType = rawEvent?.event ?? 'message';
 

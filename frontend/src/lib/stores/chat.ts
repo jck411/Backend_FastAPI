@@ -51,6 +51,9 @@ interface ConversationMessageDetails {
     contextSize: string | null;
     searchPrompt: string | null;
   } | null;
+  // Planner/status notices to render ahead of assistant content
+  planNotice?: string | null;
+  planUsedFallback?: boolean | null;
 }
 
 export interface ConversationMessage {
@@ -359,6 +362,38 @@ function createChatStore() {
             ...value,
             sessionId,
           }));
+        },
+        onNotice(payload) {
+          // Attach planner status/fallback notices to the pending assistant message
+          if (!payload || typeof payload !== 'object') {
+            return;
+          }
+          const type = (payload as Record<string, unknown>).type;
+          if (type !== 'tool_plan_status') {
+            return;
+          }
+          const messageText = (payload as Record<string, unknown>).message;
+          const usedFallback = (payload as Record<string, unknown>).used_fallback;
+          if (typeof messageText !== 'string') {
+            return;
+          }
+          store.update((value) => {
+            const messages = value.messages.map((message) => {
+              if (message.id !== assistantMessageId) {
+                return message;
+              }
+              const existingDetails: ConversationMessageDetails = message.details ?? {};
+              return {
+                ...message,
+                details: {
+                  ...existingDetails,
+                  planNotice: messageText,
+                  planUsedFallback: typeof usedFallback === 'boolean' ? usedFallback : existingDetails.planUsedFallback ?? null,
+                },
+              };
+            });
+            return { ...value, messages };
+          });
         },
         onMessageDelta({
           text: deltaText,

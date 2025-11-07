@@ -735,6 +735,103 @@ async def test_streaming_injects_tool_digest_once_per_turn() -> None:
 
 
 @pytest.mark.anyio("asyncio")
+async def test_streaming_emits_context_plan_notice() -> None:
+    client = DummyOpenRouterClient()
+    repo = DummyRepository()
+    tool_client = DummyToolClient()
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    plan = ToolContextPlan(
+        stages=[["calendar"], ["tasks"]],
+        broad_search=False,
+        ranked_contexts=["calendar", "tasks"],
+        intent="Review upcoming events",
+    )
+    initial_tools = tool_client.get_openai_tools_for_contexts(
+        plan.contexts_for_attempt(0)
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="What's on my calendar?")],
+    )
+    conversation = [{"role": "user", "content": "What's on my calendar?"}]
+
+    plan_notices: list[dict[str, Any]] = []
+    async for event in handler.stream_conversation(
+        "session-plan-notice",
+        request,
+        conversation,
+        initial_tools,
+        None,
+        plan,
+    ):
+        if event.get("event") != "notice" or not event.get("data"):
+            continue
+        payload = json.loads(event["data"])
+        if payload.get("type") == "tool_plan_status":
+            plan_notices.append(payload)
+
+    assert plan_notices, "Expected plan status notice"
+    notice = plan_notices[0]
+    assert notice["used_fallback"] is False
+    assert notice["contexts"] == ["calendar", "tasks"]
+    assert notice["display_contexts"][0] == "Calendar"
+    assert notice["message"].startswith("*") and notice["message"].endswith("*")
+
+
+@pytest.mark.anyio("asyncio")
+async def test_streaming_emits_fallback_plan_notice() -> None:
+    client = DummyOpenRouterClient()
+    repo = DummyRepository()
+    tool_client = DummyToolClient()
+    handler = StreamingHandler(
+        client,  # type: ignore[arg-type]
+        repo,  # type: ignore[arg-type]
+        tool_client,  # type: ignore[arg-type]
+        default_model="openrouter/auto",
+    )
+
+    plan = ToolContextPlan(
+        stages=[],
+        broad_search=True,
+        intent="General assistance",
+        used_fallback=True,
+    )
+
+    request = ChatCompletionRequest(
+        messages=[ChatMessage(role="user", content="Hello")],
+    )
+    conversation = [{"role": "user", "content": "Hello"}]
+
+    plan_notices: list[dict[str, Any]] = []
+    async for event in handler.stream_conversation(
+        "session-fallback-notice",
+        request,
+        conversation,
+        [],
+        None,
+        plan,
+    ):
+        if event.get("event") != "notice" or not event.get("data"):
+            continue
+        payload = json.loads(event["data"])
+        if payload.get("type") == "tool_plan_status":
+            plan_notices.append(payload)
+
+    assert plan_notices, "Expected fallback plan notice"
+    notice = plan_notices[0]
+    assert notice["used_fallback"] is True
+    assert notice["contexts"] == []
+    assert "Fallback tool plan active" in notice["message"]
+    assert notice["message"].startswith("*") and notice["message"].endswith("*")
+
+
+@pytest.mark.anyio("asyncio")
 async def test_streaming_blocks_tools_without_privacy_consent() -> None:
     client = ToolCallOpenRouterClient()
     repo = DummyRepository()

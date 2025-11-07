@@ -10,7 +10,8 @@ from .tool_utils import compact_tool_digest
 
 if TYPE_CHECKING:
     from ..openrouter import OpenRouterClient
-    from ..schemas.chat import ChatCompletionRequest
+
+from ..schemas.chat import ChatCompletionRequest
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class LLMContextPlanner:
 
     async def plan(
         self,
-        request: "ChatCompletionRequest",
+        request: ChatCompletionRequest,
         conversation: Sequence[dict[str, Any]],
         capability_digest: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
     ) -> ToolContextPlan:
@@ -70,7 +71,7 @@ class LLMContextPlanner:
 
     def _create_fallback_plan(
         self,
-        request: "ChatCompletionRequest",
+        request: ChatCompletionRequest,
         capability_digest: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
     ) -> ToolContextPlan:
         """
@@ -101,14 +102,14 @@ class LLMContextPlanner:
 
     def fallback_plan(
         self,
-        request: "ChatCompletionRequest",
+        request: ChatCompletionRequest,
         capability_digest: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
     ) -> ToolContextPlan:
         """Expose the fallback plan builder for callers that skip LLM planning."""
 
         return self._create_fallback_plan(request, capability_digest)
 
-    def _is_explicit_tool_request(self, request: "ChatCompletionRequest") -> bool:
+    def _is_explicit_tool_request(self, request: ChatCompletionRequest) -> bool:
         """Check if the request explicitly specifies tool requirements."""
         tool_choice = request.tool_choice
         if isinstance(tool_choice, str) and tool_choice not in {"auto", "none"}:

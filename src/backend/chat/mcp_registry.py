@@ -10,7 +10,7 @@ import shlex
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Annotated, Any, Iterable, Sequence
 
 from mcp.types import CallToolResult, Tool
 from pydantic import (
@@ -69,7 +69,10 @@ class MCPServerConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    id: str = Field(..., min_length=1, description="Stable identifier for the server")
+    id: Annotated[
+        str,
+        Field(..., min_length=1, description="Stable identifier for the server"),
+    ]
     enabled: bool = Field(
         default=True, description="Whether the server should be launched"
     )

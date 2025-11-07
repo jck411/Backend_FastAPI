@@ -21,7 +21,6 @@ from typing import (
 
 from dotenv import dotenv_values
 
-from ..config import Settings
 from ..logging_settings import parse_logging_settings
 from ..openrouter import OpenRouterClient
 from ..repository import ChatRepository
@@ -37,6 +36,7 @@ from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 
 if TYPE_CHECKING:
+    from ..config import Settings
     from ..services.attachments import AttachmentService
 
 logger = logging.getLogger(__name__)

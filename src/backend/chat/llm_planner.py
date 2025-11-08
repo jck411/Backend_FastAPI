@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any, Mapping, Sequence
 
 from .tool_context_planner import ToolContextPlan, merge_model_tool_plan
@@ -85,6 +86,9 @@ Do not invent tools or contexts that are absent from the digest. Respond with JS
             # Merge LLM response with fallback
             plan = merge_model_tool_plan(fallback_plan, planner_response)
 
+            # Realign any tool-named contexts with their canonical capability contexts
+            plan = self._align_plan_with_capabilities(plan, capability_digest)
+
             # Auto-expand to include auth dependencies
             plan = expand_tool_plan_with_dependencies(plan)
 
@@ -156,6 +160,103 @@ Do not invent tools or contexts that are absent from the digest. Respond with JS
         if tools and len(tools) > 0:
             return True
         return False
+
+    def _align_plan_with_capabilities(
+        self,
+        plan: ToolContextPlan,
+        capability_digest: Mapping[str, Sequence[Mapping[str, Any]]] | None,
+    ) -> ToolContextPlan:
+        """Normalize plan contexts so auth/tool steps don't stall the main task."""
+
+        if not capability_digest:
+            return plan
+
+        valid_contexts: set[str] = set()
+        tool_to_contexts: dict[str, set[str]] = defaultdict(set)
+
+        for context_name, entries in capability_digest.items():
+            if not isinstance(context_name, str):
+                continue
+            normalized_context = context_name.strip().lower()
+            if not normalized_context:
+                continue
+            valid_contexts.add(normalized_context)
+            if not isinstance(entries, Sequence):
+                continue
+            for entry in entries:
+                tool_name: str | None
+                if isinstance(entry, Mapping):
+                    name_value = entry.get("name")
+                    tool_name = name_value if isinstance(name_value, str) else None
+                elif isinstance(entry, str):
+                    tool_name = entry
+                else:
+                    tool_name = None
+                if not tool_name:
+                    continue
+                normalized_tool = tool_name.strip().lower()
+                if not normalized_tool:
+                    continue
+                tool_to_contexts[normalized_tool].add(normalized_context)
+
+        if not tool_to_contexts:
+            return plan
+
+        def _resolve_context(identifier: str) -> list[str]:
+            normalized = identifier.strip().lower()
+            if not normalized:
+                return []
+            if normalized in valid_contexts or normalized == "__all__":
+                return [normalized]
+            mapped = sorted(tool_to_contexts.get(normalized, set()))
+            if mapped:
+                return mapped
+            return [normalized]
+
+        if plan.stages:
+            aligned_stages: list[list[str]] = []
+            for stage in plan.stages:
+                seen_in_stage: set[str] = set()
+                aligned_stage: list[str] = []
+                for context in stage:
+                    for resolved in _resolve_context(context):
+                        if not resolved or resolved in seen_in_stage:
+                            continue
+                        seen_in_stage.add(resolved)
+                        aligned_stage.append(resolved)
+                if aligned_stage:
+                    aligned_stages.append(aligned_stage)
+            plan.stages = aligned_stages
+
+        if plan.ranked_contexts:
+            aligned_ranked: list[str] = []
+            seen_ranked: set[str] = set()
+            for context in plan.ranked_contexts:
+                for resolved in _resolve_context(context):
+                    if not resolved or resolved in seen_ranked:
+                        continue
+                    seen_ranked.add(resolved)
+                    aligned_ranked.append(resolved)
+            plan.ranked_contexts = aligned_ranked
+
+        if plan.candidate_tools:
+            aligned_candidates: dict[str, list["ToolCandidate"]] = {}
+            seen_per_context: dict[str, set[str]] = {}
+            for context, candidates in plan.candidate_tools.items():
+                for resolved in _resolve_context(context):
+                    bucket = aligned_candidates.setdefault(resolved, [])
+                    seen = seen_per_context.setdefault(
+                        resolved, {candidate.name.strip().lower() for candidate in bucket if isinstance(candidate.name, str)}
+                    )
+                    for candidate in candidates:
+                        name = candidate.name.strip().lower()
+                        if not name or name in seen:
+                            continue
+                        bucket.append(candidate)
+                        seen.add(name)
+            plan.candidate_tools = aligned_candidates
+
+        return plan
 
 
 __all__ = ["LLMContextPlanner"]

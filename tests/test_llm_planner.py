@@ -154,3 +154,46 @@ async def test_llm_planner_handles_invalid_digest() -> None:
     assert plan is not None
     assert plan.used_fallback is False
     mock_client.request_tool_plan.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_llm_planner_realigns_tool_named_contexts() -> None:
+    """Stages that list tools instead of contexts should be realigned."""
+
+    mock_client = MagicMock()
+    mock_client.request_tool_plan = AsyncMock(
+        return_value={
+            "plan": {
+                "stages": [["calendar_auth_status"]],
+                "candidate_tools": {
+                    "calendar_auth_status": [
+                        {"name": "calendar_get_events", "description": "Fetch events"}
+                    ]
+                },
+                "ranked_contexts": ["calendar_auth_status"],
+            }
+        }
+    )
+
+    planner = LLMContextPlanner(mock_client)
+    request = _make_request("What's on my calendar today?")
+    conversation = [{"role": "user", "content": "What's on my calendar today?"}]
+    capability_digest = {
+        "calendar": [
+            {"name": "calendar_auth_status", "description": "Check auth"},
+            {"name": "calendar_get_events", "description": "Fetch events"},
+        ],
+        "__all__": [],
+    }
+
+    plan = await planner.plan(request, conversation, capability_digest)
+
+    assert plan.stages == [["calendar"]]
+    assert plan.ranked_contexts == ["calendar"]
+    assert plan.used_fallback is False
+
+    calendar_candidates = plan.candidate_tools.get("calendar")
+    assert calendar_candidates is not None
+    candidate_names = [candidate.name for candidate in calendar_candidates]
+    assert candidate_names[0] == "calendar_auth_status"
+    assert "calendar_get_events" in candidate_names

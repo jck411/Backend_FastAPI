@@ -35,8 +35,6 @@ _PARAMETER_GUARD_LIST: tuple[str, ...] = (
     "parallel_tool_calls",
 )
 
-_MISSING = object()
-
 
 def _is_truthy(value: Any) -> bool:
     """Best-effort truthiness check for heterogeneous API payloads."""
@@ -271,14 +269,12 @@ class ModelSettingsService:
         default_model: str,
         *,
         default_system_prompt: str | None = None,
-        default_llm_planner_enabled: bool = True,
     ) -> None:
         self._path = path
         self._lock = asyncio.Lock()
         self._settings = ActiveModelSettingsResponse(model=default_model)
         prompt = (default_system_prompt or "").strip() if default_system_prompt else None
         self._system_prompt: str | None = prompt if prompt else None
-        self._llm_planner_enabled = bool(default_llm_planner_enabled)
         self._capabilities_lock = asyncio.Lock()
         self._capabilities_cache: dict[str, ModelCapabilities] = {}
         self._load_from_disk()
@@ -301,22 +297,6 @@ class ModelSettingsService:
             if isinstance(extracted, str):
                 extracted = extracted.strip()
             system_prompt_value = extracted or None
-
-            planner_value = data.get("llm_planner_enabled")
-            if planner_value is not None:
-                if isinstance(planner_value, bool):
-                    self._llm_planner_enabled = planner_value
-                elif isinstance(planner_value, str):
-                    normalized_flag = planner_value.strip().lower()
-                    self._llm_planner_enabled = normalized_flag not in {
-                        "",
-                        "false",
-                        "0",
-                        "no",
-                        "off",
-                    }
-                else:
-                    self._llm_planner_enabled = bool(planner_value)
 
             data = dict(data)
             data.pop("system_prompt", None)
@@ -349,7 +329,6 @@ class ModelSettingsService:
         data["updated_at"] = self._settings.updated_at.isoformat()
         if self._system_prompt is not None:
             data["system_prompt"] = self._system_prompt
-        data["llm_planner_enabled"] = self._llm_planner_enabled
         serialized = json.dumps(data, indent=2, sort_keys=True)
         self._path.write_text(serialized + "\n", encoding="utf-8")
 
@@ -498,51 +477,14 @@ class ModelSettingsService:
             return self._system_prompt
 
     async def update_system_prompt(self, prompt: str | None) -> str | None:
-        system_prompt, _ = await self.update_orchestrator_settings(
-            system_prompt=prompt
-        )
-        return system_prompt
-
-    async def get_llm_planner_enabled(self) -> bool:
         async with self._lock:
-            return self._llm_planner_enabled
-
-    async def get_orchestrator_settings(self) -> tuple[str | None, bool]:
-        async with self._lock:
-            return self._system_prompt, self._llm_planner_enabled
-
-    async def update_orchestrator_settings(
-        self,
-        *,
-        system_prompt: Any = _MISSING,
-        llm_planner_enabled: Any = _MISSING,
-    ) -> tuple[str | None, bool]:
-        async with self._lock:
-            if system_prompt is not _MISSING:
-                if isinstance(system_prompt, str):
-                    normalized = system_prompt.strip()
-                    self._system_prompt = normalized if normalized else None
-                elif system_prompt is None:
-                    self._system_prompt = None
-                else:
-                    normalized = str(system_prompt).strip()
-                    self._system_prompt = normalized if normalized else None
-            if llm_planner_enabled is not _MISSING:
-                if isinstance(llm_planner_enabled, bool):
-                    self._llm_planner_enabled = llm_planner_enabled
-                elif isinstance(llm_planner_enabled, str):
-                    normalized_flag = llm_planner_enabled.strip().lower()
-                    self._llm_planner_enabled = normalized_flag not in {
-                        "",
-                        "false",
-                        "0",
-                        "no",
-                        "off",
-                    }
-                else:
-                    self._llm_planner_enabled = bool(llm_planner_enabled)
+            if isinstance(prompt, str):
+                normalized = prompt.strip()
+                self._system_prompt = normalized if normalized else None
+            else:
+                self._system_prompt = None
             self._save_to_disk()
-            return self._system_prompt, self._llm_planner_enabled
+            return self._system_prompt
 
     async def get_active_provider_info(self, openrouter_client) -> Dict[str, Any]:
         """Get the active service provider information for the current model based on provider preferences."""

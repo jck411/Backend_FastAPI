@@ -8,7 +8,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Iterable, Literal, Mapping, Protocol, Sequence
+from typing import Any, AsyncGenerator, Iterable, Mapping, Protocol, Sequence
 from urllib.parse import unquote_to_bytes
 
 import httpx
@@ -20,7 +20,6 @@ from ..schemas.chat import ChatCompletionRequest
 from ..services.attachments import AttachmentService
 from ..services.conversation_logging import ConversationLogWriter
 from ..services.model_settings import ModelCapabilities, ModelSettingsService
-from .tool_context_planner import ToolContextPlan
 
 
 class ToolExecutor(Protocol):
@@ -79,220 +78,6 @@ def _summarize_tool_parameters(parameters: Mapping[str, Any] | None) -> str:
         return "none"
 
     return ", ".join(names)
-
-
-def _build_tool_digest_message(
-    plan: ToolContextPlan | None,
-    tools_payload: Sequence[dict[str, Any]] | None,
-    active_contexts: Sequence[str] | None,
-) -> dict[str, Any] | None:
-    if plan is None or not tools_payload:
-        return None
-
-    candidate_map = plan.candidate_tools or {}
-    if not candidate_map:
-        return None
-
-    tool_names: list[str] = []
-    tool_specs: dict[str, Mapping[str, Any]] = {}
-    for spec in tools_payload:
-        if not isinstance(spec, Mapping):
-            continue
-        function = spec.get("function")
-        if not isinstance(function, Mapping):
-            continue
-        raw_name = function.get("name")
-        if not isinstance(raw_name, str):
-            continue
-        name = raw_name.strip()
-        if not name or name in tool_specs:
-            continue
-        tool_names.append(name)
-        tool_specs[name] = function
-
-    if not tool_names:
-        return None
-
-    ordered_contexts: list[str] = []
-    seen_contexts: set[str] = set()
-    if active_contexts:
-        for context in active_contexts:
-            if not isinstance(context, str):
-                continue
-            normalized = context.strip().lower()
-            if not normalized or normalized in seen_contexts:
-                continue
-            if normalized in candidate_map:
-                ordered_contexts.append(normalized)
-                seen_contexts.add(normalized)
-    if not ordered_contexts:
-        for context in plan.ranked_contexts:
-            normalized = context.strip().lower()
-            if not normalized or normalized in seen_contexts:
-                continue
-            if normalized in candidate_map:
-                ordered_contexts.append(normalized)
-                seen_contexts.add(normalized)
-    if not ordered_contexts:
-        for context in candidate_map:
-            if context not in seen_contexts:
-                ordered_contexts.append(context)
-                seen_contexts.add(context)
-
-    if not ordered_contexts:
-        return None
-
-    candidate_lookup: dict[str, dict[str, Any]] = {}
-    for context in ordered_contexts:
-        for candidate in candidate_map.get(context, []):
-            if isinstance(candidate, Mapping):
-                name = candidate.get("name")
-                description = candidate.get("description")
-                parameters = candidate.get("parameters")
-                server = candidate.get("server")
-            else:
-                name = getattr(candidate, "name", None)
-                description = getattr(candidate, "description", None)
-                parameters = getattr(candidate, "parameters", None)
-                server = getattr(candidate, "server", None)
-            if not isinstance(name, str) or not name:
-                continue
-            if name not in candidate_lookup:
-                candidate_lookup[name] = {
-                    "description": description,
-                    "parameters": parameters,
-                    "server": server,
-                    "context": context,
-                }
-
-    summaries: list[str] = []
-    for name in tool_names:
-        candidate_info = candidate_lookup.get(name, {})
-        description = candidate_info.get("description")
-        if not isinstance(description, str) or not description.strip():
-            description = None
-        else:
-            description = " ".join(description.strip().split())
-        parameters = candidate_info.get("parameters")
-        if not isinstance(parameters, Mapping):
-            spec = tool_specs.get(name)
-            parameters = spec.get("parameters") if isinstance(spec, Mapping) else None
-        description = description or (
-            tool_specs.get(name, {}).get("description")
-            if isinstance(tool_specs.get(name), Mapping)
-            else None
-        )
-        if not isinstance(description, str) or not description.strip():
-            server = candidate_info.get("server")
-            if isinstance(server, str) and server.strip():
-                description = f"Provided by {server.strip()} server"
-            else:
-                description = "No description provided"
-        params_summary = _summarize_tool_parameters(parameters)
-        summaries.append(f"- {name} — {description} (params: {params_summary})")
-
-    if not summaries:
-        return None
-
-    header_contexts: list[str] = []
-    for context in ordered_contexts:
-        if isinstance(context, str) and context:
-            header_contexts.append(context)
-    if header_contexts:
-        header = "Tool digest for contexts: " + ", ".join(header_contexts)
-    else:
-        header = "Tool digest for active tools"
-
-    message = "\n".join([header, *summaries])
-    return {"role": "system", "content": message}
-
-
-def _format_context_label(context: str) -> str | None:
-    if not isinstance(context, str):
-        return None
-    normalized = context.strip()
-    if not normalized:
-        return None
-    if normalized == "__all__":
-        return "All tools"
-    parts = [segment for segment in normalized.replace("_", " ").split(" ") if segment]
-    if not parts:
-        return None
-    return " ".join(part.capitalize() for part in parts)
-
-
-def _collect_plan_contexts(
-    plan: ToolContextPlan, active_contexts: Sequence[str] | None
-) -> list[str]:
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for source in (active_contexts, plan.contexts_for_attempt(0), plan.ranked_contexts):
-        if not source:
-            continue
-        for context in source:
-            if not isinstance(context, str):
-                continue
-            normalized = context.strip()
-            if not normalized or normalized in seen:
-                continue
-            seen.add(normalized)
-            ordered.append(normalized)
-    return ordered
-
-
-def _build_context_plan_notice(
-    plan: ToolContextPlan, active_contexts: Sequence[str] | None
-) -> dict[str, Any]:
-    """Build a tool plan notice for display in the frontend.
-
-    Note: Caller should check if notice should be shown before calling this function.
-    """
-    contexts = _collect_plan_contexts(plan, active_contexts)
-    display_contexts = [
-        label for context in contexts if (label := _format_context_label(context))
-    ]
-
-    headline = (
-        "Fallback tool plan active" if plan.used_fallback else "Context planner active"
-    )
-
-    detail_segments: list[str] = []
-    if display_contexts:
-        detail_segments.append("focusing on " + ", ".join(display_contexts))
-    elif plan.broad_search:
-        detail_segments.append("searching all available tools")
-
-    if plan.intent:
-        detail_segments.append(f"Intent: {plan.intent}")
-
-    if plan.used_fallback and plan.fallback_reason:
-        detail_segments.append(f"Reason: {plan.fallback_reason}")
-
-    if plan.used_fallback and not detail_segments:
-        detail_segments.append("using all available tools")
-
-    if detail_segments:
-        message = f"{headline} — {'; '.join(detail_segments)}."
-    else:
-        message = f"{headline}."
-
-    italic_message = f"*{message}*"
-
-    payload: dict[str, Any] = {
-        "type": "tool_plan_status",
-        "message": italic_message,
-        "used_fallback": plan.used_fallback,
-        "fallback_reason": plan.fallback_reason,
-        "contexts": contexts,
-        "display_contexts": display_contexts,
-        "intent": plan.intent,
-        "broad_search": plan.broad_search,
-    }
-
-    if plan.candidate_tools:
-        payload["candidate_contexts"] = sorted(plan.candidate_tools.keys())
-
-    return payload
 
 
 @dataclass
@@ -476,50 +261,6 @@ class _AssistantContentBuilder:
         return structured_parts if structured_parts else None
 
 
-def _normalize_privacy_consent(
-    value: Any,
-) -> tuple[Literal["granted", "denied"] | None, dict[str, Any] | None]:
-    """Normalize privacy consent metadata into a status and safe payload."""
-
-    status: Literal["granted", "denied"] | None = None
-    details: dict[str, Any] | None = None
-
-    if isinstance(value, bool):
-        status = "granted" if value else "denied"
-    elif isinstance(value, str):
-        normalized = value.strip().lower()
-        if normalized in {"granted", "approved", "allow", "allowed", "yes"}:
-            status = "granted"
-        elif normalized in {"denied", "declined", "rejected", "no"}:
-            status = "denied"
-    elif isinstance(value, Mapping):
-        raw_status = value.get("status")
-        normalized_status: str | None
-        if isinstance(raw_status, bool):
-            normalized_status = "granted" if raw_status else "denied"
-        elif isinstance(raw_status, str):
-            normalized_status = raw_status.strip().lower()
-        else:
-            normalized_status = None
-        if normalized_status in {"granted", "denied"}:
-            status = normalized_status  # type: ignore[assignment]
-        sanitized: dict[str, Any] = {}
-        for key, item in value.items():
-            if key == "status":
-                continue
-            if isinstance(item, (str, int, float, bool)) or item is None:
-                sanitized[str(key)] = item
-        details = sanitized or None
-
-    if status is not None:
-        if details is None:
-            details = {"status": status}
-        else:
-            details["status"] = status
-
-    return status, details
-
-
 class StreamingHandler:
     """Stream chat responses, execute tools, and persist conversation state."""
 
@@ -597,7 +338,6 @@ class StreamingHandler:
         conversation: list[dict[str, Any]],
         tools_payload: list[dict[str, Any]],
         assistant_parent_message_id: str | None,
-        tool_context_plan: ToolContextPlan | None = None,
     ) -> AsyncGenerator[SseEvent, None]:
         """Yield SSE events while maintaining state and executing tools."""
 
@@ -606,8 +346,6 @@ class StreamingHandler:
         assistant_client_message_id: str | None = None
         request_metadata: dict[str, Any] | None = None
         request_id: str | None = None
-        privacy_consent_status: Literal["granted", "denied"] | None = None
-        privacy_consent_details: dict[str, Any] | None = None
         if isinstance(request.metadata, dict):
             request_metadata = request.metadata
             candidate = request_metadata.get("client_assistant_message_id")
@@ -616,125 +354,7 @@ class StreamingHandler:
             request_id_candidate = request_metadata.get("request_id")
             if isinstance(request_id_candidate, str):
                 request_id = request_id_candidate
-            privacy_consent_status, privacy_consent_details = (
-                _normalize_privacy_consent(request_metadata.get("privacy_consent"))
-            )
         active_tools_payload = list(tools_payload)
-        active_contexts: list[str] | None = None
-        if (
-            tool_context_plan is not None
-            and not tool_context_plan.use_all_tools_for_attempt(0)
-        ):
-            active_contexts = tool_context_plan.contexts_for_attempt(0)
-        stop_reasons = (
-            set(tool_context_plan.stop_conditions)
-            if tool_context_plan is not None
-            else set()
-        )
-        privacy_note = (
-            tool_context_plan.privacy_note if tool_context_plan is not None else None
-        )
-        awaiting_privacy_consent = False
-
-        if tool_context_plan is not None:
-            # Only show notice if planner was used OR failed (not when intentionally disabled)
-            should_show_notice = (
-                not tool_context_plan.used_fallback or tool_context_plan.fallback_reason
-            )
-            if should_show_notice:
-                plan_notice = _build_context_plan_notice(
-                    tool_context_plan, active_contexts
-                )
-                yield {"event": "notice", "data": json.dumps(plan_notice)}
-
-        async def record_privacy_event(
-            status: str, extra: Mapping[str, Any] | None = None
-        ) -> None:
-            payload: dict[str, Any] = {"status": status}
-            if privacy_note:
-                payload["note"] = privacy_note
-            if extra:
-                payload.update(extra)
-            try:
-                await self._repo.add_event(
-                    session_id,
-                    "privacy_consent",
-                    payload,
-                    request_id=request_id,
-                )
-            except Exception as exc:  # pragma: no cover - defensive logging
-                logger.warning(
-                    "Failed to record privacy consent event for session %s: %s",
-                    session_id,
-                    exc,
-                )
-
-        if privacy_note:
-            assert tool_context_plan is not None
-            plan_contexts = list(tool_context_plan.ranked_contexts)
-            plan_intent = tool_context_plan.intent
-            if privacy_consent_status == "granted":
-                await record_privacy_event(
-                    "granted",
-                    privacy_consent_details,
-                )
-                consent_notice: dict[str, Any] = {
-                    "type": "privacy_consent_granted",
-                    "message": privacy_note,
-                    "contexts": plan_contexts,
-                    "intent": plan_intent,
-                    "status": "granted",
-                }
-                if privacy_consent_details:
-                    consent_notice["details"] = privacy_consent_details
-                yield {
-                    "event": "notice",
-                    "data": json.dumps(consent_notice),
-                }
-            elif privacy_consent_status == "denied":
-                await record_privacy_event(
-                    "denied",
-                    privacy_consent_details,
-                )
-                denial_notice: dict[str, Any] = {
-                    "type": "privacy_consent_denied",
-                    "message": privacy_note,
-                    "contexts": plan_contexts,
-                    "intent": plan_intent,
-                    "status": "denied",
-                }
-                if privacy_consent_details:
-                    denial_notice["details"] = privacy_consent_details
-                yield {
-                    "event": "notice",
-                    "data": json.dumps(denial_notice),
-                }
-                if self._conversation_logger is not None:
-                    await self._log_conversation_snapshot(session_id, request)
-                yield {"event": "message", "data": "[DONE]"}
-                return
-            else:
-                awaiting_privacy_consent = True
-                await record_privacy_event(
-                    "required",
-                    privacy_consent_details,
-                )
-                privacy_notice: dict[str, Any] = {
-                    "type": "privacy_consent_required",
-                    "message": privacy_note,
-                    "contexts": plan_contexts,
-                    "intent": plan_intent,
-                }
-                candidate_tools = tool_context_plan.candidate_tools
-                if candidate_tools:
-                    privacy_notice["candidate_tools"] = {
-                        context: [candidate.to_dict() for candidate in candidates]
-                        for context, candidates in candidate_tools.items()
-                    }
-                yield {
-                    "event": "notice",
-                    "data": json.dumps(privacy_notice),
-                }
         tool_choice_value = request.tool_choice
         requested_tool_choice = (
             tool_choice_value if isinstance(tool_choice_value, str) else None
@@ -766,15 +386,7 @@ class StreamingHandler:
                 overrides = dict(overrides) if overrides else {}
 
             payload = request.to_openrouter_payload(active_model)
-            payload_messages = list(conversation_state)
-            digest_message = None
-            if not awaiting_privacy_consent:
-                digest_message = _build_tool_digest_message(
-                    tool_context_plan, active_tools_payload, active_contexts
-                )
-            if digest_message is not None:
-                payload_messages.append(digest_message)
-            payload["messages"] = payload_messages
+            payload["messages"] = list(conversation_state)
 
             if overrides:
                 provider_overrides = overrides.get("provider")
@@ -819,12 +431,7 @@ class StreamingHandler:
                     session_id,
                 )
 
-            allow_tools = (
-                tools_available
-                and not tools_disabled
-                and model_supports_tools
-                and not awaiting_privacy_consent
-            )
+            allow_tools = tools_available and not tools_disabled and model_supports_tools
             if allow_tools:
                 payload["tools"] = active_tools_payload
                 payload.setdefault("tool_choice", request.tool_choice or "auto")
@@ -1229,47 +836,7 @@ class StreamingHandler:
                 }
                 break
 
-            expand_contexts = False
-
             processed_tool_calls = 0
-
-            if awaiting_privacy_consent and assistant_turn.tool_calls:
-                blocked_tools: list[dict[str, Any]] = []
-                for call in assistant_turn.tool_calls:
-                    if not isinstance(call, Mapping):
-                        continue
-                    function_payload = call.get("function")
-                    tool_name: str | None = None
-                    if isinstance(function_payload, Mapping):
-                        raw_name = function_payload.get("name")
-                        if isinstance(raw_name, str):
-                            tool_name = raw_name
-                    entry: dict[str, Any] = {}
-                    call_id_value = call.get("id")
-                    if isinstance(call_id_value, str):
-                        entry["call_id"] = call_id_value
-                    if tool_name:
-                        entry["name"] = tool_name
-                    if entry:
-                        blocked_tools.append(entry)
-
-                event_extra: dict[str, Any] = {"reason": "pending_consent"}
-                if blocked_tools:
-                    event_extra["tool_calls"] = blocked_tools
-                await record_privacy_event("blocked", event_extra)
-
-                blocked_notice: dict[str, Any] = {
-                    "type": "privacy_consent_blocked",
-                    "message": "Tool execution requires explicit privacy consent.",
-                    "status": "required",
-                }
-                if blocked_tools:
-                    blocked_notice["tool_calls"] = blocked_tools
-                yield {
-                    "event": "notice",
-                    "data": json.dumps(blocked_notice),
-                }
-                break
 
             for call_index, tool_call in enumerate(assistant_turn.tool_calls):
                 function = tool_call.get("function") or {}
@@ -1442,50 +1009,14 @@ class StreamingHandler:
                     missing_arguments=missing_arguments,
                 )
                 if notice_reason is not None:
-                    next_contexts: list[str] = []
-                    will_use_all_tools = False
-                    if tool_context_plan is not None:
-                        if notice_reason in {
-                            "no_results",
-                            "empty_result",
-                            "tool_error",
-                        }:
-                            next_contexts = (
-                                tool_context_plan.additional_contexts_for_attempt(
-                                    hop_count
-                                )
-                            )
-                            will_use_all_tools = (
-                                tool_context_plan.use_all_tools_for_attempt(
-                                    hop_count + 1
-                                )
-                            )
-                    if notice_reason in {"no_results", "empty_result", "tool_error"}:
-                        expand_contexts = True
                     notice_payload = {
                         "type": "tool_followup_required",
                         "tool": tool_name or "unknown",
                         "reason": notice_reason,
                         "message": result_text,
                         "attempt": hop_count,
-                        "next_contexts": next_contexts,
-                        "will_use_all_tools": will_use_all_tools,
                         "confirmation_required": True,
                     }
-                    if (
-                        tool_context_plan is not None
-                        and notice_reason == "missing_arguments"
-                    ):
-                        hints = tool_context_plan.argument_hints.get(tool_name or "")
-                        if hints:
-                            notice_payload["argument_hints"] = list(hints)
-                    if (
-                        stop_reasons
-                        and notice_reason in stop_reasons
-                        and stop_triggered_reason is None
-                    ):
-                        stop_triggered_reason = notice_reason
-                        expand_contexts = False
                     yield {
                         "event": "notice",
                         "data": json.dumps(notice_payload),
@@ -1496,44 +1027,6 @@ class StreamingHandler:
             total_tool_calls += processed_tool_calls
 
             hop_count += 1
-
-            if stop_triggered_reason is not None:
-                logger.info(
-                    "Stop condition '%s' triggered for session %s",
-                    stop_triggered_reason,
-                    session_id,
-                )
-                yield {
-                    "event": "notice",
-                    "data": json.dumps(
-                        {
-                            "type": "plan_stop",
-                            "reason": stop_triggered_reason,
-                            "message": "Tool plan stop condition reached.",
-                        }
-                    ),
-                }
-                break
-
-            if tool_context_plan is not None and expand_contexts:
-                next_contexts = tool_context_plan.contexts_for_attempt(hop_count)
-                contexts_changed = False
-                if tool_context_plan.use_all_tools_for_attempt(hop_count):
-                    if active_contexts is not None:
-                        contexts_changed = True
-                    active_tools_payload = self._tool_client.get_openai_tools()
-                    active_contexts = None
-                else:
-                    if next_contexts != (active_contexts or []):
-                        active_tools_payload = (
-                            self._tool_client.get_openai_tools_for_contexts(
-                                next_contexts
-                            )
-                        )
-                        active_contexts = next_contexts
-                        contexts_changed = True
-                if contexts_changed:
-                    continue
 
         if self._conversation_logger is not None:
             await self._log_conversation_snapshot(session_id, request)

@@ -278,12 +278,10 @@ export interface ActiveModelSettingsResponse extends ActiveModelSettingsPayload 
 
 export interface SystemPromptResponse {
   system_prompt: string | null;
-  llm_planner_enabled: boolean;
 }
 
 export interface SystemPromptPayload {
   system_prompt?: string | null;
-  llm_planner_enabled?: boolean | null;
 }
 
 export interface McpServerToolStatus {

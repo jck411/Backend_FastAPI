@@ -70,11 +70,6 @@
     systemPrompt.updateValue(target?.value ?? "");
   }
 
-  function handlePlannerToggle(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    systemPrompt.setPlannerEnabled(Boolean(target?.checked));
-  }
-
   function toggleServer(serverId: string, enabled: boolean): void {
     if ($mcpServers.saving) {
       return;
@@ -183,20 +178,6 @@
             placeholder="Provide guidance for the assistant to follow at the start of new conversations."
             disabled={$systemPrompt.saving}
           ></textarea>
-          <div class="planner-toggle">
-            <label class="toggle">
-              <input
-                type="checkbox"
-                checked={$systemPrompt.plannerEnabled}
-                on:change={handlePlannerToggle}
-                disabled={$systemPrompt.saving}
-              />
-              <span>Enable LLM planner</span>
-            </label>
-            <p class="status muted">
-              When disabled, the assistant skips tool planning and calls the model directly.
-            </p>
-          </div>
           {#if $systemPrompt.saveError}
             <p class="status error">{$systemPrompt.saveError}</p>
           {:else if $systemPrompt.dirty}

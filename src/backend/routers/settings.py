@@ -81,11 +81,8 @@ async def get_active_provider_info(
 async def read_system_prompt(
     service: ModelSettingsService = Depends(get_model_settings_service),
 ) -> SystemPromptResponse:
-    prompt, planner_enabled = await service.get_orchestrator_settings()
-    return SystemPromptResponse(
-        system_prompt=prompt,
-        llm_planner_enabled=planner_enabled,
-    )
+    prompt = await service.get_system_prompt()
+    return SystemPromptResponse(system_prompt=prompt)
 
 
 @router.put("/system-prompt", response_model=SystemPromptResponse)
@@ -93,21 +90,12 @@ async def update_system_prompt(
     payload: SystemPromptPayload,
     service: ModelSettingsService = Depends(get_model_settings_service),
 ) -> SystemPromptResponse:
-    updates: dict[str, Any] = {}
     if "system_prompt" in payload.model_fields_set:
-        updates["system_prompt"] = payload.system_prompt
-    if "llm_planner_enabled" in payload.model_fields_set:
-        updates["llm_planner_enabled"] = payload.llm_planner_enabled
-
-    if updates:
-        prompt, planner_enabled = await service.update_orchestrator_settings(**updates)
+        prompt = await service.update_system_prompt(payload.system_prompt)
     else:
-        prompt, planner_enabled = await service.get_orchestrator_settings()
+        prompt = await service.get_system_prompt()
 
-    return SystemPromptResponse(
-        system_prompt=prompt,
-        llm_planner_enabled=planner_enabled,
-    )
+    return SystemPromptResponse(system_prompt=prompt)
 
 
 __all__ = ["router"]

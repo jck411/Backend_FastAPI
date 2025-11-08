@@ -1,4 +1,4 @@
-"""Integration tests for the chat orchestrator planner wiring."""
+"""Integration tests for the chat orchestrator streaming pipeline."""
 
 from __future__ import annotations
 
@@ -22,9 +22,6 @@ def anyio_backend() -> str:
 
 @pytest.fixture(autouse=True)
 def reset_stubs() -> None:
-    StubOpenRouterClient.plan_requests = []
-    StubOpenRouterClient.plan_response = {}
-    StubOpenRouterClient.plan_error = None
     StubStreamingHandler.last_instance = None
     StubAggregator.last_instance = None
 
@@ -431,7 +428,6 @@ class StubStreamingHandler:
         **kwargs: Any,
     ) -> None:
         StubStreamingHandler.last_instance = self
-        self.last_plan = None
         self.last_tools_payload = None
 
     def set_attachment_service(self, service: Any) -> None:  # pragma: no cover
@@ -444,9 +440,7 @@ class StubStreamingHandler:
         conversation: list[dict[str, Any]],
         tools_payload: list[dict[str, Any]],
         assistant_parent_message_id: str | None,
-        tool_context_plan: Any = None,
     ):
-        self.last_plan = tool_context_plan
         self.last_tools_payload = tools_payload
         yield {"event": "message", "data": "[DONE]"}
 
@@ -474,29 +468,8 @@ class StubMCPSettings:
 
 
 class StubOpenRouterClient:
-    plan_requests: ClassVar[list[dict[str, Any]]] = []
-    plan_response: ClassVar[Any] = {}
-    plan_error: ClassVar[Exception | None] = None
-
     def __init__(self, *_: Any, **__: Any) -> None:
         return
-
-    async def request_tool_plan(
-        self,
-        *,
-        request: Any,
-        conversation: Iterable[dict[str, Any]],
-        tool_digest: dict[str, Any],
-    ) -> dict[str, Any]:
-        payload = {
-            "request": request,
-            "conversation": [dict(message) for message in conversation],
-            "tool_digest": dict(tool_digest),
-        }
-        StubOpenRouterClient.plan_requests.append(payload)
-        if StubOpenRouterClient.plan_error is not None:
-            raise StubOpenRouterClient.plan_error
-        return StubOpenRouterClient.plan_response
 
     async def aclose(self) -> None:  # pragma: no cover - trivial stub
         return

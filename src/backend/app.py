@@ -109,7 +109,6 @@ def create_app() -> FastAPI:
         model_settings_path,
         settings.default_model,
         default_system_prompt=settings.openrouter_system_prompt,
-        default_llm_planner_enabled=settings.enable_llm_planner,
     )
 
     mcp_servers_path = _resolve_under(project_root, settings.mcp_servers_path)

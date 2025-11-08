@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 import os
@@ -13,10 +12,8 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncGenerator,
-    Callable,
     Iterable,
     Sequence,
-    cast,
 )
 
 from dotenv import dotenv_values
@@ -31,7 +28,6 @@ from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
 from ..services.time_context import create_time_snapshot
 from .image_reflection import reflect_assistant_images
-from .llm_planner import LLMContextPlanner
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 
@@ -42,12 +38,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-_MAX_RANKED_TOOLS = 5
-
-CapDigest = dict[str, list[dict[str, Any]]]
 ToolPayload = list[dict[str, Any]]
-DigestProvider = Callable[..., CapDigest]
-ToolLookup = Callable[[Iterable[str]], ToolPayload]
 
 
 def _iter_attachment_ids(content: Any) -> Iterable[str]:
@@ -153,7 +144,6 @@ class ChatOrchestrator:
         self._settings = settings
         self._init_lock = asyncio.Lock()
         self._ready = asyncio.Event()
-        self._llm_planner = LLMContextPlanner(self._client)
 
     async def initialize(self) -> None:
         """Initialize database and MCP client once."""
@@ -236,10 +226,7 @@ class ChatOrchestrator:
         incoming_has_system = any(
             message.role == "system" for message in incoming_messages
         )
-        (
-            system_prompt_value,
-            planner_enabled,
-        ) = await self._model_settings.get_orchestrator_settings()
+        system_prompt_value = await self._model_settings.get_system_prompt()
         system_prompt = _build_enhanced_system_prompt(system_prompt_value)
         has_system_message = bool(system_messages)
 
@@ -297,157 +284,7 @@ class ChatOrchestrator:
             ttl=self._settings.attachment_signed_url_ttl,
         )
         conversation = reflect_assistant_images(conversation)
-        capability_digest: CapDigest = {}
-        digest_provider = cast(
-            DigestProvider | None,
-            getattr(self._mcp_client, "get_capability_digest", None),
-        )
-        if digest_provider is not None:
-            try:
-                candidate_digest = digest_provider()
-            except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.debug("Capability digest unavailable: %s", exc)
-                capability_digest = {}
-            else:
-                if isinstance(candidate_digest, dict):
-                    capability_digest = candidate_digest
-                else:  # pragma: no cover - defensive fallback
-                    logger.debug(
-                        "Capability digest returned unexpected type: %s",
-                        type(candidate_digest),
-                    )
-                    capability_digest = {}
-
-        if planner_enabled:
-            plan = await self._llm_planner.plan(
-                request,
-                conversation,
-                capability_digest=capability_digest,
-            )
-        else:
-            plan = self._llm_planner.fallback_plan(
-                request,
-                capability_digest=capability_digest,
-            )
-
-        # Get contexts and ranked tools from the plan
-        contexts = plan.contexts_for_attempt(0)
-        ranked_tool_names: list[str] = []
-        ranked_digest: CapDigest | None = None
-
-        if contexts and digest_provider is not None:
-            try:
-                candidate_ranked = digest_provider(
-                    contexts,
-                    limit=_MAX_RANKED_TOOLS,
-                    include_global=False,
-                )
-            except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.debug(
-                    "Failed to obtain ranked capability digest for contexts %s: %s",
-                    contexts,
-                    exc,
-                )
-                ranked_digest = {}
-            else:
-                if isinstance(candidate_ranked, dict):
-                    ranked_digest = candidate_ranked
-                else:  # pragma: no cover - defensive fallback
-                    logger.debug(
-                        "Ranked capability digest returned unexpected type: %s",
-                        type(candidate_ranked),
-                    )
-                    ranked_digest = {}
-        else:
-            ranked_digest = {}
-
-        if plan.candidate_tools:
-            seen_names: set[str] = set()
-            ordered_contexts = list(contexts)
-            if "__all__" in plan.candidate_tools and "__all__" not in ordered_contexts:
-                ordered_contexts.append("__all__")
-            for context in ordered_contexts:
-                candidates = plan.candidate_tools.get(context) or []
-                for candidate in candidates:
-                    name = candidate.name.strip()
-                    if not name or name in seen_names:
-                        continue
-                    seen_names.add(name)
-                    ranked_tool_names.append(name)
-
-        if ranked_digest:
-            seen_names = set(ranked_tool_names)
-            for context in contexts:
-                entries = ranked_digest.get(context) or []
-                for entry in entries:
-                    if not isinstance(entry, dict):
-                        continue
-                    name = entry.get("name")
-                    if not isinstance(name, str) or not name:
-                        continue
-                    if name in seen_names:
-                        continue
-                    seen_names.add(name)
-                    ranked_tool_names.append(name)
-
-        plan_payload = plan.to_dict()
-        request_event_id: str | None = None
-        if isinstance(request.metadata, dict):
-            candidate = request.metadata.get("client_request_id")
-            if isinstance(candidate, str):
-                request_event_id = candidate
-        repo_add_event = getattr(self._repo, "add_event", None)
-        if repo_add_event is not None:
-            try:
-                maybe_coro = repo_add_event(
-                    session_id,
-                    "tool_plan",
-                    {"plan": plan_payload},
-                    request_id=request_event_id,
-                )
-                if inspect.isawaitable(maybe_coro):
-                    await maybe_coro
-            except Exception as exc:  # pragma: no cover - defensive fallback
-                logger.debug("Failed to persist tool plan: %s", exc)
-        tools_payload: ToolPayload
-        if plan.use_all_tools_for_attempt(0):
-            tools_payload = self._mcp_client.get_openai_tools()
-        else:
-            ranked_tools_payload: ToolPayload = []
-            if ranked_tool_names:
-                lookup = cast(
-                    ToolLookup | None,
-                    getattr(
-                        self._mcp_client, "get_openai_tools_by_qualified_names", None
-                    ),
-                )
-                if lookup is not None:
-                    try:
-                        candidate_tools = lookup(ranked_tool_names)
-                    except Exception as exc:  # pragma: no cover - defensive fallback
-                        logger.debug(
-                            "Failed to resolve ranked tool specs for %s: %s",
-                            ranked_tool_names,
-                            exc,
-                        )
-                        ranked_tools_payload = []
-                    else:
-                        if isinstance(candidate_tools, list):
-                            ranked_tools_payload = [
-                                tool
-                                for tool in candidate_tools
-                                if isinstance(tool, dict)
-                            ]
-                        else:  # pragma: no cover - defensive fallback
-                            logger.debug(
-                                "Ranked tool lookup returned unexpected type: %s",
-                                type(candidate_tools),
-                            )
-                            ranked_tools_payload = []
-            if ranked_tools_payload:
-                tools_payload = ranked_tools_payload
-            else:
-                tools_payload = self._mcp_client.get_openai_tools()
+        tools_payload = self._mcp_client.get_openai_tools()
 
         if not existing:
             yield {
@@ -461,7 +298,6 @@ class ChatOrchestrator:
             conversation,
             tools_payload,
             assistant_parent_message_id,
-            plan,
         ):
             yield event
 

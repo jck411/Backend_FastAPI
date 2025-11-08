@@ -112,7 +112,7 @@ src/backend/
   services/           # Business logic
   chat/
     orchestrator.py   # Main chat coordination
-    llm_planner.py    # LLM-based tool selection
+    streaming.py      # Streaming pipeline and MCP tool routing
     mcp_registry.py   # MCP tool aggregator
   mcp_servers/        # Bundled MCP integrations
 
@@ -153,12 +153,6 @@ All uploads (images, PDFs) are stored in **private Google Cloud Storage**:
 - Background cleanup job removes expired attachments
 
 Supported types: `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `application/pdf`
-
-### LLM Context Planning
-
-The system can optionally use an LLM to intelligently select which tools to make available based on conversation context. When enabled, the planner analyzes the conversation and provides a curated set of relevant tools. When disabled, all tools are available. The planner falls back gracefully if it fails.
-
-See [`docs/LLM_PLANNER.md`](docs/LLM_PLANNER.md) for details.
 
 ### MCP Tool Integration
 
@@ -205,7 +199,6 @@ Tests use isolated SQLite databases in `tests/data/` and clean up automatically.
 ## Documentation
 
 - **[REFERENCE.md](docs/REFERENCE.md)** — Operations guide, system details, troubleshooting
-- **[LLM_PLANNER.md](docs/LLM_PLANNER.md)** — LLM-based context planning architecture
 - **[NOTION_REMINDERS.md](docs/NOTION_REMINDERS.md)** — Notion MCP usage patterns
 - **[GCS_STORAGE.md](docs/GCS_STORAGE.md)** — GCS attachment storage implementation
 

@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Iterable, Mapping, Optional, Sequence
+from typing import Any, AsyncGenerator, Optional, Sequence
 
 import httpx
 from fastapi import status
@@ -105,138 +105,6 @@ class OpenRouterClient:
         async for event in self.stream_chat_raw(payload):
             yield event
 
-    async def request_tool_plan(
-        self,
-        *,
-        request: ChatCompletionRequest,
-        conversation: Sequence[dict[str, Any]] | Iterable[dict[str, Any]],
-        tool_digest: Mapping[str, Any],
-        system_prompt: str,
-    ) -> dict[str, Any]:
-        """Request a planning pass ahead of streaming."""
-
-        payload = self._build_planner_payload(
-            request, conversation, tool_digest, system_prompt
-        )
-
-        client = await self._get_http_client()
-        try:
-            response = await client.post(
-                f"{self._base_url}/chat/completions",
-                headers=self._planner_headers(),
-                json=payload,
-            )
-        except httpx.HTTPError as exc:
-            raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
-
-        if response.status_code >= 400:
-            detail = self._extract_error_detail(response.content)
-            raise OpenRouterError(response.status_code, detail)
-
-        try:
-            body = response.json()
-        except ValueError as exc:  # pragma: no cover - unexpected payload
-            raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
-
-        planner_text = self._extract_planner_text(body)
-        try:
-            return json.loads(planner_text)
-        except json.JSONDecodeError as exc:
-            detail = (
-                "Failed to parse planner response as JSON: "
-                f"{exc.msg} at line {exc.lineno} column {exc.colno}"
-            )
-            raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, detail) from exc
-
-    def _planner_headers(self) -> dict[str, str]:
-        headers = dict(self._headers)
-        headers["Accept"] = "application/json"
-        return headers
-
-    def _build_planner_payload(
-        self,
-        request: ChatCompletionRequest,
-        conversation: Sequence[dict[str, Any]] | Iterable[dict[str, Any]],
-        tool_digest: Mapping[str, Any],
-        system_prompt: str,
-    ) -> dict[str, Any]:
-        def _safe_json(data: Any) -> str:
-            return json.dumps(data, ensure_ascii=False, indent=2, default=repr)
-
-        request_summary = request.model_dump(
-            by_alias=True,
-            exclude_none=True,
-            exclude={
-                "messages",
-                "tools",
-                "session_id",
-                "plugins",
-                "metadata",
-                "usage",
-            },
-        )
-        request_summary.setdefault(
-            "model", request.model or self._settings.default_model
-        )
-
-        analysis_payload = {
-            "request": request_summary,
-            "conversation": list(conversation),
-            "tool_digest": dict(tool_digest),
-        }
-
-        return {
-            "model": request.model or self._settings.default_model,
-            "stream": False,
-            "temperature": 0,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        "Analyze the provided data and respond with the planning JSON.\n\n"
-                        + _safe_json(analysis_payload)
-                    ),
-                },
-            ],
-        }
-
-    @staticmethod
-    def _extract_planner_text(payload: Mapping[str, Any]) -> str:
-        choices = payload.get("choices")
-        if not isinstance(choices, Sequence) or not choices:
-            raise OpenRouterError(
-                status.HTTP_502_BAD_GATEWAY, "Planner response missing choices"
-            )
-        message_container = choices[0]
-        if not isinstance(message_container, Mapping):
-            raise OpenRouterError(
-                status.HTTP_502_BAD_GATEWAY, "Planner response missing message"
-            )
-        message = message_container.get("message")
-        if not isinstance(message, Mapping):
-            raise OpenRouterError(
-                status.HTTP_502_BAD_GATEWAY, "Planner response missing message"
-            )
-        content = message.get("content")
-        if isinstance(content, str):
-            text = content.strip()
-        elif isinstance(content, Sequence):
-            fragments: list[str] = []
-            for item in content:
-                if not isinstance(item, Mapping):
-                    continue
-                if item.get("type") == "text" and isinstance(item.get("text"), str):
-                    fragments.append(item["text"])
-            text = "".join(fragments).strip()
-        else:
-            text = ""
-        if not text:
-            raise OpenRouterError(
-                status.HTTP_502_BAD_GATEWAY, "Planner response missing content"
-            )
-        return text
 
     async def stream_chat_raw(
         self, payload: dict[str, Any]

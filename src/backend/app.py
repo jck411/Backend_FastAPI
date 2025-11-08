@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
-from .chat import ChatOrchestrator
+from .chat.orchestrator import ChatOrchestrator
 from .config import get_settings
 from .logging_handlers import DateStampedFileHandler, cleanup_old_logs
 from .logging_settings import parse_logging_settings

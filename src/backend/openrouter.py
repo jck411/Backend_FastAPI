@@ -111,10 +111,13 @@ class OpenRouterClient:
         request: ChatCompletionRequest,
         conversation: Sequence[dict[str, Any]] | Iterable[dict[str, Any]],
         tool_digest: Mapping[str, Any],
+        system_prompt: str,
     ) -> dict[str, Any]:
         """Request a planning pass ahead of streaming."""
 
-        payload = self._build_planner_payload(request, conversation, tool_digest)
+        payload = self._build_planner_payload(
+            request, conversation, tool_digest, system_prompt
+        )
 
         client = await self._get_http_client()
         try:
@@ -155,36 +158,8 @@ class OpenRouterClient:
         request: ChatCompletionRequest,
         conversation: Sequence[dict[str, Any]] | Iterable[dict[str, Any]],
         tool_digest: Mapping[str, Any],
+        system_prompt: str,
     ) -> dict[str, Any]:
-        system_prompt = """
-You are a planning specialist that prepares tool usage strategies for another chat assistant.
-Review the conversation, user request metadata, and available tool contexts.
-Return a strict JSON object describing the plan. The JSON must either be the plan itself
-or contain a top-level "plan" object. The plan supports these keys:
-- intent: short string summarizing the user's objective.
-- stages: list of ordered stage arrays. Each stage is a list of context names drawn from the provided digest.
-- ranked_contexts: list of context names ranked from most to least relevant.
-- broad_search: boolean indicating whether all tools should be available when the assistant runs out of staged contexts.
-- candidate_tools: mapping of context name to an array of tools. Each tool comes from the digest and can include name, description, parameters, server, and score.
-- argument_hints: mapping of tool name to a list of argument suggestions (strings).
-- privacy_note: optional short string with any privacy-related callouts.
-- stop_conditions: list of strings explaining when the assistant should stop invoking tools.
-
-CRITICAL PLANNING GUIDELINES:
-1. Plan for COMPLETE workflows, not just prerequisites. Authentication/status checks are steps toward the user's goal, not endpoints.
-2. When the user asks to read/view/get data (e.g., "what's on my calendar", "show my emails"), include BOTH prerequisite tools (auth checks) AND data-fetching tools (get_events, list_emails).
-3. Use stages to sequence dependent operations, but ensure all necessary tools are available across stages.
-4. Don't set stop_conditions for normal tool responses. Only use them for actual stopping scenarios (e.g., privacy blocks, explicit user cancellation).
-5. Set broad_search=true if the query might need tools beyond what you explicitly staged.
-
-Example: For "what's on my calendar today?":
-- Include calendar_auth_status AND calendar_get_events in candidate_tools
-- Stage 1: calendar context (for both auth and events)
-- Don't stop after auth check - the user wants actual calendar data
-
-Do not invent tools or contexts that are absent from the digest. Respond with JSON only, without markdown fences or commentary.
-""".strip()
-
         def _safe_json(data: Any) -> str:
             return json.dumps(data, ensure_ascii=False, indent=2, default=repr)
 

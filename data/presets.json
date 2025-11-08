@@ -134,12 +134,16 @@
           "text": "whats on my calendar today?"
         },
         {
-          "label": "show tasks",
-          "text": "show all my task"
+          "label": "show scheduled tasks",
+          "text": "show my scheduled tasks"
+        },
+        {
+          "label": "what tasks are due next week",
+          "text": "what tasks are due next week"
         }
       ],
       "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack  (dad) and lives in Olrlando, Fl",
-      "updated_at": "2025-11-07T03:04:36.151304Z"
+      "updated_at": "2025-11-08T05:00:18.909698Z"
     },
     {
       "created_at": "2025-10-24T01:44:35.184462Z",

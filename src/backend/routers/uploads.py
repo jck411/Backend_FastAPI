@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..chat import ChatOrchestrator
+from ..chat.orchestrator import ChatOrchestrator
 from ..services.attachments import (
     AttachmentError,
     AttachmentService,
@@ -96,7 +96,9 @@ async def upload_attachment(
     try:
         record = await service.save_user_upload(session_id=session_id, upload=file)
     except UnsupportedAttachmentType as exc:
-        raise HTTPException(status_code=415, detail=f"Unsupported attachment type: {exc}") from exc
+        raise HTTPException(
+            status_code=415, detail=f"Unsupported attachment type: {exc}"
+        ) from exc
     except AttachmentTooLarge as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
     except AttachmentError as exc:

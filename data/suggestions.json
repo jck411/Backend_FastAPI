@@ -5,8 +5,12 @@
       "text": "whats on my calendar today?"
     },
     {
-      "label": "show tasks",
-      "text": "show all my task"
+      "label": "show scheduled tasks",
+      "text": "show my scheduled tasks"
+    },
+    {
+      "label": "what tasks are due next week",
+      "text": "what tasks are due next week"
     }
   ]
 }

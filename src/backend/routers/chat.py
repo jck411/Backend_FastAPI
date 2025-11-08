@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sse_starlette.sse import EventSourceResponse
 
-from ..chat import ChatOrchestrator
+from ..chat.orchestrator import ChatOrchestrator
 from ..config import Settings, get_settings
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..schemas.chat import ChatCompletionRequest

@@ -61,17 +61,6 @@
       "is_default": true,
       "mcp_servers": [
         {
-          "contexts": [
-            "notes",
-            "workspace"
-          ],
-          "enabled": true,
-          "env": {},
-          "id": "custom-notion",
-          "module": "backend.mcp_servers.notion_server",
-          "tool_overrides": {}
-        },
-        {
           "contexts": [],
           "disabled_tools": [],
           "enabled": true,
@@ -149,17 +138,6 @@
       "created_at": "2025-10-24T01:44:35.184462Z",
       "is_default": false,
       "mcp_servers": [
-        {
-          "contexts": [
-            "notes",
-            "workspace"
-          ],
-          "enabled": true,
-          "env": {},
-          "id": "custom-notion",
-          "module": "backend.mcp_servers.notion_server",
-          "tool_overrides": {}
-        },
         {
           "contexts": [],
           "disabled_tools": [],

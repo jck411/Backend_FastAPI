@@ -64,12 +64,9 @@ Routers (HTTP) → Services (business logic) → Repository (data access)
     aggregator hot-reloads definitions so the running instance stays in sync.
   - The aggregator prefixes tool names when multiple servers expose the same
     tool, which keeps OpenAI-compatible tool payloads conflict-free.
-  - The bundled Notion integration (`custom-notion`) reads the exported MCP
-    manifest and sets `tool_prefix="custom-notion"` so helpers like
-    `notion_search` surface as `custom-notion__notion_search`.
-  - Set `NOTION_TOKEN` (or `NOTION_API_KEY`) in the environment before enabling
-    the Notion server. Optional knobs include `NOTION_VERSION`,
-    `NOTION_PAGE_ID`, and `NOTION_DATABASE_ID`.
+  - Tool names are prefixed with their server id (for example,
+    `custom-gmail__gmail_create_draft`) to avoid collisions when aggregating
+    multiple MCP integrations.
 
 ## Attachments and Gmail tooling
 
@@ -287,7 +284,7 @@ Configure log levels via `logging_settings.conf` or environment variables.
 **Debug steps:**
 1. Check `GET /api/mcp/servers` for server status
 2. Review `logs/app/` for server startup errors
-3. Verify required env vars: `env | grep NOTION` (example)
+3. Verify required env vars: `env | grep OPENROUTER` (example)
 4. Validate `data/mcp_servers.json` syntax
 5. Manual refresh: `POST /api/mcp/servers/refresh`
 

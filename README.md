@@ -7,7 +7,7 @@ FastAPI backend that proxies streaming chat completions from OpenRouter with int
 - **Streaming chat** via OpenRouter API with HTTP keep-alive for fast response times
 - **Configurable LLM planning** — Optional AI-driven tool selection for optimized context
 - **Persistent chat history** with GCS-backed attachment storage and automatic cleanup
-- **MCP tool aggregation** — Google Calendar, Gmail, Drive, Notion, PDF extraction, and custom utilities
+- **MCP tool aggregation** — Google Calendar, Gmail, Drive, PDF extraction, and custom utilities
 - **Speech-to-text** — Mint short-lived Deepgram tokens for browser-based voice input
 - **Presets** — Save and restore complete chat configurations (model, tools, prompts)
 
@@ -45,9 +45,6 @@ FastAPI backend that proxies streaming chat completions from OpenRouter with int
    OPENROUTER_SYSTEM_PROMPT="You are a helpful assistant."
    ATTACHMENTS_MAX_SIZE_BYTES=10485760  # 10MB
    ATTACHMENTS_RETENTION_DAYS=7
-
-   # Optional: Notion integration
-   NOTION_TOKEN=notion_secret_xxx
 
    # Optional: Deepgram for speech-to-text
    DEEPGRAM_API_KEY=...
@@ -161,20 +158,10 @@ MCP servers are configured in `data/mcp_servers.json` and hot-reloaded via API. 
 - **Google Calendar** — create/search events
 - **Gmail** — read/send messages, manage drafts
 - **Google Drive** — search/read/create files
-- **Notion** — create/search pages, manage databases
 - **PDF tools** — extract text and metadata
 - **Calculator & utilities** — housekeeping helpers
 
-Each server's tools are prefixed (e.g., `custom-notion__notion_search`) to avoid naming conflicts.
-
-### Notion Setup
-
-1. Create integration at https://www.notion.so/profile/integrations
-2. Add `NOTION_TOKEN=notion_secret_xxx` to `.env`
-3. Share target pages/databases with your integration
-4. Enable in MCP settings via UI or API
-
-See [`docs/NOTION_REMINDERS.md`](docs/NOTION_REMINDERS.md) for usage patterns.
+Each server's tools are prefixed (e.g., `custom-gmail__gmail_create_draft`) to avoid naming conflicts.
 
 ### Presets
 
@@ -199,7 +186,6 @@ Tests use isolated SQLite databases in `tests/data/` and clean up automatically.
 ## Documentation
 
 - **[REFERENCE.md](docs/REFERENCE.md)** — Operations guide, system details, troubleshooting
-- **[NOTION_REMINDERS.md](docs/NOTION_REMINDERS.md)** — Notion MCP usage patterns
 - **[GCS_STORAGE.md](docs/GCS_STORAGE.md)** — GCS attachment storage implementation
 
 ## Development Guidelines
@@ -226,7 +212,7 @@ uv sync  # Regenerate .venv
 
 **MCP tools not appearing:**
 - Check `data/mcp_servers.json` has enabled servers
-- Verify required env vars (e.g., `NOTION_TOKEN`) are set
+- Verify required env vars (e.g., Google OAuth credentials) are set
 - Use `POST /api/mcp/servers/refresh` to hot-reload
 
 **Tests failing:**

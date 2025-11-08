@@ -111,16 +111,16 @@ def make_fake_client_factory(
     return FakeClient
 
 
-def build_notion_export(**overrides: Any) -> dict[str, Any]:
+def build_export(**overrides: Any) -> dict[str, Any]:
     server = {
-        "id": "custom-notion",
+        "id": "external-server",
         "command": [
             "uv",
             "run",
-            "backend.mcp_servers.notion_server",
+            "backend.mcp_servers.gmail_server",
         ],
-        "env": {"NOTION_TOKEN": "${NOTION_TOKEN}"},
-        "tool_prefix": "custom-notion",
+        "env": {"EXPORTED_TOKEN": "${EXPORTED_TOKEN}"},
+        "tool_prefix": "external-server",
         "enabled": True,
     }
     server.update(overrides)
@@ -163,14 +163,14 @@ def test_load_server_configs_overrides_fallback(tmp_path: Path) -> None:
     assert configs[0].enabled is False
 
 
-def test_load_server_configs_prefers_notion_export(tmp_path: Path) -> None:
+def test_load_server_configs_prefers_export(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"
-    path.write_text(json.dumps(build_notion_export()), encoding="utf-8")
+    path.write_text(json.dumps(build_export()), encoding="utf-8")
 
     fallback = [
         {
-            "id": "custom-notion",
-            "module": "backend.mcp_servers.notion_server",
+            "id": "external-server",
+            "module": "backend.mcp_servers.gmail_server",
         }
     ]
 
@@ -178,15 +178,15 @@ def test_load_server_configs_prefers_notion_export(tmp_path: Path) -> None:
 
     assert len(configs) == 1
     config = configs[0]
-    assert config.id == "custom-notion"
+    assert config.id == "external-server"
     assert config.command == [
         "uv",
         "run",
-        "backend.mcp_servers.notion_server",
+        "backend.mcp_servers.gmail_server",
     ]
     assert config.module is None
-    assert config.tool_prefix == "custom-notion"
-    assert config.env == {"NOTION_TOKEN": "${NOTION_TOKEN}"}
+    assert config.tool_prefix == "external-server"
+    assert config.env == {"EXPORTED_TOKEN": "${EXPORTED_TOKEN}"}
 
 
 async def test_aggregator_preserves_unique_names(
@@ -448,25 +448,25 @@ async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -
             pass  # Log already issued in close() method
 
 
-async def test_notion_export_tools_are_prefixed(
+async def test_exported_manifest_tools_are_prefixed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     export_path = tmp_path / "servers.json"
-    export_path.write_text(json.dumps(build_notion_export()), encoding="utf-8")
+    export_path.write_text(json.dumps(build_export()), encoding="utf-8")
 
     fallback = [
         {
-            "id": "custom-notion",
-            "module": "backend.mcp_servers.notion_server",
+            "id": "external-server",
+            "module": "backend.mcp_servers.gmail_server",
         }
     ]
 
     configs = load_server_configs(export_path, fallback=fallback)
 
     tool_map = {
-        "custom-notion": [
-            build_tool_definition("notion_search", "Search Notion"),
-            build_tool_definition("notion_create_page", "Create Notion page"),
+        "external-server": [
+            build_tool_definition("gmail_create_draft", "Create Gmail draft"),
+            build_tool_definition("gmail_send", "Send Gmail"),
         ]
     }
     created: dict[str, Any] = {}
@@ -481,15 +481,15 @@ async def test_notion_export_tools_are_prefixed(
             entry["function"]["name"] for entry in aggregator.get_openai_tools()
         }
         assert tool_names == {
-            "custom-notion__notion_search",
-            "custom-notion__notion_create_page",
+            "external-server__gmail_create_draft",
+            "external-server__gmail_send",
         }
 
         await aggregator.call_tool(
-            "custom-notion__notion_search", {"query": "meeting notes"}
+            "external-server__gmail_create_draft", {"subject": "Status"}
         )
-        assert created["custom-notion"].calls == [
-            ("notion_search", {"query": "meeting notes"})
+        assert created["external-server"].calls == [
+            ("gmail_create_draft", {"subject": "Status"})
         ]
     finally:
         await aggregator.close()

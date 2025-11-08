@@ -29,7 +29,6 @@ __all__ = [
     "gdrive_server",
     "gmail_server",
     "housekeeping_server",
-    "notion_server",
     "pdf_server",
 ]
 

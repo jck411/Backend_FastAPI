@@ -139,11 +139,6 @@ def create_app() -> FastAPI:
             "enabled": True,
         },
         {
-            "id": "custom-notion",
-            "module": "backend.mcp_servers.notion_server",
-            "enabled": True,
-        },
-        {
             "id": "custom-pdf",
             "module": "backend.mcp_servers.pdf_server",
             "enabled": True,

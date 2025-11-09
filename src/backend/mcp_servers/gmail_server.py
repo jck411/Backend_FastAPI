@@ -35,8 +35,7 @@ from backend.services.attachments import (
     AttachmentTooLarge,
 )
 from backend.services.google_auth.auth import (
-    authorize_user,
-    get_credentials,
+    DEFAULT_USER_EMAIL,
     get_gmail_service,
 )
 from backend.services.gmail_download_simple import (
@@ -46,8 +45,6 @@ from backend.services.gmail_download_simple import (
 )
 
 mcp = FastMCP("custom-gmail")
-
-DEFAULT_USER_EMAIL = "jck411@gmail.com"
 GMAIL_BATCH_SIZE = 25
 HTML_BODY_TRUNCATE_LIMIT = 20000
 
@@ -106,272 +103,6 @@ async def _get_attachment_service() -> AttachmentService:
     return _attachment_service
 
 
-def _resolve_redirect_uri(redirect_uri: Optional[str]) -> str:
-    if redirect_uri:
-        return redirect_uri
-
-    try:
-        settings = get_settings()
-        return settings.google_oauth_redirect_uri
-    except Exception:
-        return "http://localhost:8000/api/google-auth/callback"
-
-
-def _decode_base64(data: Optional[str]) -> str:
-    if not data:
-        return ""
-    try:
-        return base64.urlsafe_b64decode(data).decode("utf-8", errors="ignore")
-    except Exception:
-        return ""
-
-
-def _extract_message_bodies(payload: Dict) -> Dict[str, str]:
-    text_body = ""
-    html_body = ""
-    parts: List[Dict] = [payload] if payload else []
-
-    while parts:
-        part = parts.pop(0)
-        mime_type = part.get("mimeType", "")
-        body = part.get("body", {}) or {}
-        data = body.get("data")
-
-        if data:
-            decoded = _decode_base64(data)
-            if mime_type == "text/plain" and not text_body:
-                text_body = decoded
-            elif mime_type == "text/html" and not html_body:
-                html_body = decoded
-            elif not mime_type and not text_body:
-                text_body = decoded
-
-        sub_parts = part.get("parts", [])
-        if sub_parts:
-            parts.extend(sub_parts)
-
-    return {"text": text_body, "html": html_body}
-
-
-def _iter_payload_parts(payload: Dict) -> Iterable[Dict[str, Any]]:
-    if not payload:
-        return []
-    # Breadth-first traversal to reach leaf parts
-    queue: List[Dict[str, Any]] = []
-    if payload.get("parts"):
-        queue.extend(payload.get("parts", []))
-    else:
-        queue.append(payload)
-
-    while queue:
-        part = queue.pop(0)
-        yield part
-        sub_parts = part.get("parts") or []
-        if sub_parts:
-            queue.extend(sub_parts)
-
-
-def _extract_attachments(payload: Dict) -> List[Dict[str, Any]]:
-    attachments: List[Dict[str, Any]] = []
-    for part in _iter_payload_parts(payload):
-        body = part.get("body") or {}
-        attachment_id = body.get("attachmentId")
-        if not attachment_id:
-            continue
-        mime_type = part.get("mimeType") or "application/octet-stream"
-        effective_filename = extract_filename_from_part(part)
-        size = body.get("size") or 0
-        disposition = None
-        for header in part.get("headers", []) or []:
-            if header.get("name") == "Content-Disposition":
-                disposition = header.get("value")
-                break
-        attachments.append(
-            {
-                "filename": effective_filename or "attachment",
-                "mimeType": mime_type,
-                "size": size,
-                "attachmentId": attachment_id,
-                "partId": part.get("partId"),
-                "disposition": disposition,
-            }
-        )
-    return attachments
-
-
-def _format_body_content(text_body: str, html_body: str) -> str:
-    if text_body.strip():
-        return text_body
-    if html_body.strip():
-        content = html_body
-        if len(content) > HTML_BODY_TRUNCATE_LIMIT:
-            content = (
-                content[:HTML_BODY_TRUNCATE_LIMIT] + "\n\n[HTML content truncated...]"
-            )
-        return "[HTML content converted]\n" + content
-    return "[No readable content found]"
-
-
-def _extract_headers(payload: Dict, header_names: Iterable[str]) -> Dict[str, str]:
-    headers: Dict[str, str] = {}
-    if not payload:
-        return headers
-    for header in payload.get("headers", []):
-        name = header.get("name")
-        value = header.get("value")
-        if name in header_names and value is not None:
-            headers[name] = value
-    return headers
-
-
-def _prepare_gmail_message(
-    subject: str,
-    body: str,
-    to: Optional[str] = None,
-    cc: Optional[str] = None,
-    bcc: Optional[str] = None,
-    thread_id: Optional[str] = None,
-    in_reply_to: Optional[str] = None,
-    references: Optional[str] = None,
-    body_format: Literal["plain", "html"] = "plain",
-) -> tuple[str, Optional[str]]:
-    normalized_format = body_format.lower()
-    if normalized_format not in {"plain", "html"}:
-        raise ValueError("body_format must be either 'plain' or 'html'.")
-
-    reply_subject = subject
-    if in_reply_to and not subject.lower().startswith("re:"):
-        reply_subject = f"Re: {subject}"
-
-    message = MIMEText(body, normalized_format)
-    message["subject"] = reply_subject
-
-    if to:
-        message["to"] = to
-    if cc:
-        message["cc"] = cc
-    if bcc:
-        message["bcc"] = bcc
-    if in_reply_to:
-        message["In-Reply-To"] = in_reply_to
-    if references:
-        message["References"] = references
-
-    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode()
-    return raw_message, thread_id
-
-
-def _generate_gmail_web_url(item_id: str, account_index: int = 0) -> str:
-    return f"https://mail.google.com/mail/u/{account_index}/#all/{item_id}"
-
-
-def _format_thread_content(thread_data: Dict, thread_id: str) -> str:
-    messages = thread_data.get("messages", []) if thread_data else []
-    if not messages:
-        return f"No messages found in thread '{thread_id}'."
-
-    first_headers = _extract_headers(messages[0].get("payload", {}), ["Subject"])
-    thread_subject = first_headers.get("Subject", "(no subject)")
-
-    lines = [
-        f"Thread ID: {thread_id}",
-        f"Subject: {thread_subject}",
-        f"Messages: {len(messages)}",
-        "",
-    ]
-
-    for idx, message in enumerate(messages, start=1):
-        headers = _extract_headers(
-            message.get("payload", {}),
-            ["From", "Date", "Subject"],
-        )
-        sender = headers.get("From", "(unknown sender)")
-        date = headers.get("Date", "(unknown date)")
-        subject = headers.get("Subject", thread_subject)
-
-        bodies = _extract_message_bodies(message.get("payload", {}))
-        body_text = _format_body_content(bodies.get("text", ""), bodies.get("html", ""))
-
-        lines.append(f"=== Message {idx} ===")
-        lines.append(f"From: {sender}")
-        lines.append(f"Date: {date}")
-        if subject != thread_subject:
-            lines.append(f"Subject: {subject}")
-        lines.append("")
-        lines.append(body_text)
-        lines.append("")
-
-    return "\n".join(lines)
-
-
-@mcp.tool("gmail_auth_status")
-async def auth_status(user_email: str = DEFAULT_USER_EMAIL) -> str:
-    try:
-        credentials = get_credentials(user_email)
-    except FileNotFoundError:
-        credentials = None
-    except Exception as exc:
-        return f"Error checking authorization status: {exc}"
-
-    if credentials:
-        expiry = getattr(credentials, "expiry", None)
-        expiry_text = expiry.isoformat() if expiry else "unknown expiry"
-        return (
-            f"{user_email} is already authorized for Gmail. "
-            f"Existing token expires at {expiry_text}. "
-            "Use gmail_generate_auth_url with force=true to start a fresh consent flow."
-        )
-
-    return (
-        f"No stored Gmail credentials found for {user_email}. "
-        "Run gmail_generate_auth_url to generate an authorization link."
-    )
-
-
-@mcp.tool("gmail_generate_auth_url")
-async def generate_auth_url(
-    user_email: str = DEFAULT_USER_EMAIL,
-    redirect_uri: Optional[str] = None,
-    force: bool = False,
-) -> str:
-    try:
-        credentials = get_credentials(user_email)
-    except FileNotFoundError:
-        credentials = None
-    except Exception as exc:
-        return f"Error checking existing credentials: {exc}"
-
-    if credentials and not force:
-        expiry = getattr(credentials, "expiry", None)
-        expiry_text = expiry.isoformat() if expiry else "unknown expiry"
-        return (
-            f"{user_email} already has stored credentials (expires {expiry_text}). "
-            "Set force=true if you want to start a fresh consent flow."
-        )
-
-    try:
-        effective_redirect = _resolve_redirect_uri(redirect_uri)
-        auth_url = authorize_user(user_email, effective_redirect)
-    except FileNotFoundError as exc:
-        return (
-            "Missing OAuth client configuration. "
-            f"{exc}. Ensure client_secret_*.json is placed in the credentials directory."
-        )
-    except Exception as exc:
-        return f"Error generating authorization URL: {exc}"
-
-    effective_redirect = _resolve_redirect_uri(redirect_uri)
-
-    return (
-        "Follow these steps to finish Gmail authorization:\n"
-        f"1. Visit: {auth_url}\n"
-        "2. Approve access to your Gmail account.\n"
-        f"3. You will be redirected to {effective_redirect}; the backend will store the token automatically.\n"
-        "After completing the flow, run gmail_auth_status to confirm success.\n"
-        "Note: Google may warn that the app is unverified. Choose Advanced → Continue to proceed for testing accounts added on the OAuth consent screen."
-    )
-
-
 @mcp.tool("search_gmail_messages")
 async def search_gmail_messages(
     query: str,
@@ -383,7 +114,7 @@ async def search_gmail_messages(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -481,7 +212,7 @@ async def get_gmail_message_content(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -536,7 +267,7 @@ async def list_gmail_message_attachments(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -597,7 +328,7 @@ async def download_gmail_attachment(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -726,7 +457,7 @@ async def read_gmail_attachment_text(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -896,7 +627,7 @@ async def get_gmail_messages_content_batch(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -989,7 +720,7 @@ async def send_gmail_message(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -1047,7 +778,7 @@ async def draft_gmail_message(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -1092,7 +823,7 @@ async def get_gmail_thread_content(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -1123,7 +854,7 @@ async def get_gmail_threads_content_batch(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -1158,7 +889,7 @@ async def list_gmail_labels(user_email: str = DEFAULT_USER_EMAIL) -> str:
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -1212,7 +943,7 @@ async def manage_gmail_label(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -1293,7 +1024,7 @@ async def modify_gmail_message_labels(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -1347,7 +1078,7 @@ async def batch_modify_gmail_message_labels(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use gmail_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating Gmail service: {exc}"
@@ -1385,8 +1116,6 @@ if __name__ == "__main__":  # pragma: no cover - CLI helper
 __all__ = [
     "mcp",
     "run",
-    "auth_status",
-    "generate_auth_url",
     "search_gmail_messages",
     "get_gmail_message_content",
     "get_gmail_messages_content_batch",

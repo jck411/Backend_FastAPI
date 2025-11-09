@@ -4,12 +4,29 @@ This document provides a human-readable reference for all Model Context Protocol
 
 ## Table of Contents
 
+- [Google Authentication](#google-authentication)
 - [Calculator Server](#calculator-server)
 - [Calendar & Tasks Server](#calendar--tasks-server)
 - [Google Drive Server](#google-drive-server)
 - [Gmail Server](#gmail-server)
 - [Housekeeping Server](#housekeeping-server)
 - [PDF & Document Extraction Server](#pdf--document-extraction-server)
+
+## Google Authentication
+
+Google Calendar, Google Tasks, Gmail, and Google Drive now share a single OAuth
+connection that is managed in the product UI rather than through MCP tools.
+
+**How to connect or refresh credentials:**
+
+1. Open the System Settings modal in the chat UI and locate the **Google services** card.
+2. Click **Connect Google Services**. A Google consent window will open in a popup.
+3. Complete the authorization. The popup closes automatically and the modal shows the
+   connection status, including the token expiry time.
+4. Use the same button whenever you need to refresh scopes or re-authorize access.
+
+Once connected, all Calendar, Tasks, Gmail, and Drive tools are available to the LLM
+without any additional actions.
 
 ---
 
@@ -39,25 +56,8 @@ Perform basic arithmetic operations.
 
 Comprehensive Google Calendar and Google Tasks integration.
 
-### Authentication Tools
-
-#### `calendar_auth_status`
-Check if the user has valid Google Calendar credentials stored.
-
-**Parameters:**
-- `user_email` (str, default: "jck411@gmail.com"): User's email address
-
-**Returns:** Status message with expiry details or authorization instructions
-
-#### `calendar_generate_auth_url`
-Generate a Google OAuth consent URL for the user.
-
-**Parameters:**
-- `user_email` (str, default: "jck411@gmail.com"): User's email address
-- `redirect_uri` (str, optional): Override for the redirect URI
-- `force` (bool, default: False): Generate fresh URL even if credentials exist
-
-**Returns:** Authorization URL and instructions
+> **Authentication:** Use the "Connect Google Services" button in System Settings to
+> authorize or refresh access for Calendar and Tasks tools.
 
 ### Calendar Event Tools
 
@@ -293,25 +293,8 @@ Clear all completed tasks from a list (marks them hidden).
 
 Comprehensive Google Drive file management and content extraction.
 
-### Authentication Tools
-
-#### `gdrive_auth_status`
-Check Google Drive credentials status.
-
-**Parameters:**
-- `user_email` (str, default: "jck411@gmail.com"): User's email address
-
-**Returns:** Credential status and expiry information
-
-#### `gdrive_generate_auth_url`
-Generate OAuth consent URL for Google Drive.
-
-**Parameters:**
-- `user_email` (str): User's email address
-- `redirect_uri` (str, optional): Redirect URI override
-- `force` (bool, default: False): Force new consent flow
-
-**Returns:** Authorization URL and instructions
+> **Authentication:** Use "Connect Google Services" in the System Settings modal to
+> authorize Google Drive access before using these tools.
 
 ### File Search & Listing Tools
 
@@ -490,25 +473,8 @@ Check if a file has public "Anyone with the link" access.
 
 Comprehensive Gmail integration for reading, searching, sending, and managing email and attachments.
 
-### Authentication Tools
-
-#### `gmail_auth_status`
-Check Gmail credentials status.
-
-**Parameters:**
-- `user_email` (str, default: "jck411@gmail.com"): User's email address
-
-**Returns:** Credential status and expiry information
-
-#### `gmail_generate_auth_url`
-Generate OAuth consent URL for Gmail.
-
-**Parameters:**
-- `user_email` (str): User's email address
-- `redirect_uri` (str, optional): Redirect URI override
-- `force` (bool, default: False): Force new consent flow
-
-**Returns:** Authorization URL and instructions
+> **Authentication:** Start the authorization flow from the System Settings modal by
+> clicking "Connect Google Services".
 
 ### Message Search & Retrieval Tools
 
@@ -994,11 +960,10 @@ Simplified extraction interface with minimal options.
 ## Common Patterns and Best Practices
 
 ### Authentication Flow
-1. Check auth status with `*_auth_status` tool
-2. If not authenticated, use `*_generate_auth_url` to get OAuth URL
-3. User visits URL and authorizes
-4. Backend automatically stores credentials
-5. Tools now work with stored credentials
+1. Open the System Settings modal and review the **Google services** card.
+2. Click **Connect Google Services** to launch the Google consent popup.
+3. Complete the Google authorization flow; the popup closes automatically.
+4. Confirm the card reports "Connected" and shows the token expiry timestamp.
 
 ### Personal Context Discovery
 **Before making recommendations, always call `search_all_tasks` or `user_context_from_tasks`:**

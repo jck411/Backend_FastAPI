@@ -29,11 +29,9 @@ else:
     from mcp.server.fastmcp import FastMCP
 
 # Local imports
-from backend.config import get_settings
 from backend.services.google_auth.auth import (
-    authorize_user,
+    DEFAULT_USER_EMAIL,
     get_calendar_service,
-    get_credentials,
 )
 from backend.services.google_auth.auth import (
     get_tasks_service as _google_get_tasks_service,
@@ -135,8 +133,6 @@ class CalendarDefinition(TypedDict):
     access: str
     aliases: tuple[str, ...]
 
-
-DEFAULT_USER_EMAIL = "jck411@gmail.com"
 
 # Canonical calendar configuration for Jack's Google Workspace
 DEFAULT_CALENDAR_DEFINITIONS: tuple[CalendarDefinition, ...] = (
@@ -456,103 +452,6 @@ def _format_task_search_result(task: TaskSearchResult) -> List[str]:
     return lines
 
 
-def _resolve_redirect_uri(redirect_uri: Optional[str]) -> str:
-    """Return the effective redirect URI, falling back to settings defaults."""
-    if redirect_uri:
-        return redirect_uri
-
-    try:
-        settings = get_settings()
-        return settings.google_oauth_redirect_uri
-    except Exception:
-        # Fallback enables local usage without full settings (e.g. during tests)
-        return "http://localhost:8000/api/google-auth/callback"
-
-
-@mcp.tool("calendar_auth_status")
-async def auth_status(user_email: str = DEFAULT_USER_EMAIL) -> str:
-    """
-    Report whether the user has valid Google Calendar credentials stored.
-
-    Returns:
-        Status message with expiry details or next steps.
-    """
-    try:
-        credentials = get_credentials(user_email)
-    except FileNotFoundError:
-        credentials = None
-    except Exception as exc:  # pragma: no cover - unexpected configuration issues
-        return f"Error checking authorization status: {exc}"
-
-    if credentials:
-        expiry = getattr(credentials, "expiry", None)
-        expiry_text = expiry.isoformat() if expiry else "unknown expiry"
-        return (
-            f"{user_email} is already authorized for Google Calendar. "
-            f"Existing token expires at {expiry_text}. "
-            "Use calendar_generate_auth_url with force=true to start a fresh consent flow."
-        )
-
-    return (
-        f"No stored Google Calendar credentials found for {user_email}. "
-        "Run calendar_generate_auth_url to generate an authorization link."
-    )
-
-
-@mcp.tool("calendar_generate_auth_url")
-async def generate_auth_url(
-    user_email: str = DEFAULT_USER_EMAIL,
-    redirect_uri: Optional[str] = None,
-    force: bool = False,
-) -> str:
-    """
-    Create a Google OAuth consent URL for the given user.
-
-    Args:
-        user_email: The user's email address.
-        redirect_uri: Optional override for the redirect URI.
-        force: If True, generate a fresh URL even when credentials exist.
-
-    Returns:
-        Instructions and URL for completing OAuth consent.
-    """
-    try:
-        credentials = get_credentials(user_email)
-    except FileNotFoundError:
-        credentials = None
-    except Exception as exc:  # pragma: no cover - unexpected configuration issues
-        return f"Error checking existing credentials: {exc}"
-
-    if credentials and not force:
-        expiry = getattr(credentials, "expiry", None)
-        expiry_text = expiry.isoformat() if expiry else "unknown expiry"
-        return (
-            f"{user_email} already has stored credentials (expires {expiry_text}). "
-            "Set force=true if you want to start a fresh consent flow."
-        )
-
-    effective_redirect = _resolve_redirect_uri(redirect_uri)
-
-    try:
-        auth_url = authorize_user(user_email, effective_redirect)
-    except FileNotFoundError as exc:
-        return (
-            "Missing OAuth client configuration. "
-            f"{exc}. Ensure client_secret_*.json is placed in the credentials directory."
-        )
-    except Exception as exc:
-        return f"Error generating authorization URL: {exc}"
-
-    return (
-        "Follow these steps to finish Google Calendar authorization:\n"
-        f"1. Visit: {auth_url}\n"
-        "2. Approve access to your calendar.\n"
-        f"3. You will be redirected to {effective_redirect}; the backend will store the token automatically.\n"
-        "After completing the flow, run calendar_auth_status to confirm success.\n"
-        "Note: Google may warn that the app is unverified. Choose Advanced → Continue to proceed for testing accounts added on the OAuth consent screen."
-    )
-
-
 @mcp.tool("calendar_get_events")
 async def get_events(
     user_email: str = DEFAULT_USER_EMAIL,
@@ -692,7 +591,7 @@ async def get_events(
                 warnings.append(
                     "Tasks unavailable: "
                     + str(exc)
-                    + ". Re-run calendar_generate_auth_url with force=true to extend permissions."
+                    + ". Open the system settings modal and click 'Connect Google Services' to refresh permissions."
                 )
             except TaskServiceError as exc:
                 warnings.append(f"Tasks unavailable: {exc}.")
@@ -817,7 +716,7 @@ async def get_events(
     except ValueError as e:
         return (
             f"Authentication error: {str(e)}. "
-            "Use calendar_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as e:
         return f"Error retrieving calendar events: {str(e)}"
@@ -915,7 +814,7 @@ async def create_event(
     except ValueError as e:
         return (
             f"Authentication error: {str(e)}. "
-            "Use calendar_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as e:
         # In production, you would want better error handling
@@ -1013,7 +912,7 @@ async def update_event(
     except ValueError as e:
         return (
             f"Authentication error: {str(e)}. "
-            "Use calendar_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as e:
         return f"Error updating calendar event: {str(e)}"
@@ -1068,7 +967,7 @@ async def delete_event(
     except ValueError as e:
         return (
             f"Authentication error: {str(e)}. "
-            "Use calendar_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as e:
         return f"Error deleting calendar event: {str(e)}"
@@ -1099,7 +998,7 @@ async def list_task_lists(
     except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+            "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
         )
     except TaskServiceError as exc:
         return str(exc)
@@ -1157,7 +1056,7 @@ async def list_tasks(
     except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+            "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
         )
     except TaskServiceError as exc:
         return str(exc)
@@ -1176,7 +1075,7 @@ async def list_tasks(
         except TaskAuthorizationError as exc:
             return (
                 f"Authentication error: {exc}. "
-                "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+                "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
             )
         except TaskServiceError as exc:
             return str(exc)
@@ -1236,7 +1135,7 @@ async def list_tasks(
         except TaskAuthorizationError as exc:
             return (
                 f"Authentication error: {exc}. "
-                "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+                "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
             )
         except TaskServiceError as exc:
             return str(exc)
@@ -1349,7 +1248,7 @@ async def search_all_tasks(
     except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+            "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
         )
     except TaskServiceError as exc:
         return str(exc)
@@ -1502,7 +1401,7 @@ async def get_task(
     except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+            "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
         )
     except TaskServiceError as exc:
         return str(exc)
@@ -1578,7 +1477,7 @@ async def create_task(
     except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+            "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
         )
     except TaskServiceError as exc:
         return str(exc)
@@ -1637,7 +1536,7 @@ async def update_task(
     except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+            "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
         )
     except TaskServiceError as exc:
         return str(exc)
@@ -1681,7 +1580,7 @@ async def delete_task(
     except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+            "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
         )
     except TaskServiceError as exc:
         return str(exc)
@@ -1724,7 +1623,7 @@ async def move_task(
     except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+            "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
         )
     except TaskServiceError as exc:
         return str(exc)
@@ -1762,7 +1661,7 @@ async def clear_completed_tasks(
     except TaskAuthorizationError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use calendar_generate_auth_url with force=true to authorize Google Tasks."
+            "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
         )
     except TaskServiceError as exc:
         return str(exc)
@@ -1792,7 +1691,7 @@ async def list_calendars(
     except ValueError as exc:
         return (
             f"Authentication error: {exc}. "
-            "Use calendar_generate_auth_url to authorize this account."
+            "Click 'Connect Google Services' in Settings to authorize this account."
         )
     except Exception as exc:
         return f"Error creating calendar service: {exc}"
@@ -1862,8 +1761,6 @@ if __name__ == "__main__":  # pragma: no cover - CLI helper
 __all__ = [
     "mcp",
     "run",
-    "auth_status",
-    "generate_auth_url",
     "get_events",
     "create_event",
     "update_event",

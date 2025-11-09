@@ -4,6 +4,9 @@ import type {
   ActiveModelSettingsPayload,
   ActiveModelSettingsResponse,
   AttachmentUploadResponse,
+  GoogleAuthAuthorizeRequest,
+  GoogleAuthAuthorizeResponse,
+  GoogleAuthStatusResponse,
   ChatCompletionChunk,
   ChatCompletionRequest,
   DeepgramTokenResponse,
@@ -158,6 +161,19 @@ export async function refreshMcpServers(): Promise<McpServersResponse> {
   return requestJson<McpServersResponse>(resolveApiPath('/api/mcp/servers/refresh'), {
     method: 'POST',
     body: JSON.stringify({}),
+  });
+}
+
+export async function fetchGoogleAuthStatus(): Promise<GoogleAuthStatusResponse> {
+  return requestJson<GoogleAuthStatusResponse>(resolveApiPath('/api/google-auth/status'));
+}
+
+export async function startGoogleAuthorization(
+  payload: GoogleAuthAuthorizeRequest,
+): Promise<GoogleAuthAuthorizeResponse> {
+  return requestJson<GoogleAuthAuthorizeResponse>(resolveApiPath('/api/google-auth/authorize'), {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
 

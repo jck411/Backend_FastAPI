@@ -2,6 +2,7 @@
   import { createEventDispatcher } from "svelte";
   import { get } from "svelte/store";
   import { createMcpServersStore } from "../../stores/mcpServers";
+  import { createGoogleAuthStore } from "../../stores/googleAuth";
   import { createSystemPromptStore } from "../../stores/systemPrompt";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
   import "./system-settings.css";
@@ -11,6 +12,7 @@
   const dispatch = createEventDispatcher<{ close: void }>();
   const systemPrompt = createSystemPromptStore();
   const mcpServers = createMcpServersStore();
+  const googleAuth = createGoogleAuthStore();
 
   let hasInitialized = false;
   let closing = false;
@@ -23,11 +25,12 @@
     } else if (!open && hasInitialized) {
       hasInitialized = false;
       systemPrompt.reset();
+      googleAuth.reset();
     }
   }
 
   async function initialize(): Promise<void> {
-    await Promise.all([systemPrompt.load(), mcpServers.load()]);
+    await Promise.all([systemPrompt.load(), mcpServers.load(), googleAuth.load()]);
   }
 
   async function flushSystemPrompt(): Promise<boolean> {
@@ -92,6 +95,20 @@
     void mcpServers.refresh();
   }
 
+  function refreshGoogleAuth(): void {
+    if ($googleAuth.loading || $googleAuth.authorizing) {
+      return;
+    }
+    void googleAuth.load();
+  }
+
+  async function startGoogleAuthorization(): Promise<void> {
+    if ($googleAuth.authorizing) {
+      return;
+    }
+    await googleAuth.authorize();
+  }
+
   function formatUpdatedAt(timestamp: string | null): string | null {
     if (!timestamp) return null;
     try {
@@ -132,7 +149,7 @@
     bodyClass="system-settings-body"
     layerClass="system-settings-layer"
     closeLabel="Close system settings"
-    closeDisabled={$systemPrompt.saving || $mcpServers.saving}
+    closeDisabled={$systemPrompt.saving || $mcpServers.saving || $googleAuth.authorizing}
     on:close={() => void closeModal()}
   >
     <svelte:fragment slot="heading">
@@ -186,6 +203,72 @@
             <p class="status muted">Changes save when you close this modal.</p>
           {/if}
         {/if}
+      </div>
+    </article>
+
+    <article class="system-card">
+      <header class="system-card-header">
+        <div>
+          <h3>Google services</h3>
+          <p class="system-card-caption">
+            Connect Calendar, Tasks, Gmail, and Drive with a single consent.
+          </p>
+        </div>
+        <div class="system-card-actions">
+          <button
+            type="button"
+            class="primary"
+            on:click={() => void startGoogleAuthorization()}
+            disabled={$googleAuth.loading || $googleAuth.authorizing}
+          >
+            {$googleAuth.authorizing
+              ? "Authorizing…"
+              : $googleAuth.authorized
+              ? "Reconnect Google Services"
+              : "Connect Google Services"}
+          </button>
+        </div>
+      </header>
+
+      <div class="system-card-body google-auth-body">
+        {#if $googleAuth.loading}
+          <p class="status">Checking Google authorization…</p>
+        {:else if $googleAuth.error}
+          <p class="status error">{$googleAuth.error}</p>
+          <div class="google-auth-actions">
+            <button
+              type="button"
+              class="ghost"
+              on:click={refreshGoogleAuth}
+              disabled={$googleAuth.loading || $googleAuth.authorizing}
+            >
+              Try again
+            </button>
+          </div>
+        {:else if $googleAuth.authorized}
+          <p class="status success">
+            Connected as <span class="google-auth-email">{$googleAuth.userEmail}</span>.
+          </p>
+          {#if $googleAuth.expiresAt}
+            <p class="status muted">
+              Current token expires {formatUpdatedAt($googleAuth.expiresAt) ?? "soon"}.
+            </p>
+          {:else}
+            <p class="status muted">Access will refresh automatically.</p>
+          {/if}
+        {:else}
+          <p class="status">Google services are not connected.</p>
+        {/if}
+
+        <ul class="google-services-list">
+          {#each $googleAuth.services as service}
+            <li>{service}</li>
+          {/each}
+        </ul>
+
+        <p class="status muted">
+          Click "Connect Google Services" to authorize these integrations for the assistant.
+        </p>
       </div>
     </article>
 

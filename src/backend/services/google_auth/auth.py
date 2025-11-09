@@ -14,6 +14,9 @@ from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
+# Default configuration
+DEFAULT_USER_EMAIL = "jck411@gmail.com"
+
 # Path settings
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 CREDENTIALS_PATH = PROJECT_ROOT / "credentials"
@@ -245,7 +248,7 @@ def get_calendar_service(user_email: str) -> Any:
     if not credentials:
         raise ValueError(
             f"No valid credentials found for {user_email}. "
-            "User needs to authorize access."
+            "Click 'Connect Google Services' in Settings to authorize access."
         )
 
     return build("calendar", "v3", credentials=credentials)
@@ -269,7 +272,7 @@ def get_tasks_service(user_email: str) -> Any:
     if not credentials:
         raise ValueError(
             f"No valid credentials found for {user_email}. "
-            "User needs to authorize access."
+            "Click 'Connect Google Services' in Settings to authorize access."
         )
 
     return build("tasks", "v1", credentials=credentials)
@@ -293,7 +296,7 @@ def get_gmail_service(user_email: str) -> Any:
     if not credentials:
         raise ValueError(
             f"No valid credentials found for {user_email}. "
-            "User needs to authorize access."
+            "Click 'Connect Google Services' in Settings to authorize access."
         )
 
     return build("gmail", "v1", credentials=credentials)
@@ -317,7 +320,7 @@ def get_drive_service(user_email: str) -> Any:
     if not credentials:
         raise ValueError(
             f"No valid credentials found for {user_email}. "
-            "User needs to authorize access."
+            "Click 'Connect Google Services' in Settings to authorize access."
         )
 
     return build("drive", "v3", credentials=credentials)

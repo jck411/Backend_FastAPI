@@ -80,6 +80,42 @@
   box-shadow: 0 6px 16px rgba(56, 189, 248, 0.3);
 }
 
+.status.success {
+  color: #34d399;
+}
+
+.google-auth-body {
+  gap: 0.65rem;
+}
+
+.google-auth-email {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.google-auth-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.google-services-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  font-size: 0.8rem;
+  color: #9fb6e3;
+}
+
+.google-services-list li::before {
+  content: '•';
+  color: #38bdf8;
+  margin-right: 0.45rem;
+}
+
 .system-prompt {
   width: 100%;
   min-height: 140px;

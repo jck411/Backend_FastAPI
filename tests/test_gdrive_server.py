@@ -8,13 +8,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.mcp_servers.gdrive_server import (
-    auth_status,
     copy_drive_file,
     create_drive_folder,
     get_drive_file_content,
     download_drive_file,
     delete_drive_file,
-    generate_auth_url,
     list_drive_items,
     move_drive_file,
     rename_drive_file,
@@ -22,64 +20,6 @@ from backend.mcp_servers.gdrive_server import (
 )
 
 
-@pytest.mark.asyncio
-@patch("backend.mcp_servers.gdrive_server.get_credentials")
-async def test_auth_status_authorized(mock_get_credentials):
-    mock_credentials = MagicMock()
-    mock_credentials.expiry = None
-    mock_get_credentials.return_value = mock_credentials
-
-    result = await auth_status("user@example.com")
-
-    assert "already authorized" in result
-    mock_get_credentials.assert_called_once_with("user@example.com")
-
-
-@pytest.mark.asyncio
-@patch("backend.mcp_servers.gdrive_server.get_credentials")
-async def test_auth_status_missing(mock_get_credentials):
-    mock_get_credentials.return_value = None
-
-    result = await auth_status("user@example.com")
-
-    assert "No stored Google Drive credentials" in result
-    mock_get_credentials.assert_called_once_with("user@example.com")
-
-
-@pytest.mark.asyncio
-@patch("backend.mcp_servers.gdrive_server.authorize_user")
-@patch("backend.mcp_servers.gdrive_server.get_credentials")
-async def test_generate_auth_url_existing_credentials(
-    mock_get_credentials, mock_authorize_user
-):
-    mock_credentials = MagicMock()
-    mock_credentials.expiry = None
-    mock_get_credentials.return_value = mock_credentials
-
-    result = await generate_auth_url("user@example.com")
-
-    assert "already has stored credentials" in result
-    mock_authorize_user.assert_not_called()
-
-
-@pytest.mark.asyncio
-@patch("backend.mcp_servers.gdrive_server.authorize_user")
-@patch("backend.mcp_servers.gdrive_server.get_credentials")
-async def test_generate_auth_url_force_flow(mock_get_credentials, mock_authorize_user):
-    mock_credentials = MagicMock()
-    mock_credentials.expiry = None
-    mock_get_credentials.return_value = mock_credentials
-    mock_authorize_user.return_value = "https://auth.example.com"
-
-    result = await generate_auth_url(
-        "user@example.com", redirect_uri="https://app.example.com/callback", force=True
-    )
-
-    assert "https://auth.example.com" in result
-    mock_authorize_user.assert_called_once()
-
-
-@pytest.mark.asyncio
 @patch("backend.mcp_servers.gdrive_server.get_drive_service")
 async def test_search_drive_files_auth_error(mock_get_drive_service):
     mock_get_drive_service.side_effect = ValueError("Missing credentials")
@@ -88,6 +28,7 @@ async def test_search_drive_files_auth_error(mock_get_drive_service):
 
     assert "Authentication error" in result
     assert "Missing credentials" in result
+    assert "Connect Google Services" in result
 
 
 @pytest.mark.asyncio

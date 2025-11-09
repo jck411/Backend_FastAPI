@@ -25,17 +25,13 @@ if TYPE_CHECKING:
 else:
     from mcp.server.fastmcp import FastMCP
 
-from backend.config import get_settings
 from backend.services.google_auth.auth import (
-    authorize_user,
-    get_credentials,
+    DEFAULT_USER_EMAIL,
     get_drive_service,
 )
 from backend.mcp_servers.pdf_server import extract_bytes as kb_extract_bytes
 
 mcp = FastMCP("custom-gdrive")
-
-DEFAULT_USER_EMAIL = "jck411@gmail.com"
 DRIVE_BATCH_SIZE = 25
 DRIVE_FIELDS_MINIMAL = (
     "files(id, name, mimeType, size, modifiedTime, webViewLink, iconLink)"
@@ -46,17 +42,6 @@ def _escape_query_term(value: str) -> str:
     return value.replace("'", "\\'")
 
 
-def _resolve_redirect_uri(redirect_uri: Optional[str]) -> str:
-    if redirect_uri:
-        return redirect_uri
-
-    try:
-        settings = get_settings()
-        return settings.google_oauth_redirect_uri
-    except Exception:
-        return "http://localhost:8000/api/google-auth/callback"
-
-
 def _build_drive_list_params(
     *,
     query: str,
@@ -65,6 +50,8 @@ def _build_drive_list_params(
     include_items_from_all_drives: bool,
     corpora: Optional[str],
 ) -> Dict[str, object]:
+    """Compose the parameters for Drive files().list requests."""
+
     params: Dict[str, object] = {
         "q": query,
         "pageSize": max(page_size, 1),
@@ -84,7 +71,7 @@ def _build_drive_list_params(
 
 
 async def _download_request_bytes(request: Any) -> bytes:
-    """Stream an API request payload into bytes using MediaIoBaseDownload."""
+    """Stream a Drive media request into bytes using the resumable downloader."""
 
     buffer = io.BytesIO()
     downloader = MediaIoBaseDownload(buffer, request)
@@ -93,6 +80,7 @@ async def _download_request_bytes(request: Any) -> bytes:
     done = False
     while not done:
         _, done = await loop.run_in_executor(None, downloader.next_chunk)
+
     return buffer.getvalue()
 
 
@@ -106,7 +94,7 @@ async def _locate_child_folder(
     corpora: Optional[str],
     page_size: int = 10,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """Return the first folder matching folder_name under parent_id plus optional warning."""
+    """Return the first folder named ``folder_name`` beneath ``parent_id``."""
 
     escaped_name = _escape_query_term(folder_name.strip())
     query = (
@@ -163,7 +151,7 @@ async def _resolve_folder_reference(
     include_items_from_all_drives: bool,
     corpora: Optional[str],
 ) -> Tuple[Optional[str], Optional[str], List[str]]:
-    """Return (folder_id, display_label, warnings) or (None, error_message, warnings)."""
+    """Resolve user folder selection inputs to a concrete folder ID."""
 
     warnings: List[str] = []
 
@@ -230,141 +218,6 @@ async def _resolve_folder_reference(
     return final_id, final_label, warnings
 
 
-def _iter_text(el) -> Iterable[str]:
-    text = (el.text or "").strip()
-    if text:
-        yield text
-
-    for child in el:
-        yield from _iter_text(child)
-        tail = (child.tail or "").strip()
-        if tail:
-            yield tail
-
-
-def _extract_office_xml_text(data: bytes, mime_type: str) -> Optional[str]:
-    """Best-effort extraction of text from Office Open XML documents."""
-    targets: Dict[str, tuple[str, ...]] = {
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
-            "word/",
-        ),
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation": (
-            "ppt/",
-        ),
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ("xl/",),
-    }
-
-    prefixes = targets.get(mime_type)
-    if not prefixes:
-        return None
-
-    try:
-        namespace_filter = prefixes
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            snippets: List[str] = []
-            for name in archive.namelist():
-                if not name.endswith(".xml"):
-                    continue
-                if not name.startswith(namespace_filter):
-                    continue
-                with archive.open(name) as xml_file:
-                    try:
-                        import xml.etree.ElementTree as ET
-
-                        root = ET.fromstring(xml_file.read())
-                    except Exception:
-                        continue
-                    for fragment in _iter_text(root):
-                        snippets.append(fragment)
-            combined = "\n".join(fragment for fragment in snippets if fragment)
-            return combined or None
-    except zipfile.BadZipFile:
-        return None
-
-
-def _check_public_link_permission(permissions: List[Dict[str, object]]) -> bool:
-    for perm in permissions or []:
-        if perm.get("type") == "anyone" and perm.get("role") in {
-            "reader",
-            "commenter",
-            "writer",
-        }:
-            return True
-    return False
-
-
-def _get_drive_image_url(file_id: str) -> str:
-    return f"https://drive.google.com/uc?export=view&id={file_id}&page=1&attredirects=0"
-
-
-@mcp.tool("gdrive_auth_status")
-async def auth_status(user_email: str = DEFAULT_USER_EMAIL) -> str:
-    try:
-        credentials = get_credentials(user_email)
-    except FileNotFoundError:
-        credentials = None
-    except Exception as exc:
-        return f"Error checking authorization status: {exc}"
-
-    if credentials:
-        expiry = getattr(credentials, "expiry", None)
-        expiry_text = expiry.isoformat() if expiry else "unknown expiry"
-        return (
-            f"{user_email} is already authorized for Google Drive. "
-            f"Existing token expires at {expiry_text}. "
-            "Use gdrive_generate_auth_url with force=true to start a fresh consent flow."
-        )
-
-    return (
-        f"No stored Google Drive credentials found for {user_email}. "
-        "Run gdrive_generate_auth_url to generate an authorization link."
-    )
-
-
-@mcp.tool("gdrive_generate_auth_url")
-async def generate_auth_url(
-    user_email: str = DEFAULT_USER_EMAIL,
-    redirect_uri: Optional[str] = None,
-    force: bool = False,
-) -> str:
-    try:
-        credentials = get_credentials(user_email)
-    except FileNotFoundError:
-        credentials = None
-    except Exception as exc:
-        return f"Error checking existing credentials: {exc}"
-
-    if credentials and not force:
-        expiry = getattr(credentials, "expiry", None)
-        expiry_text = expiry.isoformat() if expiry else "unknown expiry"
-        return (
-            f"{user_email} already has stored credentials (expires {expiry_text}). "
-            "Set force=true if you want to start a fresh consent flow."
-        )
-
-    try:
-        effective_redirect = _resolve_redirect_uri(redirect_uri)
-        auth_url = authorize_user(user_email, effective_redirect)
-    except FileNotFoundError as exc:
-        return (
-            "Missing OAuth client configuration. "
-            f"{exc}. Ensure client_secret_*.json is placed in the credentials directory."
-        )
-    except Exception as exc:
-        return f"Error generating authorization URL: {exc}"
-
-    effective_redirect = _resolve_redirect_uri(redirect_uri)
-
-    return (
-        "Follow these steps to finish Google Drive authorization:\n"
-        f"1. Visit: {auth_url}\n"
-        "2. Approve access to your Drive account.\n"
-        f"3. You will be redirected to {effective_redirect}; the backend will store the token automatically.\n"
-        "After completing the flow, run gdrive_auth_status to confirm success.\n"
-        "Note: Google may warn that the app is unverified. Choose Advanced → Continue to proceed for testing accounts added on the OAuth consent screen."
-    )
-
-
 @mcp.tool("gdrive_search_files")
 async def search_drive_files(
     query: str,
@@ -377,7 +230,7 @@ async def search_drive_files(
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
-        return f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
@@ -450,7 +303,7 @@ async def list_drive_items(
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
-        return f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
@@ -516,7 +369,7 @@ async def get_drive_file_content(
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
-        return f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
@@ -642,7 +495,7 @@ async def download_drive_file(
         service = get_drive_service(user_email)
     except ValueError as exc:
         return {
-            "error": f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+            "error": f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
         }
     except Exception as exc:
         return {"error": f"Error creating Google Drive service: {exc}"}
@@ -717,7 +570,7 @@ async def create_drive_file(
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
-        return f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
@@ -775,7 +628,7 @@ async def delete_drive_file(
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
-        return f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
@@ -831,7 +684,7 @@ async def move_drive_file(
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
-        return f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
@@ -887,7 +740,7 @@ async def copy_drive_file(
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
-        return f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
@@ -931,7 +784,7 @@ async def rename_drive_file(
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
-        return f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
@@ -967,7 +820,7 @@ async def create_drive_folder(
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
-        return f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
@@ -1006,7 +859,7 @@ async def get_drive_file_permissions(
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
-        return f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
@@ -1100,7 +953,7 @@ async def check_drive_file_public_access(
     try:
         service = get_drive_service(user_email)
     except ValueError as exc:
-        return f"Authentication error: {exc}. Use gdrive_generate_auth_url to authorize this account."
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
     except Exception as exc:
         return f"Error creating Google Drive service: {exc}"
 
@@ -1189,8 +1042,6 @@ if __name__ == "__main__":  # pragma: no cover - CLI helper
 __all__ = [
     "mcp",
     "run",
-    "auth_status",
-    "generate_auth_url",
     "search_drive_files",
     "list_drive_items",
     "get_drive_file_content",

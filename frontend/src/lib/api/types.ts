@@ -111,6 +111,23 @@ export interface AttachmentUploadResponse {
   attachment: AttachmentResource;
 }
 
+export interface GoogleAuthStatusResponse {
+  authorized: boolean;
+  user_email: string;
+  expires_at?: string | null;
+  services?: string[];
+}
+
+export interface GoogleAuthAuthorizeRequest {
+  user_email?: string;
+  redirect_uri?: string;
+}
+
+export interface GoogleAuthAuthorizeResponse {
+  auth_url: string;
+  user_email: string;
+}
+
 type ModelPriceValue = number | string | null | undefined;
 
 export interface ModelPricing {

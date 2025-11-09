@@ -10,10 +10,8 @@ from backend.mcp_servers.calendar_server import (
     DEFAULT_READ_CALENDAR_IDS,
     DEFAULT_USER_EMAIL,
     _parse_time_string,
-    auth_status,
     create_event,
     delete_event,
-    generate_auth_url,
     get_events,
     list_calendars,
     update_event,
@@ -648,72 +646,6 @@ async def test_delete_task_success(mock_get_tasks_service):
 
 
 @pytest.mark.asyncio
-@patch("backend.mcp_servers.calendar_server.get_credentials")
-async def test_auth_status_authorized(mock_get_credentials):
-    """calendar_auth_status reports when credentials exist."""
-    mock_credentials = MagicMock()
-    mock_credentials.expiry = datetime.datetime(
-        2025, 1, 1, tzinfo=datetime.timezone.utc
-    )
-    mock_get_credentials.return_value = mock_credentials
-
-    result = await auth_status("user@example.com")
-
-    assert "already authorized" in result
-    assert "force=true" in result
-
-
-@pytest.mark.asyncio
-@patch("backend.mcp_servers.calendar_server.get_credentials")
-async def test_auth_status_missing(mock_get_credentials):
-    """calendar_auth_status instructs user to authorize when missing."""
-    mock_get_credentials.return_value = None
-
-    result = await auth_status("user@example.com")
-
-    assert "No stored Google Calendar credentials" in result
-    assert "calendar_generate_auth_url" in result
-
-
-@pytest.mark.asyncio
-@patch("backend.mcp_servers.calendar_server.authorize_user")
-@patch("backend.mcp_servers.calendar_server.get_credentials")
-async def test_generate_auth_url_existing_credentials(
-    mock_get_credentials, mock_authorize_user
-):
-    """calendar_generate_auth_url short-circuits unless force is set."""
-    mock_credentials = MagicMock()
-    mock_credentials.expiry = datetime.datetime(
-        2025, 1, 1, tzinfo=datetime.timezone.utc
-    )
-    mock_get_credentials.return_value = mock_credentials
-
-    result = await generate_auth_url("user@example.com")
-
-    assert "already has stored credentials" in result
-    mock_authorize_user.assert_not_called()
-
-
-@pytest.mark.asyncio
-@patch("backend.mcp_servers.calendar_server.authorize_user")
-@patch("backend.mcp_servers.calendar_server.get_credentials")
-async def test_generate_auth_url_force_flow(mock_get_credentials, mock_authorize_user):
-    """calendar_generate_auth_url returns instructions when forced."""
-    mock_credentials = MagicMock()
-    mock_credentials.expiry = None
-    mock_get_credentials.return_value = mock_credentials
-    mock_authorize_user.return_value = "https://auth.example.com"
-
-    result = await generate_auth_url(
-        "user@example.com", redirect_uri="https://app.example.com/callback", force=True
-    )
-
-    assert "https://auth.example.com" in result
-    assert "Follow these steps" in result
-    assert "Advanced" in result
-
-
-@pytest.mark.asyncio
 @patch("backend.mcp_servers.calendar_server.get_calendar_service")
 async def test_list_calendars_success(mock_get_calendar_service):
     """calendar_list_calendars returns summaries for calendars."""
@@ -753,4 +685,4 @@ async def test_list_calendars_auth_error(mock_get_calendar_service):
     result = await list_calendars("user@example.com")
 
     assert "Authentication error" in result
-    assert "calendar_generate_auth_url" in result
+    assert "Connect Google Services" in result

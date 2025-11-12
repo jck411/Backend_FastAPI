@@ -51,14 +51,14 @@
     maximumFractionDigits: 0,
   });
 
-  $:
-    toolCountLabel =
-      toolSummary?.count && toolSummary.count > 0 ? `×${toolSummary.count}` : null;
-  $:
-    toolTokensLabel =
-      toolSummary?.tokens?.totalTokens != null
-        ? `${toolTokenFormatter.format(toolSummary.tokens.totalTokens)} tokens`
-        : null;
+  $: toolCountLabel =
+    toolSummary?.count && toolSummary.count > 0
+      ? `×${toolSummary.count}`
+      : null;
+  $: toolTokensLabel =
+    toolSummary?.tokens?.totalTokens != null
+      ? `${toolTokenFormatter.format(toolSummary.tokens.totalTokens)} tokens`
+      : null;
   $: showToolIndicator = Boolean(toolSummary?.used);
   $: toolIndicatorTitle = (() => {
     const details: string[] = [];
@@ -567,7 +567,10 @@
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
-    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+    transition:
+      color 0.2s ease,
+      background 0.2s ease,
+      border-color 0.2s ease;
   }
   .sender-tool-indicator:hover,
   .sender-tool-indicator:focus-visible {

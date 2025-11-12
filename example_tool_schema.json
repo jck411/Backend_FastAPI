@@ -1,0 +1,77 @@
+{
+    "comment": "This is the EXACT format sent to the LLM (OpenAI/OpenRouter API)",
+    "type": "function",
+    "function": {
+        "name": "calendar_get_events",
+        "description": "Retrieve calendar events. Omit calendar_id to search all household calendars, or provide a specific ID/friendly name like \"Family Calendar\" to filter.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "user_email": {
+                    "type": "string",
+                    "title": "User Email",
+                    "default": "jck411@gmail.com"
+                },
+                "calendar_id": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "title": "Calendar Id",
+                    "default": null
+                },
+                "time_min": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "title": "Time Min",
+                    "default": null
+                },
+                "time_max": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "title": "Time Max",
+                    "default": null
+                },
+                "max_results": {
+                    "type": "integer",
+                    "title": "Max Results",
+                    "default": 25
+                },
+                "query": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "title": "Query",
+                    "default": null
+                },
+                "detailed": {
+                    "type": "boolean",
+                    "title": "Detailed",
+                    "default": false
+                }
+            },
+            "title": "get_eventsArguments"
+        }
+    }
+}

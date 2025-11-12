@@ -177,6 +177,7 @@ DEFAULT_CALENDAR_DEFINITIONS: tuple[CalendarDefinition, ...] = (
             "mom schedule",
             "mom work",
             "mom work schedule",
+            "Sanja's work scheduleSanja in office",
         ),
     },
     {
@@ -462,25 +463,8 @@ async def get_events(
     query: Optional[str] = None,
     detailed: bool = False,
 ) -> str:
-    """
-    Retrieve events across the user's Google calendars.
-
-    With no ``calendar_id`` (or when using phrases such as "my schedule") the
-    search spans the preconfigured household calendars.
-    Provide a specific ID or friendly name (for example "Family Calendar" or
-    "Dad Work Schedule") to narrow the query to a single calendar.
-
-    Args:
-        user_email: The user's email address (defaults to Jack's primary account).
-        calendar_id: Optional calendar ID or friendly name.
-        time_min: Start time (ISO 8601 or RFC3339 formatted string).
-        time_max: End time (optional, ISO 8601 or RFC3339 formatted string).
-        max_results: Maximum number of events to return after aggregation.
-        query: Optional search query.
-        detailed: Whether to include full details in results.
-
-    Returns:
-        Formatted string with event details.
+    """Retrieve calendar events. Omit calendar_id to search all household calendars,
+    or provide a specific ID/friendly name like "Family Calendar" to filter.
     """
 
     try:

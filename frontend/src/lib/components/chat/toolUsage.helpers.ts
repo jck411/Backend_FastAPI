@@ -1,20 +1,50 @@
 import type { ConversationMessage, ConversationRole } from "../../stores/chat";
 import type { ToolUsageEntry } from "./toolUsage.types";
 
+export interface ToolUsageTokenSummary {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  totalTokens: number | null;
+}
+
+export interface AssistantToolUsageSummary {
+  used: boolean;
+  count: number;
+  tokens: ToolUsageTokenSummary | null;
+}
+
 export interface MessagePresentation {
   visibleMessages: ConversationMessage[];
-  assistantToolUsage: Record<string, boolean>;
+  assistantToolUsage: Record<string, AssistantToolUsageSummary>;
   messageIndexMap: Record<string, number>;
 }
 
 const DEFAULT_TOOL_ROLE: ConversationRole = "tool";
+
+const INPUT_TOKEN_KEYS = [
+  "prompt_tokens",
+  "input_tokens",
+  "prompt",
+  "input",
+  "promptTokens",
+  "inputTokens",
+];
+const OUTPUT_TOKEN_KEYS = [
+  "completion_tokens",
+  "output_tokens",
+  "completion",
+  "output",
+  "completionTokens",
+  "outputTokens",
+];
+const TOTAL_TOKEN_KEYS = ["total_tokens", "total", "totalTokens"];
 
 export function computeMessagePresentation(
   messages: ConversationMessage[],
   toolRole: ConversationRole = DEFAULT_TOOL_ROLE,
 ): MessagePresentation {
   const visibleMessages: ConversationMessage[] = [];
-  const assistantToolUsage: Record<string, boolean> = {};
+  const assistantToolUsage: Record<string, AssistantToolUsageSummary> = {};
   const messageIndexMap: Record<string, number> = {};
 
   for (let index = 0; index < messages.length; index += 1) {
@@ -24,14 +54,24 @@ export function computeMessagePresentation(
     if (message.role === "assistant") {
       const toolCalls = message.details?.toolCalls;
       const hasMetadataToolCalls = Array.isArray(toolCalls) && toolCalls.length > 0;
-      let usedTool = hasMetadataToolCalls;
+      let toolMessageCount = 0;
 
-      const nextMessage = messages[index + 1];
-      if (nextMessage?.role === toolRole) {
-        usedTool = true;
+      let lookahead = index + 1;
+      while (isToolMessage(messages[lookahead], toolRole)) {
+        toolMessageCount += 1;
+        lookahead += 1;
       }
 
-      assistantToolUsage[message.id] = usedTool;
+      const metadataCount = hasMetadataToolCalls ? toolCalls.length : 0;
+      const count = Math.max(metadataCount, toolMessageCount);
+      const usedTool = count > 0;
+      const tokens = extractUsageSummary(message.details?.usage);
+
+      assistantToolUsage[message.id] = {
+        used: usedTool,
+        count,
+        tokens,
+      };
     }
 
     if (message.role !== toolRole) {
@@ -206,6 +246,62 @@ function extractCallArguments(call: Record<string, unknown> | null | undefined):
     }
   }
 
+  return null;
+}
+
+function extractUsageSummary(
+  usage: Record<string, unknown> | null | undefined,
+): ToolUsageTokenSummary | null {
+  if (!usage || typeof usage !== "object") {
+    return null;
+  }
+
+  const record = usage as Record<string, unknown>;
+  const inputTokens = findNumericValue(record, INPUT_TOKEN_KEYS);
+  const outputTokens = findNumericValue(record, OUTPUT_TOKEN_KEYS);
+  let totalTokens = findNumericValue(record, TOTAL_TOKEN_KEYS);
+
+  if (totalTokens == null) {
+    if (inputTokens != null || outputTokens != null) {
+      totalTokens = (inputTokens ?? 0) + (outputTokens ?? 0);
+    }
+  }
+
+  if (inputTokens == null && outputTokens == null && totalTokens == null) {
+    return null;
+  }
+
+  return {
+    inputTokens,
+    outputTokens,
+    totalTokens,
+  };
+}
+
+function findNumericValue(
+  record: Record<string, unknown>,
+  keys: string[],
+): number | null {
+  for (const key of keys) {
+    if (!(key in record)) {
+      continue;
+    }
+    const value = toNumeric(record[key]);
+    if (value != null) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function toNumeric(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
   return null;
 }
 

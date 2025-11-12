@@ -13,7 +13,10 @@
   import CitationsModal from "./CitationsModal.svelte";
   import MessageItem from "./MessageItem.svelte";
   import ReasoningModal from "./ReasoningModal.svelte";
-  import { computeMessagePresentation } from "./toolUsage.helpers";
+  import {
+    computeMessagePresentation,
+    type AssistantToolUsageSummary,
+  } from "./toolUsage.helpers";
   import ToolUsageModal from "./ToolUsageModal.svelte";
   import WebSearchDetailsModal from "./WebSearchDetailsModal.svelte";
 
@@ -24,7 +27,7 @@
   let copiedMessageId: string | null = null;
   let copyResetTimeout: ReturnType<typeof setTimeout> | null = null;
   let visibleMessages: ConversationMessage[] = [];
-  let assistantToolUsage: Record<string, boolean> = {};
+  let assistantToolSummaries: Record<string, AssistantToolUsageSummary> = {};
   let messageIndexMap: Record<string, number> = {};
   const TOOL_ROLE: ConversationRole = "tool";
   let suppressNextScroll = false;
@@ -106,7 +109,7 @@
   $: {
     const presentation = computeMessagePresentation(messages, TOOL_ROLE);
     visibleMessages = presentation.visibleMessages;
-    assistantToolUsage = presentation.assistantToolUsage;
+    assistantToolSummaries = presentation.assistantToolUsage;
     messageIndexMap = presentation.messageIndexMap;
   }
 
@@ -197,7 +200,7 @@
     <div class="conversation-item">
       <MessageItem
         {message}
-        showToolIndicator={assistantToolUsage[message.id]}
+        toolSummary={assistantToolSummaries[message.id]}
         copied={copiedMessageId === message.id}
         {disableDelete}
         on:copy={(event) => handleCopyMessage(event.detail.message)}

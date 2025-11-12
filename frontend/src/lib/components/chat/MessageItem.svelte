@@ -16,9 +16,10 @@
   import { collectCitations } from "../../chat/citations";
   import type { ConversationMessage, MessageCitation } from "../../stores/chat";
   import { renderMarkdown } from "../../utils/markdown";
+  import type { AssistantToolUsageSummary } from "./toolUsage.helpers";
 
   export let message: ConversationMessage;
-  export let showToolIndicator = false;
+  export let toolSummary: AssistantToolUsageSummary | undefined;
   export let copied = false;
   export let disableDelete = false;
 
@@ -41,6 +42,39 @@
   let hasReasoningSegments = false;
   let citations: MessageCitation[] = [];
   let hasWebSearchConfig = false;
+  let showToolIndicator = false;
+  let toolIndicatorTitle = "View tool usage";
+  let toolCountLabel: string | null = null;
+  let toolTokensLabel: string | null = null;
+
+  const toolTokenFormatter = new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 0,
+  });
+
+  $:
+    toolCountLabel =
+      toolSummary?.count && toolSummary.count > 0 ? `×${toolSummary.count}` : null;
+  $:
+    toolTokensLabel =
+      toolSummary?.tokens?.totalTokens != null
+        ? `${toolTokenFormatter.format(toolSummary.tokens.totalTokens)} tokens`
+        : null;
+  $: showToolIndicator = Boolean(toolSummary?.used);
+  $: toolIndicatorTitle = (() => {
+    const details: string[] = [];
+    if (toolSummary?.count && toolSummary.count > 0) {
+      details.push(
+        `${toolSummary.count} ${toolSummary.count === 1 ? "hop" : "hops"}`,
+      );
+    }
+    if (toolTokensLabel) {
+      details.push(`${toolTokensLabel}`);
+    }
+    if (details.length === 0) {
+      return "View tool usage";
+    }
+    return `View tool usage — ${details.join(", ")}`;
+  })();
 
   $: hasReasoningSegments =
     (message.details?.reasoning?.length ?? 0) > 0 ||
@@ -317,11 +351,17 @@
                 <button
                   type="button"
                   class="sender-tool-indicator"
-                  aria-label="View tool usage"
-                  title="View tool usage"
+                  aria-label={toolIndicatorTitle}
+                  title={toolIndicatorTitle}
                   on:click={handleOpenTool}
                 >
                   <Wrench size={14} strokeWidth={1.8} aria-hidden="true" />
+                  {#if toolCountLabel}
+                    <span class="sender-tool-count">{toolCountLabel}</span>
+                  {/if}
+                  {#if toolTokensLabel}
+                    <span class="sender-tool-tokens">{toolTokensLabel}</span>
+                  {/if}
                 </button>
               {/if}
             </span>
@@ -517,19 +557,33 @@
   .sender-tool-indicator {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    width: 1rem;
-    height: 1rem;
+    gap: 0.35rem;
+    min-height: 1.5rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
     color: #38bdf8;
-    background: none;
-    border: none;
-    padding: 0;
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    font-size: 0.75rem;
+    font-weight: 600;
     cursor: pointer;
+    transition: color 0.2s ease, background 0.2s ease, border-color 0.2s ease;
   }
   .sender-tool-indicator:hover,
   .sender-tool-indicator:focus-visible {
     color: #7dd3fc;
+    background: rgba(56, 189, 248, 0.18);
+    border-color: rgba(125, 211, 252, 0.55);
     outline: none;
+  }
+  .sender-tool-count {
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+  .sender-tool-tokens {
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: rgba(148, 233, 255, 0.9);
   }
   .sender-citation-indicator {
     display: inline-flex;

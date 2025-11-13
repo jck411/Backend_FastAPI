@@ -17,6 +17,7 @@ from ..config import get_settings
 from ..openrouter import OpenRouterClient, OpenRouterError
 from ..repository import ChatRepository, format_timestamp_for_client
 from ..schemas.chat import ChatCompletionRequest
+from ..services.attachment_urls import refresh_message_attachments
 from ..services.attachments import AttachmentService
 from ..services.conversation_logging import ConversationLogWriter
 from ..services.model_settings import ModelCapabilities, ModelSettingsService
@@ -42,6 +43,144 @@ SseEvent = dict[str, str | None]
 
 _SESSION_AWARE_TOOL_NAME = "chat_history"
 _SESSION_AWARE_TOOL_SUFFIX = "__chat_history"
+
+
+def _parse_attachment_references(text: str) -> tuple[str, list[str]]:
+    """Parse attachment_id: markers from tool results.
+
+    Returns:
+        tuple of (cleaned_text, list_of_attachment_ids)
+    """
+    if "attachment_id:" not in text:
+        return text, []
+
+    attachment_ids: list[str] = []
+    lines: list[str] = []
+
+    for line in text.split("\n"):
+        if line.strip().startswith("attachment_id:"):
+            # Extract the attachment ID
+            attachment_id = line.strip().split(":", 1)[1].strip()
+            if attachment_id:
+                attachment_ids.append(attachment_id)
+        else:
+            lines.append(line)
+
+    cleaned_text = "\n".join(lines).strip()
+    return cleaned_text, attachment_ids
+
+
+def _prepare_messages_for_model(
+    messages: Sequence[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Return a message list formatted for model consumption.
+
+    Tool outputs that embed attachments as structured content are converted into
+    plain-text tool messages plus a synthetic user message that carries the
+    image(s). This mirrors the structure produced when a user uploads an image.
+    """
+
+    prepared: list[dict[str, Any]] = []
+
+    for message in messages:
+        if not isinstance(message, dict):
+            continue
+
+        role = message.get("role")
+        content = message.get("content")
+
+        # Non-tool messages (or tools without structured content) pass through.
+        if role != "tool" or not isinstance(content, list):
+            prepared.append(_deep_copy_jsonable(message))
+            continue
+
+        text_fragments: list[str] = []
+        image_fragments: list[dict[str, Any]] = []
+        other_fragments: list[dict[str, Any]] = []
+
+        for fragment in content:
+            if not isinstance(fragment, dict):
+                continue
+            fragment_type = fragment.get("type")
+            if fragment_type == "text":
+                text_value = fragment.get("text")
+                if isinstance(text_value, str):
+                    text_fragments.append(text_value)
+            elif fragment_type == "image_url":
+                image_data = fragment.get("image_url")
+                if isinstance(image_data, dict):
+                    url_value = image_data.get("url")
+                    if isinstance(url_value, str) and url_value.strip():
+                        image_fragments.append(_deep_copy_jsonable(fragment))
+            else:
+                other_fragments.append(fragment)
+
+        tool_payload = _deep_copy_jsonable(message)
+
+        tool_text_parts: list[str] = []
+        if text_fragments:
+            joined = "\n".join(text_fragments).strip()
+            if joined:
+                tool_text_parts.append(joined)
+        if other_fragments:
+            for fragment in other_fragments:
+                try:
+                    tool_text_parts.append(json.dumps(fragment))
+                except (TypeError, ValueError):
+                    tool_text_parts.append(str(fragment))
+        if not tool_text_parts and image_fragments:
+            tool_text_parts.append("Tool returned image attachment(s).")
+
+        tool_payload["content"] = "\n".join(tool_text_parts)
+        prepared.append(tool_payload)
+
+        if not image_fragments:
+            continue
+
+        synthetic_content: list[dict[str, Any]] = []
+        description = (
+            "Image retrieved from tool result for analysis."
+            if len(image_fragments) == 1
+            else "Images retrieved from tool result for analysis."
+        )
+        synthetic_content.append({"type": "text", "text": description})
+
+        for fragment in image_fragments:
+            image_block = fragment.get("image_url") or {}
+            url_value = image_block.get("url")
+            if not isinstance(url_value, str) or not url_value:
+                continue
+            synthetic_fragment: dict[str, Any] = {
+                "type": "image_url",
+                "image_url": {"url": url_value},
+            }
+            metadata_block = fragment.get("metadata")
+            if isinstance(metadata_block, dict):
+                synthetic_fragment["metadata"] = metadata_block
+            synthetic_content.append(synthetic_fragment)
+
+        if len(synthetic_content) <= 1:
+            # No valid image fragments were collected.
+            continue
+
+        synthetic_message: dict[str, Any] = {
+            "role": "user",
+            "content": synthetic_content,
+        }
+
+        metadata: dict[str, Any] = {"source": "tool_attachment_proxy"}
+        tool_call_id = message.get("tool_call_id")
+        tool_name = message.get("tool_name")
+        if isinstance(tool_call_id, str) and tool_call_id:
+            metadata["tool_call_id"] = tool_call_id
+        if isinstance(tool_name, str) and tool_name:
+            metadata["tool_name"] = tool_name
+        if metadata:
+            synthetic_message["metadata"] = metadata
+
+        prepared.append(synthetic_message)
+
+    return prepared
 
 
 def _summarize_tool_parameters(parameters: Mapping[str, Any] | None) -> str:
@@ -345,15 +484,11 @@ class StreamingHandler:
         conversation_state = list(conversation)
         assistant_client_message_id: str | None = None
         request_metadata: dict[str, Any] | None = None
-        request_id: str | None = None
         if isinstance(request.metadata, dict):
             request_metadata = request.metadata
             candidate = request_metadata.get("client_assistant_message_id")
             if isinstance(candidate, str):
                 assistant_client_message_id = candidate
-            request_id_candidate = request_metadata.get("request_id")
-            if isinstance(request_id_candidate, str):
-                request_id = request_id_candidate
         active_tools_payload = list(tools_payload)
         tool_choice_value = request.tool_choice
         requested_tool_choice = (
@@ -368,7 +503,6 @@ class StreamingHandler:
         total_tool_calls = 0
 
         while True:
-            stop_triggered_reason: str | None = None
             tools_available = bool(active_tools_payload)
             tools_disabled = base_tools_disabled or not tools_available
             routing_headers: dict[str, Any] | None = None
@@ -385,8 +519,15 @@ class StreamingHandler:
                     active_model = model_override
                 overrides = dict(overrides) if overrides else {}
 
+            # Refresh attachment URLs before sending to LLM
+            conversation_state = await refresh_message_attachments(
+                conversation_state,
+                self._repo,
+                ttl=get_settings().attachment_signed_url_ttl,
+            )
+
             payload = request.to_openrouter_payload(active_model)
-            payload["messages"] = list(conversation_state)
+            payload["messages"] = _prepare_messages_for_model(conversation_state)
 
             if overrides:
                 provider_overrides = overrides.get("provider")
@@ -431,7 +572,9 @@ class StreamingHandler:
                     session_id,
                 )
 
-            allow_tools = tools_available and not tools_disabled and model_supports_tools
+            allow_tools = (
+                tools_available and not tools_disabled and model_supports_tools
+            )
             if allow_tools:
                 payload["tools"] = active_tools_payload
                 payload.setdefault("tool_choice", request.tool_choice or "auto")
@@ -975,11 +1118,43 @@ class StreamingHandler:
                     parent_client_message_id=assistant_client_message_id,
                 )
 
-                tool_message = {
-                    "role": "tool",
-                    "tool_call_id": tool_id,
-                    "content": result_text,
-                }
+                # Check if result contains attachment references that need conversion
+                cleaned_text, attachment_ids = _parse_attachment_references(result_text)
+
+                if attachment_ids:
+                    # Convert to multimodal content with image references
+                    content_parts: list[dict[str, Any]] = []
+
+                    # Add text part if there's any cleaned text
+                    if cleaned_text:
+                        content_parts.append({"type": "text", "text": cleaned_text})
+
+                    # Add image parts for each attachment
+                    # The attachment_urls service will populate these with signed URLs later
+                    for attachment_id in attachment_ids:
+                        content_parts.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": ""
+                                },  # Will be filled by attachment_urls service
+                                "metadata": {"attachment_id": attachment_id},
+                            }
+                        )
+
+                    tool_message = {
+                        "role": "tool",
+                        "tool_call_id": tool_id,
+                        "content": content_parts,
+                    }
+                else:
+                    # Plain text result
+                    tool_message = {
+                        "role": "tool",
+                        "tool_call_id": tool_id,
+                        "content": result_text,
+                    }
+
                 edt_iso, utc_iso = format_timestamp_for_client(tool_created_at)
                 if edt_iso is not None:
                     tool_message["created_at"] = edt_iso

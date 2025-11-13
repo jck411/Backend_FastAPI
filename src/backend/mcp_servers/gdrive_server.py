@@ -26,6 +26,7 @@ else:
     from mcp.server.fastmcp import FastMCP
 
 from backend.mcp_servers.pdf_server import extract_bytes as kb_extract_bytes
+from backend.services.attachments import AttachmentService
 from backend.services.google_auth.auth import (
     DEFAULT_USER_EMAIL,
     get_drive_service,
@@ -37,6 +38,34 @@ DRIVE_FIELDS_MINIMAL = (
 )
 # Maximum file size in bytes for download operations (50MB)
 MAX_CONTENT_BYTES = 50 * 1024 * 1024
+
+# Global attachment service reference - set by application at runtime
+_attachment_service: AttachmentService | None = None
+_attachment_service_lock = asyncio.Lock()
+
+
+async def _get_attachment_service() -> AttachmentService:
+    """Get or create the attachment service instance."""
+    global _attachment_service
+    if _attachment_service is not None:
+        return _attachment_service
+    async with _attachment_service_lock:
+        if _attachment_service is None:
+            # Import here to avoid circular dependencies
+            from backend.config import get_settings
+            from backend.repository import ChatRepository
+
+            settings = get_settings()
+            # Initialize repository for attachment service
+            db_path = settings.chat_database_path
+            repository = ChatRepository(db_path)
+            await repository.initialize()
+            _attachment_service = AttachmentService(
+                repository,
+                max_size_bytes=settings.attachments_max_size_bytes,
+                retention_days=settings.attachments_retention_days,
+            )
+    return _attachment_service
 
 
 def _get_drive_service_or_error(
@@ -326,9 +355,7 @@ async def _resolve_folder_reference(
     return final_id, final_label, warnings
 
 
-@mcp.tool(
-    "gdrive_search_files", description="Search Google Drive for files matching a query"
-)
+@mcp.tool("gdrive_search_files")
 async def search_drive_files(
     query: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -345,7 +372,17 @@ async def search_drive_files(
     # Use conservative heuristic to detect Drive query syntax
     is_structured = _is_structured_drive_query(query)
     escaped_query = _escape_query_term(query)
-    final_query = query if is_structured else f"fullText contains '{escaped_query}'"
+
+    # Build intelligent search query:
+    # - If structured query (has field operators), use as-is
+    # - Otherwise, search filename and MIME type (metadata only, NOT file contents)
+    # This matches user expectations: find files by name/type, not by what's inside them
+    if is_structured:
+        final_query = query
+    else:
+        final_query = (
+            f"name contains '{escaped_query}' or mimeType contains '{escaped_query}'"
+        )
 
     params = _build_drive_list_params(
         query=final_query,
@@ -396,7 +433,7 @@ async def search_drive_files(
     return "\n".join(lines)
 
 
-@mcp.tool("gdrive_list_folder", description="List contents of a Google Drive folder")
+@mcp.tool("gdrive_list_folder")
 async def list_drive_items(
     folder_id: Optional[str] = "root",
     folder_name: Optional[str] = None,
@@ -491,10 +528,7 @@ async def list_drive_items(
     return "\n".join(lines)
 
 
-@mcp.tool(
-    "gdrive_get_file_content",
-    description="Retrieve text content from a Google Drive file",
-)
+@mcp.tool("gdrive_get_file_content")
 async def get_drive_file_content(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -617,83 +651,7 @@ async def get_drive_file_content(
     return header + body_text
 
 
-@mcp.tool(
-    "gdrive_download_file",
-    description="Download a Google Drive file as base64-encoded bytes",
-)
-async def download_drive_file(
-    file_id: str,
-    user_email: str = DEFAULT_USER_EMAIL,
-    export_mime_type: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Return Drive file bytes encoded as base64 alongside metadata."""
-
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return {"error": error_msg}
-    assert service is not None
-
-    try:
-        metadata = await asyncio.to_thread(
-            service.files()
-            .get(
-                fileId=file_id,
-                fields="id, name, mimeType, size, webViewLink, modifiedTime",
-                supportsAllDrives=True,
-            )
-            .execute
-        )
-    except Exception as exc:
-        return {"error": f"Error retrieving metadata for file {file_id}: {exc}"}
-
-    mime_type = metadata.get("mimeType", "")
-    default_exports = {
-        "application/vnd.google-apps.document": "application/pdf",
-        "application/vnd.google-apps.presentation": "application/pdf",
-        "application/vnd.google-apps.spreadsheet": "text/csv",
-        "application/vnd.google-apps.drawing": "image/png",
-    }
-    chosen_export = export_mime_type or default_exports.get(mime_type)
-
-    request = (
-        service.files().export_media(fileId=file_id, mimeType=chosen_export)
-        if chosen_export
-        else service.files().get_media(fileId=file_id)
-    )
-    download_mime = chosen_export or mime_type or "application/octet-stream"
-
-    try:
-        content_bytes = await _download_request_bytes(request)
-    except ValueError as exc:
-        return {"error": f"File too large: {exc}", "file_id": file_id}
-    except Exception as exc:
-        return {"error": f"Error downloading file content: {exc}", "file_id": file_id}
-
-    payload = base64.b64encode(content_bytes).decode("ascii")
-    response: Dict[str, Any] = {
-        "file_id": file_id,
-        "file_name": metadata.get("name"),
-        "mime_type": mime_type,
-        "download_mime_type": download_mime,
-        "size_bytes": len(content_bytes),
-        "content_base64": payload,
-        "web_view_link": metadata.get("webViewLink"),
-        "modified_time": metadata.get("modifiedTime"),
-    }
-    if metadata.get("size") is not None:
-        response["reported_size"] = metadata.get("size")
-    if chosen_export and chosen_export != mime_type:
-        response["exported"] = True
-        response["export_mime_type"] = chosen_export
-    else:
-        response["exported"] = False
-    return response
-
-
-@mcp.tool(
-    "gdrive_create_file",
-    description="Create a new file in Google Drive from content or URL",
-)
+@mcp.tool("gdrive_create_file")
 async def create_drive_file(
     file_name: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -784,7 +742,7 @@ async def create_drive_file(
     )
 
 
-@mcp.tool("gdrive_delete_file", description="Delete or trash a Google Drive file")
+@mcp.tool("gdrive_delete_file")
 async def delete_drive_file(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -838,9 +796,7 @@ async def delete_drive_file(
     return f"File '{trashed_name}' (ID: {file_id}) moved to trash."
 
 
-@mcp.tool(
-    "gdrive_move_file", description="Move a Google Drive file to a different folder"
-)
+@mcp.tool("gdrive_move_file")
 async def move_drive_file(
     file_id: str,
     destination_folder_id: str,
@@ -893,7 +849,7 @@ async def move_drive_file(
     )
 
 
-@mcp.tool("gdrive_copy_file", description="Create a copy of a Google Drive file")
+@mcp.tool("gdrive_copy_file")
 async def copy_drive_file(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -934,7 +890,7 @@ async def copy_drive_file(
     )
 
 
-@mcp.tool("gdrive_rename_file", description="Rename a Google Drive file")
+@mcp.tool("gdrive_rename_file")
 async def rename_drive_file(
     file_id: str,
     new_name: str,
@@ -968,7 +924,7 @@ async def rename_drive_file(
     return f"File {file_id} renamed to '{final_name}'."
 
 
-@mcp.tool("gdrive_create_folder", description="Create a new folder in Google Drive")
+@mcp.tool("gdrive_create_folder")
 async def create_drive_folder(
     folder_name: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -1012,10 +968,7 @@ async def create_drive_folder(
     )
 
 
-@mcp.tool(
-    "gdrive_file_permissions",
-    description="View permissions and sharing status of a Google Drive file",
-)
+@mcp.tool("gdrive_file_permissions")
 async def get_drive_file_permissions(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -1110,10 +1063,7 @@ async def get_drive_file_permissions(
     return "\n".join(lines)
 
 
-@mcp.tool(
-    "gdrive_check_public_access",
-    description="Check if a Google Drive file has public link access",
-)
+@mcp.tool("gdrive_check_public_access")
 async def check_drive_file_public_access(
     file_name: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -1198,6 +1148,85 @@ async def check_drive_file_public_access(
     return "\n".join(lines)
 
 
+@mcp.tool("gdrive_analyze_image")
+async def analyze_drive_image(
+    file_id: str,
+    session_id: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+) -> str:
+    """
+    Download an image from Google Drive and prepare it for LLM analysis.
+
+    This tool downloads an image from Drive, saves it as an attachment, and returns
+    a reference that the system will automatically convert to an image in the chat.
+    The image will appear in the conversation just as if it were manually uploaded.
+
+    Args:
+        file_id: The Google Drive file ID of the image
+        session_id: The current chat session ID (required for attachment storage)
+        user_email: Email of the user whose Drive to access
+
+    Returns:
+        A string with attachment reference that will be processed into an image
+    """
+    service, error_msg = _get_drive_service_or_error(user_email)
+    if error_msg:
+        return error_msg
+    assert service is not None
+
+    try:
+        metadata = await asyncio.to_thread(
+            service.files()
+            .get(
+                fileId=file_id,
+                fields="id, name, mimeType, size",
+                supportsAllDrives=True,
+            )
+            .execute
+        )
+    except Exception as exc:
+        return f"Error retrieving metadata for file {file_id}: {exc}"
+
+    mime_type = metadata.get("mimeType", "")
+    file_name = metadata.get("name", "unknown")
+
+    # Validate it's an image
+    if not mime_type.startswith("image/"):
+        return (
+            f"Error: File '{file_name}' (ID: {file_id}) is not an image. "
+            f"MIME type: {mime_type}"
+        )
+
+    # Download the image
+    request = service.files().get_media(fileId=file_id)
+
+    try:
+        image_bytes = await _download_request_bytes(request)
+    except ValueError as exc:
+        return f"Error: Image too large: {exc}"
+    except Exception as exc:
+        return f"Error downloading image: {exc}"
+
+    # Save the image as an attachment using the existing system
+    try:
+        attachment_service = await _get_attachment_service()
+        record = await attachment_service.save_bytes(
+            session_id=session_id,
+            data=image_bytes,
+            mime_type=mime_type,
+            filename_hint=file_name,
+        )
+        attachment_id = record.get("attachment_id")
+        if not attachment_id:
+            return "Error: Failed to save attachment"
+
+        # Return a special marker that the system will recognize
+        # The attachment_urls service will convert this to proper image_url format
+        return f"[Image from Google Drive: {file_name}]\nattachment_id:{attachment_id}"
+    except Exception as exc:
+        return f"Error saving attachment: {exc}"
+
+
 def run() -> None:  # pragma: no cover - integration entrypoint
     mcp.run()
 
@@ -1212,7 +1241,6 @@ __all__ = [
     "search_drive_files",
     "list_drive_items",
     "get_drive_file_content",
-    "download_drive_file",
     "create_drive_file",
     "delete_drive_file",
     "move_drive_file",
@@ -1221,4 +1249,5 @@ __all__ = [
     "create_drive_folder",
     "get_drive_file_permissions",
     "check_drive_file_public_access",
+    "analyze_drive_image",
 ]

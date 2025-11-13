@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
-import zipfile
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -25,11 +24,11 @@ if TYPE_CHECKING:
 else:
     from mcp.server.fastmcp import FastMCP
 
+from backend.mcp_servers.pdf_server import extract_bytes as kb_extract_bytes
 from backend.services.google_auth.auth import (
     DEFAULT_USER_EMAIL,
     get_drive_service,
 )
-from backend.mcp_servers.pdf_server import extract_bytes as kb_extract_bytes
 
 mcp = FastMCP("custom-gdrive")
 DRIVE_BATCH_SIZE = 25
@@ -165,7 +164,9 @@ async def _resolve_folder_reference(
     if normalized_path:
         parent_id = base_id
         label_parts: List[str] = [] if base_id == "root" else [base_label]
-        for segment in [part.strip() for part in normalized_path.split("/") if part.strip()]:
+        for segment in [
+            part.strip() for part in normalized_path.split("/") if part.strip()
+        ]:
             located, note = await _locate_child_folder(
                 service,
                 parent_id=parent_id,
@@ -176,7 +177,9 @@ async def _resolve_folder_reference(
             )
             scope = "/".join(label_parts) if label_parts else base_label
             if located is None:
-                missing_context = scope or ("root" if parent_id == "root" else parent_id)
+                missing_context = scope or (
+                    "root" if parent_id == "root" else parent_id
+                )
                 return (
                     None,
                     f"Unable to find folder '{segment}' within '{missing_context}'.",
@@ -420,9 +423,7 @@ async def get_drive_file_content(
                 content_base64=payload,
                 mime_type=mime_type,
             )
-            body_text = (
-                str(result.get("content") or result.get("text") or "").strip()
-            )
+            body_text = str(result.get("content") or result.get("text") or "").strip()
             # If no text was extracted, try an OCR pass as a fallback
             if not body_text:
                 try:
@@ -431,9 +432,9 @@ async def get_drive_file_content(
                         mime_type=mime_type,
                         force_ocr=True,
                     )
-                    body_text = (
-                        str(result_ocr.get("content") or result_ocr.get("text") or "").strip()
-                    )
+                    body_text = str(
+                        result_ocr.get("content") or result_ocr.get("text") or ""
+                    ).strip()
                 except Exception:
                     body_text = ""
             if not body_text:
@@ -455,17 +456,14 @@ async def get_drive_file_content(
                     f"{len(content_bytes)} bytes]"
                 )
     elif mime_type in office_mime_types:
-        extracted = _extract_office_xml_text(content_bytes, mime_type)
-        if extracted:
-            body_text = extracted
-        else:
-            try:
-                body_text = content_bytes.decode("utf-8")
-            except UnicodeDecodeError:
-                body_text = (
-                    f"[Binary or unsupported text encoding for mimeType '{mime_type}' - "
-                    f"{len(content_bytes)} bytes]"
-                )
+        # Office documents are binary formats - note the limitation
+        try:
+            body_text = content_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            body_text = (
+                f"[Binary Office document - text extraction not supported for mimeType '{mime_type}' - "
+                f"{len(content_bytes)} bytes]"
+            )
     else:
         try:
             body_text = content_bytes.decode("utf-8")
@@ -926,18 +924,25 @@ async def get_drive_file_permissions(
     if metadata.get("webContentLink"):
         lines.append(f"  Direct Download Link: {metadata['webContentLink']}")
 
-    if _check_public_link_permission(permissions):
+    # Check for public link permission
+    has_public = any(
+        perm.get("type") == "anyone"
+        and perm.get("role") in {"reader", "writer", "commenter"}
+        for perm in permissions
+    )
+
+    if has_public:
         lines.extend(
             [
                 "",
-                "✅ This file is shared with 'Anyone with the link' - it can be inserted into Google Docs.",
+                "✅ This file is shared with 'Anyone with the link'.",
             ]
         )
     else:
         lines.extend(
             [
                 "",
-                "❌ This file is NOT shared with 'Anyone with the link' - it cannot be inserted into Google Docs.",
+                "❌ This file is NOT shared with 'Anyone with the link'.",
                 "   To fix: Right-click the file in Google Drive → Share → Anyone with the link → Viewer",
             ]
         )
@@ -1001,7 +1006,12 @@ async def check_drive_file_public_access(
         return f"Error retrieving permissions for file '{file_id}': {exc}"
 
     permissions = metadata.get("permissions", [])
-    has_public = _check_public_link_permission(permissions)
+    # Check for public link permission
+    has_public = any(
+        perm.get("type") == "anyone"
+        and perm.get("role") in {"reader", "writer", "commenter"}
+        for perm in permissions
+    )
 
     lines.extend(
         [
@@ -1016,14 +1026,14 @@ async def check_drive_file_public_access(
     if has_public:
         lines.extend(
             [
-                "✅ PUBLIC ACCESS ENABLED - This file can be inserted into Google Docs.",
-                f"Use with insert_doc_image_url: {_get_drive_image_url(file_id)}",
+                "✅ PUBLIC ACCESS ENABLED - This file is publicly shared.",
+                f"Direct link: https://drive.google.com/uc?export=view&id={file_id}",
             ]
         )
     else:
         lines.extend(
             [
-                "❌ NO PUBLIC ACCESS - Cannot insert into Google Docs.",
+                "❌ NO PUBLIC ACCESS - File is not publicly shared.",
                 "Fix: Drive → Share → 'Anyone with the link' → 'Viewer'.",
             ]
         )

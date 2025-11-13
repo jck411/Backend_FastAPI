@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
-import re
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
@@ -32,6 +31,7 @@ from backend.services.google_auth.auth import (
 )
 
 mcp = FastMCP("custom-gdrive")
+DRIVE_BATCH_SIZE = 25
 DRIVE_FIELDS_MINIMAL = (
     "files(id, name, mimeType, size, modifiedTime, webViewLink, iconLink)"
 )
@@ -39,54 +39,8 @@ DRIVE_FIELDS_MINIMAL = (
 MAX_CONTENT_BYTES = 50 * 1024 * 1024
 
 
-def _get_drive_service_or_error(
-    user_email: str,
-) -> Tuple[Optional[Any], Optional[str]]:
-    """Get Drive service or return error message.
-
-    Returns:
-        (service, None) on success
-        (None, error_message) on failure
-    """
-    try:
-        service = get_drive_service(user_email)
-        return service, None
-    except ValueError as exc:
-        return None, (
-            f"Authentication error: {exc}. Click 'Connect Google Services' in Settings "
-            "to authorize this account."
-        )
-    except Exception as exc:
-        return None, f"Error creating Google Drive service: {exc}"
-
-
-def _normalize_parent_id(parent_id: Optional[str]) -> str:
-    """Normalize parent folder ID, treating empty/None as root."""
-    if not parent_id or not parent_id.strip():
-        return "root"
-    return parent_id.strip()
-
-
 def _escape_query_term(value: str) -> str:
-    """Escape special characters in Drive query terms."""
-    # Escape backslashes first, then single quotes
-    return value.replace("\\", "\\\\").replace("'", "\\'")
-
-
-def _has_anyone_link_access(permissions: List[Dict[str, Any]]) -> bool:
-    """Check if permissions include 'anyone with the link' access.
-
-    Args:
-        permissions: List of permission dictionaries from Drive API
-
-    Returns:
-        True if any permission grants public link access
-    """
-    return any(
-        perm.get("type") == "anyone"
-        and perm.get("role") in {"reader", "writer", "commenter"}
-        for perm in permissions
-    )
+    return value.replace("'", "\\'")
 
 
 def _build_drive_list_params(
@@ -104,7 +58,7 @@ def _build_drive_list_params(
         "pageSize": max(page_size, 1),
         "supportsAllDrives": True,
         "includeItemsFromAllDrives": include_items_from_all_drives,
-        "fields": f"nextPageToken, {DRIVE_FIELDS_MINIMAL}",
+        "fields": DRIVE_FIELDS_MINIMAL,
         "orderBy": "modifiedTime desc",
     }
 
@@ -117,23 +71,8 @@ def _build_drive_list_params(
     return params
 
 
-async def _download_request_bytes(
-    request: Any, max_size: Optional[int] = None
-) -> bytes:
-    """Stream a Drive media request into bytes using the resumable downloader.
-
-    Args:
-        request: The Drive API media request
-        max_size: Maximum allowed size in bytes (defaults to MAX_CONTENT_BYTES)
-
-    Returns:
-        Downloaded bytes
-
-    Raises:
-        ValueError: If content exceeds max_size
-    """
-    if max_size is None:
-        max_size = MAX_CONTENT_BYTES
+async def _download_request_bytes(request: Any) -> bytes:
+    """Stream a Drive media request into bytes using the resumable downloader."""
 
     buffer = io.BytesIO()
     downloader = MediaIoBaseDownload(buffer, request)
@@ -142,36 +81,8 @@ async def _download_request_bytes(
     done = False
     while not done:
         _, done = await loop.run_in_executor(None, downloader.next_chunk)
-        # Check size after each chunk
-        current_size = buffer.tell()
-        if current_size > max_size:
-            raise ValueError(
-                f"File size ({current_size} bytes) exceeds maximum allowed size "
-                f"({max_size} bytes, ~{max_size // (1024 * 1024)}MB)"
-            )
 
     return buffer.getvalue()
-
-
-def _is_structured_drive_query(query: str) -> bool:
-    """Detect if query is a structured Drive query vs plain text.
-
-    Conservative heuristic: only treat as structured if it clearly looks
-    like a Drive query with field operators.
-    """
-    # Look for field operators that are characteristic of Drive queries
-    # e.g., "name=", "mimeType contains", "'id' in parents"
-    field_patterns = [
-        r"\b(name|mimeType|fullText|modifiedTime|createdTime|trashed|starred)\s*(=|!=|contains)\s*['\"]",
-        r"['\"][^'\"]+['\"]\s+in\s+parents\b",
-        r"\b(and|or)\s+(name|mimeType|fullText|trashed|starred)\s*(=|!=|contains)",
-    ]
-
-    for pattern in field_patterns:
-        if re.search(pattern, query, re.IGNORECASE):
-            return True
-
-    return False
 
 
 async def _locate_child_folder(
@@ -194,38 +105,24 @@ async def _locate_child_folder(
     )
     params = _build_drive_list_params(
         query=query,
-        page_size=min(page_size, 100),
+        page_size=page_size,
         drive_id=drive_id,
         include_items_from_all_drives=include_items_from_all_drives,
         corpora=corpora,
     )
 
-    folders: List[Dict[str, Any]] = []
-    page_token: Optional[str] = None
+    try:
+        results = await asyncio.to_thread(service.files().list(**params).execute)
+    except Exception as exc:
+        return None, (
+            f"Error resolving folder '{folder_name}' under parent '{parent_id}': {exc}"
+        )
 
-    # Paginate until we have enough results or no more pages
-    while len(folders) < page_size:
-        if page_token:
-            params["pageToken"] = page_token
-
-        try:
-            results = await asyncio.to_thread(service.files().list(**params).execute)
-        except Exception as exc:
-            return None, (
-                f"Error resolving folder '{folder_name}' under parent '{parent_id}': {exc}"
-            )
-
-        page_folders = [
-            item
-            for item in results.get("files", [])
-            if item.get("mimeType") == "application/vnd.google-apps.folder"
-        ]
-        folders.extend(page_folders)
-
-        page_token = results.get("nextPageToken")
-        if not page_token or len(folders) >= page_size:
-            break
-
+    folders = [
+        item
+        for item in results.get("files", [])
+        if item.get("mimeType") == "application/vnd.google-apps.folder"
+    ]
     if not folders:
         return None, None
 
@@ -335,47 +232,42 @@ async def search_drive_files(
     include_items_from_all_drives: bool = True,
     corpora: Optional[str] = None,
 ) -> str:
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+    except Exception as exc:
+        return f"Error creating Google Drive service: {exc}"
 
-    # Use conservative heuristic to detect Drive query syntax
-    is_structured = _is_structured_drive_query(query)
+    # Basic heuristic to detect Drive query syntax
+    structured_keywords = [
+        "name ",
+        "mimeType",
+        "modifiedTime",
+        "fullText",
+        "parents",
+        " and ",
+        " or ",
+        "'",
+    ]
+    is_structured = any(keyword in query for keyword in structured_keywords)
     escaped_query = _escape_query_term(query)
     final_query = query if is_structured else f"fullText contains '{escaped_query}'"
 
     params = _build_drive_list_params(
         query=final_query,
-        page_size=min(page_size, 100),  # Per-page limit
+        page_size=page_size,
         drive_id=drive_id,
         include_items_from_all_drives=include_items_from_all_drives,
         corpora=corpora,
     )
 
-    files: List[Dict[str, Any]] = []
-    page_token: Optional[str] = None
+    try:
+        results = await asyncio.to_thread(service.files().list(**params).execute)
+    except Exception as exc:
+        return f"Error searching Drive files: {exc}"
 
-    # Paginate until we have enough results or no more pages
-    while len(files) < page_size:
-        if page_token:
-            params["pageToken"] = page_token
-
-        try:
-            results = await asyncio.to_thread(service.files().list(**params).execute)
-        except Exception as exc:
-            return f"Error searching Drive files: {exc}"
-
-        page_files = results.get("files", [])
-        files.extend(page_files)
-
-        page_token = results.get("nextPageToken")
-        if not page_token or len(files) >= page_size:
-            break
-
-    # Trim to requested size
-    files = files[:page_size]
-
+    files = results.get("files", [])
     if not files:
         return f"No files found for '{query}'."
 
@@ -413,10 +305,12 @@ async def list_drive_items(
     - `folder_name` for a direct child under the selected parent
     - `folder_path` like "Reports/2024" relative to the parent/root
     """
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+    except Exception as exc:
+        return f"Error creating Google Drive service: {exc}"
 
     resolved_id, display_label, warnings = await _resolve_folder_reference(
         service,
@@ -437,35 +331,18 @@ async def list_drive_items(
     query = f"'{resolved_id}' in parents and trashed=false"
     params = _build_drive_list_params(
         query=query,
-        page_size=min(page_size, 100),
+        page_size=page_size,
         drive_id=drive_id,
         include_items_from_all_drives=include_items_from_all_drives,
         corpora=corpora,
     )
 
-    files: List[Dict[str, Any]] = []
-    page_token: Optional[str] = None
+    try:
+        results = await asyncio.to_thread(service.files().list(**params).execute)
+    except Exception as exc:
+        return f"Error listing Drive items: {exc}"
 
-    # Paginate until we have enough results or no more pages
-    while len(files) < page_size:
-        if page_token:
-            params["pageToken"] = page_token
-
-        try:
-            results = await asyncio.to_thread(service.files().list(**params).execute)
-        except Exception as exc:
-            return f"Error listing Drive items: {exc}"
-
-        page_files = results.get("files", [])
-        files.extend(page_files)
-
-        page_token = results.get("nextPageToken")
-        if not page_token or len(files) >= page_size:
-            break
-
-    # Trim to requested size
-    files = files[:page_size]
-
+    files = results.get("files", [])
     if not files:
         response_lines = [f"No items found in folder '{display_label}'."]
         if warnings:
@@ -494,10 +371,12 @@ async def get_drive_file_content(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
 ) -> str:
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+    except Exception as exc:
+        return f"Error creating Google Drive service: {exc}"
 
     try:
         metadata = await asyncio.to_thread(
@@ -528,8 +407,6 @@ async def get_drive_file_content(
 
     try:
         content_bytes = await _download_request_bytes(request)
-    except ValueError as exc:
-        return f"File too large: {exc}"
     except Exception as exc:
         return f"Error downloading file content: {exc}"
 
@@ -542,32 +419,26 @@ async def get_drive_file_content(
     body_text: str
     if mime_type == "application/pdf":
         try:
-            # Run PDF extraction in thread pool to avoid blocking event loop
-            def _extract_pdf() -> str:
-                payload = base64.b64encode(content_bytes).decode("ascii")
-                result: Dict[str, Any] = kb_extract_bytes(
-                    content_base64=payload,
-                    mime_type=mime_type,
-                )
-                text = str(result.get("content") or result.get("text") or "").strip()
-
-                # If no text was extracted, try an OCR pass as a fallback
-                if not text:
-                    try:
-                        result_ocr: Dict[str, Any] = kb_extract_bytes(
-                            content_base64=payload,
-                            mime_type=mime_type,
-                            force_ocr=True,
-                        )
-                        text = str(
-                            result_ocr.get("content") or result_ocr.get("text") or ""
-                        ).strip()
-                    except Exception:
-                        pass
-                return text
-
-            body_text = await asyncio.to_thread(_extract_pdf)
-
+            payload = base64.b64encode(content_bytes).decode("ascii")
+            # Use Kreuzberg's robust extractor for PDFs (handles text + OCR)
+            result: Dict[str, Any] = kb_extract_bytes(
+                content_base64=payload,
+                mime_type=mime_type,
+            )
+            body_text = str(result.get("content") or result.get("text") or "").strip()
+            # If no text was extracted, try an OCR pass as a fallback
+            if not body_text:
+                try:
+                    result_ocr: Dict[str, Any] = kb_extract_bytes(
+                        content_base64=payload,
+                        mime_type=mime_type,
+                        force_ocr=True,
+                    )
+                    body_text = str(
+                        result_ocr.get("content") or result_ocr.get("text") or ""
+                    ).strip()
+                except Exception:
+                    body_text = ""
             if not body_text:
                 # Fall back to a best-effort UTF-8 decode or binary notice
                 try:
@@ -620,10 +491,14 @@ async def download_drive_file(
 ) -> Dict[str, Any]:
     """Return Drive file bytes encoded as base64 alongside metadata."""
 
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return {"error": error_msg}
-    assert service is not None
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return {
+            "error": f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+        }
+    except Exception as exc:
+        return {"error": f"Error creating Google Drive service: {exc}"}
 
     try:
         metadata = await asyncio.to_thread(
@@ -656,8 +531,6 @@ async def download_drive_file(
 
     try:
         content_bytes = await _download_request_bytes(request)
-    except ValueError as exc:
-        return {"error": f"File too large: {exc}", "file_id": file_id}
     except Exception as exc:
         return {"error": f"Error downloading file content: {exc}", "file_id": file_id}
 
@@ -694,50 +567,23 @@ async def create_drive_file(
     if not content and not file_url:
         return "You must provide either 'content' or 'file_url'."
 
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
-
-    # Normalize parent folder ID
-    normalized_folder_id = _normalize_parent_id(folder_id)
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+    except Exception as exc:
+        return f"Error creating Google Drive service: {exc}"
 
     data: bytes
     if file_url:
         try:
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(10.0, connect=5.0)
-            ) as client:
-                # Check Content-Length before downloading if available
-                head_resp = await client.head(file_url, follow_redirects=True)
-                if head_resp.status_code == 200:
-                    content_length = head_resp.headers.get("Content-Length")
-                    if content_length and int(content_length) > MAX_CONTENT_BYTES:
-                        return (
-                            f"File at URL is too large ({int(content_length)} bytes). "
-                            f"Maximum allowed size is {MAX_CONTENT_BYTES} bytes "
-                            f"(~{MAX_CONTENT_BYTES // (1024 * 1024)}MB)."
-                        )
-
-                resp = await client.get(file_url, follow_redirects=True)
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(file_url)
                 resp.raise_for_status()
                 data = await resp.aread()
-
-                # Check actual size after download
-                if len(data) > MAX_CONTENT_BYTES:
-                    return (
-                        f"File content from URL is too large ({len(data)} bytes). "
-                        f"Maximum allowed size is {MAX_CONTENT_BYTES} bytes "
-                        f"(~{MAX_CONTENT_BYTES // (1024 * 1024)}MB)."
-                    )
-
                 content_type = resp.headers.get("Content-Type")
                 if content_type and content_type != "application/octet-stream":
                     mime_type = content_type
-        except httpx.TimeoutException:
-            return f"Request timed out while fetching file from URL '{file_url}'."
-        except httpx.HTTPStatusError as exc:
-            return f"HTTP error fetching file from URL '{file_url}': {exc.response.status_code}"
         except Exception as exc:
             return f"Failed to fetch file from URL '{file_url}': {exc}"
     else:
@@ -745,7 +591,7 @@ async def create_drive_file(
 
     metadata = {
         "name": file_name,
-        "parents": [normalized_folder_id],
+        "parents": [folder_id],
         "mimeType": mime_type,
     }
     media_stream = io.BytesIO(data)
@@ -768,7 +614,7 @@ async def create_drive_file(
     link = created.get("webViewLink", "N/A")
     return (
         f"Successfully created file '{created.get('name', file_name)}' "
-        f"(ID: {created.get('id', 'unknown')}) in folder '{normalized_folder_id}' for {user_email}. "
+        f"(ID: {created.get('id', 'unknown')}) in folder '{folder_id}' for {user_email}. "
         f"Link: {link}"
     )
 
@@ -779,10 +625,12 @@ async def delete_drive_file(
     user_email: str = DEFAULT_USER_EMAIL,
     permanent: bool = False,
 ) -> str:
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+    except Exception as exc:
+        return f"Error creating Google Drive service: {exc}"
 
     try:
         metadata = await asyncio.to_thread(
@@ -833,10 +681,12 @@ async def move_drive_file(
     destination_folder_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
 ) -> str:
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+    except Exception as exc:
+        return f"Error creating Google Drive service: {exc}"
 
     try:
         metadata = await asyncio.to_thread(
@@ -887,17 +737,18 @@ async def copy_drive_file(
     new_name: Optional[str] = None,
     destination_folder_id: Optional[str] = None,
 ) -> str:
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+    except Exception as exc:
+        return f"Error creating Google Drive service: {exc}"
 
     body: Dict[str, object] = {}
     if new_name:
         body["name"] = new_name
     if destination_folder_id:
-        normalized_dest = _normalize_parent_id(destination_folder_id)
-        body["parents"] = [normalized_dest]
+        body["parents"] = [destination_folder_id]
 
     try:
         copied = await asyncio.to_thread(
@@ -930,10 +781,12 @@ async def rename_drive_file(
     if not new_name.strip():
         return "A non-empty new_name is required to rename a file."
 
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+    except Exception as exc:
+        return f"Error creating Google Drive service: {exc}"
 
     try:
         updated = await asyncio.to_thread(
@@ -964,18 +817,17 @@ async def create_drive_folder(
     if not folder_name.strip():
         return "A non-empty folder_name is required to create a folder."
 
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
-
-    # Normalize parent folder ID
-    normalized_parent = _normalize_parent_id(parent_folder_id)
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+    except Exception as exc:
+        return f"Error creating Google Drive service: {exc}"
 
     body = {
         "name": folder_name,
         "mimeType": "application/vnd.google-apps.folder",
-        "parents": [normalized_parent],
+        "parents": [parent_folder_id or "root"],
     }
 
     try:
@@ -995,7 +847,7 @@ async def create_drive_folder(
     link = created.get("webViewLink", "N/A")
     return (
         f"Created folder '{created.get('name', folder_name)}' "
-        f"(ID: {folder_id}) under parent '{normalized_parent}'. Link: {link}"
+        f"(ID: {folder_id}) under parent '{parent_folder_id}'. Link: {link}"
     )
 
 
@@ -1004,10 +856,12 @@ async def get_drive_file_permissions(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
 ) -> str:
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+    except Exception as exc:
+        return f"Error creating Google Drive service: {exc}"
 
     try:
         metadata = await asyncio.to_thread(
@@ -1073,7 +927,11 @@ async def get_drive_file_permissions(
         lines.append(f"  Direct Download Link: {metadata['webContentLink']}")
 
     # Check for public link permission
-    has_public = _has_anyone_link_access(permissions)
+    has_public = any(
+        perm.get("type") == "anyone"
+        and perm.get("role") in {"reader", "writer", "commenter"}
+        for perm in permissions
+    )
 
     if has_public:
         lines.extend(
@@ -1099,10 +957,12 @@ async def check_drive_file_public_access(
     file_name: str,
     user_email: str = DEFAULT_USER_EMAIL,
 ) -> str:
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
+    try:
+        service = get_drive_service(user_email)
+    except ValueError as exc:
+        return f"Authentication error: {exc}. Click 'Connect Google Services' in Settings to authorize this account."
+    except Exception as exc:
+        return f"Error creating Google Drive service: {exc}"
 
     escaped_name = _escape_query_term(file_name)
     query = f"name = '{escaped_name}'"
@@ -1149,7 +1009,11 @@ async def check_drive_file_public_access(
 
     permissions = metadata.get("permissions", [])
     # Check for public link permission
-    has_public = _has_anyone_link_access(permissions)
+    has_public = any(
+        perm.get("type") == "anyone"
+        and perm.get("role") in {"reader", "writer", "commenter"}
+        for perm in permissions
+    )
 
     lines.extend(
         [
@@ -1193,7 +1057,6 @@ __all__ = [
     "search_drive_files",
     "list_drive_items",
     "get_drive_file_content",
-    "download_drive_file",
     "create_drive_file",
     "delete_drive_file",
     "move_drive_file",

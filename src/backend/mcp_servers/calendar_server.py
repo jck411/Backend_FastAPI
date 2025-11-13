@@ -463,8 +463,11 @@ async def get_events(
     query: Optional[str] = None,
     detailed: bool = False,
 ) -> str:
-    """Retrieve calendar events. Omit calendar_id to search all household calendars,
-    or provide a specific ID/friendly name like "Family Calendar" to filter.
+    """Retrieve calendar events.
+
+    Omit calendar_id to search all household calendars; pass a specific ID or friendly
+    name to target a single calendar. In the aggregate view, also includes due Google
+    Tasks in the same time range.
     """
 
     try:
@@ -739,21 +742,10 @@ async def create_event(
     location: Optional[str] = None,
     attendees: Optional[List[str]] = None,
 ) -> str:
-    """
-    Create a new calendar event.
+    """Create a new calendar event.
 
-    Args:
-        user_email: The user's email address
-        summary: Event title/summary
-        start_time: Start time (RFC3339 format or YYYY-MM-DD for all-day)
-        end_time: End time (RFC3339 format or YYYY-MM-DD for all-day)
-        calendar_id: Calendar ID (default: 'primary')
-        description: Optional event description
-        location: Optional event location
-        attendees: Optional list of attendee email addresses
-
-    Returns:
-        Confirmation message with event details and link
+    If start_time and end_time contain only dates (YYYY-MM-DD), an all-day event is
+    created. Otherwise they are treated as specific times in RFC3339/ISO format.
     """
     try:
         # Get the calendar service
@@ -808,12 +800,13 @@ async def create_event(
             else f"from {start_time} to {end_time}"
         )
 
-        # Get the event link
+        # Get the event ID and link
+        event_id = created_event.get("id", "")
         event_link = created_event.get("htmlLink", "")
 
         return (
             f"Successfully created event '{summary}' ({timing}) in calendar "
-            f"'{calendar_label}' (ID: {resolved_calendar_id}). Link: {event_link}"
+            f"'{calendar_label}' (ID: {resolved_calendar_id}). Event ID: {event_id} | Link: {event_link}"
         )
 
     except ValueError as e:
@@ -839,23 +832,7 @@ async def update_event(
     location: Optional[str] = None,
     attendees: Optional[List[str]] = None,
 ) -> str:
-    """
-    Update an existing calendar event.
-
-    Args:
-        user_email: The user's email address
-        event_id: ID of the event to update
-        calendar_id: Calendar ID (default: 'primary')
-        summary: New event title/summary (optional)
-        start_time: New start time (optional, RFC3339 format or YYYY-MM-DD for all-day)
-        end_time: New end time (optional, RFC3339 format or YYYY-MM-DD for all-day)
-        description: New event description (optional)
-        location: New event location (optional)
-        attendees: New list of attendee email addresses (optional)
-
-    Returns:
-        Confirmation message with updated event details
-    """
+    """Update an existing calendar event."""
     try:
         # Get the calendar service
         service = get_calendar_service(user_email)
@@ -930,17 +907,7 @@ async def delete_event(
     event_id: str,
     calendar_id: Optional[str] = None,
 ) -> str:
-    """
-    Delete a calendar event.
-
-    Args:
-        user_email: The user's email address
-        event_id: ID of the event to delete
-        calendar_id: Calendar ID (default: 'primary')
-
-    Returns:
-        Confirmation message
-    """
+    """Delete a calendar event by ID."""
     try:
         # Get the calendar service
         service = get_calendar_service(user_email)
@@ -984,17 +951,7 @@ async def list_task_lists(
     max_results: int = 100,
     page_token: Optional[str] = None,
 ) -> str:
-    """
-    List Google Task lists available to the user.
-
-    Args:
-        user_email: The user's email address.
-        max_results: Maximum number of task lists to return (capped at 100).
-        page_token: Optional pagination token from a previous call.
-
-    Returns:
-        Formatted string describing task lists.
-    """
+    """List Google Task lists available to the user."""
     try:
         task_service = TaskService(user_email, service_factory=get_tasks_service)
         task_lists, next_page = await task_service.list_task_lists(
@@ -1035,26 +992,11 @@ async def list_tasks(
     due_max: Optional[str] = None,
     task_filter: str = "all",
 ) -> str:
-    """
-    List tasks from a specific Google Tasks list. Both scheduled and unscheduled
-    tasks are returned unless filtered. Requires explicit list selection.
+    """List tasks from a single task list.
 
-    Args:
-        user_email: The user's email address.
-        task_list_id: Task list identifier (ID or title). When omitted, returns
-            available lists for user selection.
-        max_results: Maximum number of tasks to return. None returns all.
-        page_token: Optional pagination token from a previous call.
-        show_completed: Whether to include completed tasks.
-        show_deleted: Whether to include deleted tasks.
-        show_hidden: Whether to include hidden tasks.
-        due_min: Optional lower bound for due dates (ISO 8601 or RFC3339).
-        due_max: Optional upper bound for due dates (ISO 8601 or RFC3339).
-        task_filter: Filter tasks by type: 'all' (default), 'scheduled',
-            'unscheduled', 'overdue', or 'upcoming'.
-
-    Returns:
-        Formatted string describing tasks, sorted by due date.
+    If task_list_id is not provided, returns a list of available lists to choose from.
+    The task_filter parameter controls what subset you see: 'all', 'scheduled',
+    'unscheduled', 'overdue', or 'upcoming'.
     """
     try:
         task_service = TaskService(user_email, service_factory=get_tasks_service)
@@ -1211,27 +1153,12 @@ async def search_all_tasks(
     due_min: Optional[str] = None,
     due_max: Optional[str] = None,
 ) -> str:
-    """Search Google Tasks across every list to learn what the user plans, wants, or needs.
-    Call this whenever the user asks about what they have to do, want to read/watch/eat/buy,
-    or before offering personal suggestions—questions like "what books do I want to read?"
-    should trigger this tool. Prefer short keyword queries copied from the user's request
-    (for example, "books"). If you do not have a specific keyword, pass an empty string
-    and this tool will return a general overview of recent tasks.
+    """Search Google Tasks across multiple lists.
 
-    Args:
-        user_email: The user's email address.
-        query: Search query string to match against task titles and notes.
-        task_list_id: Optional task list identifier or friendly name to narrow search.
-        max_results: Maximum number of matching tasks to return (default: 25).
-        include_completed: Whether to include completed tasks in results.
-        include_hidden: Whether to include hidden tasks.
-        include_deleted: Whether to include deleted tasks.
-        search_notes: Whether to search task notes in addition to titles (default: True).
-        due_min: Optional lower bound for due dates (ISO 8601 or RFC3339).
-        due_max: Optional upper bound for due dates (ISO 8601 or RFC3339).
-
-    Returns:
-        Formatted string with matching tasks and their details.
+    Prefer simple keyword queries (e.g., "books"). If query is empty, returns a general
+    overview of tasks selected by the service (typically the most relevant or recent ones).
+    Use this to learn what the user plans, wants, or needs before offering
+    recommendations.
     """
 
     trimmed_query = (query or "").strip()
@@ -1340,9 +1267,11 @@ async def user_context_from_tasks(
     max_results: int = 25,
     include_completed: bool = False,
 ) -> str:
-    """High-priority alias that surfaces personal context from Google Tasks.
-    Always call this before making recommendations; when no obvious keyword is present,
-    pass an empty string for ``query`` to fetch a general overview plus upcoming events.
+    """Gather personal context from Google Tasks for recommendations.
+
+    If query is non-empty, behaves like a focused search. If query is empty, returns a
+    general overview plus an upcoming calendar snapshot. Always use this before making
+    recommendations.
     """
 
     trimmed_query = (query or "").strip()
@@ -1389,17 +1318,7 @@ async def get_task(
     task_list_id: str = "@default",
     task_id: str = "",
 ) -> str:
-    """
-    Retrieve a specific task by ID.
-
-    Args:
-        user_email: The user's email address.
-        task_list_id: Task list identifier (default: '@default').
-        task_id: The task identifier to retrieve.
-
-    Returns:
-        Detailed description of the task.
-    """
+    """Retrieve a specific task by ID."""
     try:
         task_service = TaskService(user_email, service_factory=get_tasks_service)
         task = await task_service.get_task(task_list_id, task_id)
@@ -1446,28 +1365,11 @@ async def create_task(
     parent: Optional[str] = None,
     previous: Optional[str] = None,
 ) -> str:
-    """
-    Create a new Google Task.
+    """Create a new Google Task.
 
-    IMPORTANT: When the user asks to "schedule a task for [date/time]", you MUST
-    include the 'due' parameter to actually schedule it. Without 'due', the task
-    will be created unscheduled. Use 'due="YYYY-MM-DD"' for date-only scheduling
-    or 'due="YYYY-MM-DDTHH:MM:SSZ"' for specific times.
-
-    When scheduling EXISTING tasks, use calendar_update_task instead of creating
-    duplicates.
-
-    Args:
-        user_email: The user's email address.
-        task_list_id: Task list identifier (default: '@default').
-        title: Title for the new task.
-        notes: Optional detailed notes.
-        due: Due date/time (ISO 8601 or RFC3339 format). REQUIRED for scheduling.
-        parent: Optional parent task ID for subtasks.
-        previous: Optional sibling task ID for positioning.
-
-    Returns:
-        Confirmation message with task details.
+    When the user asks to schedule something for a date or time, you MUST set the due
+    parameter. If you omit due, the task will exist but will not be scheduled. When
+    scheduling EXISTING tasks, use calendar_update_task instead to avoid duplicates.
     """
     try:
         task_service = TaskService(user_email, service_factory=get_tasks_service)
@@ -1513,20 +1415,10 @@ async def update_task(
     status: Optional[str] = None,
     due: Optional[str] = None,
 ) -> str:
-    """
-    Update an existing task.
+    """Update an existing task.
 
-    Args:
-        user_email: The user's email address.
-        task_list_id: Task list identifier (default: '@default').
-        task_id: Task identifier to update.
-        title: Optional new title.
-        notes: Optional new notes (pass empty string to clear).
-        status: Optional new status ('needsAction' or 'completed').
-        due: Optional new due date/time (ISO 8601 or RFC3339).
-
-    Returns:
-        Confirmation message with task details.
+    Use this to schedule an existing task by adding/updating due, instead of creating a
+    duplicate with create_task. Status should be 'needsAction' or 'completed'.
     """
     try:
         task_service = TaskService(user_email, service_factory=get_tasks_service)
@@ -1568,17 +1460,7 @@ async def delete_task(
     task_list_id: str = "@default",
     task_id: str = "",
 ) -> str:
-    """
-    Delete a task from a list.
-
-    Args:
-        user_email: The user's email address.
-        task_list_id: Task list identifier (default: '@default').
-        task_id: Task identifier to delete.
-
-    Returns:
-        Confirmation message.
-    """
+    """Delete a task from a given list."""
     try:
         task_service = TaskService(user_email, service_factory=get_tasks_service)
         await task_service.delete_task(task_list_id, task_id)
@@ -1602,20 +1484,7 @@ async def move_task(
     previous: Optional[str] = None,
     destination_task_list: Optional[str] = None,
 ) -> str:
-    """
-    Move a task within or across task lists.
-
-    Args:
-        user_email: The user's email address.
-        task_list_id: Current task list identifier (default: '@default').
-        task_id: Task identifier to move.
-        parent: Optional new parent task ID (for subtasks).
-        previous: Optional sibling task ID to position after.
-        destination_task_list: Optional destination task list ID.
-
-    Returns:
-        Confirmation message describing the move.
-    """
+    """Move or reparent a task within or between lists."""
     try:
         task_service = TaskService(user_email, service_factory=get_tasks_service)
         moved = await task_service.move_task(
@@ -1650,16 +1519,7 @@ async def clear_completed_tasks(
     user_email: str = DEFAULT_USER_EMAIL,
     task_list_id: str = "@default",
 ) -> str:
-    """
-    Clear all completed tasks from a task list (marks them hidden).
-
-    Args:
-        user_email: The user's email address.
-        task_list_id: Task list identifier (default: '@default').
-
-    Returns:
-        Confirmation message.
-    """
+    """Clear all completed tasks from a task list (they become hidden)."""
     try:
         task_service = TaskService(user_email, service_factory=get_tasks_service)
         await task_service.clear_completed_tasks(task_list_id)
@@ -1681,16 +1541,7 @@ async def clear_completed_tasks(
 async def list_calendars(
     user_email: str = DEFAULT_USER_EMAIL, max_results: int = 100
 ) -> str:
-    """
-    List calendars the user has access to.
-
-    Args:
-        user_email: The user's email address.
-        max_results: Maximum number of calendars to include.
-
-    Returns:
-        Formatted string describing available calendars.
-    """
+    """List calendars the user has access to."""
     try:
         service = get_calendar_service(user_email)
     except ValueError as exc:

@@ -326,7 +326,9 @@ async def _resolve_folder_reference(
     return final_id, final_label, warnings
 
 
-@mcp.tool("gdrive_search_files")
+@mcp.tool(
+    "gdrive_search_files", description="Search Google Drive for files matching a query"
+)
 async def search_drive_files(
     query: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -394,7 +396,7 @@ async def search_drive_files(
     return "\n".join(lines)
 
 
-@mcp.tool("gdrive_list_folder")
+@mcp.tool("gdrive_list_folder", description="List contents of a Google Drive folder")
 async def list_drive_items(
     folder_id: Optional[str] = "root",
     folder_name: Optional[str] = None,
@@ -489,7 +491,10 @@ async def list_drive_items(
     return "\n".join(lines)
 
 
-@mcp.tool("gdrive_get_file_content")
+@mcp.tool(
+    "gdrive_get_file_content",
+    description="Retrieve text content from a Google Drive file",
+)
 async def get_drive_file_content(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -612,7 +617,10 @@ async def get_drive_file_content(
     return header + body_text
 
 
-@mcp.tool("gdrive_download_file")
+@mcp.tool(
+    "gdrive_download_file",
+    description="Download a Google Drive file as base64-encoded bytes",
+)
 async def download_drive_file(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -682,7 +690,10 @@ async def download_drive_file(
     return response
 
 
-@mcp.tool("gdrive_create_file")
+@mcp.tool(
+    "gdrive_create_file",
+    description="Create a new file in Google Drive from content or URL",
+)
 async def create_drive_file(
     file_name: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -773,7 +784,7 @@ async def create_drive_file(
     )
 
 
-@mcp.tool("gdrive_delete_file")
+@mcp.tool("gdrive_delete_file", description="Delete or trash a Google Drive file")
 async def delete_drive_file(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -827,7 +838,9 @@ async def delete_drive_file(
     return f"File '{trashed_name}' (ID: {file_id}) moved to trash."
 
 
-@mcp.tool("gdrive_move_file")
+@mcp.tool(
+    "gdrive_move_file", description="Move a Google Drive file to a different folder"
+)
 async def move_drive_file(
     file_id: str,
     destination_folder_id: str,
@@ -880,7 +893,7 @@ async def move_drive_file(
     )
 
 
-@mcp.tool("gdrive_copy_file")
+@mcp.tool("gdrive_copy_file", description="Create a copy of a Google Drive file")
 async def copy_drive_file(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -921,7 +934,7 @@ async def copy_drive_file(
     )
 
 
-@mcp.tool("gdrive_rename_file")
+@mcp.tool("gdrive_rename_file", description="Rename a Google Drive file")
 async def rename_drive_file(
     file_id: str,
     new_name: str,
@@ -955,7 +968,7 @@ async def rename_drive_file(
     return f"File {file_id} renamed to '{final_name}'."
 
 
-@mcp.tool("gdrive_create_folder")
+@mcp.tool("gdrive_create_folder", description="Create a new folder in Google Drive")
 async def create_drive_folder(
     folder_name: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -999,7 +1012,10 @@ async def create_drive_folder(
     )
 
 
-@mcp.tool("gdrive_file_permissions")
+@mcp.tool(
+    "gdrive_file_permissions",
+    description="View permissions and sharing status of a Google Drive file",
+)
 async def get_drive_file_permissions(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
@@ -1094,7 +1110,10 @@ async def get_drive_file_permissions(
     return "\n".join(lines)
 
 
-@mcp.tool("gdrive_check_public_access")
+@mcp.tool(
+    "gdrive_check_public_access",
+    description="Check if a Google Drive file has public link access",
+)
 async def check_drive_file_public_access(
     file_name: str,
     user_email: str = DEFAULT_USER_EMAIL,

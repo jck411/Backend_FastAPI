@@ -46,20 +46,23 @@
   let toolIndicatorTitle = "View tool usage";
   let toolCountLabel: string | null = null;
   let toolTokensLabel: string | null = null;
+  let messageTokensLabel: string | null = null;
 
-  const toolTokenFormatter = new Intl.NumberFormat(undefined, {
+  const tokenCountFormatter = new Intl.NumberFormat(undefined, {
     maximumFractionDigits: 0,
   });
 
+  $: totalTokenCount = toolSummary?.tokens?.totalTokens ?? null;
+  $: messageTokensLabel =
+    totalTokenCount != null
+      ? `${tokenCountFormatter.format(totalTokenCount)} tokens`
+      : null;
   $: toolCountLabel =
     toolSummary?.count && toolSummary.count > 0
       ? `×${toolSummary.count}`
       : null;
-  $: toolTokensLabel =
-    toolSummary?.tokens?.totalTokens != null
-      ? `${toolTokenFormatter.format(toolSummary.tokens.totalTokens)} tokens`
-      : null;
   $: showToolIndicator = Boolean(toolSummary?.used);
+  $: toolTokensLabel = null;
   $: toolIndicatorTitle = (() => {
     const details: string[] = [];
     if (toolSummary?.count && toolSummary.count > 0) {
@@ -67,8 +70,8 @@
         `${toolSummary.count} ${toolSummary.count === 1 ? "hop" : "hops"}`,
       );
     }
-    if (toolTokensLabel) {
-      details.push(`${toolTokensLabel}`);
+    if (messageTokensLabel) {
+      details.push(`${messageTokensLabel}`);
     }
     if (details.length === 0) {
       return "View tool usage";
@@ -321,6 +324,15 @@
               {#if message.details?.model}
                 <span class="sender-model-text">— {message.details.model}</span>
               {/if}
+              {#if messageTokensLabel}
+                <span
+                  class="sender-token-count"
+                  aria-label="Total tokens used"
+                  title="Total tokens used"
+                >
+                  {messageTokensLabel}
+                </span>
+              {/if}
               {#if hasReasoningSegments}
                 <button
                   type="button"
@@ -530,6 +542,18 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
+  }
+  .sender-token-count {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.45rem;
+    border-radius: 999px;
+    background: rgba(125, 139, 170, 0.16);
+    color: #cbd5f5;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: none;
+    white-space: nowrap;
   }
   .sender-model-text {
     display: inline-block;

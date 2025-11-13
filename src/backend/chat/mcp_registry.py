@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Iterable, Sequence
 
+from anyio import ClosedResourceError
 from mcp.types import CallToolResult, Tool
 from pydantic import (
     BaseModel,
@@ -50,9 +51,7 @@ class MCPServerToolConfig(BaseModel):
 
     @field_validator("contexts")
     @classmethod
-    def _dedupe_contexts(
-        cls, value: list[str] | None
-    ) -> list[str] | None:
+    def _dedupe_contexts(cls, value: list[str] | None) -> list[str] | None:
         if value is None:
             return None
         unique: list[str] = []
@@ -155,7 +154,9 @@ class MCPServerConfig(BaseModel):
         if value is None:
             return {}
         if not isinstance(value, dict):
-            raise TypeError("tool_overrides must be a mapping of tool names to overrides")
+            raise TypeError(
+                "tool_overrides must be a mapping of tool names to overrides"
+            )
         normalized: dict[str, Any] = {}
         for key, override in value.items():
             if not isinstance(key, str) or not key:
@@ -439,7 +440,23 @@ class MCPToolAggregator:
             if client is None:
                 continue
 
-            await client.refresh_tools()
+            try:
+                await client.refresh_tools()
+            except ClosedResourceError:
+                logger.warning(
+                    "MCP server '%s' closed during tool refresh; removing client",
+                    config.id,
+                )
+                await client.close()
+                self._clients.pop(config.id, None)
+                tool_catalog[config.id] = []
+                continue
+            except Exception:
+                logger.exception(
+                    "Failed to refresh tools for MCP server '%s'", config.id
+                )
+                tool_catalog[config.id] = []
+                continue
             all_tools = list(client.tools)
             tool_catalog[config.id] = [tool.name for tool in all_tools]
 

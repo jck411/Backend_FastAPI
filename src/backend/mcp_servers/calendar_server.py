@@ -514,13 +514,34 @@ async def get_events(
         events_with_keys: list[tuple[datetime.datetime, EventInfo]] = []
         warnings: list[str] = []
 
-        for cal_id in calendars_to_query:
+        async def _fetch_calendar_events(
+            cal_id: str,
+        ) -> tuple[str, dict[str, Any] | None, Exception | None]:
+            # Fetch each calendar in parallel to avoid N round-trips in series.
             try:
-                events_result = await asyncio.to_thread(
-                    service.events().list(calendarId=cal_id, **params).execute
-                )
+                request = service.events().list(calendarId=cal_id, **params)
             except Exception as exc:
-                warnings.append(f"{_calendar_label(cal_id)}: {exc}")
+                return (cal_id, None, exc)
+
+            try:
+                events_result = await asyncio.to_thread(request.execute)
+            except Exception as exc:
+                return (cal_id, None, exc)
+
+            return (cal_id, events_result, None)
+
+        fetch_results: list[tuple[str, dict[str, Any] | None, Exception | None]] = []
+        if calendars_to_query:
+            fetch_results = await asyncio.gather(
+                *(_fetch_calendar_events(cal_id) for cal_id in calendars_to_query)
+            )
+
+        for cal_id, events_result, error in fetch_results:
+            if error:
+                warnings.append(f"{_calendar_label(cal_id)}: {error}")
+                continue
+
+            if not events_result:
                 continue
 
             google_events = events_result.get("items", [])

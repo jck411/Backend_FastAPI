@@ -1173,6 +1173,106 @@ async def get_drive_file_permissions(
     return "\n".join(lines)
 
 
+@mcp.tool("gdrive_display_image")
+async def display_drive_image(
+    file_id: str,
+    session_id: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+) -> str:
+    """Download an image from Google Drive and display it in the chat.
+    
+    This tool downloads an image file from Google Drive and stores it for display
+    in the chat interface. The image becomes part of the conversation history.
+    
+    Args:
+        file_id: The Google Drive file ID
+        session_id: The chat session ID (required to store the attachment)
+        user_email: The user's email address for authentication
+    
+    Returns:
+        A message with attachment details including signed URL for display
+    """
+    if not session_id or not session_id.strip():
+        return "session_id is required to display the image in chat."
+    
+    service, error_msg = _get_drive_service_or_error(user_email)
+    if error_msg:
+        return error_msg
+    assert service is not None
+
+    # Get file metadata
+    try:
+        metadata = await asyncio.to_thread(
+            service.files()
+            .get(
+                fileId=file_id,
+                fields="id, name, mimeType, size, webViewLink",
+                supportsAllDrives=True,
+            )
+            .execute
+        )
+    except Exception as exc:
+        return f"Error retrieving metadata for file {file_id}: {exc}"
+
+    mime_type = metadata.get("mimeType", "")
+    file_name = metadata.get("name", "image")
+    file_size = metadata.get("size")
+
+    # Verify it's an image
+    if not mime_type.startswith("image/"):
+        return (
+            f"Error: File '{file_name}' is not an image (type: {mime_type}). "
+            "Only image files can be displayed. Use gdrive_get_file_content for other file types."
+        )
+
+    # Download the image
+    request = service.files().get_media(fileId=file_id)
+    
+    try:
+        image_bytes = await _download_request_bytes(request, max_size=MAX_CONTENT_BYTES)
+    except ValueError as exc:
+        return f"Image too large: {exc}"
+    except Exception as exc:
+        return f"Error downloading image: {exc}"
+
+    # Store the image using AttachmentService
+    try:
+        from backend.services.attachments import AttachmentError, AttachmentTooLarge
+        
+        attachment_service = await _get_attachment_service()
+        record = await attachment_service.save_bytes(
+            session_id=session_id,
+            data=image_bytes,
+            mime_type=mime_type,
+            filename_hint=file_name,
+        )
+    except AttachmentTooLarge as exc:
+        return f"Image rejected: {exc}"
+    except AttachmentError as exc:
+        return f"Failed to store image: {exc}"
+
+    # Extract attachment details
+    attachment_metadata = record.get("metadata") or {}
+    stored_filename = attachment_metadata.get("filename") or file_name
+    signed_url = record.get("signed_url") or record.get("display_url")
+    expires_at = record.get("expires_at") or record.get("signed_url_expires_at")
+
+    lines = [
+        f"Image '{stored_filename}' from Google Drive displayed in chat!",
+        f"Attachment ID: {record.get('attachment_id')}",
+        f"Filename: {stored_filename}",
+        f"MIME Type: {record.get('mime_type')}",
+        f"Size: {record.get('size_bytes')} bytes",
+        f"Signed URL: {signed_url}",
+    ]
+    if expires_at:
+        lines.append(f"Expires At: {expires_at}")
+    if file_size:
+        lines.append(f"Original Drive file size: {file_size} bytes")
+    
+    return "\n".join(lines)
+
+
 @mcp.tool("gdrive_check_public_access")
 async def check_drive_file_public_access(
     file_name: str,
@@ -1279,5 +1379,6 @@ __all__ = [
     "rename_drive_file",
     "create_drive_folder",
     "get_drive_file_permissions",
+    "display_drive_image",
     "check_drive_file_public_access",
 ]

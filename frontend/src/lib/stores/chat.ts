@@ -145,6 +145,46 @@ function attachmentsFromParts(
   return attachments;
 }
 
+function toolFallbackText(
+  resultText: string | null,
+  status: string,
+  toolName: string,
+): string {
+  if (typeof resultText === 'string' && resultText) {
+    return resultText;
+  }
+  if (status === 'started') {
+    return `Running ${toolName || 'tool'}…`;
+  }
+  if (status && toolName) {
+    return `Tool ${toolName} ${status}.`;
+  }
+  if (toolName) {
+    return `Tool ${toolName} responded.`;
+  }
+  return 'Tool response received.';
+}
+
+function buildToolMessageContent(
+  sessionId: string | null,
+  content: ChatMessageContent | null,
+  resultText: string | null,
+  status: string,
+  toolName: string,
+): { content: ChatMessageContent; text: string; attachments: AttachmentResource[] } {
+  const fallback = toolFallbackText(resultText, status, toolName);
+  const resolvedContent: ChatMessageContent = content ?? fallback;
+  const normalized = normalizeMessageContent(resolvedContent);
+  const textValue = normalized.text || fallback || '';
+  const attachments =
+    normalized.parts.length > 0 ? attachmentsFromParts(normalized.parts, sessionId) : [];
+  return {
+    content: resolvedContent,
+    text: textValue,
+    attachments,
+  };
+}
+
 function mergeMessageContent(
   existingContent: ChatMessageContent,
   existingText: string,
@@ -528,106 +568,120 @@ function createChatStore() {
             return { ...value, messages };
           });
         },
-        onToolEvent(payload) {
-          const callId = typeof payload.call_id === 'string' ? payload.call_id : createId('tool');
-          const status = typeof payload.status === 'string' ? payload.status : 'started';
-          const toolName = typeof payload.name === 'string' ? payload.name : 'tool';
-          const result = payload.result;
-          const toolResult =
-            typeof result === 'string'
-              ? result
-              : result && typeof result === 'object'
-                ? JSON.stringify(result)
+          onToolEvent(payload) {
+            const callId = typeof payload.call_id === 'string' ? payload.call_id : createId('tool');
+            const status = typeof payload.status === 'string' ? payload.status : 'started';
+            const toolName = typeof payload.name === 'string' ? payload.name : 'tool';
+            const result = payload.result;
+            const toolResult =
+              typeof result === 'string'
+                ? result
+                : result && typeof result === 'object'
+                  ? JSON.stringify(result)
+                  : null;
+            const rawContent = (payload as Record<string, unknown>).content;
+            const structuredContent =
+              typeof rawContent === 'string' || Array.isArray(rawContent)
+                ? (rawContent as ChatMessageContent)
                 : null;
-          const serverMessageId =
-            typeof payload.message_id === 'number' ? payload.message_id : null;
+            const serverMessageId =
+              typeof payload.message_id === 'number' ? payload.message_id : null;
 
-          let messageId = toolMessageIds.get(callId);
-          if (!messageId) {
-            messageId = createId('tool');
-            toolMessageIds.set(callId, messageId);
-            const fallbackCreatedAt = new Date().toISOString();
-            const createdAt = coalesceTimestamp(
-              payload.created_at,
-              payload.created_at_utc,
-              fallbackCreatedAt,
-            );
-            const createdAtUtc = coalesceTimestamp(
-              payload.created_at_utc,
-              createdAt ?? fallbackCreatedAt,
-            );
-            store.update((value) => ({
-              ...value,
-              messages: [
-                ...value.messages,
-                {
-                  id: messageId as string,
-                  role: 'tool',
-                  content:
-                    status === 'started'
-                      ? `Running ${toolName}…`
-                      : toolResult ?? `Tool ${toolName} responded.`,
-                  text:
-                    status === 'started'
-                      ? `Running ${toolName}…`
-                      : toolResult ?? `Tool ${toolName} responded.`,
-                  attachments: [],
-                  pending: status === 'started',
-                  details: {
-                    toolName,
-                    toolStatus: status,
-                    toolResult: toolResult ?? null,
-                    serverMessageId,
-                  },
-                  createdAt,
-                  createdAtUtc,
-                },
-              ],
-            }));
-          } else {
-            store.update((value) => {
-              const messages = value.messages.map((message) => {
-                if (message.id !== messageId) {
-                  return message;
-                }
-                const details = {
-                  ...(message.details ?? {}),
+            let messageId = toolMessageIds.get(callId);
+            if (!messageId) {
+              messageId = createId('tool');
+              toolMessageIds.set(callId, messageId);
+              const fallbackCreatedAt = new Date().toISOString();
+              const createdAt = coalesceTimestamp(
+                payload.created_at,
+                payload.created_at_utc,
+                fallbackCreatedAt,
+              );
+              const createdAtUtc = coalesceTimestamp(
+                payload.created_at_utc,
+                createdAt ?? fallbackCreatedAt,
+              );
+              store.update((value) => {
+                const resolved = buildToolMessageContent(
+                  value.sessionId,
+                  structuredContent,
+                  toolResult,
+                  status,
                   toolName,
-                  toolStatus: status,
-                  toolResult: toolResult ?? (message.details?.toolResult ?? null),
-                  serverMessageId:
-                    serverMessageId ?? message.details?.serverMessageId ?? null,
-                };
-                const nextText =
-                  toolResult ??
-                  (status === 'started'
-                    ? `Running ${toolName}…`
-                    : `Tool ${toolName} ${status}.`);
-                const nextCreatedAt = coalesceTimestamp(
-                  payload.created_at,
-                  payload.created_at_utc,
-                  message.createdAt ?? null,
-                );
-                const nextCreatedAtUtc = coalesceTimestamp(
-                  payload.created_at_utc,
-                  message.createdAtUtc ?? null,
                 );
                 return {
-                  ...message,
-                  content: nextText,
-                  text: nextText,
-                  attachments: message.attachments ?? [],
-                  pending: status === 'started',
-                  details,
-                  createdAt: nextCreatedAt,
-                  createdAtUtc:
-                    nextCreatedAtUtc ?? nextCreatedAt ?? message.createdAtUtc ?? null,
+                  ...value,
+                  messages: [
+                    ...value.messages,
+                    {
+                      id: messageId as string,
+                      role: 'tool',
+                      content: resolved.content,
+                      text: resolved.text,
+                      attachments: resolved.attachments,
+                      pending: status === 'started',
+                      details: {
+                        toolName,
+                        toolStatus: status,
+                        toolResult: toolResult ?? null,
+                        serverMessageId,
+                      },
+                      createdAt,
+                      createdAtUtc,
+                    },
+                  ],
                 };
               });
-              return { ...value, messages };
-            });
-          }
-        },
+            } else {
+              store.update((value) => {
+                const messages = value.messages.map((message) => {
+                  if (message.id !== messageId) {
+                    return message;
+                  }
+                  const details = {
+                    ...(message.details ?? {}),
+                    toolName,
+                    toolStatus: status,
+                    toolResult: toolResult ?? (message.details?.toolResult ?? null),
+                    serverMessageId:
+                      serverMessageId ?? message.details?.serverMessageId ?? null,
+                  };
+                  const resolved = buildToolMessageContent(
+                    value.sessionId,
+                    structuredContent,
+                    toolResult,
+                    status,
+                    toolName,
+                  );
+                  const nextAttachments =
+                    resolved.attachments.length > 0
+                      ? resolved.attachments
+                      : message.attachments ?? [];
+                  const nextCreatedAt = coalesceTimestamp(
+                    payload.created_at,
+                    payload.created_at_utc,
+                    message.createdAt ?? null,
+                  );
+                  const nextCreatedAtUtc = coalesceTimestamp(
+                    payload.created_at_utc,
+                    message.createdAtUtc ?? null,
+                  );
+                  return {
+                    ...message,
+                    content: resolved.content,
+                    text: resolved.text,
+                    attachments: nextAttachments,
+                    pending: status === 'started',
+                    details,
+                    createdAt: nextCreatedAt,
+                    createdAtUtc:
+                      nextCreatedAtUtc ?? nextCreatedAt ?? message.createdAtUtc ?? null,
+                  };
+                });
+                return { ...value, messages };
+              });
+            }
+          },
         onDone() {
           store.update((value) => {
             const messages = value.messages.map((message) => {

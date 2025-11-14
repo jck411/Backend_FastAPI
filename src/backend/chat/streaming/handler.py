@@ -128,6 +128,8 @@ class StreamingHandler:
             candidate = request_metadata.get("client_assistant_message_id")
             if isinstance(candidate, str):
                 assistant_client_message_id = candidate
+        settings = get_settings()
+        attachment_url_ttl = settings.attachment_signed_url_ttl
         active_tools_payload = list(tools_payload)
         tool_choice_value = request.tool_choice
         requested_tool_choice = (
@@ -162,7 +164,7 @@ class StreamingHandler:
             conversation_state = await refresh_message_attachments(
                 conversation_state,
                 self._repo,
-                ttl=get_settings().attachment_signed_url_ttl,
+                ttl=attachment_url_ttl,
             )
 
             payload = request.to_openrouter_payload(active_model)
@@ -786,6 +788,14 @@ class StreamingHandler:
                         "tool_call_id": tool_id,
                         "content": content_parts,
                     }
+
+                    refreshed_tool_messages = await refresh_message_attachments(
+                        [tool_message],
+                        self._repo,
+                        ttl=attachment_url_ttl,
+                    )
+                    if refreshed_tool_messages:
+                        tool_message = refreshed_tool_messages[0]
                 else:
                     # Plain text result
                     tool_message = {
@@ -794,6 +804,8 @@ class StreamingHandler:
                         "content": result_text,
                     }
 
+                result_for_client = cleaned_text if attachment_ids else result_text
+
                 edt_iso, utc_iso = format_timestamp_for_client(tool_created_at)
                 if edt_iso is not None:
                     tool_message["created_at"] = edt_iso
@@ -801,19 +813,23 @@ class StreamingHandler:
                     tool_message["created_at_utc"] = utc_iso
                 conversation_state.append(tool_message)
 
+                tool_event_payload = {
+                    "status": status,
+                    "name": tool_name,
+                    "call_id": tool_id,
+                    "result": result_for_client,
+                    "message_id": tool_record_id,
+                    "created_at": edt_iso or tool_created_at,
+                    "created_at_utc": utc_iso or tool_created_at,
+                }
+                if attachment_ids:
+                    tool_content_payload = tool_message.get("content")
+                    if tool_content_payload is not None:
+                        tool_event_payload["content"] = tool_content_payload
+
                 yield {
                     "event": "tool",
-                    "data": json.dumps(
-                        {
-                            "status": status,
-                            "name": tool_name,
-                            "call_id": tool_id,
-                            "result": result_text,
-                            "message_id": tool_record_id,
-                            "created_at": edt_iso or tool_created_at,
-                            "created_at_utc": utc_iso or tool_created_at,
-                        }
-                    ),
+                    "data": json.dumps(tool_event_payload),
                 }
 
                 notice_reason = _classify_tool_followup(
@@ -827,7 +843,7 @@ class StreamingHandler:
                         "type": "tool_followup_required",
                         "tool": tool_name or "unknown",
                         "reason": notice_reason,
-                        "message": result_text,
+                        "message": result_for_client,
                         "attempt": hop_count,
                         "confirmation_required": True,
                     }

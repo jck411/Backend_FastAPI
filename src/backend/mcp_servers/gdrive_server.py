@@ -1181,15 +1181,18 @@ async def display_drive_image(
 ) -> str:
     """Download an image from Google Drive and display it in the chat.
     
-    IMPORTANT: Call this tool EVERY TIME the user requests to see an image, even if
-    other images are already visible in the conversation. Each call to this tool
-    displays a new image in the chat interface.
+    CRITICAL: Call this tool whenever the user requests to see a specific image by:
+    - File ID from a gdrive_list_folder result
+    - Ordinal position ("show me the first/second/third image")
+    - Filename reference
     
-    This tool downloads an image file from Google Drive and stores it for display
-    in the chat interface. The image becomes part of the conversation history.
+    ALWAYS call this tool even if other images are already visible in the conversation.
+    When a user says "show me the [ordinal] image" (e.g., "first", "second"), they are
+    referring to items from the most recent file listing, NOT images already displayed.
+    Each call displays a NEW image.
     
     Args:
-        file_id: The Google Drive file ID
+        file_id: The Google Drive file ID from gdrive_list_folder results
         session_id: The chat session ID (required to store the attachment)
         user_email: The user's email address for authentication
     

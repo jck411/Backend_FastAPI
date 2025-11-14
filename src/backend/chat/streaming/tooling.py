@@ -10,6 +10,15 @@ from ...openrouter import OpenRouterError
 SESSION_AWARE_TOOL_NAME = "chat_history"
 SESSION_AWARE_TOOL_SUFFIX = "__chat_history"
 
+# Tools that require session_id to store attachments or access conversation state
+SESSION_AWARE_TOOLS = {
+    "chat_history",
+    "download_gmail_attachment",
+    "read_gmail_attachment_text",
+    "extract_gmail_attachment_by_id",
+    "gdrive_display_image",
+}
+
 
 def summarize_tool_parameters(parameters: Mapping[str, Any] | None) -> str:
     if not isinstance(parameters, Mapping):
@@ -121,8 +130,9 @@ def is_tool_support_error(error: OpenRouterError) -> bool:
 
 
 def tool_requires_session_id(tool_name: str) -> bool:
-    return tool_name == SESSION_AWARE_TOOL_NAME or tool_name.endswith(
-        SESSION_AWARE_TOOL_SUFFIX
+    return (
+        tool_name in SESSION_AWARE_TOOLS
+        or tool_name.endswith(SESSION_AWARE_TOOL_SUFFIX)
     )
 
 
@@ -216,6 +226,7 @@ def finalize_tool_calls(
 __all__ = [
     "SESSION_AWARE_TOOL_NAME",
     "SESSION_AWARE_TOOL_SUFFIX",
+    "SESSION_AWARE_TOOLS",
     "classify_tool_followup",
     "finalize_tool_calls",
     "is_tool_support_error",

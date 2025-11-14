@@ -140,6 +140,8 @@ class StreamingHandler:
         )
 
         total_tool_calls = 0
+        # Track tool attachments to inject into next assistant response
+        pending_tool_attachments: list[dict[str, Any]] = []
 
         while True:
             tools_available = bool(active_tools_payload)
@@ -222,6 +224,30 @@ class StreamingHandler:
                 payload.pop("tool_choice", None)
 
             content_builder = _AssistantContentBuilder()
+            
+            # Inject pending tool attachments from previous hop into this assistant response
+            if pending_tool_attachments:
+                content_builder.add_structured(pending_tool_attachments)
+                
+                # Emit attachments as SSE deltas so frontend can display them
+                for attachment_fragment in pending_tool_attachments:
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "choices": [
+                                {
+                                    "delta": {
+                                        "content": [attachment_fragment],
+                                        "role": "assistant",
+                                    },
+                                    "index": 0,
+                                }
+                            ],
+                        }),
+                    }
+                
+                pending_tool_attachments.clear()
+            
             streamed_tool_calls: list[dict[str, Any]] = []
             finish_reason: str | None = None
             model_name: str | None = None
@@ -768,18 +794,62 @@ class StreamingHandler:
                     if cleaned_text:
                         content_parts.append({"type": "text", "text": cleaned_text})
 
-                    # Add image parts for each attachment
-                    # The attachment_urls service will populate these with signed URLs later
+                    # Add image parts for each attachment with populated URLs
                     for attachment_id in attachment_ids:
-                        content_parts.append(
-                            {
+                        # Fetch attachment record to get signed URL
+                        try:
+                            attachment_record = await self._repo.get_attachment(
+                                attachment_id
+                            )
+                            signed_url = ""
+                            attachment_metadata: dict[str, Any] = {
+                                "attachment_id": attachment_id
+                            }
+                            
+                            if attachment_record:
+                                signed_url = (
+                                    attachment_record.get("signed_url")
+                                    or attachment_record.get("display_url")
+                                    or ""
+                                )
+                                # Include additional metadata
+                                attachment_metadata.update(
+                                    {
+                                        "mime_type": attachment_record.get("mime_type"),
+                                        "size_bytes": attachment_record.get("size_bytes"),
+                                        "display_url": signed_url,
+                                        "delivery_url": signed_url,
+                                    }
+                                )
+                                # Add filename from metadata if available
+                                record_metadata = attachment_record.get("metadata")
+                                if isinstance(record_metadata, dict):
+                                    filename = record_metadata.get("filename")
+                                    if filename:
+                                        attachment_metadata["filename"] = filename
+                            
+                            attachment_fragment = {
                                 "type": "image_url",
                                 "image_url": {
-                                    "url": ""
-                                },  # Will be filled by attachment_urls service
-                                "metadata": {"attachment_id": attachment_id},
+                                    "url": signed_url
+                                },
+                                "metadata": attachment_metadata,
                             }
-                        )
+                            content_parts.append(attachment_fragment)
+                            
+                            # Add to pending attachments for next assistant response
+                            pending_tool_attachments.append(attachment_fragment)
+                        except Exception:  # pragma: no cover - best effort
+                            # If we can't fetch the attachment, include placeholder
+                            content_parts.append(
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": ""
+                                    },
+                                    "metadata": {"attachment_id": attachment_id},
+                                }
+                            )
 
                     tool_message = {
                         "role": "tool",
@@ -801,19 +871,24 @@ class StreamingHandler:
                     tool_message["created_at_utc"] = utc_iso
                 conversation_state.append(tool_message)
 
+                # Build SSE event payload - include content for frontend rendering
+                tool_event_data: dict[str, Any] = {
+                    "status": status,
+                    "name": tool_name,
+                    "call_id": tool_id,
+                    "result": result_text,
+                    "message_id": tool_record_id,
+                    "created_at": edt_iso or tool_created_at,
+                    "created_at_utc": utc_iso or tool_created_at,
+                }
+                
+                # If there are attachments, include the multimodal content structure
+                if attachment_ids:
+                    tool_event_data["content"] = content_parts
+
                 yield {
                     "event": "tool",
-                    "data": json.dumps(
-                        {
-                            "status": status,
-                            "name": tool_name,
-                            "call_id": tool_id,
-                            "result": result_text,
-                            "message_id": tool_record_id,
-                            "created_at": edt_iso or tool_created_at,
-                            "created_at_utc": utc_iso or tool_created_at,
-                        }
-                    ),
+                    "data": json.dumps(tool_event_data),
                 }
 
                 notice_reason = _classify_tool_followup(

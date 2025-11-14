@@ -179,7 +179,13 @@ function mergeMessageContent(
   if (deltaFragments.length > 0) {
     fragments.push(...deltaFragments);
   } else if (deltaText) {
-    fragments.push({ type: 'text', text: deltaText });
+    // Merge into last text fragment if possible, otherwise create new one
+    const lastFragment = fragments[fragments.length - 1];
+    if (lastFragment && lastFragment.type === 'text' && typeof lastFragment.text === 'string') {
+      lastFragment.text += deltaText;
+    } else {
+      fragments.push({ type: 'text', text: deltaText });
+    }
   }
 
   if (fragments.length === 0) {

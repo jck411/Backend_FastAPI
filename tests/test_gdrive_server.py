@@ -17,6 +17,7 @@ from backend.mcp_servers.gdrive_server import (
     move_drive_file,
     rename_drive_file,
     search_drive_files,
+    _detect_file_type_query,
 )
 
 
@@ -332,3 +333,112 @@ async def test_create_drive_folder(mock_get_drive_service, mock_to_thread):
     kwargs = files_api.create.call_args.kwargs
     assert kwargs["body"]["name"] == "Project"
     assert kwargs["body"]["parents"] == ["rootFolder"]
+
+
+def test_detect_file_type_images():
+    """Test detection of image file type queries."""
+    assert _detect_file_type_query("image") == "mimeType contains 'image/'"
+    assert _detect_file_type_query("images") == "mimeType contains 'image/'"
+    assert _detect_file_type_query("photo") == "mimeType contains 'image/'"
+    assert _detect_file_type_query("latest image") == "mimeType contains 'image/'"
+    assert _detect_file_type_query("my photos") == "mimeType contains 'image/'"
+    assert _detect_file_type_query("picture") == "mimeType contains 'image/'"
+    assert _detect_file_type_query("jpg") == "mimeType contains 'image/'"
+    assert _detect_file_type_query("png") == "mimeType contains 'image/'"
+
+
+def test_detect_file_type_pdfs():
+    """Test detection of PDF file type queries."""
+    assert _detect_file_type_query("pdf") == "mimeType = 'application/pdf'"
+    assert _detect_file_type_query("pdfs") == "mimeType = 'application/pdf'"
+    assert _detect_file_type_query("latest pdf") == "mimeType = 'application/pdf'"
+
+
+def test_detect_file_type_documents():
+    """Test detection of document file type queries."""
+    assert _detect_file_type_query("document") == "mimeType = 'application/vnd.google-apps.document'"
+    assert _detect_file_type_query("google doc") == "mimeType = 'application/vnd.google-apps.document'"
+
+
+def test_detect_file_type_spreadsheets():
+    """Test detection of spreadsheet file type queries."""
+    assert _detect_file_type_query("spreadsheet") == "mimeType = 'application/vnd.google-apps.spreadsheet'"
+    assert _detect_file_type_query("sheet") == "mimeType = 'application/vnd.google-apps.spreadsheet'"
+
+
+def test_detect_file_type_no_match():
+    """Test that non-file-type queries return None."""
+    assert _detect_file_type_query("budget report") is None
+    assert _detect_file_type_query("meeting notes") is None
+    assert _detect_file_type_query("project plan") is None
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.gdrive_server.asyncio.to_thread")
+@patch("backend.mcp_servers.gdrive_server.get_drive_service")
+async def test_search_images_filters_by_mime_type(mock_get_drive_service, mock_to_thread):
+    """Test that searching for 'image' filters by image MIME type, not text search."""
+    mock_service = MagicMock()
+    mock_get_drive_service.return_value = mock_service
+
+    files_api = mock_service.files.return_value
+    files_api.list.return_value.execute.return_value = {
+        "files": [
+            {
+                "id": "img123",
+                "name": "vacation.jpg",
+                "mimeType": "image/jpeg",
+                "size": "2048000",
+                "modifiedTime": "2025-11-13T12:00:00.000Z",
+                "webViewLink": "https://drive.google.com/file/d/img123/view",
+            }
+        ]
+    }
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    mock_to_thread.side_effect = fake_to_thread
+
+    result = await search_drive_files(query="image", user_email="user@example.com", page_size=10)
+
+    # Verify the Drive API was called with correct MIME type filter
+    files_api.list.assert_called_once()
+    call_kwargs = files_api.list.call_args.kwargs
+    query_param = call_kwargs.get("q")
+    
+    # The query should filter by image MIME type
+    assert "mimeType contains 'image/'" in query_param
+    # The query should NOT do a text search for "image"
+    assert "name contains 'image'" not in query_param
+    
+    # Verify result contains the image
+    assert "vacation.jpg" in result
+    assert "image/jpeg" in result
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.gdrive_server.asyncio.to_thread")
+@patch("backend.mcp_servers.gdrive_server.get_drive_service")
+async def test_search_budget_spreadsheet_combines_filters(mock_get_drive_service, mock_to_thread):
+    """Test that 'budget spreadsheet' filters by spreadsheet type AND searches for 'budget'."""
+    mock_service = MagicMock()
+    mock_get_drive_service.return_value = mock_service
+
+    files_api = mock_service.files.return_value
+    files_api.list.return_value.execute.return_value = {"files": []}
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    mock_to_thread.side_effect = fake_to_thread
+
+    await search_drive_files(query="budget spreadsheet", user_email="user@example.com", page_size=10)
+
+    # Verify the query combines MIME type filter with name search
+    call_kwargs = files_api.list.call_args.kwargs
+    query_param = call_kwargs.get("q")
+    
+    assert "mimeType = 'application/vnd.google-apps.spreadsheet'" in query_param
+    assert "name contains 'budget'" in query_param
+    assert " and " in query_param

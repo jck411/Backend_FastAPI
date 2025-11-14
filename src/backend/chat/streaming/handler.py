@@ -230,6 +230,7 @@ class StreamingHandler:
             generation_id: str | None = None
             reasoning_segments: list[dict[str, Any]] = []
             seen_reasoning: set[tuple[str, str]] = set()
+            tool_result_attachment_ids: list[str] = []  # Track attachments from tool results
             try:
                 async for event in self._client.stream_chat_raw(payload):
                     data = event.get("data")
@@ -522,6 +523,61 @@ class StreamingHandler:
             )
             new_attachment_ids = list(content_builder.created_attachment_ids)
 
+            # If assistant finished without tool calls and there are attachments from tool results,
+            # inject them into the assistant's content so they appear in the chat
+            if (
+                finish_reason == "stop"
+                and not tool_calls
+                and tool_result_attachment_ids
+                and assistant_content is not None
+            ):
+                # Check if content already includes these attachments
+                existing_attachment_ids: set[str] = set()
+                if isinstance(assistant_content, list):
+                    for fragment in assistant_content:
+                        if (
+                            isinstance(fragment, dict)
+                            and fragment.get("type") == "image_url"
+                        ):
+                            metadata = fragment.get("metadata")
+                            if isinstance(metadata, dict):
+                                att_id = metadata.get("attachment_id")
+                                if isinstance(att_id, str):
+                                    existing_attachment_ids.add(att_id)
+                
+                # Add missing attachments from tool results
+                missing_attachment_ids = [
+                    aid for aid in tool_result_attachment_ids
+                    if aid not in existing_attachment_ids
+                ]
+                
+                if missing_attachment_ids:
+                    # Convert assistant_content to list if it's a string
+                    if isinstance(assistant_content, str):
+                        content_parts: list[dict[str, Any]] = [
+                            {"type": "text", "text": assistant_content}
+                        ]
+                    else:
+                        content_parts = list(assistant_content) if isinstance(assistant_content, list) else []
+                    
+                    # Add image parts for missing attachments
+                    for attachment_id in missing_attachment_ids:
+                        content_parts.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": ""
+                                },  # Will be filled by attachment_urls service
+                                "metadata": {"attachment_id": attachment_id},
+                            }
+                        )
+                    
+                    assistant_content = content_parts
+                    # Register these attachments as created by this assistant turn
+                    for attachment_id in missing_attachment_ids:
+                        if attachment_id not in new_attachment_ids:
+                            new_attachment_ids.append(attachment_id)
+
             assistant_turn = AssistantTurn(
                 content=assistant_content if assistant_content else None,
                 tool_calls=tool_calls,
@@ -600,6 +656,9 @@ class StreamingHandler:
             }
             routing_headers = None
 
+            # Reset tool result attachments for next turn
+            tool_result_attachment_ids = []
+            
             if not assistant_turn.tool_calls:
                 break
 
@@ -761,6 +820,9 @@ class StreamingHandler:
                 cleaned_text, attachment_ids = _parse_attachment_references(result_text)
 
                 if attachment_ids:
+                    # Track these attachment IDs for potential injection into assistant message
+                    tool_result_attachment_ids.extend(attachment_ids)
+                    
                     # Convert to multimodal content with image references
                     content_parts: list[dict[str, Any]] = []
 

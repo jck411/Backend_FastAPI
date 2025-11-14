@@ -1181,6 +1181,10 @@ async def display_drive_image(
 ) -> str:
     """Download an image from Google Drive and display it in the chat.
     
+    IMPORTANT: Call this tool EVERY TIME the user requests to see an image, even if
+    other images are already visible in the conversation. Each call to this tool
+    displays a new image in the chat interface.
+    
     This tool downloads an image file from Google Drive and stores it for display
     in the chat interface. The image becomes part of the conversation history.
     

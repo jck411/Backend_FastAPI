@@ -1259,16 +1259,10 @@ async def display_drive_image(
 
     lines = [
         f"Image '{stored_filename}' from Google Drive displayed in chat!",
-        f"Attachment ID: {record.get('attachment_id')}",
+        f"attachment_id: {record.get('attachment_id')}",
         f"Filename: {stored_filename}",
-        f"MIME Type: {record.get('mime_type')}",
         f"Size: {record.get('size_bytes')} bytes",
-        f"Signed URL: {signed_url}",
     ]
-    if expires_at:
-        lines.append(f"Expires At: {expires_at}")
-    if file_size:
-        lines.append(f"Original Drive file size: {file_size} bytes")
     
     return "\n".join(lines)
 

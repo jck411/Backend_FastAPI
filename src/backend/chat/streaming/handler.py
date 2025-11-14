@@ -120,6 +120,8 @@ class StreamingHandler:
         """Yield SSE events while maintaining state and executing tools."""
 
         hop_count = 0
+        settings = get_settings()
+        attachment_ttl = settings.attachment_signed_url_ttl
         conversation_state = list(conversation)
         assistant_client_message_id: str | None = None
         request_metadata: dict[str, Any] | None = None
@@ -162,7 +164,7 @@ class StreamingHandler:
             conversation_state = await refresh_message_attachments(
                 conversation_state,
                 self._repo,
-                ttl=get_settings().attachment_signed_url_ttl,
+                ttl=attachment_ttl,
             )
 
             payload = request.to_openrouter_payload(active_model)
@@ -748,51 +750,46 @@ class StreamingHandler:
                     "parent_client_message_id": assistant_client_message_id,
                 }
 
+                cleaned_text, attachment_ids = _parse_attachment_references(result_text)
+                if attachment_ids:
+                    content_parts: list[dict[str, Any]] = []
+                    if cleaned_text:
+                        content_parts.append({"type": "text", "text": cleaned_text})
+                    for attachment_id in attachment_ids:
+                        content_parts.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": ""},
+                                "metadata": {"attachment_id": attachment_id},
+                            }
+                        )
+                    message_content: Any = content_parts
+                else:
+                    message_content = result_text
+
                 tool_record_id, tool_created_at = await self._repo.add_message(
                     session_id,
                     role="tool",
-                    content=result_text,
+                    content=message_content,
                     tool_call_id=tool_id,
                     metadata=tool_metadata,
                     parent_client_message_id=assistant_client_message_id,
                 )
 
-                # Check if result contains attachment references that need conversion
-                cleaned_text, attachment_ids = _parse_attachment_references(result_text)
+                tool_message = {
+                    "role": "tool",
+                    "tool_call_id": tool_id,
+                    "content": message_content,
+                }
 
                 if attachment_ids:
-                    # Convert to multimodal content with image references
-                    content_parts: list[dict[str, Any]] = []
-
-                    # Add text part if there's any cleaned text
-                    if cleaned_text:
-                        content_parts.append({"type": "text", "text": cleaned_text})
-
-                    # Add image parts for each attachment
-                    # The attachment_urls service will populate these with signed URLs later
-                    for attachment_id in attachment_ids:
-                        content_parts.append(
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": ""
-                                },  # Will be filled by attachment_urls service
-                                "metadata": {"attachment_id": attachment_id},
-                            }
-                        )
-
-                    tool_message = {
-                        "role": "tool",
-                        "tool_call_id": tool_id,
-                        "content": content_parts,
-                    }
-                else:
-                    # Plain text result
-                    tool_message = {
-                        "role": "tool",
-                        "tool_call_id": tool_id,
-                        "content": result_text,
-                    }
+                    hydrated = await refresh_message_attachments(
+                        [tool_message],
+                        self._repo,
+                        ttl=attachment_ttl,
+                    )
+                    if hydrated:
+                        tool_message = hydrated[0]
 
                 edt_iso, utc_iso = format_timestamp_for_client(tool_created_at)
                 if edt_iso is not None:
@@ -809,6 +806,7 @@ class StreamingHandler:
                             "name": tool_name,
                             "call_id": tool_id,
                             "result": result_text,
+                            "content": tool_message.get("content"),
                             "message_id": tool_record_id,
                             "created_at": edt_iso or tool_created_at,
                             "created_at_utc": utc_iso or tool_created_at,

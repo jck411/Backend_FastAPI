@@ -203,6 +203,71 @@ def _is_structured_drive_query(query: str) -> bool:
     return False
 
 
+def _detect_file_type_query(query: str) -> Optional[str]:
+    """Detect if query is asking for a specific file type and return MIME type filter.
+
+    Maps common file type keywords to Google Drive MIME type queries.
+    Returns None if no file type is detected.
+
+    Examples:
+        "image" -> "mimeType contains 'image/'"
+        "latest pdf" -> "mimeType = 'application/pdf'"
+        "spreadsheet" -> "mimeType = 'application/vnd.google-apps.spreadsheet'"
+    """
+    query_lower = query.lower()
+
+    # Map keywords to MIME type filters
+    # Using "contains" for broader matches, "=" for exact matches
+    type_mappings = [
+        # Images - match any image type
+        (["image", "images", "photo", "photos", "picture", "pictures", "img", "png", "jpg", "jpeg", "gif"], 
+         "mimeType contains 'image/'"),
+        
+        # PDFs
+        (["pdf", "pdfs"], 
+         "mimeType = 'application/pdf'"),
+        
+        # Google Docs
+        (["document", "documents", "doc", "docs", "google doc", "google docs"], 
+         "mimeType = 'application/vnd.google-apps.document'"),
+        
+        # Google Sheets
+        (["spreadsheet", "spreadsheets", "sheet", "sheets", "google sheet", "google sheets"], 
+         "mimeType = 'application/vnd.google-apps.spreadsheet'"),
+        
+        # Google Slides
+        (["presentation", "presentations", "slide", "slides", "google slide", "google slides"], 
+         "mimeType = 'application/vnd.google-apps.presentation'"),
+        
+        # Folders
+        (["folder", "folders", "directory", "directories"], 
+         "mimeType = 'application/vnd.google-apps.folder'"),
+        
+        # Videos
+        (["video", "videos", "movie", "movies", "mp4", "avi", "mov"], 
+         "mimeType contains 'video/'"),
+        
+        # Audio
+        (["audio", "sound", "music", "mp3", "wav"], 
+         "mimeType contains 'audio/'"),
+        
+        # Text files
+        (["text file", "text files", "txt"], 
+         "mimeType = 'text/plain'"),
+    ]
+
+    # Check each mapping
+    for keywords, mime_filter in type_mappings:
+        # Check if any keyword matches the query (as whole word or part of phrase)
+        for keyword in keywords:
+            # Match keyword as whole word or with common modifiers
+            pattern = r'\b' + re.escape(keyword) + r'\b'
+            if re.search(pattern, query_lower):
+                return mime_filter
+
+    return None
+
+
 async def _locate_child_folder(
     service: Any,
     *,
@@ -364,6 +429,18 @@ async def search_drive_files(
     include_items_from_all_drives: bool = True,
     corpora: Optional[str] = None,
 ) -> str:
+    """Search for files in Google Drive.
+    
+    Intelligently handles different query types:
+    - File type queries (e.g., "image", "pdf", "spreadsheet") filter by MIME type
+    - Structured queries (e.g., "name='report'") are passed through as-is
+    - Text queries search in file names
+    
+    Examples:
+        "image" -> Returns only image files (jpg, png, gif, etc.)
+        "latest pdf" -> Returns PDF files, sorted by modification time
+        "budget spreadsheet" -> Returns spreadsheet files with "budget" in the name
+    """
     service, error_msg = _get_drive_service_or_error(user_email)
     if error_msg:
         return error_msg
@@ -374,15 +451,48 @@ async def search_drive_files(
     escaped_query = _escape_query_term(query)
 
     # Build intelligent search query:
-    # - If structured query (has field operators), use as-is
-    # - Otherwise, search filename and MIME type (metadata only, NOT file contents)
-    # This matches user expectations: find files by name/type, not by what's inside them
+    # 1. If structured query (has field operators), use as-is
+    # 2. If file type query (e.g., "image", "pdf"), filter by MIME type
+    # 3. Otherwise, search filename only (metadata search)
     if is_structured:
         final_query = query
     else:
-        final_query = (
-            f"name contains '{escaped_query}' or mimeType contains '{escaped_query}'"
-        )
+        # Check if this is a file type query
+        mime_filter = _detect_file_type_query(query)
+        
+        if mime_filter:
+            # Extract any additional search terms (words that aren't the file type)
+            query_lower = query.lower()
+            # Remove common file type keywords from the search terms
+            search_terms = query_lower
+            for keywords, _ in [
+                (["image", "images", "photo", "photos", "picture", "pictures", "img", "png", "jpg", "jpeg", "gif"], None),
+                (["pdf", "pdfs"], None),
+                (["document", "documents", "doc", "docs"], None),
+                (["spreadsheet", "spreadsheets", "sheet", "sheets"], None),
+                (["presentation", "presentations", "slide", "slides"], None),
+                (["folder", "folders"], None),
+                (["video", "videos", "movie", "movies"], None),
+                (["audio", "sound", "music"], None),
+            ]:
+                for keyword in keywords:
+                    # Remove the keyword and common connecting words
+                    pattern = r'\b' + re.escape(keyword) + r'\b'
+                    search_terms = re.sub(pattern, '', search_terms)
+            
+            # Clean up the remaining terms
+            search_terms = re.sub(r'\b(latest|recent|new|old|my)\b', '', search_terms)
+            search_terms = search_terms.strip()
+            
+            # Build query: MIME type filter + optional name search
+            if search_terms:
+                escaped_terms = _escape_query_term(search_terms)
+                final_query = f"{mime_filter} and name contains '{escaped_terms}'"
+            else:
+                final_query = mime_filter
+        else:
+            # Regular text search - search in filename only
+            final_query = f"name contains '{escaped_query}'"
 
     params = _build_drive_list_params(
         query=final_query,
@@ -1148,85 +1258,6 @@ async def check_drive_file_public_access(
     return "\n".join(lines)
 
 
-@mcp.tool("gdrive_analyze_image")
-async def analyze_drive_image(
-    file_id: str,
-    session_id: str,
-    user_email: str = DEFAULT_USER_EMAIL,
-) -> str:
-    """
-    Download an image from Google Drive and prepare it for LLM analysis.
-
-    This tool downloads an image from Drive, saves it as an attachment, and returns
-    a reference that the system will automatically convert to an image in the chat.
-    The image will appear in the conversation just as if it were manually uploaded.
-
-    Args:
-        file_id: The Google Drive file ID of the image
-        session_id: The current chat session ID (required for attachment storage)
-        user_email: Email of the user whose Drive to access
-
-    Returns:
-        A string with attachment reference that will be processed into an image
-    """
-    service, error_msg = _get_drive_service_or_error(user_email)
-    if error_msg:
-        return error_msg
-    assert service is not None
-
-    try:
-        metadata = await asyncio.to_thread(
-            service.files()
-            .get(
-                fileId=file_id,
-                fields="id, name, mimeType, size",
-                supportsAllDrives=True,
-            )
-            .execute
-        )
-    except Exception as exc:
-        return f"Error retrieving metadata for file {file_id}: {exc}"
-
-    mime_type = metadata.get("mimeType", "")
-    file_name = metadata.get("name", "unknown")
-
-    # Validate it's an image
-    if not mime_type.startswith("image/"):
-        return (
-            f"Error: File '{file_name}' (ID: {file_id}) is not an image. "
-            f"MIME type: {mime_type}"
-        )
-
-    # Download the image
-    request = service.files().get_media(fileId=file_id)
-
-    try:
-        image_bytes = await _download_request_bytes(request)
-    except ValueError as exc:
-        return f"Error: Image too large: {exc}"
-    except Exception as exc:
-        return f"Error downloading image: {exc}"
-
-    # Save the image as an attachment using the existing system
-    try:
-        attachment_service = await _get_attachment_service()
-        record = await attachment_service.save_bytes(
-            session_id=session_id,
-            data=image_bytes,
-            mime_type=mime_type,
-            filename_hint=file_name,
-        )
-        attachment_id = record.get("attachment_id")
-        if not attachment_id:
-            return "Error: Failed to save attachment"
-
-        # Return a special marker that the system will recognize
-        # The attachment_urls service will convert this to proper image_url format
-        return f"[Image from Google Drive: {file_name}]\nattachment_id:{attachment_id}"
-    except Exception as exc:
-        return f"Error saving attachment: {exc}"
-
-
 def run() -> None:  # pragma: no cover - integration entrypoint
     mcp.run()
 
@@ -1249,5 +1280,4 @@ __all__ = [
     "create_drive_folder",
     "get_drive_file_permissions",
     "check_drive_file_public_access",
-    "analyze_drive_image",
 ]

@@ -228,6 +228,24 @@ class StreamingHandler:
             # Inject pending tool attachments from previous hop into this assistant response
             if pending_tool_attachments:
                 content_builder.add_structured(pending_tool_attachments)
+                
+                # Emit attachments as SSE deltas so frontend can display them
+                for attachment_fragment in pending_tool_attachments:
+                    yield {
+                        "event": "message",
+                        "data": json.dumps({
+                            "choices": [
+                                {
+                                    "delta": {
+                                        "content": [attachment_fragment],
+                                        "role": "assistant",
+                                    },
+                                    "index": 0,
+                                }
+                            ],
+                        }),
+                    }
+                
                 pending_tool_attachments.clear()
             
             streamed_tool_calls: list[dict[str, Any]] = []

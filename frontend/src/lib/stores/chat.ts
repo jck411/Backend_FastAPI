@@ -542,6 +542,27 @@ function createChatStore() {
           const serverMessageId =
             typeof payload.message_id === 'number' ? payload.message_id : null;
 
+          // Check if tool event has multimodal content with attachments
+          const payloadContent = payload.content;
+          const currentState = get(store);
+          let toolContent: ChatMessageContent;
+          let toolText: string;
+          let toolAttachments: AttachmentResource[] = [];
+          
+          if (Array.isArray(payloadContent)) {
+            // Multimodal content with potential attachments
+            const normalized = normalizeMessageContent(payloadContent);
+            toolAttachments = attachmentsFromParts(normalized.parts, currentState.sessionId);
+            toolContent = payloadContent;
+            toolText = normalized.text;
+          } else if (status === 'started') {
+            toolContent = `Running ${toolName}…`;
+            toolText = `Running ${toolName}…`;
+          } else {
+            toolContent = toolResult ?? `Tool ${toolName} responded.`;
+            toolText = toolResult ?? `Tool ${toolName} responded.`;
+          }
+
           let messageId = toolMessageIds.get(callId);
           if (!messageId) {
             messageId = createId('tool');
@@ -563,15 +584,9 @@ function createChatStore() {
                 {
                   id: messageId as string,
                   role: 'tool',
-                  content:
-                    status === 'started'
-                      ? `Running ${toolName}…`
-                      : toolResult ?? `Tool ${toolName} responded.`,
-                  text:
-                    status === 'started'
-                      ? `Running ${toolName}…`
-                      : toolResult ?? `Tool ${toolName} responded.`,
-                  attachments: [],
+                  content: toolContent,
+                  text: toolText,
+                  attachments: toolAttachments,
                   pending: status === 'started',
                   details: {
                     toolName,
@@ -598,11 +613,6 @@ function createChatStore() {
                   serverMessageId:
                     serverMessageId ?? message.details?.serverMessageId ?? null,
                 };
-                const nextText =
-                  toolResult ??
-                  (status === 'started'
-                    ? `Running ${toolName}…`
-                    : `Tool ${toolName} ${status}.`);
                 const nextCreatedAt = coalesceTimestamp(
                   payload.created_at,
                   payload.created_at_utc,
@@ -614,9 +624,9 @@ function createChatStore() {
                 );
                 return {
                   ...message,
-                  content: nextText,
-                  text: nextText,
-                  attachments: message.attachments ?? [],
+                  content: toolContent,
+                  text: toolText,
+                  attachments: toolAttachments.length > 0 ? toolAttachments : message.attachments ?? [],
                   pending: status === 'started',
                   details,
                   createdAt: nextCreatedAt,

@@ -192,6 +192,131 @@ def _has_anyone_link_access(permissions: List[Dict[str, Any]]) -> bool:
     )
 
 
+FILE_TYPE_MAPPINGS: List[Tuple[Tuple[str, ...], str]] = [
+    (
+        (
+            "image",
+            "images",
+            "photo",
+            "photos",
+            "picture",
+            "pictures",
+            "img",
+            "png",
+            "jpg",
+            "jpeg",
+            "gif",
+            "svg",
+            "tiff",
+            "bmp",
+            "webp",
+        ),
+        "mimeType contains 'image/'",
+    ),
+    (
+        (
+            "pdf",
+            "pdfs",
+        ),
+        "mimeType = 'application/pdf'",
+    ),
+    (
+        (
+            "document",
+            "documents",
+            "doc",
+            "docs",
+            "google doc",
+            "google docs",
+            "word",
+            "docx",
+        ),
+        "mimeType = 'application/vnd.google-apps.document'",
+    ),
+    (
+        (
+            "spreadsheet",
+            "spreadsheets",
+            "sheet",
+            "sheets",
+            "google sheet",
+            "google sheets",
+            "excel",
+            "xlsx",
+            "xls",
+        ),
+        "mimeType = 'application/vnd.google-apps.spreadsheet'",
+    ),
+    (
+        (
+            "presentation",
+            "presentations",
+            "slide",
+            "slides",
+            "google slide",
+            "google slides",
+            "powerpoint",
+            "ppt",
+            "pptx",
+        ),
+        "mimeType = 'application/vnd.google-apps.presentation'",
+    ),
+    (
+        (
+            "folder",
+            "folders",
+            "directory",
+            "directories",
+        ),
+        "mimeType = 'application/vnd.google-apps.folder'",
+    ),
+    (
+        (
+            "video",
+            "videos",
+            "movie",
+            "movies",
+            "mp4",
+            "avi",
+            "mov",
+            "mkv",
+        ),
+        "mimeType contains 'video/'",
+    ),
+    (
+        (
+            "audio",
+            "sound",
+            "music",
+            "mp3",
+            "wav",
+            "flac",
+        ),
+        "mimeType contains 'audio/'",
+    ),
+    (
+        (
+            "text file",
+            "text files",
+            "txt",
+        ),
+        "mimeType = 'text/plain'",
+    ),
+]
+
+_file_type_keyword_order: List[str] = []
+_file_type_keyword_seen: set[str] = set()
+for keywords, _ in FILE_TYPE_MAPPINGS:
+    for keyword in keywords:
+        if keyword not in _file_type_keyword_seen:
+            _file_type_keyword_seen.add(keyword)
+            _file_type_keyword_order.append(keyword)
+FILE_TYPE_KEYWORDS: Tuple[str, ...] = tuple(_file_type_keyword_order)
+
+del _file_type_keyword_order
+del _file_type_keyword_seen
+
+
 def _build_drive_list_params(
     *,
     query: str,
@@ -277,69 +402,22 @@ def _is_structured_drive_query(query: str) -> bool:
     return False
 
 
-def _detect_file_type_query(query: str) -> Optional[str]:
-    """Detect if query is asking for a specific file type and return MIME type filter.
-
-    Maps common file type keywords to Google Drive MIME type queries.
-    Returns None if no file type is detected.
-
-    Examples:
-        "image" -> "mimeType contains 'image/'"
-        "latest pdf" -> "mimeType = 'application/pdf'"
-        "spreadsheet" -> "mimeType = 'application/vnd.google-apps.spreadsheet'"
-    """
+def _find_file_type_mapping(
+    query: str,
+) -> Optional[Tuple[Tuple[str, ...], str]]:
     query_lower = query.lower()
-
-    # Map keywords to MIME type filters
-    # Using "contains" for broader matches, "=" for exact matches
-    type_mappings = [
-        # Images - match any image type
-        (["image", "images", "photo", "photos", "picture", "pictures", "img", "png", "jpg", "jpeg", "gif"], 
-         "mimeType contains 'image/'"),
-        
-        # PDFs
-        (["pdf", "pdfs"], 
-         "mimeType = 'application/pdf'"),
-        
-        # Google Docs
-        (["document", "documents", "doc", "docs", "google doc", "google docs"], 
-         "mimeType = 'application/vnd.google-apps.document'"),
-        
-        # Google Sheets
-        (["spreadsheet", "spreadsheets", "sheet", "sheets", "google sheet", "google sheets"], 
-         "mimeType = 'application/vnd.google-apps.spreadsheet'"),
-        
-        # Google Slides
-        (["presentation", "presentations", "slide", "slides", "google slide", "google slides"], 
-         "mimeType = 'application/vnd.google-apps.presentation'"),
-        
-        # Folders
-        (["folder", "folders", "directory", "directories"], 
-         "mimeType = 'application/vnd.google-apps.folder'"),
-        
-        # Videos
-        (["video", "videos", "movie", "movies", "mp4", "avi", "mov"], 
-         "mimeType contains 'video/'"),
-        
-        # Audio
-        (["audio", "sound", "music", "mp3", "wav"], 
-         "mimeType contains 'audio/'"),
-        
-        # Text files
-        (["text file", "text files", "txt"], 
-         "mimeType = 'text/plain'"),
-    ]
-
-    # Check each mapping
-    for keywords, mime_filter in type_mappings:
-        # Check if any keyword matches the query (as whole word or part of phrase)
+    for keywords, mime_filter in FILE_TYPE_MAPPINGS:
         for keyword in keywords:
-            # Match keyword as whole word or with common modifiers
-            pattern = r'\b' + re.escape(keyword) + r'\b'
+            pattern = r"\b" + re.escape(keyword) + r"\b"
             if re.search(pattern, query_lower):
-                return mime_filter
-
+                return keywords, mime_filter
     return None
+
+
+def _detect_file_type_query(query: str) -> Optional[str]:
+    """Detect if query is asking for a specific file type and return MIME type filter."""
+    match = _find_file_type_mapping(query)
+    return match[1] if match else None
 
 
 async def _locate_child_folder(
@@ -529,42 +607,19 @@ async def search_drive_files(
         final_query = query
         strategy = "structured"
     else:
-        mime_filter = _detect_file_type_query(query)
-        if mime_filter:
+        mapping = _find_file_type_mapping(query)
+        if mapping:
+            _, detected_mime_filter = mapping
+            mime_filter = detected_mime_filter
             search_terms_value = query.lower()
-            for keywords, _ in [
-                (
-                    [
-                        "image",
-                        "images",
-                        "photo",
-                        "photos",
-                        "picture",
-                        "pictures",
-                        "img",
-                        "png",
-                        "jpg",
-                        "jpeg",
-                        "gif",
-                    ],
-                    None,
-                ),
-                (["pdf", "pdfs"], None),
-                (["document", "documents", "doc", "docs"], None),
-                (["spreadsheet", "spreadsheets", "sheet", "sheets"], None),
-                (["presentation", "presentations", "slide", "slides"], None),
-                (["folder", "folders"], None),
-                (["video", "videos", "movie", "movies"], None),
-                (["audio", "sound", "music"], None),
-            ]:
-                for keyword in keywords:
-                    pattern = r"\b" + re.escape(keyword) + r"\b"
-                    search_terms_value = re.sub(pattern, "", search_terms_value)
+            for keyword in FILE_TYPE_KEYWORDS:
+                pattern = r"\b" + re.escape(keyword) + r"\b"
+                search_terms_value = re.sub(pattern, " ", search_terms_value)
 
             search_terms_value = re.sub(
-                r"\b(latest|recent|new|old|my)\b", "", search_terms_value
+                r"\b(latest|recent|new|old|my)\b", " ", search_terms_value
             )
-            search_terms_value = search_terms_value.strip()
+            search_terms_value = re.sub(r"\s+", " ", search_terms_value).strip()
             search_terms = search_terms_value or None
 
             if search_terms:

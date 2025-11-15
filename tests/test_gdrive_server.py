@@ -469,3 +469,32 @@ async def test_search_budget_spreadsheet_combines_filters(mock_get_drive_service
     assert "mimeType = 'application/vnd.google-apps.spreadsheet'" in query_param
     assert "name contains 'budget'" in query_param
     assert " and " in query_param
+
+
+@pytest.mark.asyncio
+@patch("backend.mcp_servers.gdrive_server.asyncio.to_thread")
+@patch("backend.mcp_servers.gdrive_server.get_drive_service")
+async def test_search_text_file_strips_keywords(mock_get_drive_service, mock_to_thread):
+    mock_service = MagicMock()
+    mock_get_drive_service.return_value = mock_service
+
+    files_api = mock_service.files.return_value
+    files_api.list.return_value.execute.return_value = {"files": []}
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    mock_to_thread.side_effect = fake_to_thread
+
+    await search_drive_files(
+        query="latest text file project plan",
+        user_email="user@example.com",
+        page_size=5,
+    )
+
+    call_kwargs = files_api.list.call_args.kwargs
+    query_param = call_kwargs.get("q")
+
+    assert "mimeType = 'text/plain'" in query_param
+    assert "name contains 'project plan'" in query_param
+    assert "text file" not in query_param

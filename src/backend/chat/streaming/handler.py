@@ -224,20 +224,30 @@ class StreamingHandler:
                 payload.pop("tool_choice", None)
 
             content_builder = _AssistantContentBuilder()
-            
+
             # Inject pending tool attachments from previous hop into this assistant response
             if pending_tool_attachments:
-                content_builder.add_structured(pending_tool_attachments)
-                
-                # Emit attachments as SSE deltas so frontend can display them
+                # Add minimal source text before images, then inject images
                 for attachment_fragment in pending_tool_attachments:
+                    # Extract tool source without modifying original
+                    tool_source = attachment_fragment.get("_tool_source")
+                    if tool_source:
+                        # Map tool names to user-friendly source labels
+                        source_label = "Google Drive" if "gdrive" in tool_source.lower() else "tool"
+                        content_builder.add_text(f"Image from {source_label}:")
+
+                    # Add image without _tool_source metadata
+                    clean_fragment = {k: v for k, v in attachment_fragment.items() if k != "_tool_source"}
+                    content_builder.add_structured([clean_fragment])
+
+                    # Emit attachment as SSE delta for frontend
                     yield {
                         "event": "message",
                         "data": json.dumps({
                             "choices": [
                                 {
                                     "delta": {
-                                        "content": [attachment_fragment],
+                                        "content": [clean_fragment],
                                         "role": "assistant",
                                     },
                                     "index": 0,
@@ -245,9 +255,9 @@ class StreamingHandler:
                             ],
                         }),
                     }
-                
+
                 pending_tool_attachments.clear()
-            
+
             streamed_tool_calls: list[dict[str, Any]] = []
             finish_reason: str | None = None
             model_name: str | None = None
@@ -805,7 +815,7 @@ class StreamingHandler:
                             attachment_metadata: dict[str, Any] = {
                                 "attachment_id": attachment_id
                             }
-                            
+
                             if attachment_record:
                                 signed_url = (
                                     attachment_record.get("signed_url")
@@ -827,7 +837,7 @@ class StreamingHandler:
                                     filename = record_metadata.get("filename")
                                     if filename:
                                         attachment_metadata["filename"] = filename
-                            
+
                             attachment_fragment = {
                                 "type": "image_url",
                                 "image_url": {
@@ -836,9 +846,12 @@ class StreamingHandler:
                                 "metadata": attachment_metadata,
                             }
                             content_parts.append(attachment_fragment)
-                            
+
                             # Add to pending attachments for next assistant response
-                            pending_tool_attachments.append(attachment_fragment)
+                            # Include tool source for minimal text prefix
+                            attachment_with_source = dict(attachment_fragment)
+                            attachment_with_source["_tool_source"] = tool_name
+                            pending_tool_attachments.append(attachment_with_source)
                         except Exception:  # pragma: no cover - best effort
                             # If we can't fetch the attachment, include placeholder
                             content_parts.append(
@@ -881,7 +894,7 @@ class StreamingHandler:
                     "created_at": edt_iso or tool_created_at,
                     "created_at_utc": utc_iso or tool_created_at,
                 }
-                
+
                 # If there are attachments, include the multimodal content structure
                 if attachment_ids:
                     tool_event_data["content"] = content_parts

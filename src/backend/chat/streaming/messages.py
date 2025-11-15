@@ -83,53 +83,22 @@ def prepare_messages_for_model(
         if not tool_text_parts and image_fragments:
             tool_text_parts.append("Tool returned image attachment(s).")
 
+        # Include GCS URLs in tool message text so LLM can reference them
+        # Images will be injected into assistant response via pending_tool_attachments
+        if image_fragments:
+            url_lines: list[str] = []
+            for fragment in image_fragments:
+                image_block = fragment.get("image_url") or {}
+                url_value = image_block.get("url")
+                metadata_block = fragment.get("metadata", {})
+                filename = metadata_block.get("filename", "image") if isinstance(metadata_block, dict) else "image"
+                if isinstance(url_value, str) and url_value.strip():
+                    url_lines.append(f"Image URL: {url_value}")
+            if url_lines:
+                tool_text_parts.extend(url_lines)
+
         tool_payload["content"] = "\n".join(tool_text_parts)
         prepared.append(tool_payload)
-
-        if not image_fragments:
-            continue
-
-        synthetic_content: list[dict[str, Any]] = []
-        description = (
-            "Image retrieved from tool result for analysis."
-            if len(image_fragments) == 1
-            else "Images retrieved from tool result for analysis."
-        )
-        synthetic_content.append({"type": "text", "text": description})
-
-        for fragment in image_fragments:
-            image_block = fragment.get("image_url") or {}
-            url_value = image_block.get("url")
-            if not isinstance(url_value, str) or not url_value:
-                continue
-            synthetic_fragment: dict[str, Any] = {
-                "type": "image_url",
-                "image_url": {"url": url_value},
-            }
-            metadata_block = fragment.get("metadata")
-            if isinstance(metadata_block, dict):
-                synthetic_fragment["metadata"] = metadata_block
-            synthetic_content.append(synthetic_fragment)
-
-        if len(synthetic_content) <= 1:
-            continue
-
-        synthetic_message: dict[str, Any] = {
-            "role": "user",
-            "content": synthetic_content,
-        }
-
-        metadata: dict[str, Any] = {"source": "tool_attachment_proxy"}
-        tool_call_id = message.get("tool_call_id")
-        tool_name = message.get("tool_name")
-        if isinstance(tool_call_id, str) and tool_call_id:
-            metadata["tool_call_id"] = tool_call_id
-        if isinstance(tool_name, str) and tool_name:
-            metadata["tool_name"] = tool_name
-        if metadata:
-            synthetic_message["metadata"] = metadata
-
-        prepared.append(synthetic_message)
 
     return prepared
 

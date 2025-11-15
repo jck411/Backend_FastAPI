@@ -160,15 +160,26 @@
       return;
     }
     cancelEditing();
+
     const cloned: AttachmentResource = {
       ...detail.attachment,
       metadata: detail.attachment.metadata
         ? { ...detail.attachment.metadata }
         : null,
     };
-    presetAttachments = [cloned];
-    const nextPrompt = detail.message?.text?.trim() ?? "";
-    prompt = nextPrompt;
+
+    // Allow selecting multiple assistant images for "edit & send" by
+    // accumulating preset attachments instead of replacing them.
+    const existing = presetAttachments ?? [];
+    const alreadyIncluded = existing.some(
+      (item) =>
+        item.id === cloned.id ||
+        item.displayUrl === cloned.displayUrl ||
+        item.deliveryUrl === cloned.deliveryUrl,
+    );
+
+    const nextAttachments = alreadyIncluded ? existing : [...existing, cloned];
+    presetAttachments = nextAttachments;
   }
 
   function beginEditingMessage(id: string): void {

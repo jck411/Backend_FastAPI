@@ -8,24 +8,54 @@ from typing import Any, MutableMapping, Sequence
 
 
 def parse_attachment_references(text: str) -> tuple[str, list[str]]:
-    """Extract inline attachment references from tool output text."""
+    """Extract attachment IDs from plain text markers or JSON payloads."""
 
-    if "attachment_id:" not in text:
+    if not isinstance(text, str):
         return text, []
 
+    original_text = text
     attachment_ids: list[str] = []
-    lines: list[str] = []
 
-    for line in text.split("\n"):
-        if line.strip().startswith("attachment_id:"):
-            attachment_id = line.strip().split(":", 1)[1].strip()
-            if attachment_id:
-                attachment_ids.append(attachment_id)
-        else:
-            lines.append(line)
+    if "attachment_id:" in text:
+        lines: list[str] = []
+        for line in text.split("\n"):
+            if line.strip().startswith("attachment_id:"):
+                attachment_id = line.strip().split(":", 1)[1].strip()
+                if attachment_id:
+                    attachment_ids.append(attachment_id)
+            else:
+                lines.append(line)
+        text = "\n".join(lines).strip()
 
-    cleaned_text = "\n".join(lines).strip()
-    return cleaned_text, attachment_ids
+    if not attachment_ids:
+        attachment_ids = _extract_attachment_ids_from_json(original_text)
+
+    return text, attachment_ids
+
+
+def _extract_attachment_ids_from_json(text: str) -> list[str]:
+    """Parse JSON text to locate attachment_id fields."""
+
+    try:
+        payload = json.loads(text)
+    except (TypeError, ValueError):
+        return []
+
+    found: list[str] = []
+
+    def _walk(value: Any) -> None:
+        if isinstance(value, dict):
+            attachment_id = value.get("attachment_id")
+            if isinstance(attachment_id, str) and attachment_id.strip():
+                found.append(attachment_id.strip())
+            for child in value.values():
+                _walk(child)
+        elif isinstance(value, list):
+            for item in value:
+                _walk(item)
+
+    _walk(payload)
+    return found
 
 
 def prepare_messages_for_model(

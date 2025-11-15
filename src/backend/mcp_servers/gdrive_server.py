@@ -1263,7 +1263,13 @@ async def display_drive_image(
         f"Filename: {stored_filename}",
         f"Size: {record.get('size_bytes')} bytes",
     ]
-    
+
+    # Include signed URL and expiry details so clients can locate the image
+    if signed_url:
+        lines.append(f"Signed URL: {signed_url}")
+    if expires_at:
+        lines.append(f"Signed URL expires at: {expires_at}")
+
     return "\n".join(lines)
 
 

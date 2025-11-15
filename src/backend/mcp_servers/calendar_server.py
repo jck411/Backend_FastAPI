@@ -12,21 +12,10 @@ import datetime
 # Standard library imports
 import datetime as dt
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, List, Optional, TypedDict
+from typing import Any, Callable, List, Optional, TypedDict
 
 # Third party imports
-if TYPE_CHECKING:
-
-    class FastMCP:
-        def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-
-        def run(self) -> None: ...
-
-        def tool(
-            self, name: str
-        ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
-else:
-    from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
 # Local imports
 from backend.services.google_auth.auth import (

@@ -6,24 +6,11 @@ import asyncio
 import base64
 import io
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-
-if TYPE_CHECKING:
-
-    class FastMCP:
-        def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-
-        def tool(
-            self, name: str
-        ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
-
-        def run(self) -> None: ...
-
-else:
-    from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
 from backend.mcp_servers.pdf_server import extract_bytes as kb_extract_bytes
 from backend.services.attachments import AttachmentService
@@ -220,39 +207,39 @@ def _detect_file_type_query(query: str) -> Optional[str]:
     # Using "contains" for broader matches, "=" for exact matches
     type_mappings = [
         # Images - match any image type
-        (["image", "images", "photo", "photos", "picture", "pictures", "img", "png", "jpg", "jpeg", "gif"], 
+        (["image", "images", "photo", "photos", "picture", "pictures", "img", "png", "jpg", "jpeg", "gif"],
          "mimeType contains 'image/'"),
-        
+
         # PDFs
-        (["pdf", "pdfs"], 
+        (["pdf", "pdfs"],
          "mimeType = 'application/pdf'"),
-        
+
         # Google Docs
-        (["document", "documents", "doc", "docs", "google doc", "google docs"], 
+        (["document", "documents", "doc", "docs", "google doc", "google docs"],
          "mimeType = 'application/vnd.google-apps.document'"),
-        
+
         # Google Sheets
-        (["spreadsheet", "spreadsheets", "sheet", "sheets", "google sheet", "google sheets"], 
+        (["spreadsheet", "spreadsheets", "sheet", "sheets", "google sheet", "google sheets"],
          "mimeType = 'application/vnd.google-apps.spreadsheet'"),
-        
+
         # Google Slides
-        (["presentation", "presentations", "slide", "slides", "google slide", "google slides"], 
+        (["presentation", "presentations", "slide", "slides", "google slide", "google slides"],
          "mimeType = 'application/vnd.google-apps.presentation'"),
-        
+
         # Folders
-        (["folder", "folders", "directory", "directories"], 
+        (["folder", "folders", "directory", "directories"],
          "mimeType = 'application/vnd.google-apps.folder'"),
-        
+
         # Videos
-        (["video", "videos", "movie", "movies", "mp4", "avi", "mov"], 
+        (["video", "videos", "movie", "movies", "mp4", "avi", "mov"],
          "mimeType contains 'video/'"),
-        
+
         # Audio
-        (["audio", "sound", "music", "mp3", "wav"], 
+        (["audio", "sound", "music", "mp3", "wav"],
          "mimeType contains 'audio/'"),
-        
+
         # Text files
-        (["text file", "text files", "txt"], 
+        (["text file", "text files", "txt"],
          "mimeType = 'text/plain'"),
     ]
 
@@ -430,12 +417,12 @@ async def search_drive_files(
     corpora: Optional[str] = None,
 ) -> str:
     """Search for files in Google Drive.
-    
+
     Intelligently handles different query types:
     - File type queries (e.g., "image", "pdf", "spreadsheet") filter by MIME type
     - Structured queries (e.g., "name='report'") are passed through as-is
     - Text queries search in file names
-    
+
     Examples:
         "image" -> Returns only image files (jpg, png, gif, etc.)
         "latest pdf" -> Returns PDF files, sorted by modification time
@@ -459,7 +446,7 @@ async def search_drive_files(
     else:
         # Check if this is a file type query
         mime_filter = _detect_file_type_query(query)
-        
+
         if mime_filter:
             # Extract any additional search terms (words that aren't the file type)
             query_lower = query.lower()
@@ -479,11 +466,11 @@ async def search_drive_files(
                     # Remove the keyword and common connecting words
                     pattern = r'\b' + re.escape(keyword) + r'\b'
                     search_terms = re.sub(pattern, '', search_terms)
-            
+
             # Clean up the remaining terms
             search_terms = re.sub(r'\b(latest|recent|new|old|my)\b', '', search_terms)
             search_terms = search_terms.strip()
-            
+
             # Build query: MIME type filter + optional name search
             if search_terms:
                 escaped_terms = _escape_query_term(search_terms)
@@ -1180,21 +1167,21 @@ async def display_drive_image(
     user_email: str = DEFAULT_USER_EMAIL,
 ) -> str:
     """Download an image from Google Drive and display it in the chat.
-    
+
     This tool downloads an image file from Google Drive and stores it for display
     in the chat interface. The image becomes part of the conversation history.
-    
+
     Args:
         file_id: The Google Drive file ID
         session_id: The chat session ID (required to store the attachment)
         user_email: The user's email address for authentication
-    
+
     Returns:
         A message with attachment details including signed URL for display
     """
     if not session_id or not session_id.strip():
         return "session_id is required to display the image in chat."
-    
+
     service, error_msg = _get_drive_service_or_error(user_email)
     if error_msg:
         return error_msg
@@ -1227,7 +1214,7 @@ async def display_drive_image(
 
     # Download the image
     request = service.files().get_media(fileId=file_id)
-    
+
     try:
         image_bytes = await _download_request_bytes(request, max_size=MAX_CONTENT_BYTES)
     except ValueError as exc:
@@ -1238,7 +1225,7 @@ async def display_drive_image(
     # Store the image using AttachmentService
     try:
         from backend.services.attachments import AttachmentError, AttachmentTooLarge
-        
+
         attachment_service = await _get_attachment_service()
         record = await attachment_service.save_bytes(
             session_id=session_id,
@@ -1263,7 +1250,7 @@ async def display_drive_image(
         f"Filename: {stored_filename}",
         f"Size: {record.get('size_bytes')} bytes",
     ]
-    
+
     return "\n".join(lines)
 
 

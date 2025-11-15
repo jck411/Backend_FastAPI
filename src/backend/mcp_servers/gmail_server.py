@@ -6,7 +6,7 @@ import asyncio
 import base64
 from email.mime.text import MIMEText
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Optional
+from typing import Any, Callable, Dict, Iterable, List, Literal, Optional
 
 # For local, in-process document extraction (no external URLs needed)
 try:  # pragma: no cover - optional import used by attachment text tool
@@ -14,18 +14,7 @@ try:  # pragma: no cover - optional import used by attachment text tool
 except Exception:  # pragma: no cover - graceful degradation if not installed
     kreuzberg_server = None  # type: ignore
 
-if TYPE_CHECKING:
-    # Lightweight stub to keep type checkers happy without importing heavy generics
-    class FastMCP:  # pragma: no cover - type checking only
-        def __init__(self, *args: Any, **kwargs: Any) -> None: ...
-
-        def tool(
-            self, name: str
-        ) -> Callable[[Callable[..., Any]], Callable[..., Any]]: ...
-
-        def run(self) -> None: ...
-else:  # Runtime import
-    from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP
 
 from backend.config import get_settings
 from backend.repository import ChatRepository

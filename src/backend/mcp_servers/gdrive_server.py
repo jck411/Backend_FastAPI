@@ -7,7 +7,18 @@ import base64
 import io
 import json
 import re
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
+from functools import lru_cache
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Sequence,
+    Tuple,
+)
 
 import httpx
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -35,10 +46,84 @@ from backend.services.google_auth.auth import (
 
 mcp = FastMCP("custom-gdrive")
 DRIVE_FIELDS_MINIMAL = (
-    "files(id, name, mimeType, size, modifiedTime, webViewLink, iconLink)"
+    "files("
+    "id, name, mimeType, size, modifiedTime, webViewLink, webContentLink, "
+    "iconLink, parents, driveId"
+    ")"
 )
 # Maximum file size in bytes for download operations (50MB)
 MAX_CONTENT_BYTES = 50 * 1024 * 1024
+
+
+class FileTypeKeywordMapping(NamedTuple):
+    keywords: Tuple[str, ...]
+    mime_filter: str
+
+
+FILE_TYPE_KEYWORD_MAPPINGS: Tuple[FileTypeKeywordMapping, ...] = (
+    FileTypeKeywordMapping(
+        keywords=(
+            "image",
+            "images",
+            "photo",
+            "photos",
+            "picture",
+            "pictures",
+            "img",
+            "png",
+            "jpg",
+            "jpeg",
+            "gif",
+        ),
+        mime_filter="mimeType contains 'image/'",
+    ),
+    FileTypeKeywordMapping(
+        keywords=("pdf", "pdfs"),
+        mime_filter="mimeType = 'application/pdf'",
+    ),
+    FileTypeKeywordMapping(
+        keywords=("document", "documents", "doc", "docs", "google doc", "google docs"),
+        mime_filter="mimeType = 'application/vnd.google-apps.document'",
+    ),
+    FileTypeKeywordMapping(
+        keywords=(
+            "spreadsheet",
+            "spreadsheets",
+            "sheet",
+            "sheets",
+            "google sheet",
+            "google sheets",
+        ),
+        mime_filter="mimeType = 'application/vnd.google-apps.spreadsheet'",
+    ),
+    FileTypeKeywordMapping(
+        keywords=(
+            "presentation",
+            "presentations",
+            "slide",
+            "slides",
+            "google slide",
+            "google slides",
+        ),
+        mime_filter="mimeType = 'application/vnd.google-apps.presentation'",
+    ),
+    FileTypeKeywordMapping(
+        keywords=("folder", "folders", "directory", "directories"),
+        mime_filter="mimeType = 'application/vnd.google-apps.folder'",
+    ),
+    FileTypeKeywordMapping(
+        keywords=("video", "videos", "movie", "movies", "mp4", "avi", "mov"),
+        mime_filter="mimeType contains 'video/'",
+    ),
+    FileTypeKeywordMapping(
+        keywords=("audio", "sound", "music", "mp3", "wav"),
+        mime_filter="mimeType contains 'audio/'",
+    ),
+    FileTypeKeywordMapping(
+        keywords=("text file", "text files", "txt"),
+        mime_filter="mimeType = 'text/plain'",
+    ),
+)
 
 # Global attachment service reference - set by application at runtime
 _attachment_service: AttachmentService | None = None
@@ -288,58 +373,27 @@ def _detect_file_type_query(query: str) -> Optional[str]:
         "latest pdf" -> "mimeType = 'application/pdf'"
         "spreadsheet" -> "mimeType = 'application/vnd.google-apps.spreadsheet'"
     """
-    query_lower = query.lower()
-
-    # Map keywords to MIME type filters
-    # Using "contains" for broader matches, "=" for exact matches
-    type_mappings = [
-        # Images - match any image type
-        (["image", "images", "photo", "photos", "picture", "pictures", "img", "png", "jpg", "jpeg", "gif"], 
-         "mimeType contains 'image/'"),
-        
-        # PDFs
-        (["pdf", "pdfs"], 
-         "mimeType = 'application/pdf'"),
-        
-        # Google Docs
-        (["document", "documents", "doc", "docs", "google doc", "google docs"], 
-         "mimeType = 'application/vnd.google-apps.document'"),
-        
-        # Google Sheets
-        (["spreadsheet", "spreadsheets", "sheet", "sheets", "google sheet", "google sheets"], 
-         "mimeType = 'application/vnd.google-apps.spreadsheet'"),
-        
-        # Google Slides
-        (["presentation", "presentations", "slide", "slides", "google slide", "google slides"], 
-         "mimeType = 'application/vnd.google-apps.presentation'"),
-        
-        # Folders
-        (["folder", "folders", "directory", "directories"], 
-         "mimeType = 'application/vnd.google-apps.folder'"),
-        
-        # Videos
-        (["video", "videos", "movie", "movies", "mp4", "avi", "mov"], 
-         "mimeType contains 'video/'"),
-        
-        # Audio
-        (["audio", "sound", "music", "mp3", "wav"], 
-         "mimeType contains 'audio/'"),
-        
-        # Text files
-        (["text file", "text files", "txt"], 
-         "mimeType = 'text/plain'"),
-    ]
-
-    # Check each mapping
-    for keywords, mime_filter in type_mappings:
-        # Check if any keyword matches the query (as whole word or part of phrase)
-        for keyword in keywords:
-            # Match keyword as whole word or with common modifiers
-            pattern = r'\b' + re.escape(keyword) + r'\b'
-            if re.search(pattern, query_lower):
-                return mime_filter
+    for mapping in FILE_TYPE_KEYWORD_MAPPINGS:
+        for keyword in mapping.keywords:
+            if _keyword_pattern(keyword).search(query):
+                return mapping.mime_filter
 
     return None
+
+
+@lru_cache(maxsize=None)
+def _keyword_pattern(keyword: str) -> re.Pattern[str]:
+    """Return a cached regex pattern for keyword detection/removal."""
+    return re.compile(r"\b" + re.escape(keyword) + r"\b", flags=re.IGNORECASE)
+
+
+def _strip_file_type_keywords(value: str) -> str:
+    """Remove any file-type keywords from the provided string."""
+    stripped = value
+    for mapping in FILE_TYPE_KEYWORD_MAPPINGS:
+        for keyword in mapping.keywords:
+            stripped = _keyword_pattern(keyword).sub("", stripped)
+    return stripped
 
 
 async def _locate_child_folder(
@@ -532,35 +586,7 @@ async def search_drive_files(
         mime_filter = _detect_file_type_query(query)
         if mime_filter:
             search_terms_value = query.lower()
-            for keywords, _ in [
-                (
-                    [
-                        "image",
-                        "images",
-                        "photo",
-                        "photos",
-                        "picture",
-                        "pictures",
-                        "img",
-                        "png",
-                        "jpg",
-                        "jpeg",
-                        "gif",
-                    ],
-                    None,
-                ),
-                (["pdf", "pdfs"], None),
-                (["document", "documents", "doc", "docs"], None),
-                (["spreadsheet", "spreadsheets", "sheet", "sheets"], None),
-                (["presentation", "presentations", "slide", "slides"], None),
-                (["folder", "folders"], None),
-                (["video", "videos", "movie", "movies"], None),
-                (["audio", "sound", "music"], None),
-            ]:
-                for keyword in keywords:
-                    pattern = r"\b" + re.escape(keyword) + r"\b"
-                    search_terms_value = re.sub(pattern, "", search_terms_value)
-
+            search_terms_value = _strip_file_type_keywords(search_terms_value)
             search_terms_value = re.sub(
                 r"\b(latest|recent|new|old|my)\b", "", search_terms_value
             )
@@ -1096,9 +1122,11 @@ async def move_drive_file(
     )
     remove_parents = ",".join(current_parents)
 
+    normalized_destination = _normalize_parent_id(destination_folder_id)
+
     update_kwargs = {
         "fileId": file_id,
-        "addParents": destination_folder_id,
+        "addParents": normalized_destination,
         "fields": "id, name, parents",
         "supportsAllDrives": True,
     }
@@ -1123,7 +1151,7 @@ async def move_drive_file(
         data={
             "file_id": file_id,
             "file_name": new_name,
-            "destination_folder_id": destination_folder_id,
+            "destination_folder_id": normalized_destination,
             "previous_parent_ids": current_parents,
             "user_email": user_email,
         }

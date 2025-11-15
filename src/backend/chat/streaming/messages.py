@@ -83,19 +83,9 @@ def prepare_messages_for_model(
         if not tool_text_parts and image_fragments:
             tool_text_parts.append("Tool returned image attachment(s).")
 
-        # Include GCS URLs in tool message text so LLM can reference them
         # Images will be injected into assistant response via pending_tool_attachments
-        if image_fragments:
-            url_lines: list[str] = []
-            for fragment in image_fragments:
-                image_block = fragment.get("image_url") or {}
-                url_value = image_block.get("url")
-                metadata_block = fragment.get("metadata", {})
-                filename = metadata_block.get("filename", "image") if isinstance(metadata_block, dict) else "image"
-                if isinstance(url_value, str) and url_value.strip():
-                    url_lines.append(f"Image URL: {url_value}")
-            if url_lines:
-                tool_text_parts.extend(url_lines)
+        # We don't include URLs in tool message text to avoid duplicate markdown links
+        # The LLM will see the images as structured fragments in the assistant response
 
         tool_payload["content"] = "\n".join(tool_text_parts)
         prepared.append(tool_payload)

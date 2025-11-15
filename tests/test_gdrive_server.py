@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -26,10 +27,12 @@ async def test_search_drive_files_auth_error(mock_get_drive_service):
     mock_get_drive_service.side_effect = ValueError("Missing credentials")
 
     result = await search_drive_files("important doc")
+    payload = json.loads(result)
 
-    assert "Authentication error" in result
-    assert "Missing credentials" in result
-    assert "Connect Google Services" in result
+    assert payload["ok"] is False
+    assert "Authentication error" in payload["error"]["message"]
+    assert "Missing credentials" in payload["error"]["message"]
+    assert "Connect Google Services" in payload["error"]["message"]
 
 
 @pytest.mark.asyncio
@@ -77,8 +80,11 @@ async def test_list_drive_items_resolves_folder_name(
         user_email="user@example.com",
     )
 
-    assert "Found 1 items in folder 'bps'" in result
-    assert "notes.txt" in result
+    payload = json.loads(result)
+    assert payload["ok"] is True
+    assert payload["data"]["folder"]["display_label"] == "bps"
+    assert payload["data"]["count"] == 1
+    assert payload["data"]["items"][0]["name"] == "notes.txt"
     assert files_api.list.call_count == 2
 
 
@@ -143,7 +149,10 @@ async def test_delete_drive_file_moves_to_trash(mock_get_drive_service, mock_to_
 
     result = await delete_drive_file("file123", user_email="user@example.com")
 
-    assert "moved to trash" in result
+    payload = json.loads(result)
+    assert payload["ok"] is True
+    assert payload["data"]["action"] == "trashed"
+    assert payload["data"]["file_id"] == "file123"
     files_api.update.assert_called_once()
     kwargs = files_api.update.call_args.kwargs
     assert kwargs["fileId"] == "file123"
@@ -172,7 +181,10 @@ async def test_delete_drive_file_permanent(mock_get_drive_service, mock_to_threa
         "file123", user_email="user@example.com", permanent=True
     )
 
-    assert "permanently deleted" in result
+    payload = json.loads(result)
+    assert payload["ok"] is True
+    assert payload["data"]["action"] == "permanently_deleted"
+    assert payload["data"]["file_id"] == "file123"
     files_api.delete.assert_called_once_with(fileId="file123", supportsAllDrives=True)
     files_api.update.assert_not_called()
 
@@ -205,7 +217,10 @@ async def test_move_drive_file(mock_get_drive_service, mock_to_thread):
         "file123", destination_folder_id="newParent", user_email="user@example.com"
     )
 
-    assert "moved to folder 'newParent'" in result
+    payload = json.loads(result)
+    assert payload["ok"] is True
+    assert payload["data"]["destination_folder_id"] == "newParent"
+    assert payload["data"]["file_id"] == "file123"
     kwargs = mock_service.files.return_value.update.call_args.kwargs
     assert kwargs["addParents"] == "newParent"
     assert kwargs["removeParents"] == "oldParent"
@@ -237,7 +252,10 @@ async def test_copy_drive_file(mock_get_drive_service, mock_to_thread):
         destination_folder_id="destFolder",
     )
 
-    assert "Created copy 'Report Copy'" in result
+    payload = json.loads(result)
+    assert payload["ok"] is True
+    assert payload["data"]["file"]["name"] == "Report Copy"
+    assert payload["data"]["source_file_id"] == "file123"
     files_api.copy.assert_called_once()
     kwargs = files_api.copy.call_args.kwargs
     assert kwargs["fileId"] == "file123"
@@ -266,7 +284,9 @@ async def test_rename_drive_file(mock_get_drive_service, mock_to_thread):
         "file123", new_name="New Name", user_email="user@example.com"
     )
 
-    assert "renamed to 'New Name'" in result
+    payload = json.loads(result)
+    assert payload["ok"] is True
+    assert payload["data"]["file_name"] == "New Name"
     files_api.update.assert_called_once()
     kwargs = files_api.update.call_args.kwargs
     assert kwargs["body"] == {"name": "New Name"}
@@ -300,8 +320,11 @@ async def test_get_file_content_pdf_uses_extractor(
 
     result = await get_drive_file_content("file123", user_email="user@example.com")
 
-    assert "Report.pdf" in result
-    assert "Hello world from PDF" in result
+    payload = json.loads(result)
+    assert payload["ok"] is True
+    assert payload["data"]["file"]["name"] == "Report.pdf"
+    assert "Hello world from PDF" in payload["data"]["content"]
+    assert payload["data"]["extraction"]["method"] == "pdf_extractor"
     mock_extract.assert_called_once()
 
 
@@ -328,7 +351,10 @@ async def test_create_drive_folder(mock_get_drive_service, mock_to_thread):
         "Project", parent_folder_id="rootFolder", user_email="user@example.com"
     )
 
-    assert "Created folder 'Project'" in result
+    payload = json.loads(result)
+    assert payload["ok"] is True
+    assert payload["data"]["folder"]["name"] == "Project"
+    assert payload["data"]["folder"]["parents"] == ["rootFolder"]
     files_api.create.assert_called_once()
     kwargs = files_api.create.call_args.kwargs
     assert kwargs["body"]["name"] == "Project"
@@ -412,9 +438,10 @@ async def test_search_images_filters_by_mime_type(mock_get_drive_service, mock_t
     # The query should NOT do a text search for "image"
     assert "name contains 'image'" not in query_param
     
-    # Verify result contains the image
-    assert "vacation.jpg" in result
-    assert "image/jpeg" in result
+    payload = json.loads(result)
+    assert payload["ok"] is True
+    assert payload["data"]["files"][0]["name"] == "vacation.jpg"
+    assert payload["data"]["files"][0]["mime_type"] == "image/jpeg"
 
 
 @pytest.mark.asyncio

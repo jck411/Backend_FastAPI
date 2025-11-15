@@ -118,7 +118,23 @@ def parse_time_string(time_str: Optional[str]) -> Optional[str]:
                 return time_str
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=datetime.timezone.utc)
-            return dt.isoformat().replace("+00:00", "Z")
+                # Extract date in UTC
+                date_obj = dt.date()
+            else:
+                # Extract date in the original timezone before converting to UTC
+                # This ensures "today" in EST stays "today" even after UTC conversion
+                date_obj = dt.date()
+                # Now build UTC midnight for that date
+                utc_midnight = datetime.datetime(
+                    date_obj.year,
+                    date_obj.month,
+                    date_obj.day,
+                    0,
+                    0,
+                    0,
+                    tzinfo=datetime.timezone.utc,
+                )
+                return utc_midnight.isoformat().replace("+00:00", "Z")
 
     # Build a midnight datetime in UTC for consistent behavior
     utc_midnight = datetime.datetime(

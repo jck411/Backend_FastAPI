@@ -32,7 +32,7 @@ from backend.mcp_servers.calendar_server import (
     update_task as calendar_update_task,
 )
 from backend.tasks.models import Task, TaskListInfo
-from backend.tasks.utils import parse_rfc3339_datetime
+from backend.tasks.utils import parse_rfc3339_datetime, parse_time_string
 
 
 def test_parse_time_string_none():
@@ -581,6 +581,26 @@ async def test_create_task_due_conversion(mock_get_tasks_service):
 
     insert_kwargs = mock_service.tasks.return_value.insert.call_args.kwargs
     assert insert_kwargs["body"]["due"] == "2025-01-01T00:00:00Z"
+
+
+def test_parse_time_string_timezone_aware_datetime():
+    """parse_time_string extracts date in original timezone before UTC conversion.
+
+    This ensures "today" in EST stays "today" even after conversion to UTC.
+    For example, 2025-11-15T23:59:59-05:00 should become 2025-11-15T00:00:00Z,
+    not 2025-11-16T04:59:59Z (which would be tomorrow).
+    """
+    # Late evening in EST (UTC-5) should stay as the same date in UTC
+    result = parse_time_string("2025-11-15T23:59:59-05:00")
+    assert result == "2025-11-15T00:00:00Z"
+
+    # Early morning in EST should also work correctly
+    result = parse_time_string("2025-11-15T00:00:00-05:00")
+    assert result == "2025-11-15T00:00:00Z"
+
+    # Test with positive timezone offset (ahead of UTC)
+    result = parse_time_string("2025-11-15T23:59:59+05:00")
+    assert result == "2025-11-15T00:00:00Z"
 
 
 @pytest.mark.asyncio

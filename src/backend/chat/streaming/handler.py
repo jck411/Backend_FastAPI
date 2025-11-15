@@ -761,7 +761,19 @@ class StreamingHandler:
                         else:
                             working_arguments = dict(arguments)
                             if session_id and _tool_requires_session_id(tool_name):
-                                working_arguments.setdefault("session_id", session_id)
+                                existing_session = working_arguments.get("session_id")
+                                if (
+                                    isinstance(existing_session, str)
+                                    and existing_session.strip()
+                                    and existing_session.strip() != session_id
+                                ):
+                                    logger.debug(
+                                        "Overriding tool-provided session_id '%s' with active session '%s' for tool %s",
+                                        existing_session,
+                                        session_id,
+                                        tool_name,
+                                    )
+                                working_arguments["session_id"] = session_id
                             try:
                                 result_obj = await self._tool_client.call_tool(
                                     tool_name, working_arguments

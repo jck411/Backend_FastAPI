@@ -8,9 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-
-# Standard library imports
-import datetime as dt
 import json
 from dataclasses import dataclass
 from typing import Any, List, Optional, TypedDict
@@ -40,26 +37,6 @@ from backend.utils.datetime_utils import (
     parse_rfc3339_datetime,
 )
 
-
-# Define parser for date/time handling
-# We define our own parser first as a fallback
-class FallbackParser:
-    @staticmethod
-    def parse(timestr):
-        """Parse datetime string to datetime object."""
-        return dt.datetime.fromisoformat(timestr.replace("Z", "+00:00"))
-
-
-# Set a default parser implementation
-parser = FallbackParser()
-
-# Try to import dateutil if available for better date parsing
-# This is wrapped with # type: ignore to suppress the import error in static analysis
-try:
-    from dateutil import parser  # type: ignore
-except ImportError:
-    # Keep using our fallback implementation
-    pass
 
 # Create MCP server instance
 mcp: FastMCP = FastMCP("custom-calendar")
@@ -321,14 +298,12 @@ def _event_sort_key(start_value: str) -> datetime.datetime:
     """Convert an event start value to a sortable datetime."""
 
     try:
-        parsed = parser.parse(start_value)
+        parsed = parse_rfc3339_datetime(start_value)
+        if parsed is None:
+            return datetime.datetime.max.replace(tzinfo=datetime.timezone.utc)
+        return parsed
     except Exception:
         return datetime.datetime.max.replace(tzinfo=datetime.timezone.utc)
-
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
-
-    return parsed
 
 
 def _event_bounds(event: EventInfo) -> tuple[datetime.datetime, datetime.datetime]:

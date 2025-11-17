@@ -145,10 +145,12 @@ Once connected, all Calendar, Tasks, Gmail, and Drive tools are available to the
 ## Common Patterns
 
 ### Personal Context Discovery
-Before making recommendations, call `search_all_tasks` or `user_context_from_tasks`:
+Before making recommendations, call `search_all_tasks`:
 - Empty query → general overview
 - Keywords → specific interests (e.g., "read", "watch", "buy")
 - Surfaces user's plans, goals, preferences
+
+For combined calendar + tasks view: `calendar_get_events(include_tasks=True)`
 
 ### File & Attachment Workflows
 
@@ -166,7 +168,7 @@ Before making recommendations, call `search_all_tasks` or `user_context_from_tas
 - Use friendly names: "Mom's calendar" → resolves to ID
 - Aggregate queries (no `calendar_id`) → search all calendars
 - Always include `due` parameter when scheduling tasks
-- Call `user_context_from_tasks` before scheduling
+- Check `search_all_tasks` or `calendar_get_events(include_tasks=True)` before scheduling
 
 ### Document Intelligence
 - PDFs: Auto OCR fallback if no text layer

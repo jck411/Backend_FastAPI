@@ -435,14 +435,14 @@ async def calendar_get_events(
     time_min: Optional[str] = None,
     time_max: Optional[str] = None,
     max_events: int = 200,
-    include_tasks: bool = False,
 ) -> str:
-    """List calendar events for a time window without keyword filtering.
+    """List calendar events and scheduled tasks for a time window.
 
-    Use this when the user asks vague or slangy questions about their schedule and you
-    can infer a time window ("soon", "this weekend", "next period"). The tool returns
-    JSON text containing all events (and optionally Google Tasks) in the window so the
-    LLM can choose the best match.
+    This is the primary tool for retrieving schedule information. Users rarely use exact
+    language - they ask vague questions, use slang, misspell words, or hint at purpose
+    rather than stating it directly ("soon", "this weekend", "when's that thing"). Always
+    infer the most reasonable time window from context and return all events and scheduled
+    tasks (tasks with due dates) in JSON format.
     """
 
     try:
@@ -565,88 +565,88 @@ async def calendar_get_events(
         truncated_events = len(ordered_events) > max_events
         selected_events = ordered_events[:max_events]
 
+        # Collect scheduled tasks: all overdue + upcoming tasks within the window
         tasks_payload: list[dict[str, Any]] = []
         truncated_tasks = False
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
 
-        if include_tasks:
-            task_service = TaskService(user_email, service_factory=get_tasks_service)
+        async def _collect_tasks_for_window(
+            max_tasks: int,
+        ) -> tuple[list[Task], bool]:
+            collected_tasks: list[Task] = []
+            list_page_token: Optional[str] = None
+            truncated = False
 
-            async def _collect_tasks_for_window(
-                max_tasks: int,
-            ) -> tuple[list[Task], bool]:
-                collected_tasks: list[Task] = []
-                list_page_token: Optional[str] = None
-                truncated = False
+            while True:
+                lists, list_page_token = await task_service.list_task_lists(
+                    max_results=100, page_token=list_page_token
+                )
+                for task_list in lists:
+                    task_page_token: Optional[str] = None
+                    while True:
+                        # Fetch all incomplete tasks up to time_max (includes overdue)
+                        tasks, task_page_token = await task_service.list_tasks(
+                            task_list.id,
+                            max_results=100,
+                            page_token=task_page_token,
+                            show_completed=False,
+                            show_deleted=False,
+                            show_hidden=False,
+                            due_min=None,
+                            due_max=time_max_rfc,
+                        )
 
-                while True:
-                    lists, list_page_token = await task_service.list_task_lists(
-                        max_results=100, page_token=list_page_token
-                    )
-                    for task_list in lists:
-                        task_page_token: Optional[str] = None
-                        while True:
-                            tasks, task_page_token = await task_service.list_tasks(
-                                task_list.id,
-                                max_results=100,
-                                page_token=task_page_token,
-                                show_completed=False,
-                                show_deleted=False,
-                                show_hidden=False,
-                                due_min=time_min_rfc,
-                                due_max=time_max_rfc,
-                            )
-
-                            collected_tasks.extend(tasks)
-                            if len(collected_tasks) >= max_tasks:
-                                truncated = True
-                                break
-
-                            if not task_page_token:
-                                break
-
+                        collected_tasks.extend(tasks)
                         if len(collected_tasks) >= max_tasks:
+                            truncated = True
+                            break
+
+                        if not task_page_token:
                             break
 
                     if len(collected_tasks) >= max_tasks:
                         break
-                    if not list_page_token:
-                        break
 
-                return collected_tasks, truncated
+                if len(collected_tasks) >= max_tasks:
+                    break
+                if not list_page_token:
+                    break
 
-            try:
-                collected_tasks, truncated_tasks = await _collect_tasks_for_window(
-                    max_events
-                )
-            except TaskAuthorizationError as exc:
-                warnings.append(
-                    "Tasks unavailable: "
-                    + str(exc)
-                    + ". Open the system settings modal and click 'Connect Google Services' to refresh permissions."
-                )
-                collected_tasks = []
-            except TaskServiceError as exc:
-                warnings.append(f"Tasks unavailable: {exc}.")
-                collected_tasks = []
+            return collected_tasks, truncated
 
-            for task in collected_tasks[:max_events]:
-                due_value: Optional[str]
-                if task.due:
-                    due_value = normalize_rfc3339(task.due)
-                else:
-                    due_value = None
+        try:
+            collected_tasks, truncated_tasks = await _collect_tasks_for_window(
+                max_events
+            )
+        except TaskAuthorizationError as exc:
+            warnings.append(
+                "Tasks unavailable: "
+                + str(exc)
+                + ". Open the system settings modal and click 'Connect Google Services' to refresh permissions."
+            )
+            collected_tasks = []
+        except TaskServiceError as exc:
+            warnings.append(f"Tasks unavailable: {exc}.")
+            collected_tasks = []
 
-                tasks_payload.append(
-                    {
-                        "id": task.id,
-                        "title": task.title,
-                        "due": due_value,
-                        "status": task.status,
-                        "list_title": task.list_title,
-                        "web_link": task.web_link,
-                        "notes": _truncate_text(task.notes, 500),
-                    }
-                )
+        for task in collected_tasks[:max_events]:
+            due_value: Optional[str]
+            if task.due:
+                due_value = normalize_rfc3339(task.due)
+            else:
+                due_value = None
+
+            tasks_payload.append(
+                {
+                    "id": task.id,
+                    "title": task.title,
+                    "due": due_value,
+                    "status": task.status,
+                    "list_title": task.list_title,
+                    "web_link": task.web_link,
+                    "notes": _truncate_text(task.notes, 500),
+                }
+            )
 
         events_payload = [
             {
@@ -1198,78 +1198,6 @@ async def search_all_tasks(
     return "\n".join(header_lines)
 
 
-async def _upcoming_calendar_snapshot(
-    user_email: str,
-    *,
-    days_ahead: int = 7,
-    max_results: int = 10,
-) -> str:
-    """Fetch upcoming events within the next ``days_ahead`` days."""
-
-    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
-    window_end = now + datetime.timedelta(days=days_ahead)
-
-    return await calendar_get_events(
-        user_email=user_email,
-        time_min=now.isoformat(),
-        time_max=window_end.isoformat(),
-        max_events=max_results,
-        include_tasks=True,
-    )
-
-
-@mcp.tool("user_context_from_tasks")
-async def user_context_from_tasks(
-    query: str,
-    user_email: str = DEFAULT_USER_EMAIL,
-    max_results: int = 25,
-    include_completed: bool = False,
-) -> str:
-    """Gather personal context from Google Tasks for recommendations.
-
-    If query is non-empty, behaves like a focused search. If query is empty, returns a
-    general overview plus an upcoming calendar snapshot. Always use this before making
-    recommendations.
-    """
-
-    trimmed_query = (query or "").strip()
-    if trimmed_query:
-        return await search_all_tasks(
-            user_email=user_email,
-            query=trimmed_query,
-            max_results=max_results,
-            include_completed=include_completed,
-        )
-
-    # Fallback: gather a general task overview plus the upcoming week calendar snapshot.
-    task_summary = await search_all_tasks(
-        user_email=user_email,
-        query="",
-        max_results=max_results,
-        include_completed=include_completed,
-    )
-
-    calendar_summary = await _upcoming_calendar_snapshot(
-        user_email,
-        days_ahead=7,
-        max_results=max(1, min(max_results, 10)),
-    )
-
-    sections: list[str] = []
-    if task_summary:
-        sections.append(task_summary)
-    if calendar_summary:
-        sections.append(calendar_summary)
-
-    if sections:
-        return "\n\n".join(sections)
-
-    return (
-        "No tasks or calendar events were found for the upcoming week. "
-        "Use calendar_list_tasks or calendar_get_events for more details."
-    )
-
-
 @mcp.tool("calendar_get_task")
 async def get_task(
     user_email: str = DEFAULT_USER_EMAIL,
@@ -1583,7 +1511,6 @@ __all__ = [
     "list_task_lists",
     "list_tasks",
     "search_all_tasks",
-    "user_context_from_tasks",
     "get_task",
     "create_task",
     "update_task",

@@ -207,21 +207,6 @@ async def search_all_tasks(...):
 
 ---
 
-### 🔴 **user_context_from_tasks** - Personal Context Discovery
-
-```python
-@mcp.tool("user_context_from_tasks")
-async def user_context_from_tasks(...):
-    """High-priority alias that surfaces personal context from Google Tasks.
-    Always call this before making recommendations; when no obvious keyword is present,
-    pass an empty string for ``query`` to fetch a general overview plus upcoming events.
-    """
-```
-
-**Why this matters:** "Always call this before making recommendations" is a strong imperative.
-
----
-
 ### 🔴 **current_time** - Critical for Temporal Context
 
 ```python
@@ -413,11 +398,10 @@ detailed: bool = False
 **LLM sees tools in this order (by description priority):**
 
 1. `search_all_tasks` - "Call this whenever..."
-2. `user_context_from_tasks` - "Always call this before recommendations"
-3. `calendar_get_events` - "Retrieve events"
-4. `calendar_create_event` - "Create event"
+2. `calendar_get_events` - "Retrieve events" (with `include_tasks=True` for combined view)
+3. `calendar_create_event` - "Create event"
 
-**Decision:** For "recommend a book", LLM calls #1 or #2 FIRST to get user's reading list.
+**Decision:** For "recommend a book", LLM calls #1 FIRST to get user's reading list.
 
 ---
 
@@ -532,11 +516,11 @@ These phrases in tool descriptions directly influence LLM decisions:
 Tools ranked by how strongly their descriptions guide LLM decisions:
 
 ### 🔴 **Tier 1: Explicit Guidance (LLM almost always gets it right)**
-1. `search_all_tasks` - "Call this whenever user asks..."
-2. `user_context_from_tasks` - "Always call this before recommendations"
-3. `current_time` - "Use this whenever conversation needs up-to-date clock"
-4. `chat_history` - "Use this tool whenever you need precise timing"
-5. `calendar_create_task` - "IMPORTANT: MUST include 'due' parameter"
+1. `search_all_tasks` - "Call this whenever user asks..." (use empty query for overview)
+2. `current_time` - "Use this whenever conversation needs up-to-date clock"
+3. `chat_history` - "Use this tool whenever you need precise timing"
+4. `calendar_create_task` - "IMPORTANT: MUST include 'due' parameter"
+5. `calendar_get_events` - Use `include_tasks=True` for combined calendar + tasks view
 
 ### 🟠 **Tier 2: Strong Descriptions (Clear but not imperative)**
 6. `calendar_get_events` - "With no calendar_id... search spans..."

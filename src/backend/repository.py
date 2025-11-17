@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from backend.services.time_context import EASTERN_TIMEZONE
 from backend.utils.datetime_utils import (
     format_timestamp_for_client,
     normalize_db_timestamp,

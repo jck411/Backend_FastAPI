@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-import json
 
 # Standard library imports
 import datetime as dt
+import json
 from dataclasses import dataclass
 from typing import Any, List, Optional, TypedDict
 
@@ -94,6 +94,19 @@ def _parse_time_string(time_str: Optional[str]) -> Optional[str]:
         "+" not in time_str and "-" not in time_str[10:] and "Z" not in time_str
     ):
         return time_str + "Z"
+
+    # If timezone is present (and not Z), convert to UTC
+    if "T" in time_str and (
+        "+" in time_str or ("-" in time_str[10:] and "Z" not in time_str)
+    ):
+        try:
+            # Parse the datetime with timezone and convert to UTC
+            dt = datetime.datetime.fromisoformat(time_str)
+            if dt.tzinfo is not None:
+                dt_utc = dt.astimezone(datetime.timezone.utc)
+                return dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        except Exception:
+            pass
 
     return time_str
 
@@ -355,7 +368,12 @@ def _event_sort_key(start_value: str) -> datetime.datetime:
 
 
 def _event_bounds(event: EventInfo) -> tuple[datetime.datetime, datetime.datetime]:
-    """Return aware datetime bounds for overlap checks."""
+    """Return aware datetime bounds for overlap checks.
+
+    For all-day events, Google Calendar returns date-only strings and uses
+    an exclusive end date (the day after the event). We convert these to
+    datetime ranges that span the full day(s) to ensure proper overlap detection.
+    """
 
     if event.is_all_day:
         try:
@@ -368,6 +386,10 @@ def _event_bounds(event: EventInfo) -> tuple[datetime.datetime, datetime.datetim
                 start_date = datetime.date.min
             end_date = start_date
 
+        # For all-day events, we want the event to span the entire start day.
+        # Since Google uses exclusive end dates, we don't modify end_date.
+        # An event on Nov 16 has start="2025-11-16" and end="2025-11-17",
+        # which represents Nov 16 00:00:00 to Nov 17 00:00:00 (exclusive).
         start_dt = datetime.datetime.combine(
             start_date, datetime.time.min, tzinfo=datetime.timezone.utc
         )
@@ -388,15 +410,32 @@ def _overlaps_window(
     range_min_dt: Optional[datetime.datetime],
     range_max_dt: Optional[datetime.datetime],
 ) -> bool:
-    """Return True when the event overlaps the requested window."""
+    """Return True when the event overlaps the requested window.
+
+    Uses Allen's Interval Algebra: two half-open intervals [a,b) and [c,d)
+    overlap if and only if: a < d and c < b.
+
+    This handles Google Calendar's exclusive end dates correctly for all-day
+    events (e.g., an event on Nov 16 has end="2025-11-17" meaning it ends
+    before Nov 17 starts).
+    """
 
     event_start, event_end = _event_bounds(event)
 
-    if range_min_dt and event_end < range_min_dt:
-        return False
-    if range_max_dt and event_start > range_max_dt:
-        return False
-    return True
+    # Handle unbounded ranges (default to no restriction)
+    window_start = (
+        range_min_dt
+        if range_min_dt
+        else datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+    )
+    window_end = (
+        range_max_dt
+        if range_max_dt
+        else datetime.datetime.max.replace(tzinfo=datetime.timezone.utc)
+    )
+
+    # Canonical overlap test: event_start < window_end AND window_start < event_end
+    return event_start < window_end and window_start < event_end
 
 
 def _calendar_priority(calendar_id: str) -> int:
@@ -524,7 +563,9 @@ async def calendar_get_events(
         time_max_rfc = _parse_time_string(time_max)
 
         if not time_min_rfc and not time_max_rfc:
-            now_utc = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+            now_utc = datetime.datetime.now(datetime.timezone.utc).replace(
+                microsecond=0
+            )
             time_min_rfc = normalize_rfc3339(now_utc)
             time_max_rfc = normalize_rfc3339(now_utc + datetime.timedelta(days=30))
 
@@ -583,7 +624,9 @@ async def calendar_get_events(
 
             return (cal_id, collected, None)
 
-        fetch_results: list[tuple[str, list[dict[str, Any]] | None, Exception | None]] = []
+        fetch_results: list[
+            tuple[str, list[dict[str, Any]] | None, Exception | None]
+        ] = []
         if calendars_to_query:
             fetch_results = await asyncio.gather(
                 *(_fetch_calendar_events(cal_id) for cal_id in calendars_to_query)

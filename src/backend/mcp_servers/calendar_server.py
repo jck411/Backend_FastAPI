@@ -37,7 +37,6 @@ from backend.utils.datetime_utils import (
     parse_rfc3339_datetime,
 )
 
-
 # Create MCP server instance
 mcp: FastMCP = FastMCP("custom-calendar")
 
@@ -384,10 +383,14 @@ def _calendar_priority(calendar_id: str) -> int:
 
 
 def _event_dedup_key(event: EventInfo) -> str:
-    """Return a stable key representing the logical event."""
+    """Return a stable key representing the logical event.
+
+    For recurring events, include the start date to distinguish instances.
+    """
 
     if event.ical_uid:
-        return event.ical_uid
+        # Include start date to differentiate recurring event instances
+        return f"{event.ical_uid}|{event.start}"
 
     return f"{event.title}|{event.start}|{event.end}"
 

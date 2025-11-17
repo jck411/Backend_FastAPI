@@ -191,17 +191,6 @@ for definition in DEFAULT_CALENDAR_DEFINITIONS:
     label = definition["label"]
     _CALENDAR_ALIAS_TO_ID[_alias_key(label)] = cal_id
 
-# Lower numbers are treated as more authoritative when deduplicating events.
-CALENDAR_PRIORITIES: dict[str, int] = {
-    "0d02885a194bb2bfab4573ac6188f079498c768aa22659656b248962d03af863@group.calendar.google.com": 0,
-    "4b779996b31f84a4dc520b2f0255e437863f0c826f3249c05f5f13f020fe3ba6@group.calendar.google.com": 0,
-    "family08001023161820261147@group.calendar.google.com": 5,
-    "primary": 10,
-    "en.usa#holiday@group.v.calendar.google.com": 20,
-}
-
-_DEFAULT_CALENDAR_PRIORITY = 100
-
 AGGREGATE_CALENDAR_ALIASES: set[str] = {
     "my calendar",
     "my calendars",
@@ -374,48 +363,6 @@ def _overlaps_window(
 
     # Canonical overlap test: event_start < window_end AND window_start < event_end
     return event_start < window_end and window_start < event_end
-
-
-def _calendar_priority(calendar_id: str) -> int:
-    """Return ordering priority for a calendar when deduplicating events."""
-
-    return CALENDAR_PRIORITIES.get(calendar_id, _DEFAULT_CALENDAR_PRIORITY)
-
-
-def _event_dedup_key(event: EventInfo) -> str:
-    """Return a stable key representing the logical event.
-
-    For recurring events, include the start date to distinguish instances.
-    """
-
-    if event.ical_uid:
-        # Include start date to differentiate recurring event instances
-        return f"{event.ical_uid}|{event.start}"
-
-    return f"{event.title}|{event.start}|{event.end}"
-
-
-def _deduplicate_events(events: List[EventInfo]) -> List[EventInfo]:
-    """Collapse duplicate events, preferring authoritative calendars."""
-
-    deduped: dict[str, EventInfo] = {}
-    order: List[str] = []
-
-    for event in events:
-        key = _event_dedup_key(event)
-        existing = deduped.get(key)
-
-        if existing is None:
-            deduped[key] = event
-            order.append(key)
-            continue
-
-        if _calendar_priority(event.calendar_id) < _calendar_priority(
-            existing.calendar_id
-        ):
-            deduped[key] = event
-
-    return [deduped[key] for key in order]
 
 
 def _format_task_line(task: ScheduledTask) -> List[str]:
@@ -614,9 +561,6 @@ async def calendar_get_events(
 
         events_with_keys.sort(key=lambda item: item[0])
         ordered_events = [event for _, event in events_with_keys]
-
-        if aggregate:
-            ordered_events = _deduplicate_events(ordered_events)
 
         truncated_events = len(ordered_events) > max_events
         selected_events = ordered_events[:max_events]

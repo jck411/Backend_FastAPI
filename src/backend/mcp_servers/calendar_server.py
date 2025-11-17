@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 
 # Standard library imports
 import datetime as dt
@@ -353,6 +354,51 @@ def _event_sort_key(start_value: str) -> datetime.datetime:
     return parsed
 
 
+def _event_bounds(event: EventInfo) -> tuple[datetime.datetime, datetime.datetime]:
+    """Return aware datetime bounds for overlap checks."""
+
+    if event.is_all_day:
+        try:
+            start_date = datetime.date.fromisoformat(event.start)
+            end_date = datetime.date.fromisoformat(event.end)
+        except Exception:
+            try:
+                start_date = datetime.date.fromisoformat(event.start)
+            except Exception:
+                start_date = datetime.date.min
+            end_date = start_date
+
+        start_dt = datetime.datetime.combine(
+            start_date, datetime.time.min, tzinfo=datetime.timezone.utc
+        )
+        end_dt = datetime.datetime.combine(
+            end_date, datetime.time.min, tzinfo=datetime.timezone.utc
+        )
+        return start_dt, end_dt
+
+    start_dt = parse_rfc3339_datetime(event.start) or datetime.datetime.max.replace(
+        tzinfo=datetime.timezone.utc
+    )
+    end_dt = parse_rfc3339_datetime(event.end) or start_dt
+    return start_dt, end_dt
+
+
+def _overlaps_window(
+    event: EventInfo,
+    range_min_dt: Optional[datetime.datetime],
+    range_max_dt: Optional[datetime.datetime],
+) -> bool:
+    """Return True when the event overlaps the requested window."""
+
+    event_start, event_end = _event_bounds(event)
+
+    if range_min_dt and event_end < range_min_dt:
+        return False
+    if range_max_dt and event_start > range_max_dt:
+        return False
+    return True
+
+
 def _calendar_priority(calendar_id: str) -> int:
     """Return ordering priority for a calendar when deduplicating events."""
 
@@ -442,6 +488,18 @@ def _format_task_search_result(task: TaskSearchResult) -> List[str]:
     return lines
 
 
+def _truncate_text(value: Optional[str], limit: int) -> Optional[str]:
+    """Return a truncated version of the text to keep payloads compact."""
+
+    if value is None:
+        return None
+
+    stripped = value.strip()
+    if len(stripped) <= limit:
+        return stripped
+    return stripped[: limit - 3] + "..."
+
+
 @mcp.tool("calendar_get_events")
 async def get_events(
     user_email: str = DEFAULT_USER_EMAIL,
@@ -452,11 +510,14 @@ async def get_events(
     query: Optional[str] = None,
     detailed: bool = False,
 ) -> str:
-    """Retrieve calendar events.
+    """Retrieve calendar events using literal keyword search when provided.
 
-    Omit calendar_id to search all household calendars; pass a specific ID or friendly
-    name to target a single calendar. In the aggregate view, also includes due Google
-    Tasks in the same time range.
+    Use the query parameter for exact keyword matches (Google Calendar `q`). For
+    vague or slangy schedule questions, prefer `calendar_window_events` to fetch
+    a time-bounded listing and let the LLM pick the right entry. Omit calendar_id to
+    search all household calendars; pass a specific ID or friendly name to target a
+    single calendar. In the aggregate view, also includes due Google Tasks in the
+    same time range.
     """
 
     try:
@@ -489,7 +550,7 @@ async def get_events(
         calendar_labels = [_calendar_label(cal_id) for cal_id in calendars_to_query]
 
         params: dict[str, Any] = {
-            "maxResults": max(max_results, 1),
+            "maxResults": 250,
             "orderBy": "startTime",
             "singleEvents": True,
         }
@@ -508,21 +569,34 @@ async def get_events(
 
         async def _fetch_calendar_events(
             cal_id: str,
-        ) -> tuple[str, dict[str, Any] | None, Exception | None]:
+        ) -> tuple[str, list[dict[str, Any]] | None, Exception | None]:
             # Fetch each calendar in parallel to avoid N round-trips in series.
-            try:
-                request = service.events().list(calendarId=cal_id, **params)
-            except Exception as exc:
-                return (cal_id, None, exc)
+            collected: list[dict[str, Any]] = []
+            page_token: str | None = None
+            internal_limit = max(max_results, 1) * 4
 
-            try:
-                events_result = await asyncio.to_thread(request.execute)
-            except Exception as exc:
-                return (cal_id, None, exc)
+            while True:
+                try:
+                    request = service.events().list(
+                        calendarId=cal_id, pageToken=page_token, **params
+                    )
+                except Exception as exc:
+                    return (cal_id, None, exc)
 
-            return (cal_id, events_result, None)
+                try:
+                    events_result = await asyncio.to_thread(request.execute)
+                except Exception as exc:
+                    return (cal_id, None, exc)
 
-        fetch_results: list[tuple[str, dict[str, Any] | None, Exception | None]] = []
+                collected.extend(events_result.get("items", []))
+
+                page_token = events_result.get("nextPageToken")
+                if not page_token or len(collected) >= internal_limit:
+                    break
+
+            return (cal_id, collected, None)
+
+        fetch_results: list[tuple[str, list[dict[str, Any]] | None, Exception | None]] = []
         if calendars_to_query:
             fetch_results = await asyncio.gather(
                 *(_fetch_calendar_events(cal_id) for cal_id in calendars_to_query)
@@ -536,7 +610,7 @@ async def get_events(
             if not events_result:
                 continue
 
-            google_events = events_result.get("items", [])
+            google_events = events_result
             calendar_name = _calendar_label(cal_id)
 
             for event in google_events:
@@ -546,7 +620,7 @@ async def get_events(
                 is_all_day = "date" in start
 
                 event_start = start.get("date", start.get("dateTime", "")) or ""
-                event_end = end.get("date", end.get("dateTime", "")) or ""
+                event_end = end.get("date", end.get("dateTime", "")) or event_start
 
                 event_info = EventInfo(
                     title=event.get("summary", "(No title)"),
@@ -561,17 +635,8 @@ async def get_events(
                     description=event.get("description", None),
                     ical_uid=event.get("iCalUID"),
                 )
-                # Explicitly filter timed events to avoid including items that
-                # started before the requested window but overlap into it
-                # (e.g., overnight shifts).
-                if not is_all_day and range_min_dt is not None:
-                    start_key = _event_sort_key(event_info.start)
-                    if start_key < range_min_dt:
-                        continue
-                if not is_all_day and range_max_dt is not None:
-                    start_key = _event_sort_key(event_info.start)
-                    if start_key > range_max_dt:
-                        continue
+                if not _overlaps_window(event_info, range_min_dt, range_max_dt):
+                    continue
 
                 events_with_keys.append((_event_sort_key(event_info.start), event_info))
 
@@ -709,6 +774,267 @@ async def get_events(
                 result_lines.append(f"- {warning}")
 
         return "\n".join(result_lines)
+
+    except ValueError as e:
+        return (
+            f"Authentication error: {str(e)}. "
+            "Click 'Connect Google Services' in Settings to authorize this account."
+        )
+    except Exception as e:
+        return f"Error retrieving calendar events: {str(e)}"
+
+
+@mcp.tool("calendar_window_events")
+async def calendar_window_events(
+    user_email: str = DEFAULT_USER_EMAIL,
+    calendar_id: Optional[str] = None,
+    time_min: Optional[str] = None,
+    time_max: Optional[str] = None,
+    max_events: int = 200,
+    include_tasks: bool = False,
+) -> str:
+    """List calendar events for a time window without keyword filtering.
+
+    Use this when the user asks vague or slangy questions about their schedule and you
+    can infer a time window ("soon", "this weekend", "next period"). The tool returns
+    JSON text containing all events (and optionally Google Tasks) in the window so the
+    LLM can choose the best match.
+    """
+
+    try:
+        service = get_calendar_service(user_email)
+
+        time_min_rfc = _parse_time_string(time_min)
+        time_max_rfc = _parse_time_string(time_max)
+
+        if not time_min_rfc and not time_max_rfc:
+            now_utc = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0)
+            time_min_rfc = normalize_rfc3339(now_utc)
+            time_max_rfc = normalize_rfc3339(now_utc + datetime.timedelta(days=30))
+
+        range_min_dt = parse_rfc3339_datetime(time_min_rfc) if time_min_rfc else None
+        range_max_dt = parse_rfc3339_datetime(time_max_rfc) if time_max_rfc else None
+
+        aggregate = _should_use_aggregate(calendar_id)
+        if aggregate:
+            calendars_to_query = list(DEFAULT_READ_CALENDAR_IDS)
+        else:
+            if calendar_id is None:
+                calendars_to_query = list(DEFAULT_READ_CALENDAR_IDS)
+                aggregate = True
+            else:
+                resolved_calendar_id = _normalize_calendar_id(calendar_id)
+                calendars_to_query = [resolved_calendar_id]
+
+        calendar_labels = [_calendar_label(cal_id) for cal_id in calendars_to_query]
+
+        params: dict[str, Any] = {
+            "maxResults": 250,
+            "orderBy": "startTime",
+            "singleEvents": True,
+        }
+
+        if time_min_rfc:
+            params["timeMin"] = time_min_rfc
+        if time_max_rfc:
+            params["timeMax"] = time_max_rfc
+
+        events_with_keys: list[tuple[datetime.datetime, EventInfo]] = []
+        warnings: list[str] = []
+
+        async def _fetch_calendar_events(
+            cal_id: str,
+        ) -> tuple[str, list[dict[str, Any]] | None, Exception | None]:
+            collected: list[dict[str, Any]] = []
+            page_token: str | None = None
+            internal_limit = max(max_events, 1) * 4
+
+            while True:
+                try:
+                    request = service.events().list(
+                        calendarId=cal_id, pageToken=page_token, **params
+                    )
+                except Exception as exc:
+                    return (cal_id, None, exc)
+
+                try:
+                    events_result = await asyncio.to_thread(request.execute)
+                except Exception as exc:
+                    return (cal_id, None, exc)
+
+                collected.extend(events_result.get("items", []))
+                page_token = events_result.get("nextPageToken")
+                if not page_token or len(collected) >= internal_limit:
+                    break
+
+            return (cal_id, collected, None)
+
+        fetch_results: list[tuple[str, list[dict[str, Any]] | None, Exception | None]] = []
+        if calendars_to_query:
+            fetch_results = await asyncio.gather(
+                *(_fetch_calendar_events(cal_id) for cal_id in calendars_to_query)
+            )
+
+        for cal_id, events_result, error in fetch_results:
+            if error:
+                warnings.append(f"{_calendar_label(cal_id)}: {error}")
+                continue
+
+            if not events_result:
+                continue
+
+            calendar_name = _calendar_label(cal_id)
+
+            for event in events_result:
+                start = event.get("start", {})
+                end = event.get("end", {})
+
+                is_all_day = "date" in start
+
+                event_start = start.get("date", start.get("dateTime", "")) or ""
+                event_end = end.get("date", end.get("dateTime", "")) or event_start
+
+                event_info = EventInfo(
+                    title=event.get("summary", "(No title)"),
+                    start=event_start,
+                    end=event_end,
+                    is_all_day=is_all_day,
+                    calendar=calendar_name,
+                    calendar_id=cal_id,
+                    id=event.get("id", ""),
+                    link=event.get("htmlLink", ""),
+                    location=event.get("location", None),
+                    description=_truncate_text(event.get("description", None), 500),
+                    ical_uid=event.get("iCalUID"),
+                )
+
+                if not _overlaps_window(event_info, range_min_dt, range_max_dt):
+                    continue
+
+                events_with_keys.append((_event_sort_key(event_info.start), event_info))
+
+        events_with_keys.sort(key=lambda item: item[0])
+        ordered_events = [event for _, event in events_with_keys]
+
+        if aggregate:
+            ordered_events = _deduplicate_events(ordered_events)
+
+        truncated_events = len(ordered_events) > max_events
+        selected_events = ordered_events[:max_events]
+
+        tasks_payload: list[dict[str, Any]] = []
+        truncated_tasks = False
+
+        if include_tasks:
+            task_service = TaskService(user_email, service_factory=get_tasks_service)
+
+            async def _collect_tasks_for_window(
+                max_tasks: int,
+            ) -> tuple[list[Task], bool]:
+                collected_tasks: list[Task] = []
+                list_page_token: Optional[str] = None
+                truncated = False
+
+                while True:
+                    lists, list_page_token = await task_service.list_task_lists(
+                        max_results=100, page_token=list_page_token
+                    )
+                    for task_list in lists:
+                        task_page_token: Optional[str] = None
+                        while True:
+                            tasks, task_page_token = await task_service.list_tasks(
+                                task_list.id,
+                                max_results=100,
+                                page_token=task_page_token,
+                                show_completed=False,
+                                show_deleted=False,
+                                show_hidden=False,
+                                due_min=time_min_rfc,
+                                due_max=time_max_rfc,
+                            )
+
+                            collected_tasks.extend(tasks)
+                            if len(collected_tasks) >= max_tasks:
+                                truncated = True
+                                break
+
+                            if not task_page_token:
+                                break
+
+                        if len(collected_tasks) >= max_tasks:
+                            break
+
+                    if len(collected_tasks) >= max_tasks:
+                        break
+                    if not list_page_token:
+                        break
+
+                return collected_tasks, truncated
+
+            try:
+                collected_tasks, truncated_tasks = await _collect_tasks_for_window(
+                    max_events
+                )
+            except TaskAuthorizationError as exc:
+                warnings.append(
+                    "Tasks unavailable: "
+                    + str(exc)
+                    + ". Open the system settings modal and click 'Connect Google Services' to refresh permissions."
+                )
+                collected_tasks = []
+            except TaskServiceError as exc:
+                warnings.append(f"Tasks unavailable: {exc}.")
+                collected_tasks = []
+
+            for task in collected_tasks[:max_events]:
+                due_value: Optional[str]
+                if task.due:
+                    due_value = normalize_rfc3339(task.due)
+                else:
+                    due_value = None
+
+                tasks_payload.append(
+                    {
+                        "id": task.id,
+                        "title": task.title,
+                        "due": due_value,
+                        "status": task.status,
+                        "list_title": task.list_title,
+                        "web_link": task.web_link,
+                        "notes": _truncate_text(task.notes, 500),
+                    }
+                )
+
+        events_payload = [
+            {
+                "id": event.id,
+                "summary": event.title,
+                "start": event.start,
+                "end": event.end,
+                "is_all_day": event.is_all_day,
+                "calendar_id": event.calendar_id,
+                "calendar_label": event.calendar,
+                "html_link": event.link,
+                "location": event.location,
+                "description": event.description,
+            }
+            for event in selected_events
+        ]
+
+        payload = {
+            "events": events_payload,
+            "tasks": tasks_payload,
+            "meta": {
+                "user_email": user_email,
+                "time_min": time_min_rfc,
+                "time_max": time_max_rfc,
+                "calendar_ids": calendars_to_query,
+                "truncated": truncated_events or truncated_tasks,
+                "warnings": warnings,
+            },
+        }
+
+        return json.dumps(payload)
 
     except ValueError as e:
         return (

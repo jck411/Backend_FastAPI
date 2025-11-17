@@ -9,7 +9,6 @@ import pytest
 from backend.mcp_servers.calendar_server import (
     DEFAULT_READ_CALENDAR_IDS,
     DEFAULT_USER_EMAIL,
-    _parse_time_string,
     create_event,
     delete_event,
     get_events,
@@ -32,31 +31,35 @@ from backend.mcp_servers.calendar_server import (
     update_task as calendar_update_task,
 )
 from backend.tasks.models import Task, TaskListInfo
-from backend.tasks.utils import parse_rfc3339_datetime, parse_time_string
+from backend.utils.datetime_utils import (
+    parse_iso_time_string,
+    parse_rfc3339_datetime,
+    parse_time_string,
+)
 
 
 def test_parse_time_string_none():
     """Test parsing None."""
-    assert _parse_time_string(None) is None
+    assert parse_iso_time_string(None) is None
 
 
 def test_parse_time_string_iso_date():
     """Date-only strings gain midnight UTC."""
 
-    assert _parse_time_string("2025-10-12") == "2025-10-12T00:00:00Z"
+    assert parse_iso_time_string("2025-10-12") == "2025-10-12T00:00:00Z"
 
 
 def test_parse_time_string_naive_datetime():
     """Naive datetimes are treated as UTC."""
 
-    assert _parse_time_string("2025-10-12T09:30:00") == "2025-10-12T09:30:00Z"
+    assert parse_iso_time_string("2025-10-12T09:30:00") == "2025-10-12T09:30:00Z"
 
 
 def test_parse_time_string_preserves_timezone():
     """Offset-aware datetimes pass through unchanged."""
 
     value = "2025-10-12T09:30:00-05:00"
-    assert _parse_time_string(value) == value
+    assert parse_iso_time_string(value) == value
 
 
 @pytest.mark.asyncio

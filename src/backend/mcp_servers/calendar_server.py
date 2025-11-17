@@ -34,8 +34,9 @@ from backend.tasks import (
     TaskService,
     TaskServiceError,
 )
-from backend.tasks.utils import (
+from backend.utils.datetime_utils import (
     normalize_rfc3339,
+    parse_iso_time_string,
     parse_rfc3339_datetime,
 )
 
@@ -72,43 +73,6 @@ def get_tasks_service(user_email: str):
     """
 
     return _google_get_tasks_service(user_email)
-
-
-def _parse_time_string(time_str: Optional[str]) -> Optional[str]:
-    """Normalize ISO-like date/time strings to RFC3339 (UTC) strings."""
-
-    if not time_str:
-        return None
-
-    # ISO date-only
-    try:
-        if len(time_str) == 10 and time_str[4] == "-" and time_str[7] == "-":
-            # YYYY-MM-DD
-            datetime.date.fromisoformat(time_str)
-            return f"{time_str}T00:00:00Z"
-    except Exception:
-        pass
-
-    # Datetime with no timezone → treat as UTC
-    if "T" in time_str and (
-        "+" not in time_str and "-" not in time_str[10:] and "Z" not in time_str
-    ):
-        return time_str + "Z"
-
-    # If timezone is present (and not Z), convert to UTC
-    if "T" in time_str and (
-        "+" in time_str or ("-" in time_str[10:] and "Z" not in time_str)
-    ):
-        try:
-            # Parse the datetime with timezone and convert to UTC
-            dt = datetime.datetime.fromisoformat(time_str)
-            if dt.tzinfo is not None:
-                dt_utc = dt.astimezone(datetime.timezone.utc)
-                return dt_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
-        except Exception:
-            pass
-
-    return time_str
 
 
 @dataclass
@@ -559,8 +523,8 @@ async def calendar_get_events(
     try:
         service = get_calendar_service(user_email)
 
-        time_min_rfc = _parse_time_string(time_min)
-        time_max_rfc = _parse_time_string(time_max)
+        time_min_rfc = parse_iso_time_string(time_min)
+        time_max_rfc = parse_iso_time_string(time_max)
 
         if not time_min_rfc and not time_max_rfc:
             now_utc = datetime.datetime.now(datetime.timezone.utc).replace(
@@ -842,8 +806,8 @@ async def create_event(
             event["end"] = {"date": end_time}
         else:
             # Make sure times have timezone info
-            start_formatted = _parse_time_string(start_time)
-            end_formatted = _parse_time_string(end_time)
+            start_formatted = parse_iso_time_string(start_time)
+            end_formatted = parse_iso_time_string(end_time)
 
             event["start"] = {"dateTime": start_formatted}
             event["end"] = {"dateTime": end_formatted}
@@ -937,8 +901,8 @@ async def update_event(
                 event["start"] = {"date": start_time}
                 event["end"] = {"date": end_time}
             else:
-                start_formatted = _parse_time_string(start_time)
-                end_formatted = _parse_time_string(end_time)
+                start_formatted = parse_iso_time_string(start_time)
+                end_formatted = parse_iso_time_string(end_time)
 
                 event["start"] = {"dateTime": start_formatted}
                 event["end"] = {"dateTime": end_formatted}

@@ -5,51 +5,12 @@ from __future__ import annotations
 import datetime
 from typing import Optional
 
-
-class _FallbackParser:
-    @staticmethod
-    def parse(timestr: str) -> datetime.datetime:
-        return datetime.datetime.fromisoformat(timestr.replace("Z", "+00:00"))
-
-
-try:  # Prefer python-dateutil when available for robust parsing.
-    from dateutil import parser as _dateutil_parser  # type: ignore
-except ImportError:  # pragma: no cover - optional dependency
-    _dateutil_parser = None
-
-
-def _parse(timestr: str) -> datetime.datetime:
-    if _dateutil_parser is not None:
-        return _dateutil_parser.parse(timestr)  # type: ignore[no-any-return]
-    return _FallbackParser.parse(timestr)
-
-
-def parse_rfc3339_datetime(value: Optional[str]) -> Optional[datetime.datetime]:
-    """Best-effort conversion of an RFC3339 string to an aware datetime."""
-
-    if not value:
-        return None
-
-    try:
-        parsed = _parse(value)
-    except Exception:
-        return None
-
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
-    else:
-        parsed = parsed.astimezone(datetime.timezone.utc)
-
-    return parsed
-
-
-def normalize_rfc3339(dt_value: datetime.datetime) -> str:
-    """Return an RFC3339 string in canonical UTC form."""
-
-    normalized = dt_value.astimezone(datetime.timezone.utc).isoformat()
-    if normalized.endswith("+00:00"):
-        normalized = normalized[:-6] + "Z"
-    return normalized
+# Import datetime utilities from centralized location
+from backend.utils.datetime_utils import (
+    normalize_rfc3339,
+    parse_rfc3339_datetime,
+    parse_time_string,
+)
 
 
 def compute_task_window(
@@ -82,68 +43,5 @@ def compute_task_window(
     return start_dt, end_dt, past_due_cutoff
 
 
-def parse_time_string(time_str: Optional[str]) -> Optional[str]:
-    """Convert keywords like 'today' or 'tomorrow' to RFC3339 timestamps.
-
-    Keywords and date-only strings are rendered as UTC midnight (T00:00:00Z)
-    to ensure consistent behavior across different system timezones.
-    """
-
-    if not time_str:
-        return None
-
-    lowered = time_str.lower()
-    today = datetime.date.today()
-
-    if lowered == "today":
-        date_obj = today
-    elif lowered == "tomorrow":
-        date_obj = today + datetime.timedelta(days=1)
-    elif lowered == "yesterday":
-        date_obj = today - datetime.timedelta(days=1)
-    elif lowered == "next_week":
-        date_obj = today + datetime.timedelta(days=7)
-    elif lowered == "next_month":
-        next_month = (today.replace(day=1) + datetime.timedelta(days=32)).replace(day=1)
-        date_obj = next_month
-    elif lowered == "next_year":
-        date_obj = today.replace(year=today.year + 1)
-    else:
-        try:
-            date_obj = datetime.date.fromisoformat(time_str)
-        except ValueError:
-            try:
-                dt = datetime.datetime.fromisoformat(time_str)
-            except ValueError:
-                return time_str
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=datetime.timezone.utc)
-                # Extract date in UTC
-                date_obj = dt.date()
-            else:
-                # Extract date in the original timezone before converting to UTC
-                # This ensures "today" in EST stays "today" even after UTC conversion
-                date_obj = dt.date()
-                # Now build UTC midnight for that date
-                utc_midnight = datetime.datetime(
-                    date_obj.year,
-                    date_obj.month,
-                    date_obj.day,
-                    0,
-                    0,
-                    0,
-                    tzinfo=datetime.timezone.utc,
-                )
-                return utc_midnight.isoformat().replace("+00:00", "Z")
-
-    # Build a midnight datetime in UTC for consistent behavior
-    utc_midnight = datetime.datetime(
-        date_obj.year,
-        date_obj.month,
-        date_obj.day,
-        0,
-        0,
-        0,
-        tzinfo=datetime.timezone.utc,
-    )
-    return utc_midnight.isoformat().replace("+00:00", "Z")
+# Re-export for backwards compatibility
+__all__ = ["parse_rfc3339_datetime", "normalize_rfc3339", "parse_time_string", "compute_task_window"]

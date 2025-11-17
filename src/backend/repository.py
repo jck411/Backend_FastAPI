@@ -8,6 +8,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from backend.services.time_context import EASTERN_TIMEZONE
+from backend.utils.datetime_utils import (
+    format_timestamp_for_client,
+    normalize_db_timestamp,
+    parse_db_timestamp,
+)
 
 import aiosqlite
 
@@ -15,54 +20,6 @@ MessageRecord = dict[str, Any]
 AttachmentRecord = dict[str, Any]
 
 _CONTENT_JSON_METADATA_KEY = "__structured_content__"
-def _normalize_db_timestamp(value: str | None) -> str | None:
-    """Convert SQLite timestamp strings to ISO8601 in UTC."""
-
-    if value is None:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return value
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    else:
-        parsed = parsed.astimezone(timezone.utc)
-    return parsed.isoformat()
-
-
-def format_timestamp_for_client(value: str | None) -> tuple[str | None, str | None]:
-    """Return EDT and UTC ISO strings for a stored timestamp."""
-
-    if value is None:
-        return None, None
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None, None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    else:
-        parsed = parsed.astimezone(timezone.utc)
-
-    edt_iso = parsed.astimezone(EASTERN_TIMEZONE).isoformat()
-    return edt_iso, parsed.isoformat()
-
-
-def _parse_db_timestamp(value: str | None) -> datetime | None:
-    """Parse a timestamp stored in SQLite and normalize to UTC."""
-
-    if value is None:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    else:
-        parsed = parsed.astimezone(timezone.utc)
-    return parsed
 
 
 def _encode_content(value: Any) -> tuple[str | None, bool]:
@@ -230,7 +187,7 @@ class ChatRepository:
         if row is None:
             return None
 
-        created_at = _normalize_db_timestamp(row["created_at"])
+        created_at = normalize_db_timestamp(row["created_at"])
         timezone_value = row["timezone"]
         return {
             "session_id": row["session_id"],
@@ -309,7 +266,7 @@ class ChatRepository:
         await timestamp_cursor.close()
         created_at: str | None = None
         if timestamp_row is not None:
-            created_at = _normalize_db_timestamp(timestamp_row["created_at"])
+            created_at = normalize_db_timestamp(timestamp_row["created_at"])
         return int(inserted_id), created_at
 
     async def get_messages(self, session_id: str) -> list[MessageRecord]:
@@ -359,7 +316,7 @@ class ChatRepository:
             parent_client_message_id = row["parent_client_message_id"]
             if parent_client_message_id:
                 message["parent_client_message_id"] = parent_client_message_id
-            created_at = _normalize_db_timestamp(row["created_at"])
+            created_at = normalize_db_timestamp(row["created_at"])
             edt_iso, utc_iso = format_timestamp_for_client(created_at)
             if edt_iso is not None:
                 message["created_at"] = edt_iso
@@ -759,8 +716,8 @@ class ChatRepository:
         expired: list[AttachmentRecord] = []
         for row in rows:
             record = self._row_to_attachment(row)
-            expires_at = _parse_db_timestamp(record.get("expires_at"))
-            signed_expires = _parse_db_timestamp(record.get("signed_url_expires_at"))
+            expires_at = parse_db_timestamp(record.get("expires_at"))
+            signed_expires = parse_db_timestamp(record.get("signed_url_expires_at"))
             candidate = expires_at or signed_expires
             if candidate is None:
                 continue

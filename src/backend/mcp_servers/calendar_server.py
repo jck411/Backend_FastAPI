@@ -13,7 +13,7 @@ import json
 # Standard library imports
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional, TypedDict
+from typing import Any, List, Optional, TypedDict
 
 # Third party imports
 from mcp.server.fastmcp import FastMCP
@@ -825,8 +825,6 @@ async def calendar_window_events(
             else:
                 resolved_calendar_id = _normalize_calendar_id(calendar_id)
                 calendars_to_query = [resolved_calendar_id]
-
-        calendar_labels = [_calendar_label(cal_id) for cal_id in calendars_to_query]
 
         params: dict[str, Any] = {
             "maxResults": 250,

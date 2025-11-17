@@ -26,7 +26,7 @@ from ..services.attachment_urls import refresh_message_attachments
 from ..services.conversation_logging import ConversationLogWriter
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
-from ..services.time_context import create_time_snapshot
+from ..services.time_context import build_prompt_context_block, create_time_snapshot
 from .mcp_registry import MCPServerConfig, MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 
@@ -68,23 +68,7 @@ def _build_mcp_base_env(project_root: Path) -> dict[str, str]:
 def _build_enhanced_system_prompt(base_prompt: str | None) -> str:
     """Prepend the current time context to the configured system prompt."""
 
-    snapshot = create_time_snapshot()
-    context_lines = [
-        "# Current Date & Time Context",
-        (
-            "- Today's date: "
-            f"{snapshot.date.isoformat()} ({snapshot.now_local.strftime('%A')})"
-        ),
-        f"- Current time: {snapshot.format_time()}",
-        f"- Timezone: {snapshot.timezone_display()}",
-        f"- ISO timestamp (UTC): {snapshot.iso_utc}",
-        "",
-        (
-            "Use this context when interpreting relative dates like "
-            "'last month', 'next week', etc."
-        ),
-    ]
-    context_block = "\n".join(context_lines)
+    context_block = build_prompt_context_block(create_time_snapshot())
     base = (base_prompt or "").strip()
     if base:
         return f"{context_block}\n\n{base}"

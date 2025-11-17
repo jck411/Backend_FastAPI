@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import asdict, dataclass
-from datetime import timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -16,15 +15,14 @@ from backend.repository import ChatRepository
 from backend.services.attachment_urls import refresh_message_attachments
 from backend.services.time_context import (
     EASTERN_TIMEZONE_NAME,
+    EASTERN_TIMEZONE,
     build_context_lines,
     create_time_snapshot,
     format_timezone_offset,
-    resolve_timezone,
 )
 
 mcp = FastMCP("housekeeping")
 
-EASTERN_TIMEZONE = resolve_timezone(EASTERN_TIMEZONE_NAME, timezone.utc)
 _MESSAGE_PREVIEW_LIMIT = 2000
 _MAX_HISTORY_LIMIT = 100
 
@@ -102,7 +100,7 @@ async def test_echo(message: str, uppercase: bool = False) -> dict[str, Any]:
 async def current_time(format: Literal["iso", "unix"] = "iso") -> dict[str, Any]:
     """Return the current time with UTC and Eastern Time representations."""
 
-    snapshot = create_time_snapshot(EASTERN_TIMEZONE_NAME, fallback=timezone.utc)
+    snapshot = create_time_snapshot(EASTERN_TIMEZONE_NAME, fallback=EASTERN_TIMEZONE)
     eastern = snapshot.eastern
 
     if format == "iso":

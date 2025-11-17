@@ -11,8 +11,22 @@ try:  # pragma: no cover - zoneinfo is standard from Python 3.9+
 except Exception:  # pragma: no cover - fallback when zoneinfo is unavailable
     ZoneInfo = None  # type: ignore
 
-_LOCAL_DEFAULT = _dt.datetime.now().astimezone().tzinfo or _dt.timezone.utc
 EASTERN_TIMEZONE_NAME = "America/New_York"
+
+
+def _determine_default_timezone() -> _dt.tzinfo:
+    """Choose the default timezone, biased toward the user's Orlando locale."""
+
+    if ZoneInfo is not None:
+        try:
+            return ZoneInfo(EASTERN_TIMEZONE_NAME)
+        except Exception:
+            pass
+
+    return _dt.datetime.now().astimezone().tzinfo or _dt.timezone.utc
+
+
+_LOCAL_DEFAULT = _determine_default_timezone()
 
 
 def resolve_timezone(
@@ -33,6 +47,10 @@ def resolve_timezone(
     return _LOCAL_DEFAULT
 
 
+# Shared timezone object for Orlando users (Eastern Time in the U.S.).
+EASTERN_TIMEZONE = resolve_timezone(EASTERN_TIMEZONE_NAME, _LOCAL_DEFAULT)
+
+
 @dataclass(slots=True)
 class TimeSnapshot:
     """Snapshot of the current moment in UTC and a target timezone."""
@@ -45,8 +63,7 @@ class TimeSnapshot:
     def eastern(self) -> _dt.datetime:
         """Return the time converted to US Eastern, when available."""
 
-        timezone = resolve_timezone(EASTERN_TIMEZONE_NAME, _dt.timezone.utc)
-        return self.now_utc.astimezone(timezone)
+        return self.now_utc.astimezone(EASTERN_TIMEZONE)
 
     @property
     def date(self) -> _dt.date:
@@ -85,7 +102,7 @@ class TimeSnapshot:
 def create_time_snapshot(
     timezone_name: Optional[str] = None,
     *,
-    fallback: Optional[_dt.tzinfo] = None,
+    fallback: Optional[_dt.tzinfo] = EASTERN_TIMEZONE,
 ) -> TimeSnapshot:
     """Return a TimeSnapshot for ``timezone_name``."""
 
@@ -138,3 +155,33 @@ def build_context_lines(
         for label, delta in upcoming_anchors:
             anchor = today_local + delta
             yield f"- {label}: {anchor.isoformat()} ({anchor.strftime('%A')})"
+
+
+def build_prompt_context_block(snapshot: TimeSnapshot | None = None) -> str:
+    """Return a human-readable time context block for system prompts.
+
+    The output matches the formatting previously embedded in the chat orchestrator
+    while centralizing the construction here to keep time-related messaging
+    consistent and easy to reuse.
+    """
+
+    if snapshot is None:
+        snapshot = create_time_snapshot()
+
+    context_lines = [
+        "# Current Date & Time Context",
+        (
+            "- Today's date: "
+            f"{snapshot.date.isoformat()} ({snapshot.now_local.strftime('%A')})"
+        ),
+        f"- Current time: {snapshot.format_time()}",
+        f"- Timezone: {snapshot.timezone_display()}",
+        f"- ISO timestamp (UTC): {snapshot.iso_utc}",
+        "",
+        (
+            "Use this context when interpreting relative dates like "
+            "'last month', 'next week', etc."
+        ),
+    ]
+
+    return "\n".join(context_lines)

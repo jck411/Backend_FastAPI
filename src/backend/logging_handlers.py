@@ -6,9 +6,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
-from zoneinfo import ZoneInfo
 
-_EASTERN = ZoneInfo("America/New_York")
+from backend.services.time_context import EASTERN_TIMEZONE
 
 
 class DateStampedFileHandler(logging.FileHandler):
@@ -50,7 +49,7 @@ class DateStampedFileHandler(logging.FileHandler):
             base_prefix = prefix or "app"
 
         base_dir = base_dir.resolve()
-        local_time = timestamp.astimezone(_EASTERN)
+        local_time = timestamp.astimezone(EASTERN_TIMEZONE)
         tz_abbr = local_time.tzname() or "ET"
         date_folder = local_time.strftime("%Y-%m-%d")
         human_time = local_time.strftime("%Y-%m-%d_%H-%M-%S")

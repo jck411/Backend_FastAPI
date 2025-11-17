@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from zoneinfo import ZoneInfo
+from backend.services.time_context import EASTERN_TIMEZONE
 
 import aiosqlite
 
@@ -15,9 +15,6 @@ MessageRecord = dict[str, Any]
 AttachmentRecord = dict[str, Any]
 
 _CONTENT_JSON_METADATA_KEY = "__structured_content__"
-_EDT_ZONE = ZoneInfo("America/New_York")
-
-
 def _normalize_db_timestamp(value: str | None) -> str | None:
     """Convert SQLite timestamp strings to ISO8601 in UTC."""
 
@@ -48,7 +45,7 @@ def format_timestamp_for_client(value: str | None) -> tuple[str | None, str | No
     else:
         parsed = parsed.astimezone(timezone.utc)
 
-    edt_iso = parsed.astimezone(_EDT_ZONE).isoformat()
+    edt_iso = parsed.astimezone(EASTERN_TIMEZONE).isoformat()
     return edt_iso, parsed.isoformat()
 
 

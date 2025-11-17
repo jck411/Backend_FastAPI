@@ -8,9 +8,8 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
 
-EASTERN = ZoneInfo("America/New_York")
+from backend.services.time_context import EASTERN_TIMEZONE
 
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:
@@ -63,7 +62,7 @@ class ConversationLogWriter:
             "conversation": conversation,
         }
         rendered_entry = json.dumps(entry, ensure_ascii=False, indent=2)
-        local_time = created_at_utc.astimezone(EASTERN)
+        local_time = created_at_utc.astimezone(EASTERN_TIMEZONE)
         local_date = local_time.strftime("%Y-%m-%d")
         tz_abbr = local_time.tzname() or "ET"
         human_time = local_time.strftime("%Y-%m-%d_%H-%M-%S")

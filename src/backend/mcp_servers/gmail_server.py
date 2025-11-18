@@ -6,7 +6,7 @@ import asyncio
 import base64
 from email.mime.text import MIMEText
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 # For local, in-process document extraction (no external URLs needed)
 try:  # pragma: no cover - optional import used by attachment text tool
@@ -23,19 +23,20 @@ from backend.services.attachments import (
     AttachmentService,
     AttachmentTooLarge,
 )
-from backend.services.google_auth.auth import (
-    DEFAULT_USER_EMAIL,
-    get_gmail_service,
-)
 from backend.services.gmail_download_simple import (
     extract_filename_from_part,
     fetch_gmail_attachment_data,
     find_attachment_part,
 )
+from backend.services.google_auth.auth import (
+    DEFAULT_USER_EMAIL,
+    get_gmail_service,
+)
 
 mcp = FastMCP("custom-gmail")
 GMAIL_BATCH_SIZE = 25
 HTML_BODY_TRUNCATE_LIMIT = 20000
+
 
 def _project_root() -> Path:
     module_path = Path(__file__).resolve()
@@ -90,6 +91,281 @@ async def _get_attachment_service() -> AttachmentService:
                 retention_days=settings.attachments_retention_days,
             )
     return _attachment_service
+
+
+def _extract_message_bodies(payload: dict) -> dict:
+    """Extract plain text and HTML body from a Gmail message payload.
+
+    Args:
+        payload: The message payload from Gmail API
+
+    Returns:
+        Dictionary with 'text' and 'html' keys containing body content
+    """
+    text_body = ""
+    html_body = ""
+    parts = [payload] if "parts" not in payload else payload.get("parts", [])
+    part_queue = list(parts)  # Use a queue for BFS traversal of parts
+
+    while part_queue:
+        part = part_queue.pop(0)
+        mime_type = part.get("mimeType", "")
+        body_data = part.get("body", {}).get("data")
+
+        if body_data:
+            try:
+                decoded_data = base64.urlsafe_b64decode(body_data).decode(
+                    "utf-8", errors="ignore"
+                )
+                if mime_type == "text/plain" and not text_body:
+                    text_body = decoded_data
+                elif mime_type == "text/html" and not html_body:
+                    html_body = decoded_data
+            except Exception:
+                pass
+
+        # Add sub-parts to queue for multipart messages
+        if mime_type.startswith("multipart/") and "parts" in part:
+            part_queue.extend(part.get("parts", []))
+
+    # Check the main payload if it has body data directly
+    if payload.get("body", {}).get("data"):
+        try:
+            decoded_data = base64.urlsafe_b64decode(payload["body"]["data"]).decode(
+                "utf-8", errors="ignore"
+            )
+            mime_type = payload.get("mimeType", "")
+            if mime_type == "text/plain" and not text_body:
+                text_body = decoded_data
+            elif mime_type == "text/html" and not html_body:
+                html_body = decoded_data
+        except Exception:
+            pass
+
+    return {"text": text_body, "html": html_body}
+
+
+def _format_body_content(text_body: str, html_body: str) -> str:
+    """Format message body content with HTML fallback and truncation.
+
+    Args:
+        text_body: Plain text body content
+        html_body: HTML body content
+
+    Returns:
+        Formatted body content string
+    """
+    if text_body.strip():
+        return text_body
+    elif html_body.strip():
+        # Truncate very large HTML to keep responses manageable
+        if len(html_body) > HTML_BODY_TRUNCATE_LIMIT:
+            html_body = (
+                html_body[:HTML_BODY_TRUNCATE_LIMIT] + "\n\n[HTML content truncated...]"
+            )
+        return f"[HTML Content Converted]\n{html_body}"
+    else:
+        return "[No readable content found]"
+
+
+def _extract_attachments(payload: dict) -> List[Dict[str, Any]]:
+    """Extract attachment metadata from a Gmail message payload.
+
+    Args:
+        payload: The message payload from Gmail API
+
+    Returns:
+        List of attachment dictionaries with filename, mimeType, size,
+        attachmentId, partId, and disposition
+    """
+    attachments = []
+
+    def search_parts(part: dict) -> None:
+        """Recursively search for attachments in message parts"""
+        # Check if this part is an attachment
+        body = part.get("body", {})
+        if part.get("filename") and body.get("attachmentId"):
+            att_dict: Dict[str, Any] = {
+                "filename": part["filename"],
+                "mimeType": part.get("mimeType", "application/octet-stream"),
+                "size": body.get("size", 0),
+                "attachmentId": body["attachmentId"],
+                "partId": part.get("partId", ""),
+            }
+            # Add disposition if present
+            headers = {h.get("name"): h.get("value") for h in part.get("headers", [])}
+            if "Content-Disposition" in headers:
+                att_dict["disposition"] = headers["Content-Disposition"]
+            attachments.append(att_dict)
+
+        # Recursively search sub-parts
+        if "parts" in part:
+            for subpart in part["parts"]:
+                search_parts(subpart)
+
+    # Start searching from the root payload
+    search_parts(payload)
+    return attachments
+
+
+def _extract_headers(payload: dict, header_names: List[str]) -> Dict[str, str]:
+    """Extract specified headers from a Gmail message payload.
+
+    Args:
+        payload: The message payload from Gmail API
+        header_names: List of header names to extract
+
+    Returns:
+        Dictionary mapping header names to their values
+    """
+    headers = {}
+    for header in payload.get("headers", []):
+        name = header.get("name", "")
+        if name in header_names:
+            headers[name] = header.get("value", "")
+    return headers
+
+
+def _generate_gmail_web_url(item_id: str, account_index: int = 0) -> str:
+    """Generate a Gmail web interface URL for a message or thread.
+
+    Args:
+        item_id: Message ID or thread ID
+        account_index: Account index for multi-account setups (default 0)
+
+    Returns:
+        Gmail web interface URL
+    """
+    return f"https://mail.google.com/mail/u/{account_index}/#all/{item_id}"
+
+
+def _prepare_gmail_message(
+    subject: str,
+    body: str,
+    to: Optional[str] = None,
+    cc: Optional[str] = None,
+    bcc: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    in_reply_to: Optional[str] = None,
+    references: Optional[str] = None,
+    body_format: Literal["plain", "html"] = "plain",
+    from_email: Optional[str] = None,
+) -> tuple[str, Optional[str]]:
+    """Prepare a Gmail message for sending.
+
+    Args:
+        subject: Email subject
+        body: Email body content
+        to: Recipient email address
+        cc: CC email address
+        bcc: BCC email address
+        thread_id: Thread ID for replies
+        in_reply_to: Message-ID being replied to
+        references: Chain of Message-IDs for threading
+        body_format: "plain" or "html"
+        from_email: Sender email address
+
+    Returns:
+        Tuple of (base64-encoded raw message, final thread_id)
+    """
+    if body_format == "html":
+        message = MIMEText(body, "html")
+    else:
+        message = MIMEText(body, "plain")
+
+    message["Subject"] = subject
+    if to:
+        message["To"] = to
+    if cc:
+        message["Cc"] = cc
+    if bcc:
+        message["Bcc"] = bcc
+    if from_email:
+        message["From"] = from_email
+
+    # Add threading headers
+    if in_reply_to:
+        message["In-Reply-To"] = in_reply_to
+    if references:
+        message["References"] = references
+
+    # Encode message
+    raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("ascii")
+    return raw_message, thread_id
+
+
+def _format_thread_content(thread_data: dict, thread_id: str) -> str:
+    """Format Gmail thread content for display.
+
+    Args:
+        thread_data: Thread data from Gmail API
+        thread_id: Thread ID
+
+    Returns:
+        Formatted thread content string
+    """
+    messages = thread_data.get("messages", [])
+    if not messages:
+        return f"Thread {thread_id} has no messages."
+
+    # Get thread subject from first message
+    first_payload = messages[0].get("payload", {})
+    first_headers = _extract_headers(first_payload, ["Subject"])
+    thread_subject = first_headers.get("Subject", "(no subject)")
+
+    content_lines = [
+        f"Thread ID: {thread_id}",
+        f"Subject: {thread_subject}",
+        f"Messages: {len(messages)}",
+        f"Web Link: {_generate_gmail_web_url(thread_id)}",
+        "",
+    ]
+
+    # Format each message in the thread
+    for i, message in enumerate(messages, 1):
+        payload = message.get("payload", {})
+        headers = _extract_headers(payload, ["From", "Date", "Subject", "To", "Cc"])
+        sender = headers.get("From", "(unknown sender)")
+        date = headers.get("Date", "(unknown date)")
+        subject = headers.get("Subject", "(no subject)")
+        to = headers.get("To", "")
+        cc = headers.get("Cc", "")
+
+        # Extract both text and HTML bodies
+        bodies = _extract_message_bodies(payload)
+        text_body = bodies.get("text", "")
+        html_body = bodies.get("html", "")
+
+        # Format body content with HTML fallback
+        body_data = _format_body_content(text_body, html_body)
+
+        # Add message to content
+        content_lines.extend(
+            [
+                f"=== Message {i} ===",
+                f"From: {sender}",
+                f"Date: {date}",
+            ]
+        )
+
+        # Only show subject if it's different from thread subject
+        if subject != thread_subject:
+            content_lines.append(f"Subject: {subject}")
+
+        if to:
+            content_lines.append(f"To: {to}")
+        if cc:
+            content_lines.append(f"Cc: {cc}")
+
+        content_lines.extend(
+            [
+                "",
+                body_data,
+                "",
+            ]
+        )
+
+    return "\n".join(content_lines)
 
 
 @mcp.tool("search_gmail_messages")
@@ -533,9 +809,7 @@ async def read_gmail_attachment_text(
     text = str(result.get("content") or result.get("text") or "").strip()
     if text:
         header = (
-            f"Attachment text extracted!\n"
-            f"Filename: {filename}\n"
-            f"MIME: {mime_type}\n\n"
+            f"Attachment text extracted!\nFilename: {filename}\nMIME: {mime_type}\n\n"
         )
         return header + text
 

@@ -472,6 +472,25 @@ async def get_gmail_message_content(
     message_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
 ) -> str:
+    """**Gmail emails ONLY** - retrieve content of a Gmail message by message ID.
+
+    ⚠️ CRITICAL: This tool is for GMAIL MESSAGE IDs ONLY (16-character base64 strings).
+    DO NOT use Google Drive file IDs here - they will fail with "Invalid id value".
+
+    For Google Drive files, use gdrive_get_file_content instead.
+
+    Args:
+        message_id: Gmail message ID (16-char format like "18d2a3b4c5d6e7f8")
+                   Get this from list_gmail_messages, NOT from Drive file listings
+        user_email: User's email for authentication
+
+    Returns:
+        Email subject, sender, and body content
+
+    ID Format Guide:
+        ✅ Gmail message ID: "18d2a3b4c5d6e7f8" (16 characters, from list_gmail_messages)
+        ❌ Drive file ID: "1mJ9MIWIashvrW5lpvDMrQZxTy4DhmWpx" (longer alphanumeric)
+    """
     try:
         service = get_gmail_service(user_email)
     except ValueError as exc:
@@ -862,7 +881,10 @@ async def extract_gmail_attachment_by_id(
     force_ocr: bool = False,
     user_email: str = DEFAULT_USER_EMAIL,
 ) -> str:
-    """Convenience wrapper: download + extract a Gmail attachment by ID.
+    """**Gmail email attachments ONLY** - extract text from file attached to Gmail message.
+
+    This tool is for attachments sent via Gmail email. NOT for Google Drive files.
+    For Google Drive documents, use extract_document with the Drive URL directly.
 
     This is equivalent to calling ``read_gmail_attachment_text`` with
     ``attachment_id`` specified, keeping parameters minimal for common flows.

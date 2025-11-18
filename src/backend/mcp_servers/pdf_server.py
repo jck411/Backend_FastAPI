@@ -40,6 +40,37 @@ def _is_http_url(path: str) -> bool:
     return path.startswith("http://") or path.startswith("https://")
 
 
+def _normalize_gdrive_url(url: str) -> str:
+    """Transform Google Drive URLs to direct download format.
+
+    Handles these formats:
+    - https://drive.google.com/file/d/{id}/view?... → direct download
+    - https://drive.google.com/open?id={id} → direct download
+    - https://drive.google.com/uc?id={id} → add export=download
+    """
+    if "drive.google.com" not in url:
+        return url
+
+    # Extract file ID from various formats
+    file_id = None
+
+    # Format: /file/d/{id}/view
+    if "/file/d/" in url:
+        parts = url.split("/file/d/")[1].split("/")[0]
+        file_id = parts.split("?")[0]
+    # Format: open?id={id}
+    elif "open?id=" in url:
+        file_id = url.split("open?id=")[1].split("&")[0]
+    # Format: uc?id={id}
+    elif "uc?id=" in url:
+        file_id = url.split("uc?id=")[1].split("&")[0]
+
+    if file_id:
+        return f"https://drive.google.com/uc?export=download&id={file_id}"
+
+    return url
+
+
 # Minimal repository access to resolve saved attachments by ID
 _repository: ChatRepository | None = None
 _repository_lock = asyncio.Lock()
@@ -98,7 +129,7 @@ for tool_name in [
 
 @mcp.tool("extract_document")  # type: ignore[misc]
 async def extract_document_urlaware(  # noqa: PLR0913
-    file_path: str,
+    document_url_or_path: str,
     mime_type: Optional[str] = None,
     force_ocr: bool = False,
     chunk_content: bool = False,
@@ -115,42 +146,37 @@ async def extract_document_urlaware(  # noqa: PLR0913
     tesseract_output_format: Optional[str] = None,
     enable_table_detection: Optional[bool] = None,
 ) -> dict[str, Any]:
-    """Extract document content from a filesystem path or HTTP(S) URL.
+    """**PRIMARY TOOL:** Extract document content from filesystem paths or URLs.
 
-    - Local paths are forwarded to Kreuzberg's ``extract_document``.
-    - HTTP(S) URLs are downloaded and passed to ``extract_bytes`` to avoid
-      path resolution errors in sandboxed or containerized environments.
+    This is the recommended tool for most document extraction tasks. Use this when
+    you have a file path (local) or web link (Google Drive, HTTP/HTTPS URLs).
+
+    **When to use:**
+    - Extracting from local filesystem paths
+    - Extracting from web URLs including Google Drive share links
+    - Any scenario where you have a document path or URL
+
+    **Universal approach:**
+    - URLs are downloaded automatically
+    - Local files are read directly
+    - Everything is converted to bytes and processed consistently
+    - No file ever stays on disk in base64 - only temporary in-memory conversion
+
+    **Use extract_bytes instead only if:** you already have document data loaded
+    in memory as base64. Otherwise, this tool handles everything for you.
+
+    Args:
+        document_url_or_path: Local filesystem path OR web URL (http/https including Google Drive)
     """
 
-    if not _is_http_url(file_path):
-        # Prefer direct access for files under the configured uploads directory.
-        # This avoids any path restrictions the upstream server might impose and
-        # ensures local uploads are always readable by the custom PDF tools.
+    if not _is_http_url(document_url_or_path):
+        # Universal local file handling: read any accessible file directly
         try:
-            base = _resolve_attachments_dir()
-            base_resolved = base.resolve()
-            p = Path(file_path)
-
-            candidate: Path | None = None
-            if p.is_absolute():
-                abs_path = p.resolve()
-                if base_resolved in abs_path.parents and abs_path.is_file():
-                    candidate = abs_path
-            else:
-                # Try resolving relative to the uploads directory
-                abs_path = (base / p).resolve()
-                if (
-                    base_resolved in abs_path.parents or abs_path == base_resolved
-                ) and abs_path.is_file():
-                    candidate = abs_path
-
-            if candidate is not None:
-                # Read bytes and delegate to extract_bytes with a sensible mime
-                content_bytes = await asyncio.to_thread(candidate.read_bytes)
-                # Basic mime inference; default to PDF when extension matches
-                inferred_mime = (
-                    "application/pdf" if candidate.suffix.lower() == ".pdf" else None
-                )
+            p = Path(document_url_or_path)
+            # Try as absolute path first
+            if p.is_absolute() and p.is_file():
+                content_bytes = await asyncio.to_thread(p.read_bytes)
+                inferred_mime = _guess_mime_from_suffix(p)
                 effective_mime = (
                     mime_type or inferred_mime or "application/octet-stream"
                 ).lower()
@@ -175,14 +201,46 @@ async def extract_document_urlaware(  # noqa: PLR0913
                     tesseract_output_format,
                     enable_table_detection,
                 )
+
+            # Try relative to uploads directory
+            if not p.is_absolute():
+                base = _resolve_attachments_dir()
+                abs_path = (base / p).resolve()
+                if abs_path.is_file():
+                    content_bytes = await asyncio.to_thread(abs_path.read_bytes)
+                    inferred_mime = _guess_mime_from_suffix(abs_path)
+                    effective_mime = (
+                        mime_type or inferred_mime or "application/octet-stream"
+                    ).lower()
+                    content_b64 = base64.b64encode(content_bytes).decode("ascii")
+
+                    return await asyncio.to_thread(
+                        kreuzberg_server.extract_bytes,
+                        content_b64,
+                        effective_mime,
+                        force_ocr,
+                        chunk_content,
+                        extract_tables,
+                        extract_entities,
+                        extract_keywords,
+                        ocr_backend,
+                        max_chars,
+                        max_overlap,
+                        keyword_count,
+                        auto_detect_language,
+                        tesseract_lang,
+                        tesseract_psm,
+                        tesseract_output_format,
+                        enable_table_detection,
+                    )
         except Exception:
-            # Fall back to upstream behavior on any resolution error
+            # Fall back to upstream on any read error
             pass
 
-        # Delegate to upstream for other local filesystem paths
+        # Final fallback: delegate to upstream Kreuzberg
         return await asyncio.to_thread(
             kreuzberg_server.extract_document,
-            file_path,
+            document_url_or_path,
             mime_type,
             force_ocr,
             chunk_content,
@@ -200,20 +258,24 @@ async def extract_document_urlaware(  # noqa: PLR0913
             enable_table_detection,
         )
 
-    # HTTP(S) flow: fetch bytes, infer mime if needed, and process via extract_bytes
+    # Universal HTTP(S) flow: download from any URL and process via extract_bytes
+    # Normalize Google Drive URLs to direct download format
+    if "drive.google.com" in document_url_or_path:
+        document_url_or_path = _normalize_gdrive_url(document_url_or_path)
+
     try:
         async with httpx.AsyncClient(follow_redirects=True, timeout=60) as client:
-            resp = await client.get(file_path)
+            resp = await client.get(document_url_or_path)
         resp.raise_for_status()
     except Exception as exc:  # pragma: no cover - network variability
         return {
             "error": f"Failed to download URL: {exc}",
-            "file_path": file_path,
+            "file_path": document_url_or_path,
         }
 
     content = resp.content
     if not content:
-        return {"error": "Downloaded file was empty", "file_path": file_path}
+        return {"error": "Downloaded file was empty", "file_path": document_url_or_path}
 
     inferred_mime = None
     try:
@@ -265,13 +327,26 @@ async def extract_bytes_tool(  # noqa: PLR0913
     tesseract_output_format: Optional[str] = None,
     enable_table_detection: Optional[bool] = None,
 ) -> dict[str, Any]:
-    """Extract text and metadata from base64-encoded document bytes.
+    """**ADVANCED:** Extract text from base64-encoded document data already in memory.
 
-    Processes document content provided as base64-encoded bytes. Useful for
-    uploaded files or in-memory content without filesystem access.
+    **Use extract_document instead** for files on disk or URLs. This tool is only
+    needed when you already have document data loaded in memory as base64.
+
+    **When to use:**
+    - Processing file data received from an API upload endpoint
+    - Document bytes already loaded in memory from another source
+    - Building custom pipelines that work with in-memory data
+
+    **Do NOT use if:**
+    - You have a file path → use extract_document
+    - You have a URL (Google Drive, HTTP) → use extract_document
+    - The file is on disk anywhere → use extract_document
+
+    This tool exists for specialized cases. For typical document extraction,
+    extract_document is simpler and handles downloading/loading automatically.
 
     Args:
-        content_base64: Base64-encoded document content
+        content_base64: Base64-encoded document content (not a path or URL)
         mime_type: MIME type (e.g., 'application/pdf', 'image/jpeg')
         force_ocr: Force OCR even for text-based documents
         chunk_content: Split content into chunks for RAG applications
@@ -324,13 +399,21 @@ async def batch_extract_bytes_tool(
     keyword_count: int = 10,
     auto_detect_language: bool = False,
 ) -> list[dict[str, Any]]:
-    """Process multiple documents from base64-encoded bytes concurrently.
+    """**PERFORMANCE OPTIMIZATION:** Process multiple in-memory documents concurrently.
 
-    Efficiently batch-processes multiple documents provided as base64-encoded
-    bytes, processing them concurrently for optimal performance.
+    Batch-processes multiple documents already loaded as base64 in memory.
+    Processing happens concurrently for speed. Use batch_extract_document instead
+    if you have file paths or URLs.
+
+    **When to use:**
+    - Multiple documents already in memory as base64
+    - Need concurrent processing for performance
+    - Specialized pipelines with pre-loaded data
+
+    **Use batch_extract_document instead if:** you have file paths or URLs.
 
     Args:
-        contents_base64: List of base64-encoded document contents
+        contents_base64: List of base64-encoded document contents (not paths)
         mime_types: List of MIME types (must match length of contents_base64)
         force_ocr: Force OCR even for text-based documents
         chunk_content: Split content into chunks
@@ -379,14 +462,22 @@ async def batch_extract_document_tool(
     keyword_count: int = 10,
     auto_detect_language: bool = False,
 ) -> list[dict[str, Any]]:
-    """Process multiple documents from file paths concurrently.
+    """**PERFORMANCE OPTIMIZATION:** Process multiple documents from paths/URLs concurrently.
 
-    Batch-processes multiple document files concurrently for efficient
-    extraction from multiple files. Results are returned in the same order
-    as the input file paths.
+    Batch version of extract_document for processing many files efficiently.
+    Documents are processed concurrently for speed. Use this when you need to
+    extract from multiple files at once.
+
+    **When to use:**
+    - Processing multiple local files simultaneously
+    - Extracting from a list of URLs
+    - Need faster throughput than calling extract_document repeatedly
+
+    **Performance benefit:** Concurrent processing is significantly faster than
+    calling extract_document in a loop.
 
     Args:
-        file_paths: List of document file paths
+        file_paths: List of document file paths or HTTP(S) URLs
         mime_types: Optional list of MIME types (must match length if provided)
         force_ocr: Force OCR even for text-based documents
         chunk_content: Split content into chunks
@@ -425,18 +516,31 @@ async def extract_simple_tool(
     file_path: str,
     mime_type: Optional[str] = None,
 ) -> str:
-    """Simple text extraction with minimal configuration.
+    """**SIMPLIFIED:** Quick text extraction without advanced features.
 
-    Provides straightforward text extraction from documents without advanced
-    features like OCR forcing, table extraction, or entity recognition. Best
-    for quick text extraction from standard documents.
+    Lightweight version of extract_document that only extracts plain text.
+    No OCR control, no table extraction, no entity recognition. Use this
+    when you just need the text content quickly.
+
+    **When to use:**
+    - Only need plain text, no metadata
+    - Processing simple, standard documents
+    - Want simpler output (string vs dictionary)
+
+    **Use extract_document instead if you need:**
+    - OCR control for scanned documents
+    - Table extraction
+    - Entity recognition
+    - Keyword extraction
+    - Chunking for RAG applications
+    - More detailed metadata
 
     Args:
-        file_path: Path to the document file
+        file_path: Path to the document file or HTTP(S) URL
         mime_type: Optional MIME type hint for the document
 
     Returns:
-        Extracted text content as a string
+        Extracted text content as a simple string
     """
 
     return await asyncio.to_thread(
@@ -459,10 +563,39 @@ async def extract_saved_attachment(
     keyword_count: int = 10,
     auto_detect_language: bool = False,
 ) -> str:
-    """Extract and return text from a previously saved chat attachment.
+    """**CONVENIENCE:** Extract text from attachments saved in the chat system.
 
-    Provide the internal ``attachment_id`` returned by the
-    ``download_gmail_attachment`` tool or the uploads API.
+    Use this when you have an attachment_id from a previous upload or Gmail
+    download. This tool looks up the attachment in the database and extracts
+    its content automatically.
+
+    **When to use:**
+    - Have an attachment_id from download_gmail_attachment
+    - Have an attachment_id from the uploads API
+    - Need to re-process a previously uploaded file
+
+    **How it works:**
+    1. Looks up attachment metadata in database by ID
+    2. Locates the file in the uploads directory
+    3. Extracts and returns the text content
+    4. Auto-retries with OCR if initial extraction returns no text
+
+    **Use extract_document instead if:** you have the file path directly.
+
+    Args:
+        attachment_id: Internal attachment ID (32-character hex string)
+        force_ocr: Force OCR even for text-based documents
+        chunk_content: Split content into chunks
+        extract_tables: Extract tables from document
+        extract_entities: Extract named entities
+        extract_keywords: Extract keywords with scores
+        max_chars: Maximum characters per chunk
+        max_overlap: Character overlap between chunks
+        keyword_count: Number of keywords to extract
+        auto_detect_language: Auto-detect document language
+
+    Returns:
+        Extracted text as a string, or error message if extraction fails
     """
 
     try:

@@ -6,7 +6,7 @@ import asyncio
 import base64
 import io
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
@@ -207,40 +207,67 @@ def _detect_file_type_query(query: str) -> Optional[str]:
     # Using "contains" for broader matches, "=" for exact matches
     type_mappings = [
         # Images - match any image type
-        (["image", "images", "photo", "photos", "picture", "pictures", "img", "png", "jpg", "jpeg", "gif"],
-         "mimeType contains 'image/'"),
-
+        (
+            [
+                "image",
+                "images",
+                "photo",
+                "photos",
+                "picture",
+                "pictures",
+                "img",
+                "png",
+                "jpg",
+                "jpeg",
+                "gif",
+            ],
+            "mimeType contains 'image/'",
+        ),
         # PDFs
-        (["pdf", "pdfs"],
-         "mimeType = 'application/pdf'"),
-
+        (["pdf", "pdfs"], "mimeType = 'application/pdf'"),
         # Google Docs
-        (["document", "documents", "doc", "docs", "google doc", "google docs"],
-         "mimeType = 'application/vnd.google-apps.document'"),
-
+        (
+            ["document", "documents", "doc", "docs", "google doc", "google docs"],
+            "mimeType = 'application/vnd.google-apps.document'",
+        ),
         # Google Sheets
-        (["spreadsheet", "spreadsheets", "sheet", "sheets", "google sheet", "google sheets"],
-         "mimeType = 'application/vnd.google-apps.spreadsheet'"),
-
+        (
+            [
+                "spreadsheet",
+                "spreadsheets",
+                "sheet",
+                "sheets",
+                "google sheet",
+                "google sheets",
+            ],
+            "mimeType = 'application/vnd.google-apps.spreadsheet'",
+        ),
         # Google Slides
-        (["presentation", "presentations", "slide", "slides", "google slide", "google slides"],
-         "mimeType = 'application/vnd.google-apps.presentation'"),
-
+        (
+            [
+                "presentation",
+                "presentations",
+                "slide",
+                "slides",
+                "google slide",
+                "google slides",
+            ],
+            "mimeType = 'application/vnd.google-apps.presentation'",
+        ),
         # Folders
-        (["folder", "folders", "directory", "directories"],
-         "mimeType = 'application/vnd.google-apps.folder'"),
-
+        (
+            ["folder", "folders", "directory", "directories"],
+            "mimeType = 'application/vnd.google-apps.folder'",
+        ),
         # Videos
-        (["video", "videos", "movie", "movies", "mp4", "avi", "mov"],
-         "mimeType contains 'video/'"),
-
+        (
+            ["video", "videos", "movie", "movies", "mp4", "avi", "mov"],
+            "mimeType contains 'video/'",
+        ),
         # Audio
-        (["audio", "sound", "music", "mp3", "wav"],
-         "mimeType contains 'audio/'"),
-
+        (["audio", "sound", "music", "mp3", "wav"], "mimeType contains 'audio/'"),
         # Text files
-        (["text file", "text files", "txt"],
-         "mimeType = 'text/plain'"),
+        (["text file", "text files", "txt"], "mimeType = 'text/plain'"),
     ]
 
     # Check each mapping
@@ -248,7 +275,7 @@ def _detect_file_type_query(query: str) -> Optional[str]:
         # Check if any keyword matches the query (as whole word or part of phrase)
         for keyword in keywords:
             # Match keyword as whole word or with common modifiers
-            pattern = r'\b' + re.escape(keyword) + r'\b'
+            pattern = r"\b" + re.escape(keyword) + r"\b"
             if re.search(pattern, query_lower):
                 return mime_filter
 
@@ -416,7 +443,10 @@ async def search_drive_files(
     include_items_from_all_drives: bool = True,
     corpora: Optional[str] = None,
 ) -> str:
-    """Search for files in Google Drive.
+    """**Google Drive ONLY** - search for files in Drive storage, NOT Gmail.
+
+    Use this to find files stored in Google Drive. For Gmail attachments,
+    use Gmail tools (list_gmail_messages, extract_gmail_attachment_by_id).
 
     Intelligently handles different query types:
     - File type queries (e.g., "image", "pdf", "spreadsheet") filter by MIME type
@@ -453,7 +483,22 @@ async def search_drive_files(
             # Remove common file type keywords from the search terms
             search_terms = query_lower
             for keywords, _ in [
-                (["image", "images", "photo", "photos", "picture", "pictures", "img", "png", "jpg", "jpeg", "gif"], None),
+                (
+                    [
+                        "image",
+                        "images",
+                        "photo",
+                        "photos",
+                        "picture",
+                        "pictures",
+                        "img",
+                        "png",
+                        "jpg",
+                        "jpeg",
+                        "gif",
+                    ],
+                    None,
+                ),
                 (["pdf", "pdfs"], None),
                 (["document", "documents", "doc", "docs"], None),
                 (["spreadsheet", "spreadsheets", "sheet", "sheets"], None),
@@ -464,11 +509,11 @@ async def search_drive_files(
             ]:
                 for keyword in keywords:
                     # Remove the keyword and common connecting words
-                    pattern = r'\b' + re.escape(keyword) + r'\b'
-                    search_terms = re.sub(pattern, '', search_terms)
+                    pattern = r"\b" + re.escape(keyword) + r"\b"
+                    search_terms = re.sub(pattern, "", search_terms)
 
             # Clean up the remaining terms
-            search_terms = re.sub(r'\b(latest|recent|new|old|my)\b', '', search_terms)
+            search_terms = re.sub(r"\b(latest|recent|new|old|my)\b", "", search_terms)
             search_terms = search_terms.strip()
 
             # Build query: MIME type filter + optional name search
@@ -630,6 +675,26 @@ async def get_drive_file_content(
     file_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
 ) -> str:
+    """**Google Drive files ONLY** - download and extract content from Drive file.
+
+    ⚠️ CRITICAL: This tool is for GOOGLE DRIVE FILE IDs ONLY (alphanumeric format).
+    DO NOT use Gmail message IDs here - use get_gmail_message_content for emails.
+
+    This tool is for files stored in Google Drive, NOT for Gmail email attachments.
+    For Gmail attachments, use extract_gmail_attachment_by_id or download_gmail_attachment.
+
+    Args:
+        file_id: Google Drive file ID (alphanumeric like "1mJ9MIWIashvrW5lpvDMrQZxTy4DhmWpx")
+                Get this from gdrive_search_files or gdrive_list_folder
+        user_email: User's email for authentication
+
+    Returns:
+        File content as text (with automatic PDF extraction for PDFs)
+
+    ID Format Guide:
+        ✅ Drive file ID: "1mJ9MIWIashvrW5lpvDMrQZxTy4DhmWpx" (from gdrive_search_files)
+        ❌ Gmail message ID: "18d2a3b4c5d6e7f8" (for get_gmail_message_content)
+    """
     service, error_msg = _get_drive_service_or_error(user_email)
     if error_msg:
         return error_msg
@@ -743,8 +808,15 @@ async def get_drive_file_content(
     header = (
         f'File: "{metadata.get("name", "Unknown File")}" '
         f"(ID: {file_id}, Type: {mime_type})\n"
-        f"Link: {metadata.get('webViewLink', '#')}\n\n--- CONTENT ---\n"
+        f"Link: {metadata.get('webViewLink', '#')}\n"
     )
+
+    # Add processing note for PDFs
+    if mime_type == "application/pdf":
+        header += "[Used Kreuzberg PDF extraction with OCR]\n"
+
+    header += "\n--- CONTENT ---\n"
+
     return header + body_text
 
 
@@ -1166,18 +1238,21 @@ async def display_drive_image(
     session_id: str,
     user_email: str = DEFAULT_USER_EMAIL,
 ) -> str:
-    """Download an image from Google Drive and display it in the chat.
+    """**Google Drive images ONLY** - download Drive image and display in chat.
 
-    This tool downloads an image file from Google Drive and stores it for display
+    This tool is for images stored in Google Drive, NOT Gmail email attachments.
+    For Gmail attachment images, use download_gmail_attachment.
+
+    Downloads an image file from Google Drive and stores it for display
     in the chat interface. The image becomes part of the conversation history.
 
     Args:
-        file_id: The Google Drive file ID
-        session_id: The chat session ID (required to store the attachment)
-        user_email: The user's email address for authentication
+        file_id: Google Drive file ID (from gdrive_search_files)
+        session_id: Chat session ID (required to store the attachment)
+        user_email: User's email address for authentication
 
     Returns:
-        A message with attachment details including signed URL for display
+        Message with attachment details including signed URL for display
     """
     if not session_id or not session_id.strip():
         return "session_id is required to display the image in chat."

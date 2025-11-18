@@ -741,14 +741,16 @@ async def get_drive_file_content(
     }
 
     body_text: str
+    extraction_error: Optional[str] = None
+
     if mime_type == "application/pdf":
         try:
             # Run PDF extraction in thread pool to avoid blocking event loop
             def _extract_pdf() -> str:
                 payload = base64.b64encode(content_bytes).decode("ascii")
                 result: Dict[str, Any] = kb_extract_bytes(
-                    content_base64=payload,
-                    mime_type=mime_type,
+                    payload,
+                    mime_type,
                 )
                 text = str(result.get("content") or result.get("text") or "").strip()
 
@@ -756,9 +758,9 @@ async def get_drive_file_content(
                 if not text:
                     try:
                         result_ocr: Dict[str, Any] = kb_extract_bytes(
-                            content_base64=payload,
-                            mime_type=mime_type,
-                            force_ocr=True,
+                            payload,
+                            mime_type,
+                            True,  # force_ocr
                         )
                         text = str(
                             result_ocr.get("content") or result_ocr.get("text") or ""
@@ -778,12 +780,15 @@ async def get_drive_file_content(
                         f"[Binary or unsupported text encoding for mimeType '{mime_type}' - "
                         f"{len(content_bytes)} bytes]"
                     )
-        except Exception:
+        except Exception as exc:
+            # Capture the specific error for user notification
+            extraction_error = str(exc)
             # If extraction fails for any reason, degrade gracefully
             try:
                 body_text = content_bytes.decode("utf-8")
             except UnicodeDecodeError:
                 body_text = (
+                    f"[PDF extraction failed: {extraction_error}]\n"
                     f"[Binary or unsupported text encoding for mimeType '{mime_type}' - "
                     f"{len(content_bytes)} bytes]"
                 )
@@ -813,7 +818,10 @@ async def get_drive_file_content(
 
     # Add processing note for PDFs
     if mime_type == "application/pdf":
-        header += "[Used Kreuzberg PDF extraction with OCR]\n"
+        if extraction_error:
+            header += f"⚠️ [PDF extraction failed: {extraction_error}]\n"
+        else:
+            header += "[Used Kreuzberg PDF extraction with OCR]\n"
 
     header += "\n--- CONTENT ---\n"
 

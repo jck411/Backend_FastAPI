@@ -8,27 +8,29 @@ The official [MCP Inspector](https://github.com/modelcontextprotocol/inspector) 
 
 ### Inspect Individual Servers
 
+**Note:** Run these commands from the project root directory (`/home/human/REPOS/Backend_FastAPI`) so the relative `.venv/bin/python` path resolves correctly.
+
 #### UI Mode (Interactive Visual Inspector)
 Open a web interface at `http://localhost:6274` to interactively browse and test tools:
 
 ```bash
 # Calendar & Tasks server
-npx @modelcontextprotocol/inspector uv run python -m backend.mcp_servers.calendar_server
+npx @modelcontextprotocol/inspector .venv/bin/python -m backend.mcp_servers.calendar_server
 
 # Gmail server
-npx @modelcontextprotocol/inspector uv run python -m backend.mcp_servers.gmail_server
+npx @modelcontextprotocol/inspector .venv/bin/python -m backend.mcp_servers.gmail_server
 
 # Google Drive server
-npx @modelcontextprotocol/inspector uv run python -m backend.mcp_servers.gdrive_server
+npx @modelcontextprotocol/inspector .venv/bin/python -m backend.mcp_servers.gdrive_server
 
 # PDF & Document Extraction server
-npx @modelcontextprotocol/inspector uv run python -m backend.mcp_servers.pdf_server
+npx @modelcontextprotocol/inspector .venv/bin/python -m backend.mcp_servers.pdf_server
 
 # Housekeeping server
-npx @modelcontextprotocol/inspector uv run python -m backend.mcp_servers.housekeeping_server
+npx @modelcontextprotocol/inspector .venv/bin/python -m backend.mcp_servers.housekeeping_server
 
 # Calculator server
-npx @modelcontextprotocol/inspector uv run python -m backend.mcp_servers.calculator_server
+npx @modelcontextprotocol/inspector .venv/bin/python -m backend.mcp_servers.calculator_server
 ```
 
 #### CLI Mode (JSON Output)
@@ -36,16 +38,16 @@ Get complete tool schemas as JSON for scripting or documentation:
 
 ```bash
 # List all tools with full schemas
-npx @modelcontextprotocol/inspector --cli uv run python -m backend.mcp_servers.calendar_server --method tools/list
+npx @modelcontextprotocol/inspector --cli .venv/bin/python -m backend.mcp_servers.calendar_server --method tools/list
 
 # Call a specific tool to test
-npx @modelcontextprotocol/inspector --cli uv run python -m backend.mcp_servers.calendar_server \
+npx @modelcontextprotocol/inspector --cli .venv/bin/python -m backend.mcp_servers.calendar_server \
   --method tools/call \
   --tool-name calendar_get_events \
   --tool-arg user_email=jck411@gmail.com
 
 # Output to file for documentation
-npx @modelcontextprotocol/inspector --cli uv run python -m backend.mcp_servers.calendar_server \
+npx @modelcontextprotocol/inspector --cli .venv/bin/python -m backend.mcp_servers.calendar_server \
   --method tools/list > calendar_tools.json
 ```
 
@@ -180,8 +182,8 @@ For combined calendar + tasks view: `calendar_get_events(include_tasks=True)`
 
 ## Version Information
 
-**Document Version:** 2.0
-**Last Updated:** November 9, 2025
+**Document Version:** 2.1
+**Last Updated:** November 17, 2025
 **Backend Version:** FastAPI + MCP Integration
 **MCP Protocol:** Model Context Protocol
 

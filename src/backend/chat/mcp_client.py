@@ -10,11 +10,19 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any, AsyncContextManager, Sequence, cast
 
+import httpx
 from mcp.client.session import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.types import CallToolResult, ListToolsResult, Tool
 
 logger = logging.getLogger(__name__)
+
+# Connection timeout for HTTP/SSE MCP servers (seconds)
+HTTP_CONNECTION_TIMEOUT = 30.0
+# Maximum number of reconnection attempts for HTTP servers
+HTTP_MAX_RECONNECT_ATTEMPTS = 3
+# Delay between reconnection attempts (seconds)
+HTTP_RECONNECT_DELAY = 2.0
 
 
 class MCPToolClient:
@@ -30,9 +38,15 @@ class MCPToolClient:
         cwd: Path | None = None,
         env: dict[str, str] | None = None,
     ):
-        launch_methods = [server_module is not None, command is not None, http_url is not None]
+        launch_methods = [
+            server_module is not None,
+            command is not None,
+            http_url is not None,
+        ]
         if sum(launch_methods) != 1:  # pragma: no cover - defensive
-            raise ValueError("Provide exactly one of 'server_module', 'command', or 'http_url'")
+            raise ValueError(
+                "Provide exactly one of 'server_module', 'command', or 'http_url'"
+            )
 
         launch_command: list[str] | None = None
         launch_module: str | None = None
@@ -60,10 +74,22 @@ class MCPToolClient:
         self._session: ClientSession | None = None
         self._tools: list[Tool] = []
         self._lock = asyncio.Lock()
+        self._reconnect_attempts = 0
+        self._last_connection_error: Exception | None = None
 
     @property
     def server_id(self) -> str:
         return self._server_id
+
+    @property
+    def is_http_server(self) -> bool:
+        """Check if this client connects to an HTTP/SSE server."""
+        return self._http_url is not None
+
+    @property
+    def http_url(self) -> str | None:
+        """Return the HTTP URL if this is an HTTP server, None otherwise."""
+        return self._http_url
 
     async def connect(self) -> None:
         """Spawn the MCP server and initialize the client session."""
@@ -81,10 +107,144 @@ class MCPToolClient:
                     self._http_url,
                     self._server_id,
                 )
-                sse_manager = sse_client(self._http_url)
-                read_stream, write_stream = await exit_stack.enter_async_context(
-                    sse_manager
-                )
+                try:
+                    # Apply connection timeout to prevent hanging
+                    async with asyncio.timeout(HTTP_CONNECTION_TIMEOUT):
+                        sse_manager = sse_client(
+                            self._http_url, timeout=HTTP_CONNECTION_TIMEOUT
+                        )
+                        (
+                            read_stream,
+                            write_stream,
+                        ) = await exit_stack.enter_async_context(sse_manager)
+                    # Reset reconnect counter on successful connection
+                    self._reconnect_attempts = 0
+                    self._last_connection_error = None
+                except asyncio.TimeoutError as exc:
+                    self._last_connection_error = exc
+                    logger.error(
+                        "Timeout connecting to HTTP MCP server '%s' after %ss",
+                        self._http_url,
+                        HTTP_CONNECTION_TIMEOUT,
+                    )
+                    raise ConnectionError(
+                        f"Connection to HTTP MCP server timed out after {HTTP_CONNECTION_TIMEOUT}s"
+                    ) from exc
+                except httpx.ConnectError as exc:
+                    self._last_connection_error = exc
+                    # Detect DNS resolution failures
+                    error_msg = str(exc).lower()
+                    if (
+                        "name or service not known" in error_msg
+                        or "nodename nor servname provided" in error_msg
+                        or "getaddrinfo failed" in error_msg
+                    ):
+                        logger.error(
+                            "DNS resolution failed for HTTP MCP server '%s': %s",
+                            self._http_url,
+                            exc,
+                        )
+                        raise ConnectionError(
+                            f"DNS resolution failed for HTTP MCP server (check hostname): {exc}"
+                        ) from exc
+                    # Connection refused
+                    elif "connection refused" in error_msg:
+                        logger.error(
+                            "Connection refused to HTTP MCP server '%s': %s",
+                            self._http_url,
+                            exc,
+                        )
+                        raise ConnectionError(
+                            f"Connection refused by HTTP MCP server (check if server is running): {exc}"
+                        ) from exc
+                    else:
+                        logger.error(
+                            "Network error connecting to HTTP MCP server '%s': %s",
+                            self._http_url,
+                            exc,
+                        )
+                        raise ConnectionError(
+                            f"Failed to connect to HTTP MCP server: {exc}"
+                        ) from exc
+                except httpx.NetworkError as exc:
+                    self._last_connection_error = exc
+                    logger.error(
+                        "Network error connecting to HTTP MCP server '%s': %s",
+                        self._http_url,
+                        exc,
+                    )
+                    raise ConnectionError(
+                        f"Network error connecting to HTTP MCP server: {exc}"
+                    ) from exc
+                except httpx.HTTPStatusError as exc:
+                    self._last_connection_error = exc
+                    status_code = exc.response.status_code
+                    # Provide specific guidance for common HTTP errors
+                    if status_code == 401:
+                        logger.error(
+                            "Authentication required for HTTP MCP server '%s'",
+                            self._http_url,
+                        )
+                        raise ConnectionError(
+                            "HTTP MCP server requires authentication (401 Unauthorized)"
+                        ) from exc
+                    elif status_code == 403:
+                        logger.error(
+                            "Access forbidden to HTTP MCP server '%s'",
+                            self._http_url,
+                        )
+                        raise ConnectionError(
+                            "HTTP MCP server access forbidden (403 Forbidden)"
+                        ) from exc
+                    elif status_code == 404:
+                        logger.error(
+                            "HTTP MCP server endpoint not found '%s'",
+                            self._http_url,
+                        )
+                        raise ConnectionError(
+                            "HTTP MCP server endpoint not found (404 Not Found)"
+                        ) from exc
+                    elif status_code >= 500:
+                        logger.error(
+                            "HTTP MCP server error '%s': %s %s",
+                            self._http_url,
+                            status_code,
+                            exc.response.reason_phrase,
+                        )
+                        raise ConnectionError(
+                            f"HTTP MCP server internal error ({status_code})"
+                        ) from exc
+                    else:
+                        logger.error(
+                            "HTTP error from MCP server '%s': %s %s",
+                            self._http_url,
+                            status_code,
+                            exc.response.reason_phrase,
+                        )
+                        raise ConnectionError(
+                            f"HTTP MCP server returned error: {status_code}"
+                        ) from exc
+                except ValueError as exc:
+                    self._last_connection_error = exc
+                    # Invalid SSE stream format
+                    logger.error(
+                        "Invalid SSE stream format from HTTP MCP server '%s': %s",
+                        self._http_url,
+                        exc,
+                    )
+                    raise ConnectionError(
+                        f"Invalid SSE stream format from HTTP MCP server: {exc}"
+                    ) from exc
+                except Exception as exc:
+                    self._last_connection_error = exc
+                    logger.error(
+                        "Unexpected error connecting to HTTP MCP server '%s': %s",
+                        self._http_url,
+                        exc,
+                    )
+                    raise ConnectionError(
+                        f"Failed to connect to HTTP MCP server: {exc}"
+                    ) from exc
             elif self._launch_command is not None:
                 params = StdioServerParameters(
                     command=self._launch_command[0],
@@ -93,6 +253,13 @@ class MCPToolClient:
                     env=self._env,
                 )
                 log_target = "command %s" % " ".join(self._launch_command)
+                logger.info(
+                    "Starting MCP server %s (id=%s)", log_target, self._server_id
+                )
+                stdio_manager = cast(AsyncContextManager[Any], stdio_client(params))
+                read_stream, write_stream = await exit_stack.enter_async_context(
+                    stdio_manager
+                )
             else:
                 # Type guard: _server_module is guaranteed to be str in this branch
                 if self._server_module is None:  # pragma: no cover - defensive
@@ -106,12 +273,13 @@ class MCPToolClient:
                     env=self._env,
                 )
                 log_target = f"module '{self._server_module}'"
-
-            logger.info("Starting MCP server %s (id=%s)", log_target, self._server_id)
-            stdio_manager = cast(AsyncContextManager[Any], stdio_client(params))
-            read_stream, write_stream = await exit_stack.enter_async_context(
-                stdio_manager
-            )
+                logger.info(
+                    "Starting MCP server %s (id=%s)", log_target, self._server_id
+                )
+                stdio_manager = cast(AsyncContextManager[Any], stdio_client(params))
+                read_stream, write_stream = await exit_stack.enter_async_context(
+                    stdio_manager
+                )
 
             session = ClientSession(read_stream, write_stream)
             await exit_stack.enter_async_context(session)
@@ -121,6 +289,56 @@ class MCPToolClient:
             self._session = session
 
             await self.refresh_tools()
+
+    async def reconnect(self) -> bool:
+        """Attempt to reconnect to an HTTP MCP server.
+
+        Returns True if reconnection was successful, False otherwise.
+        Only applicable for HTTP servers.
+        """
+        if not self.is_http_server:
+            logger.warning(
+                "Reconnect called on non-HTTP server '%s', ignoring",
+                self._server_id,
+            )
+            return False
+
+        if self._reconnect_attempts >= HTTP_MAX_RECONNECT_ATTEMPTS:
+            logger.error(
+                "Maximum reconnection attempts (%d) reached for HTTP MCP server '%s'",
+                HTTP_MAX_RECONNECT_ATTEMPTS,
+                self._server_id,
+            )
+            return False
+
+        self._reconnect_attempts += 1
+        logger.info(
+            "Attempting to reconnect to HTTP MCP server '%s' (attempt %d/%d)",
+            self._server_id,
+            self._reconnect_attempts,
+            HTTP_MAX_RECONNECT_ATTEMPTS,
+        )
+
+        # Close existing connection if any
+        await self.close()
+
+        # Wait before reconnecting
+        await asyncio.sleep(HTTP_RECONNECT_DELAY)
+
+        try:
+            await self.connect()
+            logger.info(
+                "Successfully reconnected to HTTP MCP server '%s'",
+                self._server_id,
+            )
+            return True
+        except Exception as exc:
+            logger.warning(
+                "Failed to reconnect to HTTP MCP server '%s': %s",
+                self._server_id,
+                exc,
+            )
+            return False
 
     async def close(self) -> None:
         """Tear down the MCP session and the underlying process."""

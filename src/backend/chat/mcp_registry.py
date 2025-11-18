@@ -171,7 +171,11 @@ class MCPServerConfig(BaseModel):
     @model_validator(mode="after")
     def _validate_launch_method(self) -> "MCPServerConfig":
         methods_specified = sum(
-            [self.module is not None, self.command is not None, self.http_url is not None]
+            [
+                self.module is not None,
+                self.command is not None,
+                self.http_url is not None,
+            ]
         )
         if methods_specified == 0:
             message = "Define exactly one of 'module', 'command', or 'http_url' for MCP server '%s'"
@@ -830,7 +834,6 @@ class MCPToolAggregator:
                 )
             elif config.command is not None:
                 client = MCPToolClient(
-                    config.module,
                     command=config.command,
                     server_id=config.id,
                     cwd=cwd,
@@ -838,7 +841,7 @@ class MCPToolAggregator:
                 )
             else:
                 client = MCPToolClient(
-                    config.module,
+                    server_module=config.module,
                     server_id=config.id,
                     cwd=cwd,
                     env=env,

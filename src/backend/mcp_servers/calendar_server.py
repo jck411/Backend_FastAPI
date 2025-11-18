@@ -941,7 +941,7 @@ async def list_task_lists(
 async def list_tasks(
     user_email: str = DEFAULT_USER_EMAIL,
     task_list_id: Optional[str] = None,
-    max_results: Optional[int] = None,
+    max_results: Optional[int] = 100,
     page_token: Optional[str] = None,
     show_completed: bool = False,
     show_deleted: bool = False,
@@ -1103,7 +1103,7 @@ async def search_all_tasks(
     user_email: str = DEFAULT_USER_EMAIL,
     query: str = "",
     task_list_id: Optional[str] = None,
-    max_results: int = 25,
+    max_results: Optional[int] = 100,
     include_completed: bool = False,
     include_hidden: bool = False,
     include_deleted: bool = False,
@@ -1124,10 +1124,11 @@ async def search_all_tasks(
 
     try:
         task_service = TaskService(user_email, service_factory=get_tasks_service)
+        effective_max_results = max_results if max_results is not None else 100
         search_response = await task_service.search_tasks(
             trimmed_query,
             task_list_id=task_list_id,
-            max_results=max_results,
+            max_results=effective_max_results,
             include_completed=include_completed,
             include_hidden=include_hidden,
             include_deleted=include_deleted,

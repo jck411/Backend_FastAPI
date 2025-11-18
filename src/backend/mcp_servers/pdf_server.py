@@ -34,10 +34,6 @@ def run() -> None:  # pragma: no cover - integration entrypoint
 
 # Re-export the highest-level helpers for direct imports.
 extract_document = kreuzberg_server.extract_document
-extract_bytes = kreuzberg_server.extract_bytes
-batch_extract_bytes = kreuzberg_server.batch_extract_bytes
-batch_extract_document = kreuzberg_server.batch_extract_document
-extract_simple = kreuzberg_server.extract_simple
 
 
 def _is_http_url(path: str) -> bool:
@@ -85,12 +81,19 @@ async def _get_repository() -> ChatRepository:
     return _repository
 
 
-# Replace the upstream tool with a URL-aware wrapper while keeping local-path behavior.
-try:
-    mcp._tool_manager.remove_tool("extract_document")  # type: ignore[attr-defined]
-except Exception:
-    # If removal fails, we will simply coexist; add_tool will no-op on duplicates.
-    pass
+# Replace upstream tools with wrappers that include proper descriptions.
+# Kreuzberg registers these tools but with empty descriptions.
+for tool_name in [
+    "extract_document",
+    "extract_bytes",
+    "batch_extract_bytes",
+    "batch_extract_document",
+    "extract_simple",
+]:
+    try:
+        mcp._tool_manager.remove_tool(tool_name)  # type: ignore[attr-defined]
+    except Exception:
+        pass
 
 
 @mcp.tool("extract_document")  # type: ignore[misc]
@@ -240,6 +243,206 @@ async def extract_document_urlaware(  # noqa: PLR0913
         tesseract_psm,
         tesseract_output_format,
         enable_table_detection,
+    )
+
+
+@mcp.tool("extract_bytes")  # type: ignore[misc]
+async def extract_bytes_tool(  # noqa: PLR0913
+    content_base64: str,
+    mime_type: str,
+    force_ocr: bool = False,
+    chunk_content: bool = False,
+    extract_tables: bool = False,
+    extract_entities: bool = False,
+    extract_keywords: bool = False,
+    ocr_backend: str = "tesseract",
+    max_chars: int = 1000,
+    max_overlap: int = 200,
+    keyword_count: int = 10,
+    auto_detect_language: bool = False,
+    tesseract_lang: Optional[str] = None,
+    tesseract_psm: Optional[int] = None,
+    tesseract_output_format: Optional[str] = None,
+    enable_table_detection: Optional[bool] = None,
+) -> dict[str, Any]:
+    """Extract text and metadata from base64-encoded document bytes.
+
+    Processes document content provided as base64-encoded bytes. Useful for
+    uploaded files or in-memory content without filesystem access.
+
+    Args:
+        content_base64: Base64-encoded document content
+        mime_type: MIME type (e.g., 'application/pdf', 'image/jpeg')
+        force_ocr: Force OCR even for text-based documents
+        chunk_content: Split content into chunks for RAG applications
+        extract_tables: Extract tables from the document
+        extract_entities: Extract named entities (PERSON, ORG, DATE, etc.)
+        extract_keywords: Extract keywords with relevance scores
+        ocr_backend: OCR backend ('tesseract', 'easyocr', 'paddleocr')
+        max_chars: Maximum characters per chunk
+        max_overlap: Character overlap between chunks
+        keyword_count: Number of keywords to extract
+        auto_detect_language: Auto-detect document language
+
+    Returns:
+        Dictionary with extracted content, metadata, and optional features
+    """
+
+    return await asyncio.to_thread(
+        kreuzberg_server.extract_bytes,
+        content_base64,
+        mime_type,
+        force_ocr,
+        chunk_content,
+        extract_tables,
+        extract_entities,
+        extract_keywords,
+        ocr_backend,
+        max_chars,
+        max_overlap,
+        keyword_count,
+        auto_detect_language,
+        tesseract_lang,
+        tesseract_psm,
+        tesseract_output_format,
+        enable_table_detection,
+    )
+
+
+@mcp.tool("batch_extract_bytes")  # type: ignore[misc]
+async def batch_extract_bytes_tool(
+    contents_base64: list[str],
+    mime_types: list[str],
+    force_ocr: bool = False,
+    chunk_content: bool = False,
+    extract_tables: bool = False,
+    extract_entities: bool = False,
+    extract_keywords: bool = False,
+    ocr_backend: str = "tesseract",
+    max_chars: int = 1000,
+    max_overlap: int = 200,
+    keyword_count: int = 10,
+    auto_detect_language: bool = False,
+) -> list[dict[str, Any]]:
+    """Process multiple documents from base64-encoded bytes concurrently.
+
+    Efficiently batch-processes multiple documents provided as base64-encoded
+    bytes, processing them concurrently for optimal performance.
+
+    Args:
+        contents_base64: List of base64-encoded document contents
+        mime_types: List of MIME types (must match length of contents_base64)
+        force_ocr: Force OCR even for text-based documents
+        chunk_content: Split content into chunks
+        extract_tables: Extract tables from documents
+        extract_entities: Extract named entities
+        extract_keywords: Extract keywords with scores
+        ocr_backend: OCR backend to use
+        max_chars: Maximum characters per chunk
+        max_overlap: Character overlap between chunks
+        keyword_count: Number of keywords to extract
+        auto_detect_language: Auto-detect document languages
+
+    Returns:
+        List of dictionaries with extraction results, in same order as inputs
+    """
+
+    return await asyncio.to_thread(
+        kreuzberg_server.batch_extract_bytes,
+        contents_base64,
+        mime_types,
+        force_ocr,
+        chunk_content,
+        extract_tables,
+        extract_entities,
+        extract_keywords,
+        ocr_backend,
+        max_chars,
+        max_overlap,
+        keyword_count,
+        auto_detect_language,
+    )
+
+
+@mcp.tool("batch_extract_document")  # type: ignore[misc]
+async def batch_extract_document_tool(
+    file_paths: list[str],
+    mime_types: Optional[list[str]] = None,
+    force_ocr: bool = False,
+    chunk_content: bool = False,
+    extract_tables: bool = False,
+    extract_entities: bool = False,
+    extract_keywords: bool = False,
+    ocr_backend: str = "tesseract",
+    max_chars: int = 1000,
+    max_overlap: int = 200,
+    keyword_count: int = 10,
+    auto_detect_language: bool = False,
+) -> list[dict[str, Any]]:
+    """Process multiple documents from file paths concurrently.
+
+    Batch-processes multiple document files concurrently for efficient
+    extraction from multiple files. Results are returned in the same order
+    as the input file paths.
+
+    Args:
+        file_paths: List of document file paths
+        mime_types: Optional list of MIME types (must match length if provided)
+        force_ocr: Force OCR even for text-based documents
+        chunk_content: Split content into chunks
+        extract_tables: Extract tables from documents
+        extract_entities: Extract named entities
+        extract_keywords: Extract keywords with scores
+        ocr_backend: OCR backend to use
+        max_chars: Maximum characters per chunk
+        max_overlap: Character overlap between chunks
+        keyword_count: Number of keywords to extract
+        auto_detect_language: Auto-detect document languages
+
+    Returns:
+        List of dictionaries with extraction results, in same order as inputs
+    """
+
+    return await asyncio.to_thread(
+        kreuzberg_server.batch_extract_document,
+        file_paths,
+        mime_types,
+        force_ocr,
+        chunk_content,
+        extract_tables,
+        extract_entities,
+        extract_keywords,
+        ocr_backend,
+        max_chars,
+        max_overlap,
+        keyword_count,
+        auto_detect_language,
+    )
+
+
+@mcp.tool("extract_simple")  # type: ignore[misc]
+async def extract_simple_tool(
+    file_path: str,
+    mime_type: Optional[str] = None,
+) -> str:
+    """Simple text extraction with minimal configuration.
+
+    Provides straightforward text extraction from documents without advanced
+    features like OCR forcing, table extraction, or entity recognition. Best
+    for quick text extraction from standard documents.
+
+    Args:
+        file_path: Path to the document file
+        mime_type: Optional MIME type hint for the document
+
+    Returns:
+        Extracted text content as a string
+    """
+
+    return await asyncio.to_thread(
+        kreuzberg_server.extract_simple,
+        file_path,
+        mime_type,
     )
 
 
@@ -576,6 +779,12 @@ __all__ = [
     "list_upload_paths",
     "search_upload_paths",
 ]
+
+# Re-export underlying Kreuzberg functions for direct Python imports
+extract_bytes = kreuzberg_server.extract_bytes
+batch_extract_bytes = kreuzberg_server.batch_extract_bytes
+batch_extract_document = kreuzberg_server.batch_extract_document
+extract_simple = kreuzberg_server.extract_simple
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper

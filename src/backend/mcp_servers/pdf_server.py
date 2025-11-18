@@ -317,7 +317,15 @@ async def extract_document_urlaware(  # noqa: PLR0913
             p = Path(document_url_or_path)
             # Try as absolute path first
             if p.is_absolute() and p.is_file():
-                result = await kreuzberg.extract_file(p, mime_type, config)
+                content_bytes = await asyncio.to_thread(p.read_bytes)
+                inferred_mime = _guess_mime_from_suffix(p)
+                effective_mime = (
+                    mime_type or inferred_mime or "application/octet-stream"
+                ).lower()
+
+                result = await kreuzberg.extract_bytes(
+                    content_bytes, effective_mime, config
+                )
                 return _convert_extraction_result(result)
 
             # Try relative to uploads directory
@@ -325,7 +333,15 @@ async def extract_document_urlaware(  # noqa: PLR0913
                 base = _resolve_attachments_dir()
                 abs_path = (base / p).resolve()
                 if abs_path.is_file():
-                    result = await kreuzberg.extract_file(abs_path, mime_type, config)
+                    content_bytes = await asyncio.to_thread(abs_path.read_bytes)
+                    inferred_mime = _guess_mime_from_suffix(abs_path)
+                    effective_mime = (
+                        mime_type or inferred_mime or "application/octet-stream"
+                    ).lower()
+
+                    result = await kreuzberg.extract_bytes(
+                        content_bytes, effective_mime, config
+                    )
                     return _convert_extraction_result(result)
         except Exception:
             # Fall back to upstream on any read error
@@ -367,9 +383,8 @@ async def extract_document_urlaware(  # noqa: PLR0913
         inferred_mime = None
 
     effective_mime = (mime_type or inferred_mime or "application/octet-stream").lower()
-    content_b64 = base64.b64encode(content).decode("ascii")
 
-    result = await kreuzberg.extract_bytes(content_b64, effective_mime, config)
+    result = await kreuzberg.extract_bytes(content, effective_mime, config)
     return _convert_extraction_result(result)
 
 
@@ -408,7 +423,9 @@ async def extract_bytes(
         tesseract_output_format=tesseract_output_format,
         enable_table_detection=enable_table_detection,
     )
-    result = await kreuzberg.extract_bytes(content_base64, mime_type, config)
+
+    content_bytes = base64.b64decode(content_base64)
+    result = await kreuzberg.extract_bytes(content_bytes, mime_type, config)
     return _convert_extraction_result(result)
 
 
@@ -733,7 +750,6 @@ async def extract_saved_attachment(
         return f"Failed to read attachment: {exc}"
 
     mime_type = (record.get("mime_type") or "application/octet-stream").lower()
-    payload = base64.b64encode(content_bytes).decode("ascii")
 
     # Build config
     config = _build_extraction_config(
@@ -750,7 +766,7 @@ async def extract_saved_attachment(
 
     try:
         result_obj = await kreuzberg.extract_bytes(
-            content_base64=payload, mime_type=mime_type, config=config
+            content=content_bytes, mime_type=mime_type, config=config
         )
         # Convert to dict for compatibility with existing logic below
         result = _convert_extraction_result(result_obj)
@@ -776,7 +792,7 @@ async def extract_saved_attachment(
                 auto_detect_language=auto_detect_language,
             )
             ocr_result_obj = await kreuzberg.extract_bytes(
-                content_base64=payload, mime_type=mime_type, config=ocr_config
+                content=content_bytes, mime_type=mime_type, config=ocr_config
             )
             ocr_result = _convert_extraction_result(ocr_result_obj)
             ocr_text = str(

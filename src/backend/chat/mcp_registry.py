@@ -83,6 +83,10 @@ class MCPServerConfig(BaseModel):
         default=None,
         description="Explicit command (argv) to execute for the server",
     )
+    http_url: str | None = Field(
+        default=None,
+        description="HTTP/SSE endpoint URL for remote MCP server (e.g., http://example.com/mcp)",
+    )
     cwd: Path | None = Field(
         default=None,
         description="Working directory for the launched process",
@@ -165,9 +169,15 @@ class MCPServerConfig(BaseModel):
         return normalized
 
     @model_validator(mode="after")
-    def _require_launch_target(self) -> "MCPServerConfig":
-        if (self.module is None) == (self.command is None):
-            message = "Define exactly one of 'module' or 'command' for MCP server '%s'"
+    def _validate_launch_method(self) -> "MCPServerConfig":
+        methods_specified = sum(
+            [self.module is not None, self.command is not None, self.http_url is not None]
+        )
+        if methods_specified == 0:
+            message = "Define exactly one of 'module', 'command', or 'http_url' for MCP server '%s'"
+            raise ValueError(message % self.id)
+        if methods_specified > 1:
+            message = "Cannot specify more than one of 'module', 'command', or 'http_url' for MCP server '%s'"
             raise ValueError(message % self.id)
         return self
 
@@ -813,13 +823,26 @@ class MCPToolAggregator:
         cwd = config.resolved_cwd(self._default_cwd)
 
         try:
-            client = MCPToolClient(
-                config.module,
-                command=config.command,
-                server_id=config.id,
-                cwd=cwd,
-                env=env,
-            )
+            if config.http_url is not None:
+                client = MCPToolClient(
+                    http_url=config.http_url,
+                    server_id=config.id,
+                )
+            elif config.command is not None:
+                client = MCPToolClient(
+                    config.module,
+                    command=config.command,
+                    server_id=config.id,
+                    cwd=cwd,
+                    env=env,
+                )
+            else:
+                client = MCPToolClient(
+                    config.module,
+                    server_id=config.id,
+                    cwd=cwd,
+                    env=env,
+                )
             await client.connect()
         except Exception:
             logger.exception("Failed to start MCP server '%s'", config.id)
@@ -834,7 +857,7 @@ class MCPToolAggregator:
         if old_cfg is None:
             return True
 
-        comparable_fields = ("module", "command", "cwd", "env")
+        comparable_fields = ("module", "command", "http_url", "cwd", "env")
         for attr in comparable_fields:
             if getattr(old_cfg, attr) != getattr(new_cfg, attr):
                 return True

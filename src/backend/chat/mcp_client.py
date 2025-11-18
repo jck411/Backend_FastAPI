@@ -25,26 +25,34 @@ class MCPToolClient:
         server_module: str | None = None,
         *,
         command: Sequence[str] | None = None,
+        http_url: str | None = None,
         server_id: str | None = None,
         cwd: Path | None = None,
         env: dict[str, str] | None = None,
     ):
-        if (server_module is None) == (command is None):  # pragma: no cover - defensive
-            raise ValueError("Provide exactly one of 'server_module' or 'command'")
+        launch_methods = [server_module is not None, command is not None, http_url is not None]
+        if sum(launch_methods) != 1:  # pragma: no cover - defensive
+            raise ValueError("Provide exactly one of 'server_module', 'command', or 'http_url'")
 
         launch_command: list[str] | None = None
         launch_module: str | None = None
-        if command is not None:
+        if http_url is not None:
+            self._http_url = http_url
+        elif command is not None:
             if not command:
                 raise ValueError("Command must contain at least one argument")
             launch_command = list(command)
+            self._http_url = None
         else:
             launch_module = server_module
+            self._http_url = None
 
         self._server_module = launch_module
         self._launch_command = launch_command
         self._server_id = server_id or (
-            launch_module or (launch_command[0] if launch_command else "mcp-server")
+            launch_module
+            or (launch_command[0] if launch_command else self._http_url)
+            or "mcp-server"
         )
         self._cwd = cwd
         self._env = env
@@ -65,7 +73,19 @@ class MCPToolClient:
                 return
 
             exit_stack = AsyncExitStack()
-            if self._launch_command is not None:
+            if self._http_url is not None:
+                from mcp.client.sse import sse_client
+
+                logger.info(
+                    "Connecting to HTTP MCP server at %s (id=%s)",
+                    self._http_url,
+                    self._server_id,
+                )
+                sse_manager = sse_client(self._http_url)
+                read_stream, write_stream = await exit_stack.enter_async_context(
+                    sse_manager
+                )
+            elif self._launch_command is not None:
                 params = StdioServerParameters(
                     command=self._launch_command[0],
                     args=self._launch_command[1:],

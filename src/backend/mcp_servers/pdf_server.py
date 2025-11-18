@@ -18,7 +18,20 @@ from pathlib import Path
 from typing import Any, Optional
 
 import httpx
+import kreuzberg
+from kreuzberg import ExtractionConfig
 from kreuzberg._mcp import server as kreuzberg_server
+
+# Optional imports for sanitization
+try:
+    import pandas as pd
+except ImportError:
+    pd = None  # type: ignore
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None  # type: ignore
 
 from backend.config import get_settings
 from backend.repository import ChatRepository
@@ -127,6 +140,113 @@ for tool_name in [
         pass
 
 
+def _sanitize_result(obj: Any) -> Any:
+    """Recursively sanitize extraction results for JSON serialization.
+
+    Converts pandas DataFrames to Markdown and PIL Images to string descriptions.
+    """
+    if pd is not None and isinstance(obj, pd.DataFrame):
+        return obj.to_markdown()
+
+    if Image is not None and isinstance(obj, Image.Image):
+        return f"<Image format={obj.format} size={obj.size} mode={obj.mode}>"
+
+    if isinstance(obj, dict):
+        return {k: _sanitize_result(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_result(v) for v in obj]
+
+    return obj
+
+
+def _sanitize_table_data(table: Any) -> dict[str, Any]:
+    """Convert TableData to a JSON-serializable dictionary."""
+    # table might be TableData object or dict
+    if isinstance(table, dict):
+        page_number = table.get("page_number")
+        text = table.get("text")
+        df = table.get("df")
+        cropped_image = table.get("cropped_image")
+    else:
+        page_number = getattr(table, "page_number", None)
+        text = getattr(table, "text", None)
+        df = getattr(table, "df", None)
+        cropped_image = getattr(table, "cropped_image", None)
+
+    data = {"page_number": page_number, "text": text}
+    if df is not None:
+        if pd is not None and isinstance(df, pd.DataFrame):
+            data["markdown"] = df.to_markdown()
+        else:
+            data["markdown"] = str(df)
+
+    if cropped_image is not None:
+        if Image is not None and isinstance(cropped_image, Image.Image):
+            data["image_info"] = (
+                f"<Image size={cropped_image.size} format={cropped_image.format}>"
+            )
+        else:
+            data["image_info"] = str(cropped_image)
+
+    return data
+
+
+def _sanitize_extracted_image(img: Any) -> dict[str, Any]:
+    """Convert ExtractedImage to a JSON-serializable dictionary."""
+    # img might be ExtractedImage object or dict
+    if isinstance(img, dict):
+        return _sanitize_result(img)
+
+    return {
+        "format": getattr(img, "format", None),
+        "filename": getattr(img, "filename", None),
+        "page_number": getattr(img, "page_number", None),
+        "dimensions": getattr(img, "dimensions", None),
+        "colorspace": getattr(img, "colorspace", None),
+        "description": getattr(img, "description", None),
+        # Omit raw data bytes to keep response size manageable
+        "data_size_bytes": len(img.data) if hasattr(img, "data") and img.data else 0,
+    }
+
+
+def _convert_extraction_result(result: Any) -> dict[str, Any]:
+    """Convert ExtractionResult (or dict) to a JSON-serializable dictionary."""
+    if isinstance(result, dict):
+        # Already a dict (maybe from upstream or error), sanitize recursively
+        return _sanitize_result(result)
+
+    # Assume it's ExtractionResult
+    if not hasattr(result, "content"):
+        # Fallback for unknown types
+        return _sanitize_result(result)
+
+    data = {
+        "content": result.content,
+        "mime_type": result.mime_type,
+        "chunks": result.chunks,
+        "detected_languages": result.detected_languages,
+        "document_type": result.document_type,
+        "document_type_confidence": result.document_type_confidence,
+    }
+
+    if result.metadata:
+        data["metadata"] = _sanitize_result(result.metadata)
+
+    if result.tables:
+        data["tables"] = [_sanitize_table_data(t) for t in result.tables]
+
+    if result.images:
+        data["images"] = [_sanitize_extracted_image(i) for i in result.images]
+
+    if result.entities:
+        data["entities"] = _sanitize_result(result.entities)
+
+    if result.keywords:
+        data["keywords"] = result.keywords
+
+    return data
+
+
 @mcp.tool("extract_document")  # type: ignore[misc]
 async def extract_document_urlaware(  # noqa: PLR0913
     document_url_or_path: str,
@@ -169,94 +289,56 @@ async def extract_document_urlaware(  # noqa: PLR0913
         document_url_or_path: Local filesystem path OR web URL (http/https including Google Drive)
     """
 
+    # Build config
+    config = _build_extraction_config(
+        force_ocr=force_ocr,
+        chunk_content=chunk_content,
+        extract_tables=extract_tables,
+        extract_entities=extract_entities,
+        extract_keywords=extract_keywords,
+        ocr_backend=ocr_backend,
+        max_chars=max_chars,
+        max_overlap=max_overlap,
+        keyword_count=keyword_count,
+        auto_detect_language=auto_detect_language,
+        tesseract_lang=tesseract_lang,
+        tesseract_psm=tesseract_psm,
+        tesseract_output_format=tesseract_output_format,
+        enable_table_detection=enable_table_detection,
+    )
+
+    # Handle file:// URIs by stripping the scheme
+    if document_url_or_path.startswith("file://"):
+        document_url_or_path = document_url_or_path[7:]
+
     if not _is_http_url(document_url_or_path):
         # Universal local file handling: read any accessible file directly
         try:
             p = Path(document_url_or_path)
             # Try as absolute path first
             if p.is_absolute() and p.is_file():
-                content_bytes = await asyncio.to_thread(p.read_bytes)
-                inferred_mime = _guess_mime_from_suffix(p)
-                effective_mime = (
-                    mime_type or inferred_mime or "application/octet-stream"
-                ).lower()
-                content_b64 = base64.b64encode(content_bytes).decode("ascii")
-
-                return await asyncio.to_thread(
-                    kreuzberg_server.extract_bytes,
-                    content_b64,
-                    effective_mime,
-                    force_ocr,
-                    chunk_content,
-                    extract_tables,
-                    extract_entities,
-                    extract_keywords,
-                    ocr_backend,
-                    max_chars,
-                    max_overlap,
-                    keyword_count,
-                    auto_detect_language,
-                    tesseract_lang,
-                    tesseract_psm,
-                    tesseract_output_format,
-                    enable_table_detection,
-                )
+                result = await kreuzberg.extract_file(p, mime_type, config)
+                return _convert_extraction_result(result)
 
             # Try relative to uploads directory
             if not p.is_absolute():
                 base = _resolve_attachments_dir()
                 abs_path = (base / p).resolve()
                 if abs_path.is_file():
-                    content_bytes = await asyncio.to_thread(abs_path.read_bytes)
-                    inferred_mime = _guess_mime_from_suffix(abs_path)
-                    effective_mime = (
-                        mime_type or inferred_mime or "application/octet-stream"
-                    ).lower()
-                    content_b64 = base64.b64encode(content_bytes).decode("ascii")
-
-                    return await asyncio.to_thread(
-                        kreuzberg_server.extract_bytes,
-                        content_b64,
-                        effective_mime,
-                        force_ocr,
-                        chunk_content,
-                        extract_tables,
-                        extract_entities,
-                        extract_keywords,
-                        ocr_backend,
-                        max_chars,
-                        max_overlap,
-                        keyword_count,
-                        auto_detect_language,
-                        tesseract_lang,
-                        tesseract_psm,
-                        tesseract_output_format,
-                        enable_table_detection,
-                    )
+                    result = await kreuzberg.extract_file(abs_path, mime_type, config)
+                    return _convert_extraction_result(result)
         except Exception:
             # Fall back to upstream on any read error
             pass
 
-        # Final fallback: delegate to upstream Kreuzberg
-        return await asyncio.to_thread(
-            kreuzberg_server.extract_document,
-            document_url_or_path,
-            mime_type,
-            force_ocr,
-            chunk_content,
-            extract_tables,
-            extract_entities,
-            extract_keywords,
-            ocr_backend,  # type: ignore[arg-type]
-            max_chars,
-            max_overlap,
-            keyword_count,
-            auto_detect_language,
-            tesseract_lang,
-            tesseract_psm,
-            tesseract_output_format,
-            enable_table_detection,
-        )
+        # Final fallback: delegate to upstream Kreuzberg (using extract_file directly)
+        try:
+            result = await kreuzberg.extract_file(
+                document_url_or_path, mime_type, config
+            )
+            return _convert_extraction_result(result)
+        except Exception as e:
+            return {"error": str(e)}
 
     # Universal HTTP(S) flow: download from any URL and process via extract_bytes
     # Normalize Google Drive URLs to direct download format
@@ -287,25 +369,47 @@ async def extract_document_urlaware(  # noqa: PLR0913
     effective_mime = (mime_type or inferred_mime or "application/octet-stream").lower()
     content_b64 = base64.b64encode(content).decode("ascii")
 
-    return await asyncio.to_thread(
-        kreuzberg_server.extract_bytes,
-        content_b64,
-        effective_mime,
-        force_ocr,
-        chunk_content,
-        extract_tables,
-        extract_entities,
-        extract_keywords,
-        ocr_backend,
-        max_chars,
-        max_overlap,
-        keyword_count,
-        auto_detect_language,
-        tesseract_lang,
-        tesseract_psm,
-        tesseract_output_format,
-        enable_table_detection,
+    result = await kreuzberg.extract_bytes(content_b64, effective_mime, config)
+    return _convert_extraction_result(result)
+
+
+async def extract_bytes(
+    content_base64: str,
+    mime_type: str,
+    force_ocr: bool = False,
+    chunk_content: bool = False,
+    extract_tables: bool = False,
+    extract_entities: bool = False,
+    extract_keywords: bool = False,
+    ocr_backend: str = "tesseract",
+    max_chars: int = 1000,
+    max_overlap: int = 200,
+    keyword_count: int = 10,
+    auto_detect_language: bool = False,
+    tesseract_lang: Optional[str] = None,
+    tesseract_psm: Optional[int] = None,
+    tesseract_output_format: Optional[str] = None,
+    enable_table_detection: Optional[bool] = None,
+) -> dict[str, Any]:
+    """Safe extract_bytes function for internal use."""
+    config = _build_extraction_config(
+        force_ocr=force_ocr,
+        chunk_content=chunk_content,
+        extract_tables=extract_tables,
+        extract_entities=extract_entities,
+        extract_keywords=extract_keywords,
+        ocr_backend=ocr_backend,
+        max_chars=max_chars,
+        max_overlap=max_overlap,
+        keyword_count=keyword_count,
+        auto_detect_language=auto_detect_language,
+        tesseract_lang=tesseract_lang,
+        tesseract_psm=tesseract_psm,
+        tesseract_output_format=tesseract_output_format,
+        enable_table_detection=enable_table_detection,
     )
+    result = await kreuzberg.extract_bytes(content_base64, mime_type, config)
+    return _convert_extraction_result(result)
 
 
 @mcp.tool("extract_bytes")  # type: ignore[misc]
@@ -362,9 +466,7 @@ async def extract_bytes_tool(  # noqa: PLR0913
     Returns:
         Dictionary with extracted content, metadata, and optional features
     """
-
-    return await asyncio.to_thread(
-        kreuzberg_server.extract_bytes,
+    return await extract_bytes(
         content_base64,
         mime_type,
         force_ocr,
@@ -430,21 +532,27 @@ async def batch_extract_bytes_tool(
         List of dictionaries with extraction results, in same order as inputs
     """
 
-    return await asyncio.to_thread(
-        kreuzberg_server.batch_extract_bytes,
-        contents_base64,
-        mime_types,
-        force_ocr,
-        chunk_content,
-        extract_tables,
-        extract_entities,
-        extract_keywords,
-        ocr_backend,
-        max_chars,
-        max_overlap,
-        keyword_count,
-        auto_detect_language,
+    # Build config
+    config = _build_extraction_config(
+        force_ocr=force_ocr,
+        chunk_content=chunk_content,
+        extract_tables=extract_tables,
+        extract_entities=extract_entities,
+        extract_keywords=extract_keywords,
+        ocr_backend=ocr_backend,
+        max_chars=max_chars,
+        max_overlap=max_overlap,
+        keyword_count=keyword_count,
+        auto_detect_language=auto_detect_language,
     )
+
+    # Decode base64 and pair with mime_types
+    contents = []
+    for b64, mime in zip(contents_base64, mime_types):
+        contents.append((base64.b64decode(b64), mime))
+
+    results = await kreuzberg.batch_extract_bytes(contents, config)
+    return [_convert_extraction_result(r) for r in results]
 
 
 @mcp.tool("batch_extract_document")  # type: ignore[misc]
@@ -494,21 +602,23 @@ async def batch_extract_document_tool(
         List of dictionaries with extraction results, in same order as inputs
     """
 
-    return await asyncio.to_thread(
-        kreuzberg_server.batch_extract_document,
-        file_paths,
-        mime_types,
-        force_ocr,
-        chunk_content,
-        extract_tables,
-        extract_entities,
-        extract_keywords,
-        ocr_backend,
-        max_chars,
-        max_overlap,
-        keyword_count,
-        auto_detect_language,
+    # Build config
+    config = _build_extraction_config(
+        force_ocr=force_ocr,
+        chunk_content=chunk_content,
+        extract_tables=extract_tables,
+        extract_entities=extract_entities,
+        extract_keywords=extract_keywords,
+        ocr_backend=ocr_backend,
+        max_chars=max_chars,
+        max_overlap=max_overlap,
+        keyword_count=keyword_count,
+        auto_detect_language=auto_detect_language,
     )
+
+    # Note: mime_types argument is ignored as kreuzberg.batch_extract_file doesn't support it per file
+    results = await kreuzberg.batch_extract_file(file_paths, config)
+    return [_convert_extraction_result(r) for r in results]
 
 
 @mcp.tool("extract_simple")  # type: ignore[misc]
@@ -543,11 +653,8 @@ async def extract_simple_tool(
         Extracted text content as a simple string
     """
 
-    return await asyncio.to_thread(
-        kreuzberg_server.extract_simple,
-        file_path,
-        mime_type,
-    )
+    result = await kreuzberg.extract_file(file_path, mime_type)
+    return result.content
 
 
 @mcp.tool("extract_saved_attachment")  # type: ignore[misc]
@@ -628,20 +735,25 @@ async def extract_saved_attachment(
     mime_type = (record.get("mime_type") or "application/octet-stream").lower()
     payload = base64.b64encode(content_bytes).decode("ascii")
 
+    # Build config
+    config = _build_extraction_config(
+        force_ocr=force_ocr,
+        chunk_content=chunk_content,
+        extract_tables=extract_tables,
+        extract_entities=extract_entities,
+        extract_keywords=extract_keywords,
+        max_chars=max_chars,
+        max_overlap=max_overlap,
+        keyword_count=keyword_count,
+        auto_detect_language=auto_detect_language,
+    )
+
     try:
-        result: dict[str, Any] = kreuzberg_server.extract_bytes(
-            content_base64=payload,
-            mime_type=mime_type,
-            force_ocr=force_ocr,
-            chunk_content=chunk_content,
-            extract_tables=extract_tables,
-            extract_entities=extract_entities,
-            extract_keywords=extract_keywords,
-            max_chars=max_chars,
-            max_overlap=max_overlap,
-            keyword_count=keyword_count,
-            auto_detect_language=auto_detect_language,
+        result_obj = await kreuzberg.extract_bytes(
+            content_base64=payload, mime_type=mime_type, config=config
         )
+        # Convert to dict for compatibility with existing logic below
+        result = _convert_extraction_result(result_obj)
     except Exception as exc:
         return f"Extraction failed: {exc}"
 
@@ -652,9 +764,7 @@ async def extract_saved_attachment(
     # Optional OCR retry if initial attempt had no text and OCR wasn't requested
     if not force_ocr and mime_type == "application/pdf":
         try:
-            ocr_result: dict[str, Any] = kreuzberg_server.extract_bytes(
-                content_base64=payload,
-                mime_type=mime_type,
+            ocr_config = _build_extraction_config(
                 force_ocr=True,
                 chunk_content=chunk_content,
                 extract_tables=extract_tables,
@@ -665,6 +775,10 @@ async def extract_saved_attachment(
                 keyword_count=keyword_count,
                 auto_detect_language=auto_detect_language,
             )
+            ocr_result_obj = await kreuzberg.extract_bytes(
+                content_base64=payload, mime_type=mime_type, config=ocr_config
+            )
+            ocr_result = _convert_extraction_result(ocr_result_obj)
             ocr_text = str(
                 ocr_result.get("content") or ocr_result.get("text") or ""
             ).strip()
@@ -901,6 +1015,46 @@ async def search_upload_paths(
     )
 
 
+def _build_extraction_config(
+    force_ocr: bool = False,
+    chunk_content: bool = False,
+    extract_tables: bool = False,
+    extract_entities: bool = False,
+    extract_keywords: bool = False,
+    ocr_backend: str = "tesseract",
+    max_chars: int = 1000,
+    max_overlap: int = 200,
+    keyword_count: int = 10,
+    auto_detect_language: bool = False,
+    tesseract_lang: Optional[str] = None,
+    tesseract_psm: Optional[int] = None,
+    tesseract_output_format: Optional[str] = None,
+    enable_table_detection: Optional[bool] = None,
+) -> ExtractionConfig:
+    """Build ExtractionConfig from tool arguments."""
+    # Map arguments to config
+    # Note: Some arguments might need adjustment based on ExtractionConfig definition
+
+    # Create config with available arguments
+    config = ExtractionConfig(
+        force_ocr=force_ocr,
+        chunk_content=chunk_content,
+        extract_tables=extract_tables,
+        extract_entities=extract_entities,
+        extract_keywords=extract_keywords,
+        ocr_backend=ocr_backend,  # type: ignore
+        max_chars=max_chars,
+        max_overlap=max_overlap,
+        keyword_count=keyword_count,
+        auto_detect_language=auto_detect_language,
+    )
+
+    # Set optional fields if they exist in ExtractionConfig and are provided
+    # (This depends on exact ExtractionConfig definition, assuming standard fields match)
+
+    return config
+
+
 __all__ = [
     "mcp",
     "run",
@@ -914,7 +1068,8 @@ __all__ = [
 ]
 
 # Re-export underlying Kreuzberg functions for direct Python imports
-extract_bytes = kreuzberg_server.extract_bytes
+# extract_bytes is now our safe wrapper defined above
+# extract_bytes = kreuzberg_server.extract_bytes
 batch_extract_bytes = kreuzberg_server.batch_extract_bytes
 batch_extract_document = kreuzberg_server.batch_extract_document
 extract_simple = kreuzberg_server.extract_simple

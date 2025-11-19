@@ -340,6 +340,7 @@ async def get_monarch_transactions(
         for tx in all_txs:
             simplified.append(
                 {
+                    "id": tx.get("id"),
                     "date": tx.get("date"),
                     "merchant": tx.get("merchant", {}).get("name"),
                     "amount": tx.get("amount"),
@@ -367,6 +368,7 @@ async def get_monarch_transactions(
                 for tx in all_txs:
                     simplified.append(
                         {
+                            "id": tx.get("id"),
                             "date": tx.get("date"),
                             "merchant": tx.get("merchant", {}).get("name"),
                             "amount": tx.get("amount"),
@@ -620,9 +622,11 @@ async def get_monarch_categories() -> dict[str, Any]:
         categories = data.get("categories", [])
         simplified = [
             {
+                "id": c.get("id"),
                 "name": c.get("name"),
                 "group": c.get("group", {}).get("name"),
                 "type": c.get("group", {}).get("type"),
+                "is_system": c.get("isSystemCategory"),
             }
             for c in categories
         ]
@@ -635,9 +639,11 @@ async def get_monarch_categories() -> dict[str, Any]:
                 categories = data.get("categories", [])
                 simplified = [
                     {
+                        "id": c.get("id"),
                         "name": c.get("name"),
                         "group": c.get("group", {}).get("name"),
                         "type": c.get("group", {}).get("type"),
+                        "is_system": c.get("isSystemCategory"),
                     }
                     for c in categories
                 ]

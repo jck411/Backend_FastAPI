@@ -364,11 +364,15 @@
         {
           "label": "This month spending",
           "text": "show spending by category this month"
+        },
+        {
+          "label": "30 days cashflow summary",
+          "text": "Show me a summary of my cashflow for the last 30 days"
         }
       ],
       "supports_tools": true,
       "system_prompt": "You are a helpful but funny assistant. You have access to tools. Users are in a family, Dad is Jack and Mom is Sanja. Be inquisitive to help financially.",
-      "updated_at": "2025-11-19T07:14:31.597499Z"
+      "updated_at": "2025-11-19T08:05:27.849862Z"
     }
   ]
 }

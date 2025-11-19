@@ -11,6 +11,10 @@
     {
       "label": "This month spending",
       "text": "show spending by category this month"
+    },
+    {
+      "label": "30 days cashflow summary",
+      "text": "Show me a summary of my cashflow for the last 30 days"
     }
   ]
 }

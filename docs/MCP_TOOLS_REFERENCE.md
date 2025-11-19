@@ -31,6 +31,9 @@ npx @modelcontextprotocol/inspector .venv/bin/python -m backend.mcp_servers.hous
 
 # Calculator server
 npx @modelcontextprotocol/inspector .venv/bin/python -m backend.mcp_servers.calculator_server
+
+# Monarch Money server
+npx @modelcontextprotocol/inspector .venv/bin/python -m backend.mcp_servers.monarch_server
 ```
 
 #### CLI Mode (JSON Output)
@@ -123,6 +126,11 @@ Once connected, all Calendar, Tasks, Gmail, and Drive tools are available to the
 **Tools**: Document extraction (PDF, Office, images), file search, batch processing
 **Key Features**: OCR support, table/entity extraction, URL download support
 
+### Monarch Money Server
+**Module**: `backend.mcp_servers.monarch_server`
+**Tools**: Account balances, transactions, budgets, cashflow, investment holdings
+**Key Features**: Automated session management, MFA handling, multi-account aggregation
+
 ---
 
 ## Tool Selection Guidelines
@@ -141,6 +149,11 @@ Once connected, all Calendar, Tasks, Gmail, and Drive tools are available to the
 | "Extract text from..." | `extract_document` or `extract_saved_attachment` |
 | "Find file in Drive" | `gdrive_search_files` |
 | "Show my Drive folder" | `gdrive_list_folder` |
+| "What's my net worth?" | `get_monarch_accounts` |
+| "Show recent spending" | `get_monarch_transactions` |
+| "Check my budget" | `get_monarch_budgets` |
+| "Analyze my cashflow" | `get_monarch_cashflow` |
+| "Show my investments" | `get_monarch_holdings` |
 
 ---
 
@@ -182,8 +195,8 @@ For combined calendar + tasks view: `calendar_get_events(include_tasks=True)`
 
 ## Version Information
 
-**Document Version:** 2.1
-**Last Updated:** November 17, 2025
+**Document Version:** 2.2
+**Last Updated:** November 19, 2025
 **Backend Version:** FastAPI + MCP Integration
 **MCP Protocol:** Model Context Protocol
 

@@ -4,17 +4,19 @@ import type {
   ActiveModelSettingsPayload,
   ActiveModelSettingsResponse,
   AttachmentUploadResponse,
-  GoogleAuthAuthorizeRequest,
-  GoogleAuthAuthorizeResponse,
-  GoogleAuthStatusResponse,
   ChatCompletionChunk,
   ChatCompletionRequest,
   DeepgramTokenResponse,
   GenerationDetailsResponse,
+  GoogleAuthAuthorizeRequest,
+  GoogleAuthAuthorizeResponse,
+  GoogleAuthStatusResponse,
   McpServersCollectionPayload,
   McpServersResponse,
   McpServerUpdatePayload,
   ModelListResponse,
+  MonarchCredentials,
+  MonarchStatusResponse,
   PresetConfig,
   PresetCreatePayload,
   // Presets
@@ -174,6 +176,25 @@ export async function startGoogleAuthorization(
   return requestJson<GoogleAuthAuthorizeResponse>(resolveApiPath('/api/google-auth/authorize'), {
     method: 'POST',
     body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchMonarchStatus(): Promise<MonarchStatusResponse> {
+  return requestJson<MonarchStatusResponse>(resolveApiPath('/api/monarch-auth/status'));
+}
+
+export async function saveMonarchCredentials(
+  creds: MonarchCredentials,
+): Promise<MonarchStatusResponse> {
+  return requestJson<MonarchStatusResponse>(resolveApiPath('/api/monarch-auth/credentials'), {
+    method: 'POST',
+    body: JSON.stringify(creds),
+  });
+}
+
+export async function deleteMonarchCredentials(): Promise<MonarchStatusResponse> {
+  return requestJson<MonarchStatusResponse>(resolveApiPath('/api/monarch-auth/credentials'), {
+    method: 'DELETE',
   });
 }
 

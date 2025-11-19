@@ -282,6 +282,93 @@
       "supports_tools": true,
       "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack  (dad) and lives in Olrlando, Fl",
       "updated_at": "2025-11-13T12:54:12.881313Z"
+    },
+    {
+      "created_at": "2025-11-19T05:52:17.581157Z",
+      "is_default": false,
+      "mcp_servers": [
+        {
+          "contexts": [],
+          "enabled": true,
+          "env": {},
+          "id": "monarch-money",
+          "module": "backend.mcp_servers.monarch_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-gmail",
+          "module": "backend.mcp_servers.gmail_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "custom-gdrive",
+          "module": "backend.mcp_servers.gdrive_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-pdf",
+          "module": "backend.mcp_servers.pdf_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-calendar",
+          "module": "backend.mcp_servers.calendar_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "local-calculator",
+          "module": "backend.mcp_servers.calculator_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "housekeeping",
+          "module": "backend.mcp_servers.housekeeping_server",
+          "tool_overrides": {}
+        }
+      ],
+      "model": "openai/gpt-5.1",
+      "name": "finances",
+      "suggestions": [
+        {
+          "label": "financial aggregates",
+          "text": "Give me a breakdown of my financial aggregates"
+        },
+        {
+          "label": "This month's savings",
+          "text": "How much have I saved this month"
+        },
+        {
+          "label": "This month spending",
+          "text": "show spending by category this month"
+        }
+      ],
+      "supports_tools": true,
+      "system_prompt": "You are a helpful but funny assistant. You have access to tools. Users are in a family, Dad is Jack and Mom is Sanja. Be inquisitive to help financially.",
+      "updated_at": "2025-11-19T07:14:31.597499Z"
     }
   ]
 }

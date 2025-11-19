@@ -1,16 +1,16 @@
 {
   "suggestions": [
     {
-      "label": "calendar today",
-      "text": "whats on my calendar today?"
+      "label": "financial aggregates",
+      "text": "Give me a breakdown of my financial aggregates"
     },
     {
-      "label": "show scheduled tasks",
-      "text": "show my scheduled tasks"
+      "label": "This month's savings",
+      "text": "How much have I saved this month"
     },
     {
-      "label": "what tasks are due next week",
-      "text": "what tasks are due next week"
+      "label": "This month spending",
+      "text": "show spending by category this month"
     }
   ]
 }

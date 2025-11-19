@@ -1,8 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import { get } from "svelte/store";
-  import { createMcpServersStore } from "../../stores/mcpServers";
   import { createGoogleAuthStore } from "../../stores/googleAuth";
+  import { createMcpServersStore } from "../../stores/mcpServers";
+  import { createMonarchAuthStore } from "../../stores/monarchAuth";
   import { createSystemPromptStore } from "../../stores/systemPrompt";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
   import "./system-settings.css";
@@ -13,6 +14,7 @@
   const systemPrompt = createSystemPromptStore();
   const mcpServers = createMcpServersStore();
   const googleAuth = createGoogleAuthStore();
+  const monarchAuth = createMonarchAuthStore();
 
   let hasInitialized = false;
   let closing = false;
@@ -30,7 +32,12 @@
   }
 
   async function initialize(): Promise<void> {
-    await Promise.all([systemPrompt.load(), mcpServers.load(), googleAuth.load()]);
+    await Promise.all([
+      systemPrompt.load(),
+      mcpServers.load(),
+      googleAuth.load(),
+      monarchAuth.load(),
+    ]);
   }
 
   async function flushSystemPrompt(): Promise<boolean> {
@@ -66,6 +73,20 @@
     }
 
     closing = false;
+  }
+
+  let monarchEmail = "";
+  let monarchPassword = "";
+  let monarchMfaSecret = "";
+  let showMonarchPassword = false;
+
+  function saveMonarch(): void {
+    if (!monarchEmail || !monarchPassword) return;
+    monarchAuth.save({
+      email: monarchEmail,
+      password: monarchPassword,
+      mfa_secret: monarchMfaSecret || null,
+    });
   }
 
   function handlePromptInput(event: Event): void {
@@ -149,7 +170,9 @@
     bodyClass="system-settings-body"
     layerClass="system-settings-layer"
     closeLabel="Close system settings"
-    closeDisabled={$systemPrompt.saving || $mcpServers.saving || $googleAuth.authorizing}
+    closeDisabled={$systemPrompt.saving ||
+      $mcpServers.saving ||
+      $googleAuth.authorizing}
     on:close={() => void closeModal()}
   >
     <svelte:fragment slot="heading">
@@ -224,8 +247,8 @@
             {$googleAuth.authorizing
               ? "Authorizing…"
               : $googleAuth.authorized
-              ? "Reconnect Google Services"
-              : "Connect Google Services"}
+                ? "Reconnect Google Services"
+                : "Connect Google Services"}
           </button>
         </div>
       </header>
@@ -247,11 +270,14 @@
           </div>
         {:else if $googleAuth.authorized}
           <p class="status success">
-            Connected as <span class="google-auth-email">{$googleAuth.userEmail}</span>.
+            Connected as <span class="google-auth-email"
+              >{$googleAuth.userEmail}</span
+            >.
           </p>
           {#if $googleAuth.expiresAt}
             <p class="status muted">
-              Current token expires {formatUpdatedAt($googleAuth.expiresAt) ?? "soon"}.
+              Current token expires {formatUpdatedAt($googleAuth.expiresAt) ??
+                "soon"}.
             </p>
           {:else}
             <p class="status muted">Access will refresh automatically.</p>
@@ -267,8 +293,135 @@
         </ul>
 
         <p class="status muted">
-          Click "Connect Google Services" to authorize these integrations for the assistant.
+          Click "Connect Google Services" to authorize these integrations for
+          the assistant.
         </p>
+      </div>
+    </article>
+
+    <article class="system-card">
+      <header class="system-card-header">
+        <div>
+          <h3>Monarch Money</h3>
+          <p class="system-card-caption">Connect your Monarch Money account.</p>
+        </div>
+      </header>
+
+      <div class="system-card-body">
+        {#if $monarchAuth.loading}
+          <p class="status">Checking Monarch status…</p>
+        {:else if $monarchAuth.configured}
+          <p class="status success">
+            Connected as <span class="google-auth-email"
+              >{$monarchAuth.email}</span
+            >.
+          </p>
+          <div class="system-card-actions">
+            <button
+              type="button"
+              class="ghost"
+              on:click={() => monarchAuth.remove()}
+              disabled={$monarchAuth.saving}
+            >
+              Disconnect
+            </button>
+          </div>
+        {:else}
+          <div class="monarch-form">
+            <label>
+              Email
+              <input
+                type="email"
+                bind:value={monarchEmail}
+                placeholder="email@example.com"
+              />
+            </label>
+            <label>
+              Password
+              <div class="password-input-wrapper">
+                <input
+                  type={showMonarchPassword ? "text" : "password"}
+                  bind:value={monarchPassword}
+                  placeholder="Password"
+                />
+                <button
+                  type="button"
+                  class="ghost icon-only"
+                  on:click={() => (showMonarchPassword = !showMonarchPassword)}
+                  title={showMonarchPassword
+                    ? "Hide password"
+                    : "Show password"}
+                >
+                  {#if showMonarchPassword}
+                    <!-- Eye Off Icon -->
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path
+                        d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+                      ></path>
+                      <line x1="1" y1="1" x2="23" y2="23"></line>
+                    </svg>
+                  {:else}
+                    <!-- Eye Icon -->
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
+                      ></path>
+                      <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
+                  {/if}
+                </button>
+              </div>
+            </label>
+            <label>
+              MFA Secret (Optional)
+              <input
+                type="text"
+                bind:value={monarchMfaSecret}
+                placeholder="MFA Secret"
+              />
+            </label>
+            <p
+              class="status muted"
+              style="margin-top: -0.5rem; margin-bottom: 1rem; font-size: 0.8em;"
+            >
+              If you already use an app, you must <strong>reset MFA</strong> in Monarch
+              Settings to see the secret key again. Enter the new key here AND in
+              your app.
+            </p>
+            <button
+              type="button"
+              class="primary"
+              on:click={saveMonarch}
+              disabled={$monarchAuth.saving ||
+                !monarchEmail ||
+                !monarchPassword}
+            >
+              {$monarchAuth.saving ? "Saving..." : "Connect"}
+            </button>
+            {#if $monarchAuth.error}
+              <p class="status error">{$monarchAuth.error}</p>
+            {/if}
+          </div>
+        {/if}
       </div>
     </article>
 

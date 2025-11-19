@@ -128,6 +128,17 @@ export interface GoogleAuthAuthorizeResponse {
   user_email: string;
 }
 
+export interface MonarchStatusResponse {
+  configured: boolean;
+  email: string | null;
+}
+
+export interface MonarchCredentials {
+  email: string;
+  password: string;
+  mfa_secret?: string | null;
+}
+
 type ModelPriceValue = number | string | null | undefined;
 
 export interface ModelPricing {

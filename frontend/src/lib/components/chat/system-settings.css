@@ -307,3 +307,60 @@
 .status.muted {
   color: #8094bb;
 }
+
+.monarch-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.monarch-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: #cfd8f3;
+}
+
+.monarch-form input {
+  border-radius: 0.5rem;
+  border: 1px solid rgba(71, 99, 150, 0.55);
+  background: rgba(10, 16, 28, 0.9);
+  color: #f2f4f8;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+}
+
+.monarch-form input:focus-visible {
+  outline: 2px solid #38bdf8;
+  border-color: #38bdf8;
+}
+
+.password-input-wrapper {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.password-input-wrapper input {
+  flex: 1;
+  padding-right: 2.5rem;
+}
+
+.password-input-wrapper button {
+  position: absolute;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  color: #8094bb;
+  cursor: pointer;
+  padding: 0.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+
+.password-input-wrapper button:hover {
+  color: #38bdf8;
+}

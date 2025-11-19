@@ -18,6 +18,7 @@ from .logging_settings import parse_logging_settings
 from .routers.chat import router as chat_router
 from .routers.google_auth import router as google_auth_router
 from .routers.mcp_servers import router as mcp_router
+from .routers.monarch_auth import router as monarch_auth_router
 from .routers.presets import router as presets_router
 from .routers.settings import router as settings_router
 from .routers.stt import router as stt_router
@@ -141,6 +142,11 @@ def create_app() -> FastAPI:
         {
             "id": "custom-pdf",
             "module": "backend.mcp_servers.pdf_server",
+            "enabled": True,
+        },
+        {
+            "id": "monarch-money",
+            "module": "backend.mcp_servers.monarch_server",
             "enabled": True,
         },
     ]
@@ -273,6 +279,11 @@ def create_app() -> FastAPI:
         google_auth_router,
         prefix="/api/google-auth",
         tags=["google-auth"],
+    )
+    app.include_router(
+        monarch_auth_router,
+        prefix="/api/monarch-auth",
+        tags=["monarch-auth"],
     )
 
     @app.get("/favicon.ico", include_in_schema=False)

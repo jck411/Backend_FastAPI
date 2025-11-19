@@ -2,8 +2,16 @@
   "servers": [
     {
       "contexts": [],
-      "disabled_tools": [],
       "enabled": true,
+      "env": {},
+      "id": "monarch-money",
+      "module": "backend.mcp_servers.monarch_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "disabled_tools": [],
+      "enabled": false,
       "env": {},
       "id": "custom-gmail",
       "module": "backend.mcp_servers.gmail_server",
@@ -21,7 +29,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "custom-pdf",
       "module": "backend.mcp_servers.pdf_server",
@@ -30,7 +38,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "custom-calendar",
       "module": "backend.mcp_servers.calendar_server",

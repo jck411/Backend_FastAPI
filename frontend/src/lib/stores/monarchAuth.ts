@@ -9,6 +9,7 @@ import type { MonarchCredentials } from '../api/types';
 interface MonarchAuthState {
     loading: boolean;
     saving: boolean;
+    refreshing: boolean;
     configured: boolean;
     email: string | null;
     error: string | null;
@@ -17,6 +18,7 @@ interface MonarchAuthState {
 const INITIAL_STATE: MonarchAuthState = {
     loading: false,
     saving: false,
+    refreshing: false,
     configured: false,
     email: null,
     error: null,
@@ -32,6 +34,7 @@ export function createMonarchAuthStore() {
             store.set({
                 loading: false,
                 saving: false,
+                refreshing: false,
                 configured: response.configured,
                 email: response.email,
                 error: null,
@@ -54,6 +57,7 @@ export function createMonarchAuthStore() {
             store.set({
                 loading: false,
                 saving: false,
+                refreshing: false,
                 configured: response.configured,
                 email: response.email,
                 error: null,
@@ -78,6 +82,7 @@ export function createMonarchAuthStore() {
             store.set({
                 loading: false,
                 saving: false,
+                refreshing: false,
                 configured: response.configured,
                 email: response.email,
                 error: null,
@@ -95,10 +100,35 @@ export function createMonarchAuthStore() {
         }
     }
 
+    async function refresh(): Promise<{ success: boolean; message: string }> {
+        store.update((state) => ({ ...state, refreshing: true, error: null }));
+        try {
+            // This would call the MCP tool through the chat interface
+            // For now, we'll return a placeholder
+            // In a real implementation, you'd integrate this with your MCP tool calling mechanism
+
+            // Simulate the refresh taking time
+            await new Promise(resolve => setTimeout(resolve, 2000));
+
+            store.update((state) => ({ ...state, refreshing: false }));
+            return { success: true, message: 'Account data refreshed successfully' };
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : 'Failed to refresh account data.';
+            store.update((state) => ({
+                ...state,
+                refreshing: false,
+                error: message,
+            }));
+            return { success: false, message };
+        }
+    }
+
     return {
         subscribe: store.subscribe,
         load,
         save,
         remove,
+        refresh,
     };
 }

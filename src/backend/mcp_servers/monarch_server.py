@@ -443,6 +443,127 @@ async def get_monarch_transactions(
         return {"error": str(e)}
 
 
+@mcp.tool("get_monarch_account_transactions")
+async def get_monarch_account_transactions(
+    account_id: str,
+    limit: int = 100,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Retrieve transactions for a specific account.
+    Fetches transactions and filters by account ID.
+
+    Args:
+        account_id: ID of the account
+        limit: Max transactions to fetch before filtering (default 100)
+        start_date: Optional start date in YYYY-MM-DD format
+        end_date: Optional end date in YYYY-MM-DD format
+    """
+    try:
+        mm = await _get_client()
+
+        # Validate dates if provided
+        if start_date:
+            datetime.strptime(start_date, "%Y-%m-%d")
+        if end_date:
+            datetime.strptime(end_date, "%Y-%m-%d")
+
+        # Get transactions - fetch more to account for filtering
+        data = await mm.get_transactions(limit=limit * 2)
+        all_txs = data.get("allTransactions", {}).get("results", [])
+
+        # Filter by account_id
+        filtered_txs = [
+            tx for tx in all_txs if tx.get("account", {}).get("id") == account_id
+        ]
+
+        # Apply date filters if provided
+        if start_date or end_date:
+            filtered_txs = [
+                tx
+                for tx in filtered_txs
+                if (not start_date or tx.get("date", "") >= start_date)
+                and (not end_date or tx.get("date", "") <= end_date)
+            ]
+
+        # Limit results
+        filtered_txs = filtered_txs[:limit]
+
+        simplified = []
+        for tx in filtered_txs:
+            simplified.append(
+                {
+                    "id": tx.get("id"),
+                    "date": tx.get("date"),
+                    "merchant": tx.get("merchant", {}).get("name"),
+                    "amount": tx.get("amount"),
+                    "category": tx.get("category", {}).get("name"),
+                    "notes": tx.get("notes"),
+                    "pending": tx.get("pending"),
+                    "account": tx.get("account", {}).get("displayName"),
+                }
+            )
+
+        return {
+            "transactions": simplified,
+            "count": len(simplified),
+            "account_id": account_id,
+        }
+    except Exception as e:
+        if "401" in str(e) or "Unauthorized" in str(e):
+            try:
+                mm = await _get_client(force_refresh=True)
+
+                if start_date:
+                    datetime.strptime(start_date, "%Y-%m-%d")
+                if end_date:
+                    datetime.strptime(end_date, "%Y-%m-%d")
+
+                data = await mm.get_transactions(limit=limit * 2)
+                all_txs = data.get("allTransactions", {}).get("results", [])
+
+                filtered_txs = [
+                    tx
+                    for tx in all_txs
+                    if tx.get("account", {}).get("id") == account_id
+                ]
+
+                if start_date or end_date:
+                    filtered_txs = [
+                        tx
+                        for tx in filtered_txs
+                        if (not start_date or tx.get("date", "") >= start_date)
+                        and (not end_date or tx.get("date", "") <= end_date)
+                    ]
+
+                filtered_txs = filtered_txs[:limit]
+
+                simplified = []
+                for tx in filtered_txs:
+                    simplified.append(
+                        {
+                            "id": tx.get("id"),
+                            "date": tx.get("date"),
+                            "merchant": tx.get("merchant", {}).get("name"),
+                            "amount": tx.get("amount"),
+                            "category": tx.get("category", {}).get("name"),
+                            "notes": tx.get("notes"),
+                            "pending": tx.get("pending"),
+                            "account": tx.get("account", {}).get("displayName"),
+                        }
+                    )
+
+                return {
+                    "transactions": simplified,
+                    "count": len(simplified),
+                    "account_id": account_id,
+                }
+            except Exception as retry_e:
+                return {"error": f"Retry failed: {str(retry_e)}"}
+        return {"error": str(e)}
+
+
 @mcp.tool("get_monarch_budgets")
 async def get_monarch_budgets() -> dict[str, Any]:
     """Retrieve budget status and remaining amounts."""
@@ -464,32 +585,125 @@ async def get_monarch_budgets() -> dict[str, Any]:
 
 @mcp.tool("refresh_monarch_data")
 async def refresh_monarch_data() -> dict[str, Any]:
-    """Trigger a refresh of data from connected institutions."""
+    """
+    Trigger a refresh of data from connected institutions (non-blocking).
+    Use check_monarch_refresh_status to check if refresh is complete.
+    This initiates the refresh and returns immediately.
+    """
     try:
         mm = await _get_client()
-        # request_accounts_refresh requires account_ids
+        # Get accounts and their current status
         accounts_data = await mm.get_accounts()
-        account_ids = [acc["id"] for acc in accounts_data.get("accounts", [])]
+        accounts = accounts_data.get("accounts", [])
+        account_ids = [acc["id"] for acc in accounts]
 
-        if account_ids:
-            await mm.request_accounts_refresh(account_ids)
-            return {"status": "Refresh requested", "account_count": len(account_ids)}
-        else:
+        if not account_ids:
             return {"status": "No accounts found to refresh"}
+
+        # Request refresh (non-blocking)
+        await mm.request_accounts_refresh(account_ids)
+
+        return {
+            "status": "Refresh initiated",
+            "account_count": len(account_ids),
+            "message": "Use check_monarch_refresh_status to check completion",
+        }
     except Exception as e:
         if "401" in str(e) or "Unauthorized" in str(e):
             try:
                 mm = await _get_client(force_refresh=True)
                 accounts_data = await mm.get_accounts()
-                account_ids = [acc["id"] for acc in accounts_data.get("accounts", [])]
-                if account_ids:
-                    await mm.request_accounts_refresh(account_ids)
-                    return {
-                        "status": "Refresh requested",
-                        "account_count": len(account_ids),
-                    }
-                else:
+                accounts = accounts_data.get("accounts", [])
+                account_ids = [acc["id"] for acc in accounts]
+
+                if not account_ids:
                     return {"status": "No accounts found to refresh"}
+
+                await mm.request_accounts_refresh(account_ids)
+
+                return {
+                    "status": "Refresh initiated",
+                    "account_count": len(account_ids),
+                    "message": "Use check_monarch_refresh_status to check completion",
+                }
+            except Exception as retry_e:
+                return {"error": f"Retry failed: {str(retry_e)}"}
+        return {"error": str(e)}
+
+
+@mcp.tool("check_monarch_refresh_status")
+async def check_monarch_refresh_status() -> dict[str, Any]:
+    """
+    Check the status of account data refresh.
+    Returns whether refresh is complete and details about each account.
+    """
+    try:
+        mm = await _get_client()
+
+        # Check if refresh is complete
+        is_complete = await mm.is_accounts_refresh_complete()
+
+        # Get current account statuses
+        accounts_data = await mm.get_accounts()
+        accounts = accounts_data.get("accounts", [])
+
+        account_statuses = []
+        for acc in accounts:
+            # Safely extract nested data
+            credential = acc.get("credential") or {}
+            institution = credential.get("institution") or {}
+
+            account_statuses.append(
+                {
+                    "id": acc.get("id"),
+                    "name": acc.get("displayName"),
+                    "type": acc.get("type"),
+                    "sync_disabled": acc.get("syncDisabled"),
+                    "updated_at": acc.get("updatedAt"),
+                    "data_provider": credential.get("dataProvider"),
+                    "institution": institution.get("name"),
+                }
+            )
+
+        return {
+            "refresh_complete": is_complete,
+            "status": "Complete" if is_complete else "In progress",
+            "accounts": account_statuses,
+            "total_accounts": len(account_statuses),
+        }
+    except Exception as e:
+        if "401" in str(e) or "Unauthorized" in str(e):
+            try:
+                mm = await _get_client(force_refresh=True)
+
+                is_complete = await mm.is_accounts_refresh_complete()
+                accounts_data = await mm.get_accounts()
+                accounts = accounts_data.get("accounts", [])
+
+                account_statuses = []
+                for acc in accounts:
+                    # Safely extract nested data
+                    credential = acc.get("credential") or {}
+                    institution = credential.get("institution") or {}
+
+                    account_statuses.append(
+                        {
+                            "id": acc.get("id"),
+                            "name": acc.get("displayName"),
+                            "type": acc.get("type"),
+                            "sync_disabled": acc.get("syncDisabled"),
+                            "updated_at": acc.get("updatedAt"),
+                            "data_provider": credential.get("dataProvider"),
+                            "institution": institution.get("name"),
+                        }
+                    )
+
+                return {
+                    "refresh_complete": is_complete,
+                    "status": "Complete" if is_complete else "In progress",
+                    "accounts": account_statuses,
+                    "total_accounts": len(account_statuses),
+                }
             except Exception as retry_e:
                 return {"error": f"Retry failed: {str(retry_e)}"}
         return {"error": str(e)}
@@ -718,6 +932,110 @@ async def get_monarch_spending_summary() -> dict[str, Any]:
                     summary_data = aggregates[0].get("summary", {})
 
                 return summary_data
+            except Exception as retry_e:
+                return {"error": f"Retry failed: {str(retry_e)}"}
+        return {"error": str(e)}
+
+
+@mcp.tool("get_monarch_spending_by_category")
+async def get_monarch_spending_by_category(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Analyze spending patterns by category within a date range.
+    Dates should be in YYYY-MM-DD format.
+    Returns spending breakdown by category to understand spending patterns.
+    """
+    try:
+        mm = await _get_client()
+
+        # Validate dates if provided
+        if start_date:
+            datetime.strptime(start_date, "%Y-%m-%d")
+        if end_date:
+            datetime.strptime(end_date, "%Y-%m-%d")
+
+        # Get cashflow data which includes category breakdowns
+        data = await mm.get_cashflow(start_date=start_date, end_date=end_date)
+
+        # Extract and simplify spending by category
+        spending_by_category = []
+
+        # The API returns 'byCategoryGroup' at the top level
+        category_groups = data.get("byCategoryGroup", [])
+
+        for group_data in category_groups:
+            group_by = group_data.get("groupBy", {})
+            category_group = group_by.get("categoryGroup", {})
+            group_name = category_group.get("name")
+            group_type = category_group.get("type")
+
+            summary = group_data.get("summary", {})
+            amount = summary.get("sum", 0)
+
+            # Focus on expense categories (negative amounts)
+            if group_type == "expense" and amount < 0:
+                spending_by_category.append(
+                    {
+                        "category_group": group_name,
+                        "type": group_type,
+                        "amount": abs(amount),
+                    }
+                )
+
+        # Sort by amount (most spending first)
+        spending_by_category.sort(key=lambda x: x.get("amount", 0), reverse=True)
+
+        return {
+            "spending_by_category": spending_by_category,
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_categories": len(spending_by_category),
+        }
+    except Exception as e:
+        if "401" in str(e) or "Unauthorized" in str(e) or "Invalid token" in str(e):
+            try:
+                mm = await _get_client(force_refresh=True)
+
+                if start_date:
+                    datetime.strptime(start_date, "%Y-%m-%d")
+                if end_date:
+                    datetime.strptime(end_date, "%Y-%m-%d")
+
+                data = await mm.get_cashflow(start_date=start_date, end_date=end_date)
+
+                spending_by_category = []
+                category_groups = data.get("byCategoryGroup", [])
+
+                for group_data in category_groups:
+                    group_by = group_data.get("groupBy", {})
+                    category_group = group_by.get("categoryGroup", {})
+                    group_name = category_group.get("name")
+                    group_type = category_group.get("type")
+
+                    summary = group_data.get("summary", {})
+                    amount = summary.get("sum", 0)
+
+                    if group_type == "expense" and amount < 0:
+                        spending_by_category.append(
+                            {
+                                "category_group": group_name,
+                                "type": group_type,
+                                "amount": abs(amount),
+                            }
+                        )
+
+                spending_by_category.sort(
+                    key=lambda x: x.get("amount", 0), reverse=True
+                )
+
+                return {
+                    "spending_by_category": spending_by_category,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "total_categories": len(spending_by_category),
+                }
             except Exception as retry_e:
                 return {"error": f"Retry failed: {str(retry_e)}"}
         return {"error": str(e)}

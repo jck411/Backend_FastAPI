@@ -154,6 +154,7 @@ Once connected, all Calendar, Tasks, Gmail, and Drive tools are available to the
 | "Check my budget" | `get_monarch_budgets` |
 | "Analyze my cashflow" | `get_monarch_cashflow` |
 | "Show my investments" | `get_monarch_holdings` |
+| "Spending by category" | `get_monarch_spending_by_category` |
 
 ---
 

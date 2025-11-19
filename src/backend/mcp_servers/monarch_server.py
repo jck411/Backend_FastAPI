@@ -407,6 +407,7 @@ async def get_monarch_transactions(
                     "category": tx.get("category", {}).get("name"),
                     "notes": tx.get("notes"),
                     "pending": tx.get("pending"),
+                    "goal_id": tx.get("goal", {}).get("id") if tx.get("goal") else None,
                 }
             )
 
@@ -435,6 +436,9 @@ async def get_monarch_transactions(
                             "category": tx.get("category", {}).get("name"),
                             "notes": tx.get("notes"),
                             "pending": tx.get("pending"),
+                            "goal_id": tx.get("goal", {}).get("id")
+                            if tx.get("goal")
+                            else None,
                         }
                     )
                 return {"transactions": simplified, "count": len(simplified)}
@@ -502,6 +506,7 @@ async def get_monarch_account_transactions(
                     "notes": tx.get("notes"),
                     "pending": tx.get("pending"),
                     "account": tx.get("account", {}).get("displayName"),
+                    "goal_id": tx.get("goal", {}).get("id") if tx.get("goal") else None,
                 }
             )
 
@@ -551,6 +556,9 @@ async def get_monarch_account_transactions(
                             "notes": tx.get("notes"),
                             "pending": tx.get("pending"),
                             "account": tx.get("account", {}).get("displayName"),
+                            "goal_id": tx.get("goal", {}).get("id")
+                            if tx.get("goal")
+                            else None,
                         }
                     )
 
@@ -565,19 +573,144 @@ async def get_monarch_account_transactions(
 
 
 @mcp.tool("get_monarch_budgets")
-async def get_monarch_budgets() -> dict[str, Any]:
-    """Retrieve budget status and remaining amounts."""
+async def get_monarch_budgets(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Retrieve budget status and remaining amounts.
+
+    Args:
+        start_date: Start date in YYYY-MM-DD format (default: last month)
+        end_date: End date in YYYY-MM-DD format (default: next month)
+    """
     try:
         mm = await _get_client()
-        # get_budgets returns budget data
-        data = await mm.get_budgets()
+
+        if start_date:
+            datetime.strptime(start_date, "%Y-%m-%d")
+        if end_date:
+            datetime.strptime(end_date, "%Y-%m-%d")
+
+        data = await mm.get_budgets(
+            start_date=start_date,
+            end_date=end_date,
+        )
         return data
     except Exception as e:
         if "401" in str(e) or "Unauthorized" in str(e):
             try:
                 mm = await _get_client(force_refresh=True)
-                data = await mm.get_budgets()
+
+                if start_date:
+                    datetime.strptime(start_date, "%Y-%m-%d")
+                if end_date:
+                    datetime.strptime(end_date, "%Y-%m-%d")
+
+                data = await mm.get_budgets(
+                    start_date=start_date,
+                    end_date=end_date,
+                )
                 return data
+            except Exception as retry_e:
+                return {"error": f"Retry failed: {str(retry_e)}"}
+        return {"error": str(e)}
+
+
+@mcp.tool("get_monarch_goals")
+async def get_monarch_goals(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> dict[str, Any]:
+    """
+    Retrieve financial goals (v2) with planned and actual contributions.
+
+    Returns active goals including:
+    - Goal name, priority, completion status
+    - Planned monthly contributions
+    - Actual monthly contribution summaries
+
+    Args:
+        start_date: Start date in YYYY-MM-DD format (default: last month)
+        end_date: End date in YYYY-MM-DD format (default: next month)
+    """
+    try:
+        mm = await _get_client()
+
+        if start_date:
+            datetime.strptime(start_date, "%Y-%m-%d")
+        if end_date:
+            datetime.strptime(end_date, "%Y-%m-%d")
+
+        # Get budgets data which includes goals
+        data = await mm.get_budgets(
+            start_date=start_date,
+            end_date=end_date,
+            use_v2_goals=True,
+            use_legacy_goals=False,
+        )
+
+        goals = data.get("goalsV2", [])
+
+        # Simplify output
+        simplified = []
+        for goal in goals:
+            simplified.append(
+                {
+                    "id": goal.get("id"),
+                    "name": goal.get("name"),
+                    "priority": goal.get("priority"),
+                    "completed_at": goal.get("completedAt"),
+                    "archived_at": goal.get("archivedAt"),
+                    "planned_contributions": goal.get("plannedContributions", []),
+                    "monthly_summaries": goal.get("monthlyContributionSummaries", []),
+                }
+            )
+
+        return {
+            "goals": simplified,
+            "count": len(simplified),
+        }
+    except Exception as e:
+        if "401" in str(e) or "Unauthorized" in str(e) or "Invalid token" in str(e):
+            try:
+                mm = await _get_client(force_refresh=True)
+
+                if start_date:
+                    datetime.strptime(start_date, "%Y-%m-%d")
+                if end_date:
+                    datetime.strptime(end_date, "%Y-%m-%d")
+
+                data = await mm.get_budgets(
+                    start_date=start_date,
+                    end_date=end_date,
+                    use_v2_goals=True,
+                    use_legacy_goals=False,
+                )
+
+                goals = data.get("goalsV2", [])
+                simplified = []
+                for goal in goals:
+                    simplified.append(
+                        {
+                            "id": goal.get("id"),
+                            "name": goal.get("name"),
+                            "priority": goal.get("priority"),
+                            "completed_at": goal.get("completedAt"),
+                            "archived_at": goal.get("archivedAt"),
+                            "planned_contributions": goal.get(
+                                "plannedContributions", []
+                            ),
+                            "monthly_summaries": goal.get(
+                                "monthlyContributionSummaries", []
+                            ),
+                        }
+                    )
+
+                return {
+                    "goals": simplified,
+                    "count": len(simplified),
+                }
             except Exception as retry_e:
                 return {"error": f"Retry failed: {str(retry_e)}"}
         return {"error": str(e)}
@@ -1280,10 +1413,20 @@ async def update_monarch_transaction(
     merchant_name: Optional[str] = None,
     amount: Optional[float] = None,
     date: Optional[str] = None,
+    goal_id: Optional[str] = None,
 ) -> dict[str, Any]:
     """
     Update an existing transaction.
     Only provide fields that need to be updated.
+
+    Args:
+        transaction_id: ID of the transaction to update
+        notes: Optional notes
+        category_id: Category ID
+        merchant_name: Merchant name
+        amount: Transaction amount
+        date: Transaction date in YYYY-MM-DD format
+        goal_id: Goal ID to associate transaction with (use empty string to clear)
     """
     try:
         mm = await _get_client()
@@ -1298,6 +1441,7 @@ async def update_monarch_transaction(
             merchant_name=merchant_name,
             amount=amount,
             date=date,
+            goal_id=goal_id,
         )
         return data
     except Exception as e:
@@ -1315,6 +1459,7 @@ async def update_monarch_transaction(
                     merchant_name=merchant_name,
                     amount=amount,
                     date=date,
+                    goal_id=goal_id,
                 )
                 return data
             except Exception as retry_e:
@@ -1366,13 +1511,15 @@ async def set_monarch_budget_amount(
     apply_to_future: bool = False,
 ) -> dict[str, Any]:
     """
-    Set budget amount for a category.
+    Set or delete budget amount for a category.
 
     Args:
-        amount: Budget amount
+        amount: Budget amount (set to 0.0 to delete/clear the budget)
         category_id: ID of the category
         start_date: Start date in YYYY-MM-DD format (usually first of month)
         apply_to_future: Whether to apply to future months
+
+    To delete a budget: set amount=0.0
     """
     try:
         mm = await _get_client()

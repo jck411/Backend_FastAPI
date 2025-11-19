@@ -1624,6 +1624,84 @@ async def update_monarch_transaction_splits(
         return {"error": str(e)}
 
 
+@mcp.tool("upload_monarch_account_balance_history")
+async def upload_monarch_account_balance_history(
+    account_id: str,
+    csv_content: str,
+) -> dict[str, Any]:
+    """
+    Upload historical balance data for a manual account.
+
+    CSV format must have two columns: date,balance
+    - date: YYYY-MM-DD format
+    - balance: Numeric value (e.g., 5000.00)
+
+    Example CSV:
+        date,balance
+        2024-01-01,5000.00
+        2024-02-01,5250.00
+        2024-03-01,5100.00
+
+    This permanently stores the balance history on Monarch's servers.
+    Useful for backfilling historical data when adding a manual account.
+
+    Args:
+        account_id: ID of the account to upload history for
+        csv_content: CSV string with date,balance columns
+    """
+    try:
+        # Basic validation
+        if not csv_content.strip():
+            return {"error": "CSV content cannot be empty"}
+
+        # Check for required header
+        lines = csv_content.strip().split("\n")
+        if len(lines) < 2:
+            return {"error": "CSV must have at least a header row and one data row"}
+
+        header = lines[0].strip().lower()
+        if "date" not in header or "balance" not in header:
+            return {
+                "error": "CSV must have 'date' and 'balance' columns. Example: date,balance"
+            }
+
+        mm = await _get_client()
+        await mm.upload_account_balance_history(account_id, csv_content)
+
+        # Count data rows (excluding header)
+        data_rows = len(lines) - 1
+
+        return {
+            "success": True,
+            "account_id": account_id,
+            "rows_uploaded": data_rows,
+            "message": f"Successfully uploaded {data_rows} balance records",
+        }
+    except Exception as e:
+        error_msg = str(e)
+        if (
+            "401" in error_msg
+            or "Unauthorized" in error_msg
+            or "Invalid token" in error_msg
+        ):
+            try:
+                mm = await _get_client(force_refresh=True)
+                await mm.upload_account_balance_history(account_id, csv_content)
+
+                lines = csv_content.strip().split("\n")
+                data_rows = len(lines) - 1
+
+                return {
+                    "success": True,
+                    "account_id": account_id,
+                    "rows_uploaded": data_rows,
+                    "message": f"Successfully uploaded {data_rows} balance records",
+                }
+            except Exception as retry_e:
+                return {"error": f"Retry failed: {str(retry_e)}"}
+        return {"error": error_msg}
+
+
 def run() -> None:
     mcp.run()
 

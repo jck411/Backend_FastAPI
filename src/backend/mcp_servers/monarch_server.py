@@ -1521,6 +1521,63 @@ async def delete_monarch_transaction_categories(
         return {"error": str(e)}
 
 
+@mcp.tool("get_monarch_transaction_splits")
+async def get_monarch_transaction_splits(transaction_id: str) -> dict[str, Any]:
+    """
+    Get split details for a transaction.
+    Split transactions allow dividing a single transaction across multiple categories.
+    """
+    try:
+        mm = await _get_client()
+        data = await mm.get_transaction_splits(transaction_id)
+        return data
+    except Exception as e:
+        if "401" in str(e) or "Unauthorized" in str(e) or "Invalid token" in str(e):
+            try:
+                mm = await _get_client(force_refresh=True)
+                data = await mm.get_transaction_splits(transaction_id)
+                return data
+            except Exception as retry_e:
+                return {"error": f"Retry failed: {str(retry_e)}"}
+        return {"error": str(e)}
+
+
+@mcp.tool("update_monarch_transaction_splits")
+async def update_monarch_transaction_splits(
+    transaction_id: str,
+    splits: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Update split details for a transaction.
+
+    Args:
+        transaction_id: ID of the transaction to split
+        splits: List of split dictionaries, each containing:
+            - amount: Split amount (float)
+            - category_id: Category ID for this split (str)
+            - notes: Optional notes for this split (str)
+
+    Example splits:
+        [
+            {"amount": 50.0, "category_id": "cat_123", "notes": "Groceries"},
+            {"amount": 30.0, "category_id": "cat_456", "notes": "Household"}
+        ]
+    """
+    try:
+        mm = await _get_client()
+        data = await mm.update_transaction_splits(transaction_id, splits)
+        return data
+    except Exception as e:
+        if "401" in str(e) or "Unauthorized" in str(e) or "Invalid token" in str(e):
+            try:
+                mm = await _get_client(force_refresh=True)
+                data = await mm.update_transaction_splits(transaction_id, splits)
+                return data
+            except Exception as retry_e:
+                return {"error": f"Retry failed: {str(retry_e)}"}
+        return {"error": str(e)}
+
+
 def run() -> None:
     mcp.run()
 

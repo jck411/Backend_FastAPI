@@ -64,3 +64,6 @@ node_modules/
 
 # Model settings
 data/model_settings.json
+
+# Kreuzberg cache
+.kreuzberg/

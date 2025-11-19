@@ -878,6 +878,52 @@ async def get_monarch_net_worth_history(
         return {"error": str(e)}
 
 
+@mcp.tool("get_monarch_snapshots_by_account_type")
+async def get_monarch_snapshots_by_account_type(
+    start_date: str,
+    timeframe: str = "month",
+) -> dict[str, Any]:
+    """
+    Retrieve snapshots of net values grouped by account type.
+    Returns monthly or yearly aggregations for comparing different account types.
+
+    Args:
+        start_date: Start date in YYYY-MM-DD format (e.g., "2024-01-01")
+        timeframe: Aggregation period - either "month" or "year" (default: "month")
+
+    Use cases:
+        - Compare growth of investment vs checking accounts over time
+        - Monthly snapshots of each account type
+        - Year-over-year comparison by account type
+    """
+    try:
+        mm = await _get_client()
+
+        # Validate date format
+        datetime.strptime(start_date, "%Y-%m-%d")
+
+        # Validate timeframe
+        if timeframe not in ["month", "year"]:
+            return {"error": "timeframe must be either 'month' or 'year'"}
+
+        data = await mm.get_account_snapshots_by_type(start_date, timeframe)
+        return data
+    except Exception as e:
+        if "401" in str(e) or "Unauthorized" in str(e) or "Invalid token" in str(e):
+            try:
+                mm = await _get_client(force_refresh=True)
+                datetime.strptime(start_date, "%Y-%m-%d")
+
+                if timeframe not in ["month", "year"]:
+                    return {"error": "timeframe must be either 'month' or 'year'"}
+
+                data = await mm.get_account_snapshots_by_type(start_date, timeframe)
+                return data
+            except Exception as retry_e:
+                return {"error": f"Retry failed: {str(retry_e)}"}
+        return {"error": str(e)}
+
+
 @mcp.tool("get_monarch_recurring_transactions")
 async def get_monarch_recurring_transactions(
     start_date: Optional[str] = None,

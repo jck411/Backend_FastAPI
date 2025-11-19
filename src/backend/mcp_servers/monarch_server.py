@@ -101,6 +101,7 @@ async def get_monarch_accounts() -> dict[str, Any]:
         for acc in accounts:
             simplified.append(
                 {
+                    "id": acc.get("id"),
                     "name": acc.get("displayName"),
                     "type": acc.get("type"),
                     "subtype": acc.get("subtype"),
@@ -121,6 +122,7 @@ async def get_monarch_accounts() -> dict[str, Any]:
                 for acc in accounts:
                     simplified.append(
                         {
+                            "id": acc.get("id"),
                             "name": acc.get("displayName"),
                             "type": acc.get("type"),
                             "subtype": acc.get("subtype"),
@@ -492,15 +494,66 @@ async def get_monarch_holdings(account_id: str) -> dict[str, Any]:
     """Retrieve investment holdings for a specific account."""
     try:
         mm = await _get_client()
-        # Library expects int for account_id
-        data = await mm.get_account_holdings(int(account_id))
-        return data
+        # Library expects int for account_id, but it might be a UUID string
+        # We pass it as is, relying on the library to handle it (it casts to str internally)
+        data = await mm.get_account_holdings(account_id)  # type: ignore
+
+        # Simplify output
+        holdings = []
+        portfolio = data.get("portfolio", {})
+        agg_holdings = portfolio.get("aggregateHoldings", {})
+        edges = agg_holdings.get("edges", [])
+
+        for edge in edges:
+            node = edge.get("node", {})
+            security = node.get("security", {})
+
+            holdings.append(
+                {
+                    "name": security.get("name") or "Unknown",
+                    "ticker": security.get("ticker"),
+                    "quantity": node.get("quantity"),
+                    "price": security.get("currentPrice"),
+                    "value": node.get("totalValue"),
+                    "basis": node.get("basis"),
+                    "return_dollars": node.get("securityPriceChangeDollars"),
+                    "return_percent": node.get("securityPriceChangePercent"),
+                    "type": security.get("type"),
+                }
+            )
+
+        return {"holdings": holdings, "count": len(holdings)}
     except Exception as e:
         if "401" in str(e) or "Unauthorized" in str(e) or "Invalid token" in str(e):
             try:
                 mm = await _get_client(force_refresh=True)
-                data = await mm.get_account_holdings(int(account_id))
-                return data
+                data = await mm.get_account_holdings(account_id)  # type: ignore
+
+                # Simplify output
+                holdings = []
+                portfolio = data.get("portfolio", {})
+                agg_holdings = portfolio.get("aggregateHoldings", {})
+                edges = agg_holdings.get("edges", [])
+
+                for edge in edges:
+                    node = edge.get("node", {})
+                    security = node.get("security", {})
+
+                    holdings.append(
+                        {
+                            "name": security.get("name") or "Unknown",
+                            "ticker": security.get("ticker"),
+                            "quantity": node.get("quantity"),
+                            "price": security.get("currentPrice"),
+                            "value": node.get("totalValue"),
+                            "basis": node.get("basis"),
+                            "return_dollars": node.get("securityPriceChangeDollars"),
+                            "return_percent": node.get("securityPriceChangePercent"),
+                            "type": security.get("type"),
+                        }
+                    )
+
+                return {"holdings": holdings, "count": len(holdings)}
             except Exception as retry_e:
                 return {"error": f"Retry failed: {str(retry_e)}"}
         return {"error": str(e)}
@@ -678,15 +731,15 @@ async def get_monarch_account_history(account_id: str) -> dict[str, Any]:
     """Retrieve historical balances for a specific account."""
     try:
         mm = await _get_client()
-        # Library expects int for account_id in get_account_history
-        data = await mm.get_account_history(int(account_id))
+        # Library expects int for account_id in get_account_history, but we pass as is
+        data = await mm.get_account_history(account_id)  # type: ignore
         # data is a list of snapshots
         return {"history": data, "count": len(data) if isinstance(data, list) else 0}
     except Exception as e:
         if "401" in str(e) or "Unauthorized" in str(e) or "Invalid token" in str(e):
             try:
                 mm = await _get_client(force_refresh=True)
-                data = await mm.get_account_history(int(account_id))
+                data = await mm.get_account_history(account_id)  # type: ignore
                 return {
                     "history": data,
                     "count": len(data) if isinstance(data, list) else 0,
@@ -1052,6 +1105,44 @@ async def create_monarch_category(
                     }
                 return {"error": f"Retry failed: {retry_error_msg}"}
         return {"error": error_msg}
+
+
+@mcp.tool("delete_monarch_transaction_category")
+async def delete_monarch_transaction_category(category_id: str) -> dict[str, Any]:
+    """Delete a transaction category."""
+    try:
+        mm = await _get_client()
+        success = await mm.delete_transaction_category(category_id)
+        return {"success": success}
+    except Exception as e:
+        if "401" in str(e) or "Unauthorized" in str(e) or "Invalid token" in str(e):
+            try:
+                mm = await _get_client(force_refresh=True)
+                success = await mm.delete_transaction_category(category_id)
+                return {"success": success}
+            except Exception as retry_e:
+                return {"error": f"Retry failed: {str(retry_e)}"}
+        return {"error": str(e)}
+
+
+@mcp.tool("delete_monarch_transaction_categories")
+async def delete_monarch_transaction_categories(
+    category_ids: list[str],
+) -> dict[str, Any]:
+    """Delete multiple transaction categories."""
+    try:
+        mm = await _get_client()
+        results = await mm.delete_transaction_categories(category_ids)
+        return {"results": results}
+    except Exception as e:
+        if "401" in str(e) or "Unauthorized" in str(e) or "Invalid token" in str(e):
+            try:
+                mm = await _get_client(force_refresh=True)
+                results = await mm.delete_transaction_categories(category_ids)
+                return {"results": results}
+            except Exception as retry_e:
+                return {"error": f"Retry failed: {str(retry_e)}"}
+        return {"error": str(e)}
 
 
 def run() -> None:

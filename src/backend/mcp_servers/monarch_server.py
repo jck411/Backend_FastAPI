@@ -10,18 +10,76 @@ from typing import Any, Optional
 from mcp.server.fastmcp import FastMCP
 from monarchmoney import MonarchMoney, RequireMFAException
 
+from backend.config import get_settings
+from backend.repository import ChatRepository
 from backend.services.monarch_auth import get_monarch_credentials
+
+
+class MonarchAuthError(Exception):
+    """Raised when authentication with Monarch Money fails."""
+
+    pass
+
+
+class MonarchAPIError(Exception):
+    """Raised when Monarch Money API calls fail."""
+
+    pass
+
 
 mcp = FastMCP("monarch")
 
-# Resolve paths
-# src/backend/mcp_servers/monarch_server.py -> ... -> project root
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
-TOKEN_DIR = PROJECT_ROOT / "data" / "tokens"
-SESSION_FILE = TOKEN_DIR / "monarch_session.pickle"
+
+def _project_root() -> Path:
+    """Get project root directory."""
+    module_path = Path(__file__).resolve()
+    # src/backend/mcp_servers -> project root is three parents up
+    return module_path.parents[3]
+
+
+def _resolve_under(base: Path, p: Path) -> Path:
+    """Resolve path relative to base, ensuring it doesn't escape."""
+    if p.is_absolute():
+        return p.resolve()
+    resolved = (base / p).resolve()
+    if not resolved.is_relative_to(base):
+        raise ValueError(f"Configured path {resolved} escapes project root {base}")
+    return resolved
+
+
+def _resolve_session_file() -> Path:
+    """Resolve session file path using settings."""
+    base = _project_root()
+    token_dir = base / "data" / "tokens"
+    token_dir.mkdir(parents=True, exist_ok=True)
+    return token_dir / "monarch_session.pickle"
+
+
+def _resolve_chat_db_path() -> Path:
+    """Resolve chat database path from settings."""
+    settings = get_settings()
+    return _resolve_under(_project_root(), settings.chat_database_path)
+
 
 _monarch_client: Optional[MonarchMoney] = None
 _client_lock = asyncio.Lock()
+_repository: Optional[ChatRepository] = None
+_repository_lock = asyncio.Lock()
+_repository: Optional[ChatRepository] = None
+_repository_lock = asyncio.Lock()
+
+
+async def _get_repository() -> ChatRepository:
+    """Get or initialize the chat repository."""
+    global _repository
+    if _repository is not None:
+        return _repository
+    async with _repository_lock:
+        if _repository is None:
+            repo = ChatRepository(_resolve_chat_db_path())
+            await repo.initialize()
+            _repository = repo
+    return _repository
 
 
 async def _get_client(force_refresh: bool = False) -> MonarchMoney:
@@ -36,15 +94,16 @@ async def _get_client(force_refresh: bool = False) -> MonarchMoney:
 
         creds = get_monarch_credentials()
         if not creds:
-            raise ValueError("Monarch Money credentials not configured.")
+            raise MonarchAuthError("Monarch Money credentials not configured.")
 
         # Initialize with correct session file path
-        mm = MonarchMoney(session_file=str(SESSION_FILE))
+        session_file = _resolve_session_file()
+        mm = MonarchMoney(session_file=str(session_file))
 
         # Try to load existing session only if not forcing refresh
-        if not force_refresh and SESSION_FILE.exists():
+        if not force_refresh and session_file.exists():
             try:
-                mm.load_session(str(SESSION_FILE))
+                mm.load_session(str(session_file))
             except Exception:
                 pass
 
@@ -75,13 +134,12 @@ async def _get_client(force_refresh: bool = False) -> MonarchMoney:
                     use_saved_session=False,  # Force fresh login
                 )
             except RequireMFAException:
-                raise ValueError(
+                raise MonarchAuthError(
                     "MFA required but no secret provided. Please update settings."
                 )
 
             # Save session
-            TOKEN_DIR.mkdir(parents=True, exist_ok=True)
-            mm.save_session(str(SESSION_FILE))
+            mm.save_session(str(session_file))
 
         _monarch_client = mm
         return _monarch_client

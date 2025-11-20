@@ -1,17 +1,17 @@
 <script lang="ts">
-  import { createEventDispatcher, onDestroy } from 'svelte';
-  import { Send } from 'lucide-svelte';
-  import { uploadAttachment } from '../../api/client';
-  import type { AttachmentResource } from '../../api/types';
-  import { chatStore } from '../../stores/chat';
-  import { speechState } from '../../speech/speechController';
-  import { autoResize } from '../../actions/autoResize';
+  import { Send } from "lucide-svelte";
+  import { createEventDispatcher, onDestroy } from "svelte";
+  import { autoResize } from "../../actions/autoResize";
+  import { uploadAttachment } from "../../api/client";
+  import type { AttachmentResource } from "../../api/types";
+  import { speechState } from "../../speech/speechController";
+  import { chatStore } from "../../stores/chat";
 
-  export let prompt = '';
+  export let prompt = "";
   export let isStreaming = false;
   export let presetAttachments: AttachmentResource[] = [];
 
-  type AttachmentStatus = 'uploading' | 'ready' | 'error';
+  type AttachmentStatus = "uploading" | "ready" | "error";
 
   interface AttachmentDraft {
     id: string;
@@ -28,7 +28,12 @@
     startDictation: void;
   }>();
 
-  const ALLOWED_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+  const ALLOWED_TYPES = new Set([
+    "image/png",
+    "image/jpeg",
+    "image/webp",
+    "image/gif",
+  ]);
   const MAX_SIZE_BYTES = 10 * 1024 * 1024;
   const MAX_ATTACHMENTS = 4;
 
@@ -38,24 +43,27 @@
   let previousPreset: AttachmentResource[] | null = null;
 
   $: trimmedPrompt = prompt.trim();
-  $: hasUploading = attachments.some((item) => item.status === 'uploading');
-  $: hasErrored = attachments.some((item) => item.status === 'error');
-  $: hasReadyAttachments = attachments.some((item) => item.status === 'ready');
+  $: hasUploading = attachments.some((item) => item.status === "uploading");
+  $: hasErrored = attachments.some((item) => item.status === "error");
+  $: hasReadyAttachments = attachments.some((item) => item.status === "ready");
   $: sendDisabled =
-    isStreaming || hasUploading || hasErrored || (!trimmedPrompt && !hasReadyAttachments);
+    isStreaming ||
+    hasUploading ||
+    hasErrored ||
+    (!trimmedPrompt && !hasReadyAttachments);
 
   function createLocalId(): string {
     if (globalThis.crypto?.randomUUID) {
-      return `attachment_${globalThis.crypto.randomUUID().replace(/-/g, '')}`;
+      return `attachment_${globalThis.crypto.randomUUID().replace(/-/g, "")}`;
     }
     return `attachment_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
   }
 
   function releasePreview(url: string | null): void {
-    if (!url || typeof url !== 'string') {
+    if (!url || typeof url !== "string") {
       return;
     }
-    if (url.startsWith('blob:')) {
+    if (url.startsWith("blob:")) {
       try {
         URL.revokeObjectURL(url);
       } catch {
@@ -83,7 +91,7 @@
         id: resource.id ?? createLocalId(),
         file: null,
         previewUrl: preview,
-        status: 'ready',
+        status: "ready",
         resource: {
           ...resource,
           metadata: resource.metadata ? { ...resource.metadata } : null,
@@ -104,53 +112,60 @@
       return;
     }
     const trimmed = prompt.trim();
-    const hasUploading = attachments.some((item) => item.status === 'uploading');
+    const hasUploading = attachments.some(
+      (item) => item.status === "uploading",
+    );
     if (hasUploading) {
-      composerError = 'Please wait for uploads to finish.';
+      composerError = "Please wait for uploads to finish.";
       return;
     }
-    const hasErrored = attachments.some((item) => item.status === 'error');
+    const hasErrored = attachments.some((item) => item.status === "error");
     if (hasErrored) {
-      composerError = 'Remove failed uploads before sending.';
+      composerError = "Remove failed uploads before sending.";
       return;
     }
     const readyAttachments = attachments
-      .filter((item) => item.status === 'ready' && item.resource)
+      .filter((item) => item.status === "ready" && item.resource)
       .map((item) => item.resource as AttachmentResource);
 
     if (!trimmed && readyAttachments.length === 0) {
       return;
     }
 
-    dispatch('submit', { text: trimmed, attachments: readyAttachments });
-    prompt = '';
+    dispatch("submit", { text: trimmed, attachments: readyAttachments });
+    prompt = "";
     composerError = null;
     resetAttachments();
   }
 
   function handleKeydown(event: KeyboardEvent): void {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       handleSubmit();
     }
   }
 
   function handleCancel(): void {
-    dispatch('cancel');
+    dispatch("cancel");
   }
 
   function handleDictationClick(): void {
-    if (isStreaming && $speechState.mode !== 'dictation') {
+    if (isStreaming && $speechState.mode !== "dictation") {
       return;
     }
-    if ($speechState.connecting && !$speechState.recording && $speechState.mode !== 'dictation') {
+    if (
+      $speechState.connecting &&
+      !$speechState.recording &&
+      $speechState.mode !== "dictation"
+    ) {
       return;
     }
-    dispatch('startDictation');
+    dispatch("startDictation");
   }
 
   $: dictationActive =
-    $speechState.mode === 'dictation' && ($speechState.recording || $speechState.connecting);
+    $speechState.mode === "dictation" &&
+    ($speechState.recording || $speechState.connecting);
   $: speechBusy = $speechState.connecting && !$speechState.recording;
   $: speechError = $speechState.error;
 
@@ -165,7 +180,7 @@
   function handleFileChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     const files = input.files ? Array.from(input.files) : [];
-    input.value = '';
+    input.value = "";
     if (!files.length) {
       return;
     }
@@ -185,11 +200,11 @@
 
     for (const file of toProcess) {
       if (!ALLOWED_TYPES.has(file.type)) {
-        composerError = 'Unsupported image format.';
+        composerError = "Unsupported image format.";
         continue;
       }
       if (file.size > MAX_SIZE_BYTES) {
-        composerError = 'Images must be 10 MB or less.';
+        composerError = "Images must be 10 MB or less.";
         continue;
       }
       const previewUrl = URL.createObjectURL(file);
@@ -197,26 +212,34 @@
         id: createLocalId(),
         file,
         previewUrl,
-        status: 'uploading',
+        status: "uploading",
       };
       attachments = [...attachments, draft];
       void uploadDraftAttachment(draft, sessionId);
     }
   }
 
-  async function uploadDraftAttachment(draft: AttachmentDraft, sessionId: string): Promise<void> {
+  async function uploadDraftAttachment(
+    draft: AttachmentDraft,
+    sessionId: string,
+  ): Promise<void> {
     if (!draft.file) {
       return;
     }
     try {
       const { attachment } = await uploadAttachment(draft.file, sessionId);
       attachments = attachments.map((item) =>
-        item.id === draft.id ? { ...item, status: 'ready', resource: attachment } : item,
+        item.id === draft.id
+          ? { ...item, status: "ready", resource: attachment }
+          : item,
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to upload image.';
+      const message =
+        error instanceof Error ? error.message : "Failed to upload image.";
       attachments = attachments.map((item) =>
-        item.id === draft.id ? { ...item, status: 'error', error: message } : item,
+        item.id === draft.id
+          ? { ...item, status: "error", error: message }
+          : item,
       );
     }
   }
@@ -253,24 +276,24 @@
         {#each attachments as attachment (attachment.id)}
           <div
             class="attachment-chip"
-            class:uploading={attachment.status === 'uploading'}
-            class:error={attachment.status === 'error'}
+            class:uploading={attachment.status === "uploading"}
+            class:error={attachment.status === "error"}
           >
             <img
-              src={
-                attachment.previewUrl ??
+              src={attachment.previewUrl ??
                 attachment.resource?.displayUrl ??
                 attachment.resource?.deliveryUrl ??
-                ''
-              }
+                ""}
               alt="Attachment preview"
               loading="lazy"
             />
-            {#if attachment.status === 'uploading'}
+            {#if attachment.status === "uploading"}
               <span class="chip-status">Uploading…</span>
             {/if}
-            {#if attachment.status === 'error'}
-              <span class="chip-status">{attachment.error ?? 'Upload failed.'}</span>
+            {#if attachment.status === "error"}
+              <span class="chip-status"
+                >{attachment.error ?? "Upload failed."}</span
+              >
             {/if}
             <button
               type="button"
@@ -329,7 +352,7 @@
         rows="1"
         bind:value={prompt}
         on:keydown={handleKeydown}
-        placeholder={isStreaming ? 'Waiting for response…' : 'Type here…'}
+        placeholder={isStreaming ? "Waiting for response…" : "Type here…"}
         aria-disabled={isStreaming}
         use:autoResize={prompt}
       ></textarea>
@@ -347,9 +370,10 @@
           aria-label="Start dictation"
           title="Start dictation"
           on:click={handleDictationClick}
-          disabled={(isStreaming && !dictationActive) || (speechBusy && !dictationActive)}
-          aria-pressed={dictationActive ? 'true' : 'false'}
-          data-active={dictationActive ? 'true' : 'false'}
+          disabled={(isStreaming && !dictationActive) ||
+            (speechBusy && !dictationActive)}
+          aria-pressed={dictationActive ? "true" : "false"}
+          data-active={dictationActive ? "true" : "false"}
         >
           <svg
             width="18"
@@ -519,12 +543,12 @@
     background: rgba(46, 64, 101, 0.9);
     outline: none;
   }
-  .icon-button[data-active='true'] {
+  .icon-button[data-active="true"] {
     background: rgba(79, 70, 229, 0.85);
     color: #f8f9ff;
   }
-  .icon-button[data-active='true']:hover,
-  .icon-button[data-active='true']:focus {
+  .icon-button[data-active="true"]:hover,
+  .icon-button[data-active="true"]:focus {
     background: rgba(99, 102, 241, 0.9);
   }
   .icon-button:disabled {
@@ -603,7 +627,7 @@
     clip: rect(0, 0, 0, 0);
     border: 0;
   }
-  @media (max-width: 900px) {
+  @media (max-width: 1050px) {
     .composer {
       padding: 0 0 0.75rem;
     }
@@ -611,7 +635,7 @@
       padding: 0 1.5rem;
     }
   }
-  @media (max-width: 700px) {
+  @media (max-width: 850px) {
     .composer-content {
       padding: 0 1.25rem;
       gap: 0.65rem;
@@ -620,7 +644,7 @@
       gap: 0.6rem;
     }
   }
-  @media (max-width: 600px) {
+  @media (max-width: 750px) {
     .composer {
       padding: 0 0 0.5rem;
     }

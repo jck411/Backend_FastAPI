@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,10 +20,42 @@ class Suggestion(BaseModel):
     text: str = Field(..., min_length=1, description="Prompt text to use")
 
 
+class MultiSelectFilter(BaseModel):
+    """Multi-select filter with include/exclude lists."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    include: List[str] = Field(default_factory=list)
+    exclude: List[str] = Field(default_factory=list)
+
+
+class PresetModelFilters(BaseModel):
+    """Model explorer filters to save in presets (excludes search)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input_modalities: Optional[MultiSelectFilter] = Field(
+        default=None, alias="inputModalities"
+    )
+    output_modalities: Optional[MultiSelectFilter] = Field(
+        default=None, alias="outputModalities"
+    )
+    min_context: Optional[int] = Field(default=None, alias="minContext")
+    min_prompt_price: Optional[float] = Field(default=None, alias="minPromptPrice")
+    max_prompt_price: Optional[float] = Field(default=None, alias="maxPromptPrice")
+    sort: Optional[Literal["newness", "price", "context"]] = None
+    series: Optional[MultiSelectFilter] = None
+    providers: Optional[MultiSelectFilter] = None
+    supported_parameters: Optional[MultiSelectFilter] = Field(
+        default=None, alias="supportedParameters"
+    )
+    moderation: Optional[MultiSelectFilter] = None
+
+
 class PresetConfig(BaseModel):
     """A full snapshot of chat configuration saved under a name."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     name: str = Field(..., min_length=1, description="Unique preset name")
     model: str = Field(..., description="Selected model id")
@@ -49,6 +81,11 @@ class PresetConfig(BaseModel):
         default=None,
         description="Quick prompt suggestions shown at the top of the screen",
     )
+    model_filters: Optional[PresetModelFilters] = Field(
+        default=None,
+        alias="model_filters",
+        description="Model explorer filter state (excludes search field)",
+    )
     is_default: bool = Field(
         default=False,
         description="Whether this preset is the default preset to load on startup",
@@ -71,6 +108,7 @@ class PresetListItem(BaseModel):
     name: str
     model: str
     is_default: bool = False
+    has_filters: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -78,21 +116,29 @@ class PresetListItem(BaseModel):
 class PresetCreatePayload(BaseModel):
     """Payload to create a new preset from the current configuration."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     name: str = Field(..., min_length=1)
+    model_filters: Optional[PresetModelFilters] = Field(
+        default=None, alias="model_filters"
+    )
 
 
 class PresetSaveSnapshotPayload(BaseModel):
     """Payload to save a new snapshot over an existing preset (optional note)."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     note: Optional[str] = Field(default=None)
+    model_filters: Optional[PresetModelFilters] = Field(
+        default=None, alias="model_filters"
+    )
 
 
 __all__ = [
     "Suggestion",
+    "MultiSelectFilter",
+    "PresetModelFilters",
     "PresetConfig",
     "PresetListItem",
     "PresetCreatePayload",

@@ -242,13 +242,13 @@
     font: inherit;
   }
 
-  @media (max-width: 900px) {
+  @media (max-width: 1050px) {
     .suggestions {
       padding: 1.25rem 1.5rem;
       gap: 0.65rem;
     }
   }
-  @media (max-width: 600px) {
+  @media (max-width: 750px) {
     .suggestions {
       padding: 1rem 1rem;
       gap: 0.5rem;

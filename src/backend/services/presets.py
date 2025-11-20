@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from ..chat.mcp_registry import MCPServerConfig
 from ..schemas.model_settings import ActiveModelSettingsPayload
-from ..schemas.presets import PresetConfig, PresetListItem
+from ..schemas.presets import PresetConfig, PresetListItem, PresetModelFilters
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
 
@@ -90,6 +90,7 @@ class PresetService:
                     name=preset.name,
                     model=preset.model,
                     is_default=preset.is_default,
+                    has_filters=preset.model_filters is not None,
                     created_at=preset.created_at,
                     updated_at=preset.updated_at,
                 )
@@ -132,7 +133,9 @@ class PresetService:
             self._save_to_disk()
             return preset.model_copy(deep=True)
 
-    async def _capture_current_locked(self, name: str) -> PresetConfig:
+    async def _capture_current_locked(
+        self, name: str, model_filters: PresetModelFilters | None = None
+    ) -> PresetConfig:
         """Capture current config while caller holds the lock."""
         settings = await self._model_settings.get_settings()
         system_prompt = await self._model_settings.get_system_prompt()
@@ -153,28 +156,37 @@ class PresetService:
             system_prompt=system_prompt,
             mcp_servers=[cfg.model_copy(deep=True) for cfg in mcp_configs],
             suggestions=suggestions if suggestions else None,
+            model_filters=model_filters,
             created_at=now,
             updated_at=now,
         )
         return snapshot
 
-    async def create_from_current(self, name: str) -> PresetConfig:
+    async def create_from_current(
+        self, name: str, model_filters: PresetModelFilters | None = None
+    ) -> PresetConfig:
         """Create a new preset from current configuration."""
         async with self._lock:
             if name in self._presets:
                 raise ValueError(f"Preset already exists: {name}")
-            snapshot = await self._capture_current_locked(name)
+            snapshot = await self._capture_current_locked(
+                name, model_filters=model_filters
+            )
             self._presets[name] = snapshot
             self._save_to_disk()
             return snapshot.model_copy(deep=True)
 
-    async def save_snapshot(self, name: str) -> PresetConfig:
+    async def save_snapshot(
+        self, name: str, model_filters: PresetModelFilters | None = None
+    ) -> PresetConfig:
         """Overwrite an existing preset with a new snapshot of current configuration."""
         async with self._lock:
             existing = self._presets.get(name)
             if existing is None:
                 raise KeyError(f"Unknown preset: {name}")
-            snapshot = await self._capture_current_locked(name)
+            snapshot = await self._capture_current_locked(
+                name, model_filters=model_filters
+            )
             snapshot.created_at = existing.created_at
             snapshot.updated_at = datetime.now(timezone.utc)
             self._presets[name] = snapshot

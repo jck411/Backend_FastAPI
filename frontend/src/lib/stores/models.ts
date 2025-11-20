@@ -1,4 +1,4 @@
-import { derived, writable } from 'svelte/store';
+import { derived, get, writable } from 'svelte/store';
 import { fetchModels } from '../api/client';
 import type { ModelListResponse, ModelRecord } from '../api/types';
 import {
@@ -41,6 +41,20 @@ export interface ModelFilters {
   providers: MultiSelectFilter;
   supportedParameters: MultiSelectFilter;
   moderation: MultiSelectFilter;
+}
+
+// Serializable filters for presets (excludes search)
+export interface PresetModelFilters {
+  inputModalities?: MultiSelectFilter;
+  outputModalities?: MultiSelectFilter;
+  minContext?: number | null;
+  minPromptPrice?: number | null;
+  maxPromptPrice?: number | null;
+  sort?: ModelSort;
+  series?: MultiSelectFilter;
+  providers?: MultiSelectFilter;
+  supportedParameters?: MultiSelectFilter;
+  moderation?: MultiSelectFilter;
 }
 
 interface ModelFacets {
@@ -625,6 +639,87 @@ function createModelStore() {
     });
   }
 
+  function getFilters(): PresetModelFilters {
+    const currentFilters = get(store).filters;
+    // Exclude search field and only return filters with values
+    const filters: PresetModelFilters = {};
+
+    if (hasAnySelection(currentFilters.inputModalities)) {
+      filters.inputModalities = currentFilters.inputModalities;
+    }
+    if (hasAnySelection(currentFilters.outputModalities)) {
+      filters.outputModalities = currentFilters.outputModalities;
+    }
+    if (currentFilters.minContext !== null) {
+      filters.minContext = currentFilters.minContext;
+    }
+    if (currentFilters.minPromptPrice !== null) {
+      filters.minPromptPrice = currentFilters.minPromptPrice;
+    }
+    if (currentFilters.maxPromptPrice !== null) {
+      filters.maxPromptPrice = currentFilters.maxPromptPrice;
+    }
+    if (hasAnySelection(currentFilters.series)) {
+      filters.series = currentFilters.series;
+    }
+    if (hasAnySelection(currentFilters.providers)) {
+      filters.providers = currentFilters.providers;
+    }
+    if (hasAnySelection(currentFilters.supportedParameters)) {
+      filters.supportedParameters = currentFilters.supportedParameters;
+    }
+    if (hasAnySelection(currentFilters.moderation)) {
+      filters.moderation = currentFilters.moderation;
+    }
+    // Always include sort
+    filters.sort = currentFilters.sort;
+
+    return filters;
+  }
+
+  function setFilters(savedFilters: PresetModelFilters): void {
+    store.update((value) => {
+      const nextFilters = { ...value.filters };
+
+      // Apply each filter if present, silently ignoring invalid values
+      if (savedFilters.inputModalities !== undefined) {
+        nextFilters.inputModalities = savedFilters.inputModalities;
+      }
+      if (savedFilters.outputModalities !== undefined) {
+        nextFilters.outputModalities = savedFilters.outputModalities;
+      }
+      if (savedFilters.minContext !== undefined) {
+        nextFilters.minContext = sanitizeFilterValue(savedFilters.minContext);
+      }
+      if (savedFilters.minPromptPrice !== undefined) {
+        nextFilters.minPromptPrice = sanitizeFilterValue(savedFilters.minPromptPrice);
+      }
+      if (savedFilters.maxPromptPrice !== undefined) {
+        nextFilters.maxPromptPrice = sanitizeFilterValue(savedFilters.maxPromptPrice);
+      }
+      if (savedFilters.series !== undefined) {
+        nextFilters.series = savedFilters.series;
+      }
+      if (savedFilters.providers !== undefined) {
+        nextFilters.providers = savedFilters.providers;
+      }
+      if (savedFilters.supportedParameters !== undefined) {
+        nextFilters.supportedParameters = savedFilters.supportedParameters;
+      }
+      if (savedFilters.moderation !== undefined) {
+        nextFilters.moderation = savedFilters.moderation;
+      }
+      if (savedFilters.sort !== undefined) {
+        nextFilters.sort = savedFilters.sort;
+      }
+
+      return {
+        ...value,
+        filters: nextFilters,
+      };
+    });
+  }
+
   const models = derived(store, (state) => state.models);
   const loading = derived(store, (state) => state.loading);
   const error = derived(store, (state) => state.error);
@@ -662,6 +757,8 @@ function createModelStore() {
     setMaxPromptPrice,
     setSort,
     resetFilters,
+    getFilters,
+    setFilters,
     models,
     loading,
     error,

@@ -379,8 +379,27 @@ export interface PresetListItem {
   name: string;
   model: string;
   is_default: boolean;
+  has_filters: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface MultiSelectFilter {
+  include: string[];
+  exclude: string[];
+}
+
+export interface PresetModelFilters {
+  inputModalities?: MultiSelectFilter;
+  outputModalities?: MultiSelectFilter;
+  minContext?: number | null;
+  minPromptPrice?: number | null;
+  maxPromptPrice?: number | null;
+  sort?: 'newness' | 'price' | 'context';
+  series?: MultiSelectFilter;
+  providers?: MultiSelectFilter;
+  supportedParameters?: MultiSelectFilter;
+  moderation?: MultiSelectFilter;
 }
 
 export interface PresetConfig {
@@ -392,6 +411,7 @@ export interface PresetConfig {
   system_prompt?: string | null;
   mcp_servers?: McpServerDefinition[] | null;
   suggestions?: Suggestion[] | null;
+  model_filters?: PresetModelFilters | null;
   is_default: boolean;
   created_at: string;
   updated_at: string;
@@ -399,8 +419,10 @@ export interface PresetConfig {
 
 export interface PresetCreatePayload {
   name: string;
+  model_filters?: PresetModelFilters | null;
 }
 
 export interface PresetSaveSnapshotPayload {
   note?: string | null;
+  model_filters?: PresetModelFilters | null;
 }

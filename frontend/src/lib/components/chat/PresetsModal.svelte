@@ -1,6 +1,6 @@
 <script lang="ts">
     import { createEventDispatcher } from "svelte";
-    import type { PresetListItem } from "../../api/types";
+    import type { PresetListItem, PresetModelFilters } from "../../api/types";
     import { chatStore } from "../../stores/chat";
     import { modelSettingsStore } from "../../stores/modelSettings";
     import { presetsStore } from "../../stores/presets";
@@ -38,6 +38,67 @@
 
     function requestClose(): void {
         dispatch("close");
+    }
+
+    function countActiveFilters(
+        filters: PresetModelFilters | null | undefined,
+    ): number {
+        if (!filters) return 0;
+
+        let count = 0;
+
+        // Count each multi-select filter
+        if (
+            filters.inputModalities &&
+            (filters.inputModalities.include?.length ||
+                filters.inputModalities.exclude?.length)
+        )
+            count++;
+        if (
+            filters.outputModalities &&
+            (filters.outputModalities.include?.length ||
+                filters.outputModalities.exclude?.length)
+        )
+            count++;
+        if (
+            filters.series &&
+            (filters.series.include?.length || filters.series.exclude?.length)
+        )
+            count++;
+        if (
+            filters.providers &&
+            (filters.providers.include?.length ||
+                filters.providers.exclude?.length)
+        )
+            count++;
+        if (
+            filters.supportedParameters &&
+            (filters.supportedParameters.include?.length ||
+                filters.supportedParameters.exclude?.length)
+        )
+            count++;
+        if (
+            filters.moderation &&
+            (filters.moderation.include?.length ||
+                filters.moderation.exclude?.length)
+        )
+            count++;
+
+        // Count range filters
+        if (filters.minContext !== null && filters.minContext !== undefined)
+            count++;
+        if (
+            filters.minPromptPrice !== null &&
+            filters.minPromptPrice !== undefined
+        )
+            count++;
+        if (
+            filters.maxPromptPrice !== null &&
+            filters.maxPromptPrice !== undefined
+        )
+            count++;
+
+        return count;
     }
 
     async function handleCreate(): Promise<void> {
@@ -147,6 +208,28 @@
                                         class="default-badge"
                                         title="Default preset">Default</span
                                     >
+                                {/if}
+                                {#if item.has_filters}
+                                    <span
+                                        class="filters-badge"
+                                        title="Contains model explorer filters"
+                                    >
+                                        <svg
+                                            width="14"
+                                            height="14"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            stroke-width="2"
+                                            stroke-linecap="round"
+                                            stroke-linejoin="round"
+                                        >
+                                            <polygon
+                                                points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"
+                                            ></polygon>
+                                        </svg>
+                                        Filters
+                                    </span>
                                 {/if}
                             </div>
                             <div class="details">
@@ -317,6 +400,22 @@
         background: rgba(34, 197, 94, 0.2);
         color: #86efac;
         border: 1px solid rgba(34, 197, 94, 0.4);
+    }
+    .filters-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.15rem 0.5rem;
+        font-size: 0.75rem;
+        font-weight: 500;
+        border-radius: 999px;
+        background: rgba(59, 130, 246, 0.15);
+        color: #93c5fd;
+        border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+    .filters-badge svg {
+        width: 12px;
+        height: 12px;
     }
     .preset-item .details {
         display: flex;

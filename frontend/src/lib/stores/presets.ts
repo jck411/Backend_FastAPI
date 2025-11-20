@@ -9,6 +9,22 @@ import {
     setDefaultPreset,
 } from '../api/client';
 import type { PresetConfig, PresetCreatePayload, PresetListItem, PresetSaveSnapshotPayload } from '../api/types';
+import type { ModelSort, MultiSelectFilter } from './models';
+import { modelStore } from './models';
+
+// Model filters to be saved in presets (excludes search field)
+export interface PresetModelFilters {
+    inputModalities?: MultiSelectFilter;
+    outputModalities?: MultiSelectFilter;
+    minContext?: number | null;
+    minPromptPrice?: number | null;
+    maxPromptPrice?: number | null;
+    sort?: ModelSort;
+    series?: MultiSelectFilter;
+    providers?: MultiSelectFilter;
+    supportedParameters?: MultiSelectFilter;
+    moderation?: MultiSelectFilter;
+}
 
 interface PresetsState {
     loading: boolean;
@@ -59,7 +75,10 @@ export function createPresetsStore() {
     }
 
     async function create(name: string): Promise<PresetConfig | null> {
-        const payload: PresetCreatePayload = { name: name.trim() };
+        const payload: PresetCreatePayload = {
+            name: name.trim(),
+            model_filters: modelStore.getFilters()
+        };
         if (!payload.name) {
             store.update((s) => ({ ...s, error: 'Preset name is required.' }));
             return null;
@@ -87,7 +106,11 @@ export function createPresetsStore() {
     async function saveSnapshot(name: string, payload?: PresetSaveSnapshotPayload | null): Promise<PresetConfig | null> {
         store.update((s) => ({ ...s, saving: true, error: null, lastResult: null }));
         try {
-            const result = await savePresetSnapshot(name, payload ?? undefined);
+            const snapshotPayload = {
+                ...payload,
+                model_filters: modelStore.getFilters()
+            };
+            const result = await savePresetSnapshot(name, snapshotPayload);
             const items = await fetchPresets();
             store.update((s) => ({
                 ...s,
@@ -126,6 +149,10 @@ export function createPresetsStore() {
         store.update((s) => ({ ...s, applying: name, error: null, lastApplied: null, lastResult: null }));
         try {
             const result = await applyPreset(name);
+            // Restore model filters if present in preset (preserves current filters if null/undefined)
+            if (result?.model_filters) {
+                modelStore.setFilters(result.model_filters);
+            }
             // Do not reload here; timestamps in list aren't critical on apply.
             store.update((s) => ({
                 ...s,

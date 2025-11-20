@@ -68,17 +68,19 @@ async def create_preset(
     payload: PresetCreatePayload,
     service: PresetService = Depends(get_preset_service),
 ) -> PresetConfig:
-    return await service.create_from_current(payload.name)
+    return await service.create_from_current(
+        payload.name, model_filters=payload.model_filters
+    )
 
 
 @router.put("/{name}", response_model=PresetConfig)
 async def save_snapshot(
     name: str,
-    payload: PresetSaveSnapshotPayload
-    | None,  # reserved for future metadata like notes
+    payload: PresetSaveSnapshotPayload | None,
     service: PresetService = Depends(get_preset_service),
 ) -> PresetConfig:
-    return await service.save_snapshot(name)
+    model_filters = payload.model_filters if payload else None
+    return await service.save_snapshot(name, model_filters=model_filters)
 
 
 @router.delete("/{name}", response_model=dict)

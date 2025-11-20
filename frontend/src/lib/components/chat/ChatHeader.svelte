@@ -537,12 +537,12 @@
       padding: 0.75rem 1.25rem 1rem;
     }
   }
-  @media (max-width: 900px) {
+  @media (max-width: 1050px) {
     .controls {
       gap: 0.65rem;
     }
   }
-  @media (max-width: 760px) {
+  @media (max-width: 900px) {
     .topbar {
       padding: 0.75rem 1.15rem 0.75rem;
     }

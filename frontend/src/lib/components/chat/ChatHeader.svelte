@@ -302,11 +302,10 @@
     background: transparent;
     position: relative;
     z-index: 20;
-    padding: 0 2rem;
+    padding: 2rem 2rem 1rem;
   }
   .topbar-content {
     width: 100%;
-    max-width: 800px;
     display: flex;
     align-items: center;
     justify-content: flex-start;
@@ -475,7 +474,7 @@
     border: 1px solid rgba(62, 90, 140, 0.6);
     color: #9fb3d8;
   }
-  @media (max-width: 1500px) {
+  @media (max-width: 1350px) {
     .topbar {
       height: auto;
       padding: 0.75rem 1.5rem 1rem;
@@ -519,10 +518,12 @@
       min-width: 0;
       text-align: left;
     }
-    :global(.chat-header .controls .explorer),
+    :global(.chat-header .controls .explorer) {
+      grid-column: 1;
+    }
     :global(.chat-header .controls .model-picker),
     .model-picker-loading {
-      grid-column: 1 / -1;
+      grid-column: 2;
     }
     .preset-badge {
       grid-column: 1 / -1;

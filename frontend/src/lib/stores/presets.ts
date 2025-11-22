@@ -9,22 +9,7 @@ import {
     setDefaultPreset,
 } from '../api/client';
 import type { PresetConfig, PresetCreatePayload, PresetListItem, PresetSaveSnapshotPayload } from '../api/types';
-import type { ModelSort, MultiSelectFilter } from './models';
 import { modelStore } from './models';
-
-// Model filters to be saved in presets (excludes search field)
-export interface PresetModelFilters {
-    inputModalities?: MultiSelectFilter;
-    outputModalities?: MultiSelectFilter;
-    minContext?: number | null;
-    minPromptPrice?: number | null;
-    maxPromptPrice?: number | null;
-    sort?: ModelSort;
-    series?: MultiSelectFilter;
-    providers?: MultiSelectFilter;
-    supportedParameters?: MultiSelectFilter;
-    moderation?: MultiSelectFilter;
-}
 
 interface PresetsState {
     loading: boolean;

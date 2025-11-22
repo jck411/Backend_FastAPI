@@ -679,13 +679,15 @@ function createModelStore() {
 
   function setFilters(savedFilters: PresetModelFilters): void {
     store.update((value) => {
-      const nextFilters = { ...value.filters };
+      // Start with clean filters but preserve search
+      const nextFilters = createInitialFilters();
+      nextFilters.search = value.filters.search;
 
-      // Apply each filter if present, silently ignoring invalid values
-      if (savedFilters.inputModalities !== undefined) {
+      // Apply each filter if present and valid
+      if (savedFilters.inputModalities) {
         nextFilters.inputModalities = savedFilters.inputModalities;
       }
-      if (savedFilters.outputModalities !== undefined) {
+      if (savedFilters.outputModalities) {
         nextFilters.outputModalities = savedFilters.outputModalities;
       }
       if (savedFilters.minContext !== undefined) {
@@ -697,19 +699,19 @@ function createModelStore() {
       if (savedFilters.maxPromptPrice !== undefined) {
         nextFilters.maxPromptPrice = sanitizeFilterValue(savedFilters.maxPromptPrice);
       }
-      if (savedFilters.series !== undefined) {
+      if (savedFilters.series) {
         nextFilters.series = savedFilters.series;
       }
-      if (savedFilters.providers !== undefined) {
+      if (savedFilters.providers) {
         nextFilters.providers = savedFilters.providers;
       }
-      if (savedFilters.supportedParameters !== undefined) {
+      if (savedFilters.supportedParameters) {
         nextFilters.supportedParameters = savedFilters.supportedParameters;
       }
-      if (savedFilters.moderation !== undefined) {
+      if (savedFilters.moderation) {
         nextFilters.moderation = savedFilters.moderation;
       }
-      if (savedFilters.sort !== undefined) {
+      if (savedFilters.sort) {
         nextFilters.sort = savedFilters.sort;
       }
 

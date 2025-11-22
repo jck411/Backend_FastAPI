@@ -52,7 +52,7 @@ def _format_track_info(track: dict) -> str:
     )
 
 
-@mcp.tool("spotify_search_tracks")
+@mcp.tool("spotify_search_tracks")  # type: ignore
 @retry_on_rate_limit(max_retries=3)
 async def search_tracks(
     query: str,
@@ -259,6 +259,93 @@ async def pause_playback(
         return f"Error pausing playback: {exc}. Make sure Spotify is open and playing."
 
     return "Playback paused"
+
+
+@mcp.tool("spotify_play_context")
+@retry_on_rate_limit(max_retries=3)
+async def play_context(
+    context_uri: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+    device_id: Optional[str] = None,
+) -> str:
+    """Start playing a Spotify playlist, album, or artist.
+
+    Use this to play entire collections of tracks, not individual tracks.
+    For individual tracks, use spotify_play_track instead.
+
+    Args:
+        context_uri: Spotify URI or URL for playlist, album, or artist
+                     Examples:
+                     - Playlist: "spotify:playlist:37i9dQZF1DXcBWIGoYBM5M" or URL
+                     - Album: "spotify:album:6DEjYFkNZh67HP7R9PSZvv" or URL
+                     - Artist: "spotify:artist:3WrFJ7ztbogyGnTHbHJFl2" or URL
+        user_email: User's email for authentication (default: jck411@gmail.com)
+        device_id: Optional device ID to play on (default: active device)
+
+    Returns:
+        Confirmation message or error
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    # Convert URLs to URIs if needed
+    if "open.spotify.com/playlist/" in context_uri:
+        playlist_id = context_uri.split("/")[-1].split("?")[0]
+        context_uri = f"spotify:playlist:{playlist_id}"
+        context_type = "playlist"
+    elif "open.spotify.com/album/" in context_uri:
+        album_id = context_uri.split("/")[-1].split("?")[0]
+        context_uri = f"spotify:album:{album_id}"
+        context_type = "album"
+    elif "open.spotify.com/artist/" in context_uri:
+        artist_id = context_uri.split("/")[-1].split("?")[0]
+        context_uri = f"spotify:artist:{artist_id}"
+        context_type = "artist"
+    elif context_uri.startswith("spotify:playlist:"):
+        context_type = "playlist"
+    elif context_uri.startswith("spotify:album:"):
+        context_type = "album"
+    elif context_uri.startswith("spotify:artist:"):
+        context_type = "artist"
+    else:
+        return "Invalid context URI. Must be a playlist, album, or artist URI/URL."
+
+    try:
+        await asyncio.to_thread(
+            sp.start_playback, context_uri=context_uri, device_id=device_id
+        )
+    except Exception as exc:
+        return f"Error playing {context_type}: {exc}. Make sure Spotify is open on a device."
+
+    # Get context name for confirmation
+    try:
+        context_id = context_uri.split(":")[-1]
+        if context_type == "playlist":
+            info = await asyncio.to_thread(sp.playlist, context_id, fields="name")
+            name = info.get("name", "Unknown") if isinstance(info, dict) else "Unknown"
+            return f"Now playing playlist: {name}"
+        elif context_type == "album":
+            info = await asyncio.to_thread(sp.album, context_id)
+            if isinstance(info, dict):
+                name = info.get("name", "Unknown")
+                artists = ", ".join(
+                    artist.get("name", "Unknown") for artist in info.get("artists", [])
+                )
+                return f"Now playing album: {name} by {artists}"
+        elif context_type == "artist":
+            info = await asyncio.to_thread(sp.artist, context_id)
+            name = info.get("name", "Unknown") if isinstance(info, dict) else "Unknown"
+            return f"Now playing artist: {name}"
+        return f"Started playback of {context_type}"
+    except Exception:
+        return f"Started playback of {context_type}"
 
 
 @mcp.tool("spotify_resume")
@@ -692,6 +779,79 @@ async def create_playlist(
     )
 
 
+@mcp.tool("spotify_delete_playlist")
+@retry_on_rate_limit(max_retries=3)
+async def delete_playlist(
+    playlist_id: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+) -> str:
+    """Delete (unfollow) a Spotify playlist.
+
+    Note: You can only delete playlists you own. This will permanently remove
+    the playlist from your account.
+
+    Args:
+        playlist_id: Spotify playlist ID or URI (e.g., "37i9dQZF1DXcBWIGoYBM5M" or "spotify:playlist:...")
+        user_email: User's email for authentication (default: jck411@gmail.com)
+
+    Returns:
+        Confirmation message or error
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    # Extract playlist ID from URI if needed
+    if playlist_id.startswith("spotify:playlist:"):
+        playlist_id = playlist_id.split(":")[-1]
+    elif "open.spotify.com/playlist/" in playlist_id:
+        playlist_id = playlist_id.split("/")[-1].split("?")[0]
+
+    # Get playlist name before deleting for confirmation
+    try:
+        playlist_info = await asyncio.to_thread(
+            sp.playlist, playlist_id, fields="name,owner.id"
+        )
+        if not isinstance(playlist_info, dict):
+            return "Error: Could not retrieve playlist info"
+
+        playlist_name = playlist_info.get("name", "Unknown")
+        owner_id = playlist_info.get("owner", {}).get("id", "")
+
+        # Get current user to verify ownership
+        user_info = await asyncio.to_thread(sp.current_user)
+        if isinstance(user_info, dict):
+            current_user_id = user_info.get("id", "")
+            if owner_id and current_user_id and owner_id != current_user_id:
+                return f"Cannot delete playlist '{playlist_name}' - you don't own it (owner: {owner_id})"
+
+    except Exception as exc:
+        return f"Error checking playlist ownership: {exc}"
+
+    # Delete the playlist (actually unfollows it)
+    try:
+        # Get user ID for the API call
+        user_info = await asyncio.to_thread(sp.current_user)
+        if not isinstance(user_info, dict):
+            return "Error: Could not get user info"
+
+        user_id = user_info.get("id")
+        if not user_id:
+            return "Error: Could not get user ID"
+
+        await asyncio.to_thread(sp.user_playlist_unfollow, user_id, playlist_id)
+    except Exception as exc:
+        return f"Error deleting playlist: {exc}"
+
+    return f"Successfully deleted playlist: {playlist_name}"
+
+
 @mcp.tool("spotify_add_tracks_to_playlist")
 @retry_on_rate_limit(max_retries=3)
 async def add_tracks_to_playlist(
@@ -751,6 +911,135 @@ async def add_tracks_to_playlist(
     return f"Successfully added {len(normalized_uris)} track(s) to playlist"
 
 
+@mcp.tool("spotify_add_to_queue")
+@retry_on_rate_limit(max_retries=3)
+async def add_to_queue(
+    track_uri: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+    device_id: Optional[str] = None,
+) -> str:
+    """Add a track to the playback queue (will play after current track/queue).
+
+    Args:
+        track_uri: Spotify track URI, URL, or ID (e.g., "spotify:track:6rqhFgbbKwnb9MLmUQDhG6")
+        user_email: User's email for authentication (default: jck411@gmail.com)
+        device_id: Optional device ID to add to queue on (default: active device)
+
+    Returns:
+        Confirmation message with track details
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    # Convert URL to URI if needed
+    if track_uri.startswith("https://open.spotify.com/track/"):
+        track_id = track_uri.split("/")[-1].split("?")[0]
+        track_uri = f"spotify:track:{track_id}"
+    elif not track_uri.startswith("spotify:track:"):
+        # Assume it's just an ID
+        track_uri = f"spotify:track:{track_uri}"
+
+    try:
+        await asyncio.to_thread(sp.add_to_queue, track_uri, device_id=device_id)
+    except Exception as exc:
+        return f"Error adding track to queue: {exc}. Make sure Spotify is open and playing."
+
+    # Get track info to confirm
+    try:
+        track_id = track_uri.split(":")[-1]
+        track = await asyncio.to_thread(sp.track, track_id)
+        if track and isinstance(track, dict):
+            track_name = track.get("name", "Unknown")
+            artists = ", ".join(
+                artist.get("name", "Unknown") for artist in track.get("artists", [])
+            )
+            return f"Added to queue: {track_name} by {artists}"
+        return f"Added track to queue: {track_uri}"
+    except Exception:
+        return f"Added track to queue: {track_uri}"
+
+
+@mcp.tool("spotify_get_queue")
+@retry_on_rate_limit(max_retries=3)
+async def get_queue(
+    user_email: str = DEFAULT_USER_EMAIL,
+) -> str:
+    """Get the user's current playback queue (upcoming tracks).
+
+    Args:
+        user_email: User's email for authentication (default: jck411@gmail.com)
+
+    Returns:
+        Formatted list of currently playing track and queued tracks
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    try:
+        queue_data = await asyncio.to_thread(sp.queue)
+    except Exception as exc:
+        return f"Error getting queue: {exc}. Make sure Spotify is open and playing."
+
+    if not queue_data or not isinstance(queue_data, dict):
+        return "Invalid response from Spotify API"
+
+    currently_playing = queue_data.get("currently_playing")
+    queue_items = queue_data.get("queue", [])
+
+    lines = []
+
+    # Show currently playing track
+    if currently_playing:
+        lines.append("🎵 Currently Playing:")
+        lines.append("")
+        lines.append(_format_track_info(currently_playing))
+        lines.append("")
+
+    # Show queue
+    if queue_items:
+        lines.append(f"📋 Up Next ({len(queue_items)} track(s) in queue):")
+        lines.append("")
+
+        for idx, track in enumerate(queue_items, start=1):
+            if not track:
+                continue
+
+            name = track.get("name", "Unknown")
+            artists = ", ".join(
+                artist.get("name", "Unknown") for artist in track.get("artists", [])
+            )
+            duration_ms = track.get("duration_ms", 0)
+            duration_min = duration_ms // 60000
+            duration_sec = (duration_ms % 60000) // 1000
+
+            lines.append(
+                f"{idx}. {name} - {artists} ({duration_min}:{duration_sec:02d})"
+            )
+
+        lines.append("")
+    else:
+        if currently_playing:
+            lines.append("Queue is empty - no tracks queued after current song")
+        else:
+            lines.append("Nothing currently playing and queue is empty")
+
+    return "\n".join(lines) if lines else "No playback information available"
+
+
 def run() -> None:  # pragma: no cover - integration entrypoint
     """Run the Spotify MCP server."""
     mcp.run()
@@ -766,6 +1055,7 @@ __all__ = [
     "search_tracks",
     "get_current_playback",
     "play_track",
+    "play_context",
     "pause_playback",
     "resume_playback",
     "next_track",
@@ -776,5 +1066,8 @@ __all__ = [
     "get_user_playlists",
     "get_playlist_tracks",
     "create_playlist",
+    "delete_playlist",
     "add_tracks_to_playlist",
+    "add_to_queue",
+    "get_queue",
 ]

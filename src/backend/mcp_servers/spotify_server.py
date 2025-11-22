@@ -481,6 +481,276 @@ async def seek_position(
     return f"Seeked to {position_min}:{position_sec:02d}"
 
 
+@mcp.tool("spotify_get_user_playlists")
+@retry_on_rate_limit(max_retries=3)
+async def get_user_playlists(
+    user_email: str = DEFAULT_USER_EMAIL,
+    limit: int = 50,
+) -> str:
+    """Get a list of the user's Spotify playlists.
+
+    Args:
+        user_email: User's email for authentication (default: jck411@gmail.com)
+        limit: Maximum number of playlists to return (default: 50, max: 50)
+
+    Returns:
+        Formatted list of playlists with names, track counts, and URLs
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    try:
+        results = await asyncio.to_thread(
+            sp.current_user_playlists, limit=min(limit, 50)
+        )
+    except Exception as exc:
+        return f"Error fetching playlists: {exc}"
+
+    if not results or not isinstance(results, dict):
+        return "Invalid response from Spotify API"
+
+    playlists = results.get("items", [])
+
+    if not playlists:
+        return "No playlists found"
+
+    lines = [f"Found {len(playlists)} playlist(s):", ""]
+
+    for idx, playlist in enumerate(playlists, start=1):
+        name = playlist.get("name", "Unknown")
+        track_count = playlist.get("tracks", {}).get("total", 0)
+        playlist_id = playlist.get("id", "")
+        uri = playlist.get("uri", "")
+        url = playlist.get("external_urls", {}).get("spotify", "")
+        owner = playlist.get("owner", {}).get("display_name", "Unknown")
+        public = playlist.get("public", False)
+
+        lines.append(f"{idx}. {name}")
+        lines.append(f"   Owner: {owner}")
+        lines.append(f"   Tracks: {track_count}")
+        lines.append(f"   Public: {'Yes' if public else 'No'}")
+        lines.append(f"   ID: {playlist_id}")
+        lines.append(f"   URI: {uri}")
+        lines.append(f"   Link: {url}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@mcp.tool("spotify_get_playlist_tracks")
+@retry_on_rate_limit(max_retries=3)
+async def get_playlist_tracks(
+    playlist_id: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+    limit: int = 50,
+) -> str:
+    """Get tracks from a Spotify playlist.
+
+    Args:
+        playlist_id: Spotify playlist ID or URI (e.g., "37i9dQZF1DXcBWIGoYBM5M" or "spotify:playlist:...")
+        user_email: User's email for authentication (default: jck411@gmail.com)
+        limit: Maximum number of tracks to return (default: 50, max: 100)
+
+    Returns:
+        Formatted list of tracks with details
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    # Extract playlist ID from URI if needed
+    if playlist_id.startswith("spotify:playlist:"):
+        playlist_id = playlist_id.split(":")[-1]
+    elif "open.spotify.com/playlist/" in playlist_id:
+        playlist_id = playlist_id.split("/")[-1].split("?")[0]
+
+    try:
+        # Get playlist details
+        playlist_info = await asyncio.to_thread(
+            sp.playlist, playlist_id, fields="name,tracks.total"
+        )
+        if not isinstance(playlist_info, dict):
+            return "Error: Invalid playlist info response"
+
+        playlist_name = playlist_info.get("name", "Unknown Playlist")
+        total_tracks = playlist_info.get("tracks", {}).get("total", 0)
+
+        # Get tracks
+        results = await asyncio.to_thread(
+            sp.playlist_tracks, playlist_id, limit=min(limit, 100)
+        )
+    except Exception as exc:
+        return f"Error fetching playlist tracks: {exc}"
+
+    if not results or not isinstance(results, dict):
+        return "Invalid response from Spotify API"
+
+    items = results.get("items", [])
+
+    if not items:
+        return f"No tracks found in playlist '{playlist_name}'"
+
+    lines = [
+        f"Playlist: {playlist_name}",
+        f"Total tracks: {total_tracks} (showing {len(items)})",
+        "",
+    ]
+
+    for idx, item in enumerate(items, start=1):
+        track = item.get("track")
+        if not track:
+            continue
+
+        added_by = item.get("added_by", {}).get("id", "Unknown")
+
+        lines.append(f"{idx}.")
+        lines.append(_format_track_info(track))
+        lines.append(f"Added by: {added_by}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@mcp.tool("spotify_create_playlist")
+@retry_on_rate_limit(max_retries=3)
+async def create_playlist(
+    name: str,
+    description: str = "",
+    public: bool = False,
+    user_email: str = DEFAULT_USER_EMAIL,
+) -> str:
+    """Create a new Spotify playlist for the user.
+
+    Args:
+        name: Name of the new playlist
+        description: Optional description for the playlist
+        public: Whether the playlist should be public (default: False/private)
+        user_email: User's email for authentication (default: jck411@gmail.com)
+
+    Returns:
+        Confirmation message with playlist details and URL
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    try:
+        # Get current user ID
+        user_info = await asyncio.to_thread(sp.current_user)
+        if not isinstance(user_info, dict):
+            return "Error: Invalid user info response"
+
+        user_id = user_info.get("id")
+
+        if not user_id:
+            return "Error: Could not get user ID"
+
+        # Create playlist
+        playlist = await asyncio.to_thread(
+            sp.user_playlist_create,
+            user_id,
+            name,
+            public=public,
+            description=description,
+        )
+    except Exception as exc:
+        return f"Error creating playlist: {exc}"
+
+    if not playlist or not isinstance(playlist, dict):
+        return "Error creating playlist: Invalid response"
+
+    playlist_name = playlist.get("name", name)
+    playlist_id = playlist.get("id", "")
+    playlist_url = playlist.get("external_urls", {}).get("spotify", "")
+    playlist_uri = playlist.get("uri", "")
+
+    return (
+        f"Created playlist: {playlist_name}\n"
+        f"ID: {playlist_id}\n"
+        f"URI: {playlist_uri}\n"
+        f"Public: {'Yes' if public else 'No'}\n"
+        f"Link: {playlist_url}"
+    )
+
+
+@mcp.tool("spotify_add_tracks_to_playlist")
+@retry_on_rate_limit(max_retries=3)
+async def add_tracks_to_playlist(
+    playlist_id: str,
+    track_uris: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+) -> str:
+    """Add tracks to a Spotify playlist.
+
+    Args:
+        playlist_id: Spotify playlist ID or URI (e.g., "37i9dQZF1DXcBWIGoYBM5M" or "spotify:playlist:...")
+        track_uris: Comma-separated list of track URIs or URLs (e.g., "spotify:track:abc123,spotify:track:def456")
+        user_email: User's email for authentication (default: jck411@gmail.com)
+
+    Returns:
+        Confirmation message with number of tracks added
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    # Extract playlist ID from URI if needed
+    if playlist_id.startswith("spotify:playlist:"):
+        playlist_id = playlist_id.split(":")[-1]
+    elif "open.spotify.com/playlist/" in playlist_id:
+        playlist_id = playlist_id.split("/")[-1].split("?")[0]
+
+    # Parse track URIs
+    track_list = [uri.strip() for uri in track_uris.split(",") if uri.strip()]
+
+    if not track_list:
+        return "Error: No track URIs provided"
+
+    # Convert URLs to URIs if needed
+    normalized_uris = []
+    for uri in track_list:
+        if uri.startswith("https://open.spotify.com/track/"):
+            track_id = uri.split("/")[-1].split("?")[0]
+            normalized_uris.append(f"spotify:track:{track_id}")
+        elif uri.startswith("spotify:track:"):
+            normalized_uris.append(uri)
+        else:
+            # Assume it's just a track ID
+            normalized_uris.append(f"spotify:track:{uri}")
+
+    try:
+        await asyncio.to_thread(sp.playlist_add_items, playlist_id, normalized_uris)
+    except Exception as exc:
+        return f"Error adding tracks to playlist: {exc}"
+
+    return f"Successfully added {len(normalized_uris)} track(s) to playlist"
+
+
 def run() -> None:  # pragma: no cover - integration entrypoint
     """Run the Spotify MCP server."""
     mcp.run()
@@ -503,4 +773,8 @@ __all__ = [
     "set_shuffle",
     "set_repeat",
     "seek_position",
+    "get_user_playlists",
+    "get_playlist_tracks",
+    "create_playlist",
+    "add_tracks_to_playlist",
 ]

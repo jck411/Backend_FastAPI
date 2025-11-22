@@ -36,6 +36,10 @@ SCOPES = [
     "user-read-playback-state",  # Read current playback state
     "user-modify-playback-state",  # Control playback (play, pause, skip)
     "user-read-currently-playing",  # Read currently playing track
+    "playlist-read-private",  # Read private playlists
+    "playlist-read-collaborative",  # Read collaborative playlists
+    "playlist-modify-public",  # Create/modify public playlists
+    "playlist-modify-private",  # Create/modify private playlists
 ]
 
 T = TypeVar("T")

@@ -18,6 +18,11 @@ from backend.services.spotify_auth.auth import (
     get_spotify_client,
     retry_on_rate_limit,
 )
+from backend.services.spotify_auth.identifiers import (
+    normalize_context_uri,
+    normalize_playlist_id,
+    normalize_track_uri,
+)
 
 mcp = FastMCP("spotify")
 
@@ -201,10 +206,8 @@ async def play_track(
     except Exception as exc:
         return f"Error creating Spotify client: {exc}"
 
-    # Convert URL to URI if needed
-    if track_uri.startswith("https://open.spotify.com/track/"):
-        track_id = track_uri.split("/")[-1].split("?")[0]
-        track_uri = f"spotify:track:{track_id}"
+    # Normalize track identifier
+    track_uri = normalize_track_uri(track_uri)
 
     try:
         await asyncio.to_thread(
@@ -295,27 +298,11 @@ async def play_context(
     except Exception as exc:
         return f"Error creating Spotify client: {exc}"
 
-    # Convert URLs to URIs if needed
-    if "open.spotify.com/playlist/" in context_uri:
-        playlist_id = context_uri.split("/")[-1].split("?")[0]
-        context_uri = f"spotify:playlist:{playlist_id}"
-        context_type = "playlist"
-    elif "open.spotify.com/album/" in context_uri:
-        album_id = context_uri.split("/")[-1].split("?")[0]
-        context_uri = f"spotify:album:{album_id}"
-        context_type = "album"
-    elif "open.spotify.com/artist/" in context_uri:
-        artist_id = context_uri.split("/")[-1].split("?")[0]
-        context_uri = f"spotify:artist:{artist_id}"
-        context_type = "artist"
-    elif context_uri.startswith("spotify:playlist:"):
-        context_type = "playlist"
-    elif context_uri.startswith("spotify:album:"):
-        context_type = "album"
-    elif context_uri.startswith("spotify:artist:"):
-        context_type = "artist"
-    else:
-        return "Invalid context URI. Must be a playlist, album, or artist URI/URL."
+    # Normalize context identifier
+    try:
+        context_uri, context_type = normalize_context_uri(context_uri)
+    except ValueError as e:
+        return str(e)
 
     try:
         await asyncio.to_thread(
@@ -658,11 +645,8 @@ async def get_playlist_tracks(
     except Exception as exc:
         return f"Error creating Spotify client: {exc}"
 
-    # Extract playlist ID from URI if needed
-    if playlist_id.startswith("spotify:playlist:"):
-        playlist_id = playlist_id.split(":")[-1]
-    elif "open.spotify.com/playlist/" in playlist_id:
-        playlist_id = playlist_id.split("/")[-1].split("?")[0]
+    # Normalize playlist identifier
+    playlist_id = normalize_playlist_id(playlist_id)
 
     try:
         # Get playlist details
@@ -787,8 +771,9 @@ async def delete_playlist(
 ) -> str:
     """Delete (unfollow) a Spotify playlist.
 
-    Note: You can only delete playlists you own. This will permanently remove
-    the playlist from your account.
+    This unfollows the playlist from your library. If you own the playlist,
+    it will be permanently deleted for all users. If you don't own it, it's
+    only removed from your library.
 
     Args:
         playlist_id: Spotify playlist ID or URI (e.g., "37i9dQZF1DXcBWIGoYBM5M" or "spotify:playlist:...")
@@ -807,11 +792,8 @@ async def delete_playlist(
     except Exception as exc:
         return f"Error creating Spotify client: {exc}"
 
-    # Extract playlist ID from URI if needed
-    if playlist_id.startswith("spotify:playlist:"):
-        playlist_id = playlist_id.split(":")[-1]
-    elif "open.spotify.com/playlist/" in playlist_id:
-        playlist_id = playlist_id.split("/")[-1].split("?")[0]
+    # Normalize playlist identifier
+    playlist_id = normalize_playlist_id(playlist_id)
 
     # Get playlist name before deleting for confirmation
     try:
@@ -856,14 +838,14 @@ async def delete_playlist(
 @retry_on_rate_limit(max_retries=3)
 async def add_tracks_to_playlist(
     playlist_id: str,
-    track_uris: str,
+    track_uris: list[str],
     user_email: str = DEFAULT_USER_EMAIL,
 ) -> str:
     """Add tracks to a Spotify playlist.
 
     Args:
         playlist_id: Spotify playlist ID or URI (e.g., "37i9dQZF1DXcBWIGoYBM5M" or "spotify:playlist:...")
-        track_uris: Comma-separated list of track URIs or URLs (e.g., "spotify:track:abc123,spotify:track:def456")
+        track_uris: List of track URIs, URLs, or IDs (e.g., ["spotify:track:abc123", "https://open.spotify.com/track/def456"])
         user_email: User's email for authentication (default: jck411@gmail.com)
 
     Returns:
@@ -879,29 +861,14 @@ async def add_tracks_to_playlist(
     except Exception as exc:
         return f"Error creating Spotify client: {exc}"
 
-    # Extract playlist ID from URI if needed
-    if playlist_id.startswith("spotify:playlist:"):
-        playlist_id = playlist_id.split(":")[-1]
-    elif "open.spotify.com/playlist/" in playlist_id:
-        playlist_id = playlist_id.split("/")[-1].split("?")[0]
+    # Normalize playlist identifier
+    playlist_id = normalize_playlist_id(playlist_id)
 
-    # Parse track URIs
-    track_list = [uri.strip() for uri in track_uris.split(",") if uri.strip()]
-
-    if not track_list:
+    if not track_uris:
         return "Error: No track URIs provided"
 
-    # Convert URLs to URIs if needed
-    normalized_uris = []
-    for uri in track_list:
-        if uri.startswith("https://open.spotify.com/track/"):
-            track_id = uri.split("/")[-1].split("?")[0]
-            normalized_uris.append(f"spotify:track:{track_id}")
-        elif uri.startswith("spotify:track:"):
-            normalized_uris.append(uri)
-        else:
-            # Assume it's just a track ID
-            normalized_uris.append(f"spotify:track:{uri}")
+    # Normalize all track identifiers
+    normalized_uris = [normalize_track_uri(uri) for uri in track_uris]
 
     try:
         await asyncio.to_thread(sp.playlist_add_items, playlist_id, normalized_uris)
@@ -938,13 +905,8 @@ async def add_to_queue(
     except Exception as exc:
         return f"Error creating Spotify client: {exc}"
 
-    # Convert URL to URI if needed
-    if track_uri.startswith("https://open.spotify.com/track/"):
-        track_id = track_uri.split("/")[-1].split("?")[0]
-        track_uri = f"spotify:track:{track_id}"
-    elif not track_uri.startswith("spotify:track:"):
-        # Assume it's just an ID
-        track_uri = f"spotify:track:{track_uri}"
+    # Normalize track identifier
+    track_uri = normalize_track_uri(track_uri)
 
     try:
         await asyncio.to_thread(sp.add_to_queue, track_uri, device_id=device_id)

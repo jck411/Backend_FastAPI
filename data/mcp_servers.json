@@ -11,7 +11,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "custom-gmail",
       "module": "backend.mcp_servers.gmail_server",
@@ -20,7 +20,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "custom-gdrive",
       "module": "backend.mcp_servers.gdrive_server",
@@ -29,7 +29,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "custom-pdf",
       "module": "backend.mcp_servers.pdf_server",
@@ -38,7 +38,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "custom-calendar",
       "module": "backend.mcp_servers.calendar_server",
@@ -56,7 +56,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "local-calculator",
       "module": "backend.mcp_servers.calculator_server",

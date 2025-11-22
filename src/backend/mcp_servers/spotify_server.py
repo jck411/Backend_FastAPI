@@ -261,6 +261,226 @@ async def pause_playback(
     return "Playback paused"
 
 
+@mcp.tool("spotify_resume")
+@retry_on_rate_limit(max_retries=3)
+async def resume_playback(
+    user_email: str = DEFAULT_USER_EMAIL,
+    device_id: Optional[str] = None,
+) -> str:
+    """Resume paused Spotify playback.
+
+    Args:
+        user_email: User's email for authentication (default: jck411@gmail.com)
+        device_id: Optional device ID to resume on (default: active device)
+
+    Returns:
+        Confirmation message or error
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    try:
+        await asyncio.to_thread(sp.start_playback, device_id=device_id)
+    except Exception as exc:
+        return f"Error resuming playback: {exc}. Make sure Spotify is open on a device."
+
+    return "Playback resumed"
+
+
+@mcp.tool("spotify_next_track")
+@retry_on_rate_limit(max_retries=3)
+async def next_track(
+    user_email: str = DEFAULT_USER_EMAIL,
+    device_id: Optional[str] = None,
+) -> str:
+    """Skip to the next track in Spotify playback.
+
+    Args:
+        user_email: User's email for authentication (default: jck411@gmail.com)
+        device_id: Optional device ID (default: active device)
+
+    Returns:
+        Confirmation message or error
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    try:
+        await asyncio.to_thread(sp.next_track, device_id=device_id)
+    except Exception as exc:
+        return f"Error skipping to next track: {exc}. Make sure Spotify is open and playing."
+
+    return "Skipped to next track"
+
+
+@mcp.tool("spotify_previous_track")
+@retry_on_rate_limit(max_retries=3)
+async def previous_track(
+    user_email: str = DEFAULT_USER_EMAIL,
+    device_id: Optional[str] = None,
+) -> str:
+    """Go back to the previous track in Spotify playback.
+
+    Args:
+        user_email: User's email for authentication (default: jck411@gmail.com)
+        device_id: Optional device ID (default: active device)
+
+    Returns:
+        Confirmation message or error
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    try:
+        await asyncio.to_thread(sp.previous_track, device_id=device_id)
+    except Exception as exc:
+        return f"Error going to previous track: {exc}. Make sure Spotify is open and playing."
+
+    return "Went back to previous track"
+
+
+@mcp.tool("spotify_shuffle")
+@retry_on_rate_limit(max_retries=3)
+async def set_shuffle(
+    state: bool,
+    user_email: str = DEFAULT_USER_EMAIL,
+    device_id: Optional[str] = None,
+) -> str:
+    """Toggle shuffle mode for Spotify playback.
+
+    Args:
+        state: True to enable shuffle, False to disable
+        user_email: User's email for authentication (default: jck411@gmail.com)
+        device_id: Optional device ID (default: active device)
+
+    Returns:
+        Confirmation message or error
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    try:
+        await asyncio.to_thread(sp.shuffle, state, device_id=device_id)
+    except Exception as exc:
+        return f"Error setting shuffle: {exc}. Make sure Spotify is open and playing."
+
+    return f"Shuffle {'enabled' if state else 'disabled'}"
+
+
+@mcp.tool("spotify_repeat")
+@retry_on_rate_limit(max_retries=3)
+async def set_repeat(
+    state: str,
+    user_email: str = DEFAULT_USER_EMAIL,
+    device_id: Optional[str] = None,
+) -> str:
+    """Set repeat mode for Spotify playback.
+
+    Args:
+        state: Repeat mode - "track" (repeat current track), "context" (repeat playlist/album), or "off"
+        user_email: User's email for authentication (default: jck411@gmail.com)
+        device_id: Optional device ID (default: active device)
+
+    Returns:
+        Confirmation message or error
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    # Validate state
+    valid_states = ["track", "context", "off"]
+    if state not in valid_states:
+        return (
+            f"Invalid repeat state '{state}'. Must be one of: {', '.join(valid_states)}"
+        )
+
+    try:
+        await asyncio.to_thread(sp.repeat, state, device_id=device_id)
+    except Exception as exc:
+        return (
+            f"Error setting repeat mode: {exc}. Make sure Spotify is open and playing."
+        )
+
+    return f"Repeat mode set to '{state}'"
+
+
+@mcp.tool("spotify_seek_position")
+@retry_on_rate_limit(max_retries=3)
+async def seek_position(
+    position_ms: int,
+    user_email: str = DEFAULT_USER_EMAIL,
+    device_id: Optional[str] = None,
+) -> str:
+    """Seek to a specific position in the currently playing track.
+
+    Args:
+        position_ms: Position in milliseconds (e.g., 30000 for 30 seconds)
+        user_email: User's email for authentication (default: jck411@gmail.com)
+        device_id: Optional device ID (default: active device)
+
+    Returns:
+        Confirmation message or error
+    """
+    try:
+        sp = get_spotify_client(user_email)
+    except ValueError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Click 'Connect Spotify' in Settings to authorize this account."
+        )
+    except Exception as exc:
+        return f"Error creating Spotify client: {exc}"
+
+    # Ensure non-negative position
+    position_ms = max(0, position_ms)
+    position_min = position_ms // 60000
+    position_sec = (position_ms % 60000) // 1000
+
+    try:
+        await asyncio.to_thread(sp.seek_track, position_ms, device_id=device_id)
+    except Exception as exc:
+        return (
+            f"Error seeking to position: {exc}. Make sure Spotify is open and playing."
+        )
+
+    return f"Seeked to {position_min}:{position_sec:02d}"
+
+
 def run() -> None:  # pragma: no cover - integration entrypoint
     """Run the Spotify MCP server."""
     mcp.run()
@@ -277,4 +497,10 @@ __all__ = [
     "get_current_playback",
     "play_track",
     "pause_playback",
+    "resume_playback",
+    "next_track",
+    "previous_track",
+    "set_shuffle",
+    "set_repeat",
+    "seek_position",
 ]

@@ -30,6 +30,7 @@ dependencies = [
     "kreuzberg[chunking,entity-extraction,gmft,easyocr,langdetect]>=3.20.2",
     "monarchmoney>=0.1.12",
     "gql<3.5.0",
+    "spotipy>=2.25.1",
 ]
 
 [project.scripts]

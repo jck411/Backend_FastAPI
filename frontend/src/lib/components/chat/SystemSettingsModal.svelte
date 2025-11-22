@@ -4,6 +4,7 @@
   import { createGoogleAuthStore } from "../../stores/googleAuth";
   import { createMcpServersStore } from "../../stores/mcpServers";
   import { createMonarchAuthStore } from "../../stores/monarchAuth";
+  import { createSpotifyAuthStore } from "../../stores/spotifyAuth";
   import { createSystemPromptStore } from "../../stores/systemPrompt";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
   import "./system-settings.css";
@@ -15,6 +16,7 @@
   const mcpServers = createMcpServersStore();
   const googleAuth = createGoogleAuthStore();
   const monarchAuth = createMonarchAuthStore();
+  const spotifyAuth = createSpotifyAuthStore();
 
   let hasInitialized = false;
   let closing = false;
@@ -28,6 +30,7 @@
       hasInitialized = false;
       systemPrompt.reset();
       googleAuth.reset();
+      spotifyAuth.reset();
     }
   }
 
@@ -37,6 +40,7 @@
       mcpServers.load(),
       googleAuth.load(),
       monarchAuth.load(),
+      spotifyAuth.load(),
     ]);
   }
 
@@ -128,6 +132,20 @@
       return;
     }
     await googleAuth.authorize();
+  }
+
+  function refreshSpotifyAuth(): void {
+    if ($spotifyAuth.loading || $spotifyAuth.authorizing) {
+      return;
+    }
+    void spotifyAuth.load();
+  }
+
+  async function startSpotifyAuthorization(): Promise<void> {
+    if ($spotifyAuth.authorizing) {
+      return;
+    }
+    await spotifyAuth.authorize();
   }
 
   function formatUpdatedAt(timestamp: string | null): string | null {
@@ -295,6 +313,63 @@
         <p class="status muted">
           Click "Connect Google Services" to authorize these integrations for
           the assistant.
+        </p>
+      </div>
+    </article>
+
+    <article class="system-card">
+      <header class="system-card-header">
+        <div>
+          <h3>Spotify</h3>
+          <p class="system-card-caption">
+            Connect Spotify for music control and playback.
+          </p>
+        </div>
+        <div class="system-card-actions">
+          <button
+            type="button"
+            class="primary"
+            on:click={() => void startSpotifyAuthorization()}
+            disabled={$spotifyAuth.loading || $spotifyAuth.authorizing}
+          >
+            {$spotifyAuth.authorizing
+              ? "Authorizing…"
+              : $spotifyAuth.authorized
+                ? "Reconnect Spotify"
+                : "Connect Spotify"}
+          </button>
+        </div>
+      </header>
+
+      <div class="system-card-body google-auth-body">
+        {#if $spotifyAuth.loading}
+          <p class="status">Checking Spotify authorization…</p>
+        {:else if $spotifyAuth.error}
+          <p class="status error">{$spotifyAuth.error}</p>
+          <div class="google-auth-actions">
+            <button
+              type="button"
+              class="ghost"
+              on:click={refreshSpotifyAuth}
+              disabled={$spotifyAuth.loading || $spotifyAuth.authorizing}
+            >
+              Try again
+            </button>
+          </div>
+        {:else if $spotifyAuth.authorized}
+          <p class="status success">
+            Connected as <span class="google-auth-email"
+              >{$spotifyAuth.userEmail}</span
+            >.
+          </p>
+          <p class="status muted">Access will refresh automatically.</p>
+        {:else}
+          <p class="status">Spotify is not connected.</p>
+        {/if}
+
+        <p class="status muted">
+          Click "Connect Spotify" to authorize music control and playback
+          features.
         </p>
       </div>
     </article>

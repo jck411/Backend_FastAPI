@@ -21,6 +21,7 @@ from .routers.mcp_servers import router as mcp_router
 from .routers.monarch_auth import router as monarch_auth_router
 from .routers.presets import router as presets_router
 from .routers.settings import router as settings_router
+from .routers.spotify_auth import router as spotify_auth_router
 from .routers.stt import router as stt_router
 from .routers.suggestions import router as suggestions_router
 from .routers.uploads import router as uploads_router
@@ -284,6 +285,11 @@ def create_app() -> FastAPI:
         monarch_auth_router,
         prefix="/api/monarch-auth",
         tags=["monarch-auth"],
+    )
+    app.include_router(
+        spotify_auth_router,
+        prefix="/api/spotify-auth",
+        tags=["spotify-auth"],
     )
 
     @app.get("/favicon.ico", include_in_schema=False)

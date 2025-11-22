@@ -58,8 +58,16 @@
     },
     {
       "created_at": "2025-10-11T07:53:03.066101Z",
-      "is_default": false,
+      "is_default": true,
       "mcp_servers": [
+        {
+          "contexts": [],
+          "enabled": false,
+          "env": {},
+          "id": "monarch-money",
+          "module": "backend.mcp_servers.monarch_server",
+          "tool_overrides": {}
+        },
         {
           "contexts": [],
           "disabled_tools": [],
@@ -116,6 +124,21 @@
         }
       ],
       "model": "openai/gpt-4o-mini-2024-07-18",
+      "model_filters": {
+        "series": {
+          "exclude": [],
+          "include": [
+            "gpt"
+          ]
+        },
+        "sort": "newness",
+        "supported_parameters": {
+          "exclude": [
+            "reasoning"
+          ],
+          "include": []
+        }
+      },
       "name": "4omini",
       "suggestions": [
         {
@@ -132,7 +155,7 @@
         }
       ],
       "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack  (dad) and lives in Olrlando, Fl",
-      "updated_at": "2025-11-08T05:00:18.909698Z"
+      "updated_at": "2025-11-22T03:15:17.316988Z"
     },
     {
       "created_at": "2025-10-24T01:44:35.184462Z",
@@ -203,104 +226,6 @@
       ],
       "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack and live in Olrlando, Fl",
       "updated_at": "2025-11-05T05:36:19.318281Z"
-    },
-    {
-      "created_at": "2025-11-13T12:54:08.100555Z",
-      "is_default": false,
-      "mcp_servers": [
-        {
-          "contexts": [],
-          "enabled": true,
-          "env": {},
-          "id": "monarch-money",
-          "module": "backend.mcp_servers.monarch_server",
-          "tool_overrides": {}
-        },
-        {
-          "contexts": [],
-          "disabled_tools": [],
-          "enabled": true,
-          "env": {},
-          "id": "custom-gmail",
-          "module": "backend.mcp_servers.gmail_server",
-          "tool_overrides": {}
-        },
-        {
-          "contexts": [],
-          "disabled_tools": [],
-          "enabled": true,
-          "env": {},
-          "id": "custom-gdrive",
-          "module": "backend.mcp_servers.gdrive_server",
-          "tool_overrides": {}
-        },
-        {
-          "contexts": [],
-          "disabled_tools": [],
-          "enabled": true,
-          "env": {},
-          "id": "custom-pdf",
-          "module": "backend.mcp_servers.pdf_server",
-          "tool_overrides": {}
-        },
-        {
-          "contexts": [],
-          "disabled_tools": [],
-          "enabled": true,
-          "env": {},
-          "id": "custom-calendar",
-          "module": "backend.mcp_servers.calendar_server",
-          "tool_overrides": {}
-        },
-        {
-          "contexts": [],
-          "disabled_tools": [],
-          "enabled": true,
-          "env": {},
-          "id": "local-calculator",
-          "module": "backend.mcp_servers.calculator_server",
-          "tool_overrides": {}
-        },
-        {
-          "contexts": [],
-          "disabled_tools": [],
-          "enabled": true,
-          "env": {},
-          "id": "housekeeping",
-          "module": "backend.mcp_servers.housekeeping_server",
-          "tool_overrides": {}
-        }
-      ],
-      "model": "openai/gpt-4.1-nano",
-      "model_filters": {
-        "sort": "newness",
-        "supported_parameters": {
-          "exclude": [
-            "reasoning"
-          ],
-          "include": [
-            "tools"
-          ]
-        }
-      },
-      "name": "main",
-      "suggestions": [
-        {
-          "label": "calendar today",
-          "text": "whats on my calendar today?"
-        },
-        {
-          "label": "show scheduled tasks",
-          "text": "show my scheduled tasks"
-        },
-        {
-          "label": "what tasks are due next week",
-          "text": "what tasks are due next week"
-        }
-      ],
-      "supports_tools": true,
-      "system_prompt": "You are a helpful but funny assistant. You have access to tools. User is Jack  (dad) and lives in Olrlando, Fl",
-      "updated_at": "2025-11-20T03:48:44.763263Z"
     },
     {
       "created_at": "2025-11-19T05:52:17.581157Z",

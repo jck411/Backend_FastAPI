@@ -139,6 +139,20 @@ export interface MonarchCredentials {
   mfa_secret?: string | null;
 }
 
+export interface SpotifyAuthStatusResponse {
+  authorized: boolean;
+  user_email: string;
+}
+
+export interface SpotifyAuthAuthorizeRequest {
+  user_email?: string;
+}
+
+export interface SpotifyAuthAuthorizeResponse {
+  auth_url: string;
+  user_email: string;
+}
+
 type ModelPriceValue = number | string | null | undefined;
 
 export interface ModelPricing {

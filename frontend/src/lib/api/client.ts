@@ -22,6 +22,9 @@ import type {
   // Presets
   PresetListItem,
   PresetSaveSnapshotPayload,
+  SpotifyAuthAuthorizeRequest,
+  SpotifyAuthAuthorizeResponse,
+  SpotifyAuthStatusResponse,
   SseEvent,
   SystemPromptPayload,
   SystemPromptResponse,
@@ -195,6 +198,19 @@ export async function saveMonarchCredentials(
 export async function deleteMonarchCredentials(): Promise<MonarchStatusResponse> {
   return requestJson<MonarchStatusResponse>(resolveApiPath('/api/monarch-auth/credentials'), {
     method: 'DELETE',
+  });
+}
+
+export async function fetchSpotifyAuthStatus(): Promise<SpotifyAuthStatusResponse> {
+  return requestJson<SpotifyAuthStatusResponse>(resolveApiPath('/api/spotify-auth/status'));
+}
+
+export async function startSpotifyAuthorization(
+  payload: SpotifyAuthAuthorizeRequest,
+): Promise<SpotifyAuthAuthorizeResponse> {
+  return requestJson<SpotifyAuthAuthorizeResponse>(resolveApiPath('/api/spotify-auth/authorize'), {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
 

@@ -31,6 +31,7 @@ dependencies = [
     "monarchmoney>=0.1.12",
     "gql<3.5.0",
     "spotipy>=2.25.1",
+    "python-toon>=0.1.3",
 ]
 
 [project.scripts]

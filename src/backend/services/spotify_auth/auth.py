@@ -9,10 +9,14 @@ Ensure this port is available and matches the redirect URI in credentials/spotif
 
 from __future__ import annotations
 
+import logging
 import json
 import os
+import sys
 import time
+from contextlib import contextmanager
 from functools import wraps
+from io import StringIO
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
 
@@ -30,19 +34,75 @@ TOKEN_PATH = PROJECT_ROOT / "data" / "tokens"
 # Create token directory if it doesn't exist
 os.makedirs(TOKEN_PATH, exist_ok=True)
 
-# Spotify scopes for minimal playback control
+# ALL Spotify Web API user scopes for complete access
 # Documentation: https://developer.spotify.com/documentation/web-api/concepts/scopes
+# Note: Spotify Open Access scopes (user-soa-*) require special allowlisting and
+# will return "Illegal scope" for standard apps, so they are intentionally omitted.
+# SOA service scopes (soa-manage-*, soa-create-*) also cannot be mixed with user
+# scopes and are for Client Credentials Flow only.
 SCOPES = [
+    # Images
+    "ugc-image-upload",  # Upload images to user-generated content
+    # Spotify Connect / Playback
     "user-read-playback-state",  # Read current playback state
-    "user-modify-playback-state",  # Control playback (play, pause, skip)
+    "user-modify-playback-state",  # Control playback (play, pause, skip, volume)
     "user-read-currently-playing",  # Read currently playing track
+    "app-remote-control",  # Remote control playback (iOS/Android SDKs)
+    "streaming",  # Play content via Web Playback SDK
+    # Playlists
     "playlist-read-private",  # Read private playlists
     "playlist-read-collaborative",  # Read collaborative playlists
     "playlist-modify-public",  # Create/modify public playlists
     "playlist-modify-private",  # Create/modify private playlists
+    # Follow
+    "user-follow-modify",  # Manage following of artists and users
+    "user-follow-read",  # Read following of artists and users
+    # Listening History
+    "user-read-playback-position",  # Read playback position in podcasts/episodes
+    "user-top-read",  # Read top artists and tracks
+    "user-read-recently-played",  # Read recently played tracks
+    # Library
+    "user-library-modify",  # Manage saved tracks and albums
+    "user-library-read",  # Read saved tracks and albums
+    # User Profile
+    "user-read-email",  # Read user email
+    "user-read-private",  # Read user profile (country, product subscription)
 ]
 
 T = TypeVar("T")
+
+SPOTIPY_LOGGER_NAMES = ("spotipy", "spotipy.client", "spotipy.oauth2")
+
+
+def _silence_spotipy_logging() -> None:
+    """Prevent spotipy logs from polluting MCP stdout."""
+    for logger_name in SPOTIPY_LOGGER_NAMES:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.ERROR)
+        logger.propagate = False
+        if not logger.handlers:
+            logger.addHandler(logging.NullHandler())
+
+
+_silence_spotipy_logging()
+
+
+@contextmanager
+def suppress_stdout_stderr():
+    """Context manager to suppress stdout/stderr output.
+
+    Necessary for MCP servers to prevent spotipy from polluting the JSON-RPC
+    protocol with OAuth prompts and other non-JSON output.
+    """
+    old_stdout = sys.stdout
+    old_stderr = sys.stderr
+    try:
+        sys.stdout = StringIO()
+        sys.stderr = StringIO()
+        yield
+    finally:
+        sys.stdout = old_stdout
+        sys.stderr = old_stderr
 
 
 def retry_on_rate_limit(
@@ -208,18 +268,32 @@ def get_spotify_client(user_email: str) -> spotipy.Spotify:
     try:
         config = get_spotify_config()
 
-        auth_manager = SpotifyOAuth(
-            client_id=config["client_id"],
-            client_secret=config["client_secret"],
-            redirect_uri=config["redirect_uri"],
-            scope=" ".join(SCOPES),
-            cache_path=str(get_token_path(user_email)),
-            open_browser=False,  # Don't auto-open browser for server context
-        )
+        # Suppress spotipy's stdout/stderr to prevent MCP protocol pollution
+        with suppress_stdout_stderr():
+            auth_manager = SpotifyOAuth(
+                client_id=config["client_id"],
+                client_secret=config["client_secret"],
+                redirect_uri=config["redirect_uri"],
+                scope=" ".join(SCOPES),
+                cache_path=str(get_token_path(user_email)),
+                open_browser=False,  # Don't auto-open browser for server context
+                show_dialog=False,  # Don't show authorization dialog prompts
+            )
 
-        # Spotipy handles token refresh automatically
+            token_info = auth_manager.validate_token(
+                auth_manager.cache_handler.get_cached_token()
+            )
+
+        if not token_info:
+            raise ValueError(
+                "Stored Spotify credentials are missing required scopes or expired. "
+                "Click 'Connect Spotify' in Settings to authorize this account again."
+            )
+
+        # Spotipy handles token refresh automatically once we know the cache is valid
         return spotipy.Spotify(auth_manager=auth_manager)
-
+    except ValueError:
+        raise
     except Exception as e:
         raise ValueError(f"Failed to create Spotify client for {user_email}: {e}")
 
@@ -235,17 +309,20 @@ def get_auth_url(user_email: str) -> str:
     """
     config = get_spotify_config()
 
-    auth_manager = SpotifyOAuth(
-        client_id=config["client_id"],
-        client_secret=config["client_secret"],
-        redirect_uri=config["redirect_uri"],
-        scope=" ".join(SCOPES),
-        cache_path=str(get_token_path(user_email)),
-        open_browser=False,
-        state=user_email,  # Pass user_email in state for verification
-    )
+    # Suppress spotipy's stdout/stderr to prevent MCP protocol pollution
+    with suppress_stdout_stderr():
+        auth_manager = SpotifyOAuth(
+            client_id=config["client_id"],
+            client_secret=config["client_secret"],
+            redirect_uri=config["redirect_uri"],
+            scope=" ".join(SCOPES),
+            cache_path=str(get_token_path(user_email)),
+            open_browser=False,
+            show_dialog=True,  # Force re-consent so new scopes are acknowledged
+            state=user_email,  # Pass user_email in state for verification
+        )
 
-    return auth_manager.get_authorize_url()
+        return auth_manager.get_authorize_url()
 
 
 def process_auth_callback(code: str, user_email: str) -> dict[str, Any]:
@@ -263,17 +340,20 @@ def process_auth_callback(code: str, user_email: str) -> dict[str, Any]:
     """
     config = get_spotify_config()
 
-    auth_manager = SpotifyOAuth(
-        client_id=config["client_id"],
-        client_secret=config["client_secret"],
-        redirect_uri=config["redirect_uri"],
-        scope=" ".join(SCOPES),
-        cache_path=str(get_token_path(user_email)),
-        open_browser=False,
-    )
+    # Suppress spotipy's stdout/stderr to prevent MCP protocol pollution
+    with suppress_stdout_stderr():
+        auth_manager = SpotifyOAuth(
+            client_id=config["client_id"],
+            client_secret=config["client_secret"],
+            redirect_uri=config["redirect_uri"],
+            scope=" ".join(SCOPES),
+            cache_path=str(get_token_path(user_email)),
+            open_browser=False,
+            show_dialog=True,  # Force re-consent so new scopes are acknowledged
+        )
 
-    # Exchange code for token
-    token_info = auth_manager.get_access_token(code, as_dict=True)
+        # Exchange code for token
+        token_info = auth_manager.get_access_token(code, as_dict=True)
 
     if not token_info:
         raise ValueError("Failed to exchange authorization code for tokens")

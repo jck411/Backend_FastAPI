@@ -405,7 +405,7 @@
     }
   }
 
-  @media (max-width: 900px) {
+  @media (max-width: 768px) {
     .model-explorer {
       inset: 2vh;
       padding: 1.25rem;

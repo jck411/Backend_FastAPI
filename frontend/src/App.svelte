@@ -449,13 +449,13 @@
       transparent 100%
     );
   }
-  @media (max-width: 1050px) {
+  @media (max-width: 1024px) {
     .chat-app {
       --header-h: 58px;
       --composer-h: 130px;
     }
   }
-  @media (max-width: 750px) {
+  @media (max-width: 768px) {
     .chat-app {
       --header-h: 56px;
       --composer-h: 170px;

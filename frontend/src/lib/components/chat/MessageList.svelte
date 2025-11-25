@@ -270,7 +270,7 @@
     width: 100%;
     box-sizing: border-box;
   }
-  @media (max-width: 900px) {
+  @media (max-width: 768px) {
     .conversation {
       padding: 1.5rem 0;
       gap: 1.25rem;
@@ -279,7 +279,7 @@
       padding: 0 1.5rem;
     }
   }
-  @media (max-width: 600px) {
+  @media (max-width: 640px) {
     .conversation {
       padding: 1rem 0;
       gap: 1rem;
@@ -288,7 +288,7 @@
       padding: 0 1rem;
     }
   }
-  @media (max-width: 420px) {
+  @media (max-width: 480px) {
     .conversation-item {
       padding: 0 0.75rem;
     }

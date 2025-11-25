@@ -474,7 +474,7 @@
     border: 1px solid rgba(62, 90, 140, 0.6);
     color: #9fb3d8;
   }
-  @media (max-width: 1350px) {
+  @media (max-width: 1280px) {
     .topbar {
       height: auto;
       padding: 0.75rem 1.5rem 1rem;
@@ -537,13 +537,11 @@
     .topbar {
       padding: 0.75rem 1.25rem 1rem;
     }
-  }
-  @media (max-width: 1050px) {
     .controls {
       gap: 0.65rem;
     }
   }
-  @media (max-width: 900px) {
+  @media (max-width: 768px) {
     .topbar {
       padding: 0.75rem 1.15rem 0.75rem;
     }
@@ -562,17 +560,12 @@
       height: 1rem;
     }
   }
-  @media (max-width: 520px) {
+  @media (max-width: 480px) {
     .topbar {
       padding: 0.75rem 1rem 0.5rem;
     }
     .preset-badge .name {
-      max-width: 22ch;
-    }
-  }
-  @media (max-width: 400px) {
-    .preset-badge .name {
-      max-width: 18ch;
+      max-width: 20ch;
     }
   }
 </style>

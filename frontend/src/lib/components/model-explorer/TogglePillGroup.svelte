@@ -199,7 +199,7 @@
     font-size: 0.9rem;
   }
 
-  @media (max-width: 900px) {
+  @media (max-width: 768px) {
     .options {
       grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     }

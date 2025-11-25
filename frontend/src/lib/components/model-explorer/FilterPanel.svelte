@@ -192,7 +192,9 @@
         {#if availableFacets?.maxContext === null || availableFacets?.maxContext === undefined}
           <p class="hint">No context metadata available.</p>
         {:else}
-          <p class="hint">All models offer {formatContext(contextMax)} context.</p>
+          <p class="hint">
+            All models offer {formatContext(contextMax)} context.
+          </p>
         {/if}
       {:else}
         <div class="slider-group">
@@ -213,7 +215,9 @@
             step={1}
             value={contextIndex}
             on:input={(event) =>
-              handleContextSlider(Number((event.target as HTMLInputElement).value))}
+              handleContextSlider(
+                Number((event.target as HTMLInputElement).value),
+              )}
             aria-label="Minimum context tokens"
           />
           <div class="slider-scale context-scale">
@@ -453,12 +457,6 @@
       flex: none;
       min-height: auto;
       overflow: visible;
-    }
-  }
-
-  @media (max-width: 900px) {
-    .filters-panel {
-      order: -1;
     }
   }
 

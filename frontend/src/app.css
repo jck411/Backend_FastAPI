@@ -9,6 +9,18 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Responsive Breakpoints */
+  --bp-xl: 1280px;
+  /* Large desktop / wide header layouts */
+  --bp-lg: 1024px;
+  /* Small desktop / large tablet */
+  --bp-md: 768px;
+  /* Tablet / landscape phone */
+  --bp-sm: 640px;
+  /* Large phone */
+  --bp-xs: 480px;
+  /* Small phone */
 }
 
 * {

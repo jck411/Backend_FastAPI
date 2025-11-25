@@ -349,7 +349,7 @@
     }
   }
 
-  @media (max-width: 420px) {
+  @media (max-width: 480px) {
     .web-search-menu {
       width: calc(100vw - 1.5rem);
       left: max(0px, calc((100% - calc(100vw - 1.5rem)) / 2));

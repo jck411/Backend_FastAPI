@@ -627,7 +627,7 @@
     clip: rect(0, 0, 0, 0);
     border: 0;
   }
-  @media (max-width: 1050px) {
+  @media (max-width: 1024px) {
     .composer {
       padding: 0 0 0.75rem;
     }
@@ -635,21 +635,15 @@
       padding: 0 1.5rem;
     }
   }
-  @media (max-width: 850px) {
-    .composer-content {
-      padding: 0 1.25rem;
-      gap: 0.65rem;
-    }
-    .attachment-strip {
-      gap: 0.6rem;
-    }
-  }
-  @media (max-width: 750px) {
+  @media (max-width: 768px) {
     .composer {
       padding: 0 0 0.5rem;
     }
     .composer-content {
       padding: 0 1rem;
+      gap: 0.6rem;
+    }
+    .attachment-strip {
       gap: 0.6rem;
     }
     .input-shell {

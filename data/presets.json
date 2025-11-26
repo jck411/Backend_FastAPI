@@ -30,7 +30,7 @@
     },
     {
       "created_at": "2025-10-10T13:55:19.113657Z",
-      "is_default": false,
+      "is_default": true,
       "mcp_servers": [
         {
           "contexts": [],
@@ -43,7 +43,7 @@
         {
           "contexts": [],
           "disabled_tools": [],
-          "enabled": true,
+          "enabled": false,
           "env": {},
           "id": "custom-gmail",
           "module": "backend.mcp_servers.gmail_server",
@@ -52,7 +52,7 @@
         {
           "contexts": [],
           "disabled_tools": [],
-          "enabled": true,
+          "enabled": false,
           "env": {},
           "id": "custom-gdrive",
           "module": "backend.mcp_servers.gdrive_server",
@@ -70,7 +70,7 @@
         {
           "contexts": [],
           "disabled_tools": [],
-          "enabled": true,
+          "enabled": false,
           "env": {},
           "id": "custom-calendar",
           "module": "backend.mcp_servers.calendar_server",
@@ -79,7 +79,7 @@
         {
           "contexts": [],
           "disabled_tools": [],
-          "enabled": true,
+          "enabled": false,
           "env": {},
           "id": "spotify",
           "module": "backend.mcp_servers.spotify_server",
@@ -88,7 +88,7 @@
         {
           "contexts": [],
           "disabled_tools": [],
-          "enabled": true,
+          "enabled": false,
           "env": {},
           "id": "local-calculator",
           "module": "backend.mcp_servers.calculator_server",
@@ -97,7 +97,7 @@
         {
           "contexts": [],
           "disabled_tools": [],
-          "enabled": true,
+          "enabled": false,
           "env": {},
           "id": "housekeeping",
           "module": "backend.mcp_servers.housekeeping_server",
@@ -116,7 +116,7 @@
       },
       "name": "open",
       "system_prompt": "You are a helpful but funny assistant",
-      "updated_at": "2025-11-23T06:13:26.920150Z"
+      "updated_at": "2025-11-26T02:14:13.892976Z"
     },
     {
       "created_at": "2025-10-24T01:44:35.184462Z",
@@ -371,25 +371,13 @@
       "name": "only spotify",
       "suggestions": [
         {
-          "label": "Next.js advantages",
-          "text": "What are the advantages of using Next.js?"
-        },
-        {
-          "label": "Dijkstra code",
-          "text": "Write code to demonstrate Dijkstra's algorithm"
-        },
-        {
-          "label": "Essay helper",
-          "text": "Help me write an essay about Silicon Valley"
-        },
-        {
-          "label": "Weather",
-          "text": "What is the weather in Orlando?"
+          "label": "song hx",
+          "text": "tell me the last 10 songs I listened to"
         }
       ],
       "supports_tools": true,
       "system_prompt": "You are a helpful but funny assistant. You are an expert in music and giving advice as a dj and suggesting tracks to play.",
-      "updated_at": "2025-11-22T06:23:53.919638Z"
+      "updated_at": "2025-11-26T02:12:00.830730Z"
     },
     {
       "created_at": "2025-11-23T01:42:45.393832Z",

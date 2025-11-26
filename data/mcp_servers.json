@@ -20,7 +20,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "id": "custom-gdrive",
       "module": "backend.mcp_servers.gdrive_server",
@@ -29,7 +29,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "id": "custom-pdf",
       "module": "backend.mcp_servers.pdf_server",
@@ -47,7 +47,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "spotify",
       "module": "backend.mcp_servers.spotify_server",
@@ -56,7 +56,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "id": "local-calculator",
       "module": "backend.mcp_servers.calculator_server",

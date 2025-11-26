@@ -467,7 +467,7 @@
           "tool_overrides": {}
         }
       ],
-      "model": "openrouter/auto",
+      "model": "openai/gpt-5.1",
       "model_filters": {
         "series": {
           "exclude": [],
@@ -478,9 +478,9 @@
         "sort": "newness"
       },
       "name": "medical",
-      "supports_tools": false,
+      "supports_tools": true,
       "system_prompt": "You are a helpful assistant that helps with medical issues for a pharmacist working in a pediatric and women's hospital",
-      "updated_at": "2025-11-23T01:42:45.393832Z"
+      "updated_at": "2025-11-26T01:45:11.282076Z"
     }
   ]
 }

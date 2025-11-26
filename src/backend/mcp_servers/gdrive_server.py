@@ -745,31 +745,29 @@ async def get_drive_file_content(
 
     if mime_type == "application/pdf":
         try:
-            # Run PDF extraction in thread pool to avoid blocking event loop
-            def _extract_pdf() -> str:
-                payload = base64.b64encode(content_bytes).decode("ascii")
-                result: Dict[str, Any] = kb_extract_bytes(
-                    payload,
-                    mime_type,
-                )
-                text = str(result.get("content") or result.get("text") or "").strip()
+            # kb_extract_bytes is async, so call it directly
+            payload = base64.b64encode(content_bytes).decode("ascii")
+            result: Dict[str, Any] = await kb_extract_bytes(
+                payload,
+                mime_type,
+            )
+            text = str(result.get("content") or result.get("text") or "").strip()
 
-                # If no text was extracted, try an OCR pass as a fallback
-                if not text:
-                    try:
-                        result_ocr: Dict[str, Any] = kb_extract_bytes(
-                            payload,
-                            mime_type,
-                            True,  # force_ocr
-                        )
-                        text = str(
-                            result_ocr.get("content") or result_ocr.get("text") or ""
-                        ).strip()
-                    except Exception:
-                        pass
-                return text
+            # If no text was extracted, try an OCR pass as a fallback
+            if not text:
+                try:
+                    result_ocr: Dict[str, Any] = await kb_extract_bytes(
+                        payload,
+                        mime_type,
+                        True,  # force_ocr
+                    )
+                    text = str(
+                        result_ocr.get("content") or result_ocr.get("text") or ""
+                    ).strip()
+                except Exception:
+                    pass
 
-            body_text = await asyncio.to_thread(_extract_pdf)
+            body_text = text
 
             if not body_text:
                 # Fall back to a best-effort UTF-8 decode or binary notice

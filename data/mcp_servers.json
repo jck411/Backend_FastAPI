@@ -2,6 +2,15 @@
   "servers": [
     {
       "contexts": [],
+      "disabled_tools": [],
+      "enabled": true,
+      "env": {},
+      "id": "notes",
+      "module": "backend.mcp_servers.notes_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
       "enabled": false,
       "env": {},
       "id": "monarch-money",
@@ -47,7 +56,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "spotify",
       "module": "backend.mcp_servers.spotify_server",

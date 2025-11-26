@@ -34,6 +34,15 @@
       "mcp_servers": [
         {
           "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "notes",
+          "module": "backend.mcp_servers.notes_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
           "enabled": false,
           "env": {},
           "id": "monarch-money",
@@ -116,7 +125,7 @@
       },
       "name": "open",
       "system_prompt": "You are a helpful but funny assistant",
-      "updated_at": "2025-11-26T02:14:13.892976Z"
+      "updated_at": "2025-11-26T10:38:10.911612Z"
     },
     {
       "created_at": "2025-10-24T01:44:35.184462Z",
@@ -469,6 +478,105 @@
       "supports_tools": true,
       "system_prompt": "You are a helpful assistant that helps with medical issues for a pharmacist working in a pediatric and women's hospital",
       "updated_at": "2025-11-26T01:45:11.282076Z"
+    },
+    {
+      "created_at": "2025-11-26T10:39:50.398659Z",
+      "is_default": false,
+      "mcp_servers": [
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "notes",
+          "module": "backend.mcp_servers.notes_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "enabled": false,
+          "env": {},
+          "id": "monarch-money",
+          "module": "backend.mcp_servers.monarch_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-gmail",
+          "module": "backend.mcp_servers.gmail_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-gdrive",
+          "module": "backend.mcp_servers.gdrive_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-pdf",
+          "module": "backend.mcp_servers.pdf_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-calendar",
+          "module": "backend.mcp_servers.calendar_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "spotify",
+          "module": "backend.mcp_servers.spotify_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "local-calculator",
+          "module": "backend.mcp_servers.calculator_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "id": "housekeeping",
+          "module": "backend.mcp_servers.housekeeping_server",
+          "tool_overrides": {}
+        }
+      ],
+      "model": "openai/gpt-4o:extended",
+      "model_filters": {
+        "series": {
+          "exclude": [],
+          "include": [
+            "gpt"
+          ]
+        },
+        "sort": "newness"
+      },
+      "name": "notes",
+      "system_prompt": "You are a helpful but funny assistant",
+      "updated_at": "2025-11-26T10:39:50.398659Z"
     }
   ]
 }

@@ -3,7 +3,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "notes",
       "module": "backend.mcp_servers.notes_server",
@@ -74,7 +74,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "housekeeping",
       "module": "backend.mcp_servers.housekeeping_server",

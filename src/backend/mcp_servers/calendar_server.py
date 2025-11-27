@@ -1424,6 +1424,41 @@ async def clear_completed_tasks(
     )
 
 
+@mcp.tool("calendar_delete_task_list")
+async def delete_task_list(
+    user_email: str = DEFAULT_USER_EMAIL,
+    task_list_id: str = "",
+) -> str:
+    """Delete a task list and all tasks within it.
+
+    Warning: This permanently deletes the task list. The user's default/primary
+    task list cannot be deleted. Use calendar_list_task_lists first to get the
+    list ID.
+    """
+    if not task_list_id:
+        return "Error: task_list_id is required. Use calendar_list_task_lists to find the ID of the list to delete."
+
+    try:
+        task_service = TaskService(user_email, service_factory=get_tasks_service)
+        # Get list info before deletion for confirmation message
+        try:
+            list_info = await task_service.get_task_list(task_list_id)
+            list_name = list_info.title
+        except TaskServiceError:
+            list_name = task_list_id
+
+        await task_service.delete_task_list(task_list_id)
+    except TaskAuthorizationError as exc:
+        return (
+            f"Authentication error: {exc}. "
+            "Open the system settings modal and click 'Connect Google Services' to refresh Google Tasks permissions."
+        )
+    except TaskServiceError as exc:
+        return str(exc)
+
+    return f"Successfully deleted task list '{list_name}' (ID: {task_list_id})."
+
+
 @mcp.tool("calendar_list_calendars")
 async def list_calendars(
     user_email: str = DEFAULT_USER_EMAIL, max_results: int = 100
@@ -1518,4 +1553,5 @@ __all__ = [
     "delete_task",
     "move_task",
     "clear_completed_tasks",
+    "delete_task_list",
 ]

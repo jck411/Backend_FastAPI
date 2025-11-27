@@ -27,6 +27,7 @@ from .routers.suggestions import router as suggestions_router
 from .routers.uploads import router as uploads_router
 from .services.attachments import AttachmentService
 from .services.attachments_cleanup import cleanup_expired_attachments
+from .mcp_servers import BUILTIN_MCP_SERVER_DEFINITIONS
 from .services.mcp_server_settings import MCPServerSettingsService
 from .services.model_settings import ModelSettingsService
 from .services.presets import PresetService
@@ -115,41 +116,19 @@ def create_app() -> FastAPI:
 
     mcp_servers_path = _resolve_under(project_root, settings.mcp_servers_path)
 
+    default_enabled_server_ids = {
+        "local-calculator",
+        "housekeeping",
+        "custom-calendar",
+        "custom-gmail",
+        "custom-gdrive",
+        "custom-pdf",
+        "monarch-money",
+    }
+
     default_mcp_servers = [
-        {
-            "id": "local-calculator",
-            "module": "backend.mcp_servers.calculator_server",
-        },
-        {
-            "id": "housekeeping",
-            "module": "backend.mcp_servers.housekeeping_server",
-            "enabled": True,
-        },
-        {
-            "id": "custom-calendar",
-            "module": "backend.mcp_servers.calendar_server",
-            "enabled": True,
-        },
-        {
-            "id": "custom-gmail",
-            "module": "backend.mcp_servers.gmail_server",
-            "enabled": True,
-        },
-        {
-            "id": "custom-gdrive",
-            "module": "backend.mcp_servers.gdrive_server",
-            "enabled": True,
-        },
-        {
-            "id": "custom-pdf",
-            "module": "backend.mcp_servers.pdf_server",
-            "enabled": True,
-        },
-        {
-            "id": "monarch-money",
-            "module": "backend.mcp_servers.monarch_server",
-            "enabled": True,
-        },
+        {**definition, "enabled": definition["id"] in default_enabled_server_ids}
+        for definition in BUILTIN_MCP_SERVER_DEFINITIONS
     ]
 
     mcp_settings_service = MCPServerSettingsService(

@@ -238,6 +238,10 @@ MCP servers are configured in `data/mcp_servers.json` and hot-reloaded via API. 
 - **PDF tools** — extract text and metadata
 - **Monarch Money** — personal finance data and transactions
 - **Calculator & utilities** — housekeeping helpers
+- The canonical list of bundled servers lives in `src/backend/mcp_servers/__init__.py`
+  (`BUILTIN_MCP_SERVER_DEFINITIONS`). The FastAPI factory consumes that list to
+  generate default entries with the same enable/disable defaults, so updating the
+  list keeps both the module exports and fallback config in sync.
 
 Each server's tools are prefixed (e.g., `custom-gmail__gmail_create_draft`) to avoid naming conflicts.
 

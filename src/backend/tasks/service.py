@@ -329,6 +329,21 @@ class TaskService:
                 f"Error clearing completed tasks for list {task_list_id}: {exc}"
             ) from exc
 
+    async def delete_task_list(self, task_list_id: str) -> None:
+        """Delete a task list by ID.
+
+        Warning: This permanently deletes the task list and all tasks within it.
+        The user's default task list (usually '@default' or the first list) cannot
+        be deleted.
+        """
+        client = self._client_or_raise()
+        try:
+            await self._execute(client.tasklists().delete(tasklist=task_list_id))
+        except Exception as exc:
+            raise TaskServiceError(
+                f"Error deleting task list {task_list_id}: {exc}"
+            ) from exc
+
     async def collect_scheduled_tasks(
         self,
         time_min_rfc: Optional[str],

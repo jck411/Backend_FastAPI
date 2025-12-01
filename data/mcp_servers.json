@@ -47,7 +47,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "custom-calendar",
       "module": "backend.mcp_servers.calendar_server",
@@ -74,7 +74,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "id": "housekeeping",
       "module": "backend.mcp_servers.housekeeping_server",

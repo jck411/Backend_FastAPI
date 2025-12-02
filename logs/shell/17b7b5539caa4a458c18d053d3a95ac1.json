@@ -1,0 +1,11 @@
+{
+  "log_id": "17b7b5539caa4a458c18d053d3a95ac1",
+  "command": "/usr/bin/brave https://www.rottentomatoes.com",
+  "working_directory": null,
+  "stdout": "Opening in existing browser session.\n",
+  "stderr": "",
+  "exit_code": 0,
+  "duration_ms": 111.99034900346305,
+  "timestamp": 1764694705.1869686,
+  "truncated": false
+}

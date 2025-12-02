@@ -1,0 +1,11 @@
+{
+  "log_id": "8fa958a79bfc4b9f87202f6460ea38fc",
+  "command": "which brave-browser",
+  "working_directory": null,
+  "stdout": "",
+  "stderr": "which: no brave-browser in (/home/jack/REPOS/Backend_FastAPI/.venv/bin:/home/jack/REPOS/Backend_FastAPI/.venv/bin:/home/jack/.npm-global/bin:/home/jack/.config/Code - Insiders/User/globalStorage/github.copilot-chat/debugCommand:/home/jack/.config/Code - Insiders/User/globalStorage/github.copilot-chat/copilotCli:/home/jack/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/bin:/usr/bin/site_perl:/usr/bin/vendor_perl:/usr/bin/core_perl:/home/jack/.vscode-insiders/extensions/ms-python.debugpy-2025.17.2025112401-linux-x64/bundled/scripts/noConfigScripts:/usr/sbin:/sbin:/bin)\n",
+  "exit_code": 1,
+  "duration_ms": 10.680327002773993,
+  "timestamp": 1764694700.2959642,
+  "truncated": false
+}

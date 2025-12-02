@@ -36,6 +36,84 @@ def _truncate_output(text: str) -> tuple[str, bool]:
     return slice_bytes.decode("utf-8", errors="replace"), True
 
 
+def _build_shell_env() -> dict[str, str]:
+    """Build environment for shell commands with complete system PATH."""
+
+    env = os.environ.copy()
+
+    # Start with comprehensive system paths - no limitations
+    system_paths = [
+        # User paths
+        os.path.expanduser("~/.local/bin"),
+        os.path.expanduser("~/bin"),
+        # Standard system paths
+        "/usr/local/sbin",
+        "/usr/local/bin",
+        "/usr/sbin",
+        "/usr/bin",
+        "/sbin",
+        "/bin",
+        # Package manager paths
+        "/snap/bin",
+        "/var/lib/snapd/snap/bin",
+        "/var/lib/flatpak/exports/bin",
+        os.path.expanduser("~/.local/share/flatpak/exports/bin"),
+        # Optional/third-party paths
+        "/opt/bin",
+        "/opt/local/bin",
+        # Common application-specific paths
+        "/opt/brave.com/brave",
+        "/opt/google/chrome",
+        "/opt/microsoft/msedge",
+        "/opt/vivaldi",
+        # Games/Steam
+        os.path.expanduser("~/.steam/debian-installation/ubuntu12_32"),
+        # Language-specific (often have CLI tools)
+        os.path.expanduser("~/.cargo/bin"),
+        os.path.expanduser("~/.go/bin"),
+        os.path.expanduser("~/go/bin"),
+        os.path.expanduser("~/.npm-global/bin"),
+        os.path.expanduser("~/.yarn/bin"),
+        os.path.expanduser("~/.deno/bin"),
+        os.path.expanduser("~/.bun/bin"),
+        # Ruby
+        os.path.expanduser("~/.gem/ruby/*/bin"),
+        os.path.expanduser("~/.rbenv/bin"),
+        os.path.expanduser("~/.rvm/bin"),
+    ]
+
+    current_path = env.get("PATH", "")
+    path_parts = current_path.split(":") if current_path else []
+
+    # Add all paths, prioritizing system paths at the end (user paths come first in current)
+    for sys_path in system_paths:
+        # Handle glob patterns
+        if "*" in sys_path:
+            import glob
+
+            matched = glob.glob(sys_path)
+            for match in matched:
+                if match not in path_parts and os.path.isdir(match):
+                    path_parts.append(match)
+        elif sys_path not in path_parts and os.path.isdir(sys_path):
+            path_parts.append(sys_path)
+
+    env["PATH"] = ":".join(path_parts)
+
+    # Ensure DISPLAY is set for GUI apps
+    if "DISPLAY" not in env:
+        env["DISPLAY"] = ":0"
+
+    # Ensure XDG runtime dir for Wayland/desktop integration
+    if "XDG_RUNTIME_DIR" not in env:
+        uid = os.getuid()
+        xdg_runtime = f"/run/user/{uid}"
+        if os.path.isdir(xdg_runtime):
+            env["XDG_RUNTIME_DIR"] = xdg_runtime
+
+    return env
+
+
 async def _run_command(
     command: str,
     *,
@@ -54,7 +132,11 @@ async def _run_command(
         rest = stripped[len("sudo") :].lstrip()
         if " -S " not in stripped and not stripped.startswith("sudo -S"):
             stripped = f"sudo -S {rest}".strip()
-        prepared_command = f"{command[: len(command) - len(command.lstrip())]}{stripped}"
+        prepared_command = (
+            f"{command[: len(command) - len(command.lstrip())]}{stripped}"
+        )
+
+    shell_env = _build_shell_env()
 
     start = time.perf_counter()
     try:
@@ -64,6 +146,7 @@ async def _run_command(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=working_directory or None,
+            env=shell_env,
         )
 
         stdin_data = None
@@ -81,7 +164,9 @@ async def _run_command(
             stdout_bytes, stderr_bytes = await process.communicate()
             exit_code = -1
             if not stderr_bytes:
-                stderr_bytes = f"Process timed out after {timeout_seconds} seconds".encode()
+                stderr_bytes = (
+                    f"Process timed out after {timeout_seconds} seconds".encode()
+                )
 
     except Exception as exc:  # noqa: BLE001
         duration_ms = (time.perf_counter() - start) * 1000
@@ -129,7 +214,9 @@ async def _execute_and_log(
     }
 
     log_path = _get_log_dir() / f"{log_id}.json"
-    log_path.write_text(json.dumps(log_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    log_path.write_text(
+        json.dumps(log_payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     return {
         "stdout": truncated_stdout,

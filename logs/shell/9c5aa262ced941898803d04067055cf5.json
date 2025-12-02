@@ -1,0 +1,11 @@
+{
+  "log_id": "9c5aa262ced941898803d04067055cf5",
+  "command": "brave https://www.google.com",
+  "working_directory": null,
+  "stdout": "Opening in existing browser session.\n",
+  "stderr": "",
+  "exit_code": 0,
+  "duration_ms": 114.01103400567081,
+  "timestamp": 1764694485.7574408,
+  "truncated": false
+}

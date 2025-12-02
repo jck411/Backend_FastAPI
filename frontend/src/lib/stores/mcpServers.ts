@@ -137,6 +137,42 @@ export function createMcpServersStore() {
     });
   }
 
+  function setServerEnv(serverId: string, key: string, value: string): void {
+    store.update((state) => {
+      const target = state.servers.find((item) => item.id === serverId);
+      if (!target) {
+        return state;
+      }
+
+      const baseEnv = {
+        ...(target.env ?? {}),
+        ...(state.pendingChanges[serverId]?.env ?? {}),
+      };
+
+      baseEnv[key] = value;
+
+      const servers = state.servers.map((server) =>
+        server.id === serverId ? { ...server, env: baseEnv } : server,
+      );
+
+      const pendingChanges = {
+        ...state.pendingChanges,
+        [serverId]: {
+          ...(state.pendingChanges[serverId] ?? {}),
+          env: baseEnv,
+        },
+      };
+
+      return {
+        ...state,
+        servers,
+        dirty: true,
+        saveError: null,
+        pendingChanges,
+      };
+    });
+  }
+
   async function refresh(): Promise<void> {
     store.update((state) => ({
       ...state,
@@ -242,6 +278,7 @@ export function createMcpServersStore() {
     refresh,
     setServerEnabled,
     setToolEnabled,
+    setServerEnv,
     getServer,
     isPending,
     flushPending,

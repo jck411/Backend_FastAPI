@@ -83,6 +83,7 @@
   let monarchPassword = "";
   let monarchMfaSecret = "";
   let showMonarchPassword = false;
+  let showShellPassword = false;
 
   function saveMonarch(): void {
     if (!monarchEmail || !monarchPassword) return;
@@ -110,6 +111,18 @@
       return;
     }
     mcpServers.setToolEnabled(serverId, tool, enabled);
+  }
+
+  function handleShellEnv(serverId: string, key: string, value: string): void {
+    if ($mcpServers.saving) {
+      return;
+    }
+    mcpServers.setServerEnv(serverId, key, value);
+  }
+
+  function isShellApprovalEnabled(env?: Record<string, string>): boolean {
+    const raw = env?.REQUIRE_APPROVAL ?? "true";
+    return String(raw).toLowerCase() === "true";
   }
 
   function refreshServers(): void {
@@ -589,6 +602,72 @@
                   </div>
 
                   <div class="server-row-body">
+                    {#if server.id === "shell-control"}
+                      <div class="shell-server-settings">
+                        <div class="shell-setting">
+                          <div class="shell-setting__info">
+                            <span class="field-label">Require approval</span>
+                            <span class="field-hint">
+                              Commands only run when confirm=True if approval is required.
+                            </span>
+                          </div>
+                          <label class="toggle">
+                            <input
+                              type="checkbox"
+                              checked={isShellApprovalEnabled(server.env)}
+                              disabled={$mcpServers.pending[server.id] ||
+                                $mcpServers.saving}
+                              on:change={(event) =>
+                                handleShellEnv(
+                                  server.id,
+                                  "REQUIRE_APPROVAL",
+                                  (event.target as HTMLInputElement).checked ? "true" : "false",
+                                )}
+                            />
+                            <span>
+                              {isShellApprovalEnabled(server.env)
+                                ? "Approval required"
+                                : "Yolo mode"}
+                            </span>
+                          </label>
+                        </div>
+
+                        <div class="shell-setting">
+                          <div class="shell-setting__info">
+                            <span class="field-label">Sudo password</span>
+                            <span class="field-hint">
+                              Optional; sent to sudo via stdin when commands start with sudo.
+                            </span>
+                          </div>
+                          <div class="password-input-wrapper">
+                            <input
+                              type={showShellPassword ? "text" : "password"}
+                              value={server.env?.SUDO_PASSWORD ?? ""}
+                              autocomplete="off"
+                              placeholder="Enter password"
+                              disabled={$mcpServers.pending[server.id] ||
+                                $mcpServers.saving}
+                              on:input={(event) =>
+                                handleShellEnv(
+                                  server.id,
+                                  "SUDO_PASSWORD",
+                                  (event.target as HTMLInputElement).value,
+                                )}
+                            />
+                            <button
+                              type="button"
+                              aria-label={showShellPassword ? "Hide password" : "Show password"}
+                              disabled={$mcpServers.pending[server.id] ||
+                                $mcpServers.saving}
+                              on:click={() => (showShellPassword = !showShellPassword)}
+                            >
+                              {showShellPassword ? "Hide" : "Show"}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    {/if}
+
                     <button
                       type="button"
                       class="tools-toggle"

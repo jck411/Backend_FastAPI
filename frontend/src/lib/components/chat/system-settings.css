@@ -240,6 +240,47 @@
   padding-top: 0.25rem;
 }
 
+.shell-server-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(71, 99, 150, 0.3);
+  border-radius: 0.65rem;
+  background: rgba(10, 16, 28, 0.85);
+}
+
+.shell-setting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.shell-setting__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 220px;
+  flex: 1;
+}
+
+.field-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.field-hint {
+  color: #8094bb;
+  font-size: 0.75rem;
+}
+
+.shell-setting .password-input-wrapper {
+  width: 100%;
+  max-width: 320px;
+}
+
 .tool-list {
   list-style: none;
   padding: 0;
@@ -363,4 +404,9 @@
 
 .password-input-wrapper button:hover {
   color: #38bdf8;
+}
+
+.password-input-wrapper button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }

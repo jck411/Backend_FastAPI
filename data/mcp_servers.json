@@ -4,7 +4,10 @@
       "contexts": [],
       "disabled_tools": [],
       "enabled": true,
-      "env": {},
+      "env": {
+        "REQUIRE_APPROVAL": "true",
+        "SUDO_PASSWORD": "9791"
+      },
       "id": "shell-control",
       "module": "backend.mcp_servers.shell_control_server",
       "tool_overrides": {}

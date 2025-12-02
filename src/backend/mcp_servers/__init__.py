@@ -33,6 +33,7 @@ __all__ = [
     "monarch_server",
     "notes_server",
     "pdf_server",
+    "shell_control_server",
     "spotify_server",
 ]
 
@@ -49,6 +50,7 @@ BUILTIN_MCP_SERVER_DEFINITIONS: Final[tuple[dict[str, str], ...]] = (
     {"id": "custom-pdf", "module": "backend.mcp_servers.pdf_server"},
     {"id": "monarch-money", "module": "backend.mcp_servers.monarch_server"},
     {"id": "notes", "module": "backend.mcp_servers.notes_server"},
+    {"id": "shell-control", "module": "backend.mcp_servers.shell_control_server"},
     {"id": "spotify", "module": "backend.mcp_servers.spotify_server"},
 )
 

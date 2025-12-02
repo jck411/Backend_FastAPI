@@ -3,6 +3,15 @@
     {
       "contexts": [],
       "disabled_tools": [],
+      "enabled": true,
+      "env": {},
+      "id": "shell-control",
+      "module": "backend.mcp_servers.shell_control_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "disabled_tools": [],
       "enabled": false,
       "env": {},
       "id": "notes",

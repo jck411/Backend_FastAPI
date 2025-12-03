@@ -636,7 +636,7 @@
                           <div class="shell-setting__info">
                             <span class="field-label">Host profile</span>
                             <span class="field-hint">
-                              Passed as HOST_PROFILE_ID; matches a folder under host/.
+                              Passed as HOST_PROFILE_ID; identifies this machine's profile.
                             </span>
                           </div>
                           <input
@@ -650,6 +650,29 @@
                               handleShellEnv(
                                 server.id,
                                 "HOST_PROFILE_ID",
+                                (event.target as HTMLInputElement).value,
+                              )}
+                          />
+                        </div>
+
+                        <div class="shell-setting">
+                          <div class="shell-setting__info">
+                            <span class="field-label">Host root path</span>
+                            <span class="field-hint">
+                              Optional; override where host profiles are stored (e.g. GDrive sync folder).
+                            </span>
+                          </div>
+                          <input
+                            type="text"
+                            value={server.env?.HOST_ROOT_PATH ?? ""}
+                            autocomplete="off"
+                            placeholder="e.g. /home/user/gdrive/host_profiles"
+                            disabled={$mcpServers.pending[server.id] ||
+                              $mcpServers.saving}
+                            on:input={(event) =>
+                              handleShellEnv(
+                                server.id,
+                                "HOST_ROOT_PATH",
                                 (event.target as HTMLInputElement).value,
                               )}
                           />

@@ -764,6 +764,13 @@ async def shell_execute(
     Full PATH is configured automatically (includes ~/.local/bin, snap, flatpak, cargo, etc.).
     GUI applications can be launched. Sudo is supported if SUDO_PASSWORD is configured.
 
+    IMPORTANT: Commands run non-interactively (no TTY). Always use flags to skip prompts:
+    - pacman/yay/paru: Use --noconfirm (e.g., 'sudo pacman -Syu --noconfirm code')
+    - apt: Use -y (e.g., 'sudo apt install -y package')
+    - dnf: Use -y (e.g., 'sudo dnf install -y package')
+    - pip: Use --yes or avoid prompts
+    - rm: Use -f for force (when appropriate)
+
     Returns: stdout, stderr, exit_code, duration_ms, and log_id.
     - If output exceeds 50KB, 'truncated' will be true; use shell_get_full_output(log_id) for complete output.
     - If command times out, increase timeout_seconds.

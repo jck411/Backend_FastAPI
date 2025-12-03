@@ -139,6 +139,43 @@ def _save_state(state: dict) -> None:
     tmp_path.replace(path)
 
 
+def _save_profile(profile: dict) -> None:
+    """Persist host profile to disk atomically."""
+
+    path = _get_profile_path()
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(
+        json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    tmp_path.replace(path)
+
+
+def _deep_merge(base: dict, updates: dict) -> dict:
+    """Recursively merge updates into base dict (returns new dict)."""
+
+    result = base.copy()
+    for key, value in updates.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
+def _append_delta(delta_type: str, changes: dict, reason: str | None = None) -> None:
+    """Append a change record to the deltas log for audit purposes."""
+
+    path = _get_deltas_path()
+    entry = {
+        "ts": time.time(),
+        "type": delta_type,
+        "changes": changes,
+        "reason": reason,
+    }
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
 def _truncate_output(text: str) -> tuple[str, bool]:
     """Truncate stdout/stderr to the configured limit."""
 
@@ -464,6 +501,87 @@ async def host_get_state() -> str:
     return json.dumps({"status": "ok", "host_id": _get_host_id(), "state": state})
 
 
+@mcp.tool("host_update_profile")  # type: ignore
+async def host_update_profile(updates: dict, reason: str | None = None) -> str:
+    """Merge updates into the host profile for significant system changes.
+
+    Use this after installing/removing software, changing defaults, or modifying
+    system capabilities. Updates are deep-merged into the existing profile.
+
+    Args:
+        updates: Dict of changes to merge (e.g., {"apps": {"browser": "firefox"}})
+        reason: Optional explanation for the change (logged to deltas)
+    """
+
+    try:
+        current = _load_profile()
+    except FileNotFoundError:
+        # Allow creating profile if it doesn't exist
+        current = {}
+    except ValueError as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "host_id": _get_host_id(),
+                "message": str(exc),
+            }
+        )
+
+    merged = _deep_merge(current, updates)
+    _save_profile(merged)
+    _append_delta("profile", updates, reason)
+
+    return json.dumps(
+        {
+            "status": "ok",
+            "host_id": _get_host_id(),
+            "message": "Profile updated",
+            "applied": updates,
+        }
+    )
+
+
+@mcp.tool("host_update_state")  # type: ignore
+async def host_update_state(updates: dict, reason: str | None = None) -> str:
+    """Merge updates into the host state for runtime changes.
+
+    Use this to record current system state after commands that change
+    runtime configuration (CPU governor, memory settings, service status, etc.).
+
+    Args:
+        updates: Dict of changes to merge (e.g., {"cpu_policy": {"governor": "powersave"}})
+        reason: Optional explanation for the change (logged to deltas)
+    """
+
+    try:
+        current = _load_state()
+    except ValueError as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "host_id": _get_host_id(),
+                "message": str(exc),
+            }
+        )
+
+    # Auto-update timestamp
+    updates_with_ts = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    updates_with_ts.update(updates)
+
+    merged = _deep_merge(current, updates_with_ts)
+    _save_state(merged)
+    _append_delta("state", updates, reason)
+
+    return json.dumps(
+        {
+            "status": "ok",
+            "host_id": _get_host_id(),
+            "message": "State updated",
+            "applied": updates,
+        }
+    )
+
+
 def run() -> None:  # pragma: no cover - integration entrypoint
     mcp.run()
 
@@ -478,5 +596,7 @@ __all__ = [
     "shell_get_full_output",
     "host_get_profile",
     "host_get_state",
+    "host_update_profile",
+    "host_update_state",
     "run",
 ]

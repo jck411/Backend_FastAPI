@@ -34,7 +34,7 @@
 
 .system-card-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
 }
@@ -55,6 +55,9 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .status.success {

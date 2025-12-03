@@ -286,7 +286,7 @@
         <div class="system-card-actions">
           <button
             type="button"
-            class="btn btn-primary"
+            class="btn btn-primary btn-small"
             on:click={() => void startGoogleAuthorization()}
             disabled={$googleAuth.loading || $googleAuth.authorizing}
           >
@@ -356,7 +356,7 @@
         <div class="system-card-actions">
           <button
             type="button"
-            class="btn btn-primary"
+            class="btn btn-primary btn-small"
             on:click={() => void startSpotifyAuthorization()}
             disabled={$spotifyAuth.loading || $spotifyAuth.authorizing}
           >
@@ -408,6 +408,27 @@
           <h3>Monarch Money</h3>
           <p class="system-card-caption">Connect your Monarch Money account.</p>
         </div>
+        <div class="system-card-actions">
+          {#if $monarchAuth.configured}
+            <button
+              type="button"
+              class="btn btn-ghost btn-small"
+              on:click={() => monarchAuth.remove()}
+              disabled={$monarchAuth.saving}
+            >
+              Disconnect
+            </button>
+          {:else}
+            <button
+              type="button"
+              class="btn btn-primary btn-small"
+              on:click={saveMonarch}
+              disabled={$monarchAuth.saving || !monarchEmail || !monarchPassword}
+            >
+              {$monarchAuth.saving ? "Saving..." : "Connect"}
+            </button>
+          {/if}
+        </div>
       </header>
 
       <div class="system-card-body">
@@ -419,16 +440,6 @@
               >{$monarchAuth.email}</span
             >.
           </p>
-            <div class="system-card-actions">
-              <button
-                type="button"
-                class="btn btn-ghost btn-small"
-                on:click={() => monarchAuth.remove()}
-                disabled={$monarchAuth.saving}
-              >
-              Disconnect
-            </button>
-          </div>
         {:else}
           <div class="monarch-form">
             <label>
@@ -513,16 +524,6 @@
               Settings to see the secret key again. Enter the new key here AND in
               your app.
             </p>
-            <button
-              type="button"
-              class="btn btn-primary"
-              on:click={saveMonarch}
-              disabled={$monarchAuth.saving ||
-                !monarchEmail ||
-                !monarchPassword}
-            >
-              {$monarchAuth.saving ? "Saving..." : "Connect"}
-            </button>
             {#if $monarchAuth.error}
               <p class="status error">{$monarchAuth.error}</p>
             {/if}

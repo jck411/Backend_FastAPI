@@ -1,0 +1,44 @@
+{
+  "ts": "2025-12-02T10:05:00Z",
+  "kernel": "6.8.4-arch1-1",
+  "os_ver": "Arch Linux rolling",
+  "cpu_policy": {
+    "driver": "acpi_cpufreq",
+    "governor": "performance",
+    "min_frac": 0.4,
+    "max_frac": 1.0
+  },
+  "memory": {
+    "zram_gb": 8,
+    "swappiness": 30,
+    "earlyoom_running": true
+  },
+  "battery": {
+    "present": false,
+    "soc": null,
+    "min_threshold": 0,
+    "max_threshold": 0,
+    "mode": "absent"
+  },
+  "rollback": {
+    "engine": "timeshift-rsync",
+    "enabled": true,
+    "last_snapshot_ts": "2025-12-01T19:22:31Z"
+  },
+  "diag": {
+    "slowdown_monitor_running": true
+  },
+  "apps_installed": {
+    "earlyoom": true,
+    "timeshift": true,
+    "timeshift_autosnap": true,
+    "brave": true,
+    "obsidian": true,
+    "vscode_insiders": true,
+    "rclone": true
+  },
+  "compliance": {
+    "ok": true,
+    "violations": []
+  }
+}

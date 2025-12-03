@@ -634,6 +634,29 @@
 
                         <div class="shell-setting">
                           <div class="shell-setting__info">
+                            <span class="field-label">Host profile</span>
+                            <span class="field-hint">
+                              Passed as HOST_PROFILE_ID; matches a folder under host/.
+                            </span>
+                          </div>
+                          <input
+                            type="text"
+                            value={server.env?.HOST_PROFILE_ID ?? ""}
+                            autocomplete="off"
+                            placeholder="e.g. xps13 or ryzen-desktop"
+                            disabled={$mcpServers.pending[server.id] ||
+                              $mcpServers.saving}
+                            on:input={(event) =>
+                              handleShellEnv(
+                                server.id,
+                                "HOST_PROFILE_ID",
+                                (event.target as HTMLInputElement).value,
+                              )}
+                          />
+                        </div>
+
+                        <div class="shell-setting">
+                          <div class="shell-setting__info">
                             <span class="field-label">Sudo password</span>
                             <span class="field-hint">
                               Optional; sent to sudo via stdin when commands start with sudo.

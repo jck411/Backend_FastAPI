@@ -11,18 +11,132 @@ from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("shell-control")
+mcp: FastMCP = FastMCP("shell-control")  # type: ignore
 
 
 OUTPUT_TRUNCATE_BYTES = 50 * 1024
+LOG_RETENTION_HOURS = 48
+HOST_PROFILE_ENV = "HOST_PROFILE_ID"
+
+
+def _get_repo_root() -> Path:
+    """Return the project root (same logic as logging helpers)."""
+
+    return Path(__file__).resolve().parents[3]
 
 
 def _get_log_dir() -> Path:
     """Return the directory used to store shell execution logs."""
 
-    log_dir = Path(__file__).parents[3] / "logs" / "shell"
+    log_dir = _get_repo_root() / "logs" / "shell"
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
+
+
+def _cleanup_old_logs() -> None:
+    """Remove shell logs older than LOG_RETENTION_HOURS."""
+
+    log_dir = _get_log_dir()
+    cutoff = time.time() - (LOG_RETENTION_HOURS * 3600)
+
+    for log_file in log_dir.glob("*.json"):
+        try:
+            if log_file.stat().st_mtime < cutoff:
+                log_file.unlink()
+        except OSError:
+            pass  # File may have been deleted concurrently
+
+
+def _get_host_root() -> Path:
+    """Return the root directory containing host profiles and state."""
+
+    host_root = _get_repo_root() / "host"
+    host_root.mkdir(parents=True, exist_ok=True)
+    return host_root
+
+
+def _get_host_id() -> str:
+    """Return the active host identifier from the environment."""
+
+    env_value = os.environ.get(HOST_PROFILE_ENV, "").strip()
+    return env_value or "local"
+
+
+def _get_host_dir(host_id: str | None = None) -> Path:
+    """Return (and create) the directory for the given or active host."""
+
+    resolved_id = host_id or _get_host_id()
+    host_dir = _get_host_root() / resolved_id
+    host_dir.mkdir(parents=True, exist_ok=True)
+    return host_dir
+
+
+def _get_profile_path(host_id: str | None = None) -> Path:
+    """Return the profile.json path for the given or active host."""
+
+    return _get_host_dir(host_id) / "profile.json"
+
+
+def _get_state_path(host_id: str | None = None) -> Path:
+    """Return the state.json path for the given or active host."""
+
+    return _get_host_dir(host_id) / "state.json"
+
+
+def _get_deltas_path(host_id: str | None = None) -> Path:
+    """Return the deltas.log path for the given or active host."""
+
+    return _get_host_dir(host_id) / "deltas.log"
+
+
+def _load_profile() -> dict:
+    """Load the current host profile; raise if it is missing or invalid."""
+
+    path = _get_profile_path()
+    if not path.exists():
+        host_id = _get_host_id()
+        raise FileNotFoundError(
+            f"Host profile not found for id '{host_id}'. Expected at: {path}"
+        )
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Host profile at {path} is not valid JSON") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Host profile at {path} must contain a JSON object")
+
+    return payload
+
+
+def _load_state() -> dict:
+    """Load the current host state; return an empty object if missing."""
+
+    path = _get_state_path()
+    if not path.exists():
+        return {}
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Host state at {path} is not valid JSON") from exc
+
+    if not isinstance(payload, dict):
+        raise ValueError(f"Host state at {path} must contain a JSON object")
+
+    return payload
+
+
+def _save_state(state: dict) -> None:
+    """Persist host state to disk atomically."""
+
+    path = _get_state_path()
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(
+        json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    tmp_path.replace(path)
 
 
 def _truncate_output(text: str) -> tuple[str, bool]:
@@ -199,6 +313,9 @@ async def _execute_and_log(
     truncated_stderr, truncated_stderr_flag = _truncate_output(stderr)
     truncated = truncated_stdout_flag or truncated_stderr_flag
 
+    # Clean up old logs before writing new one
+    _cleanup_old_logs()
+
     # Persist the full (pre-truncated) output for retrieval
     log_id = uuid.uuid4().hex
     log_payload = {
@@ -303,6 +420,50 @@ async def shell_get_full_output(
     return json.dumps(response)
 
 
+@mcp.tool("host_get_profile")  # type: ignore
+async def host_get_profile() -> str:
+    """Return the active host profile JSON."""
+
+    try:
+        profile = _load_profile()
+    except FileNotFoundError as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "host_id": _get_host_id(),
+                "message": str(exc),
+            }
+        )
+    except ValueError as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "host_id": _get_host_id(),
+                "message": str(exc),
+            }
+        )
+
+    return json.dumps({"status": "ok", "host_id": _get_host_id(), "profile": profile})
+
+
+@mcp.tool("host_get_state")  # type: ignore
+async def host_get_state() -> str:
+    """Return the active host state JSON (empty if missing)."""
+
+    try:
+        state = _load_state()
+    except ValueError as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "host_id": _get_host_id(),
+                "message": str(exc),
+            }
+        )
+
+    return json.dumps({"status": "ok", "host_id": _get_host_id(), "state": state})
+
+
 def run() -> None:  # pragma: no cover - integration entrypoint
     mcp.run()
 
@@ -315,5 +476,7 @@ __all__ = [
     "mcp",
     "shell_execute",
     "shell_get_full_output",
+    "host_get_profile",
+    "host_get_state",
     "run",
 ]

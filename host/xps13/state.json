@@ -1,0 +1,45 @@
+{
+  "ts": "2025-12-02T10:00:00Z",
+  "kernel": "6.17.8-arch1-1",
+  "os_ver": "EndeavourOS rolling",
+  "cpu_policy": {
+    "driver": "intel_pstate",
+    "governor": "powersave",
+    "min_frac": 0.2,
+    "max_frac": 0.95
+  },
+  "memory": {
+    "zram_gb": 2,
+    "swappiness": 40,
+    "earlyoom_running": true
+  },
+  "battery": {
+    "present": true,
+    "soc": 76,
+    "min_threshold": 70,
+    "max_threshold": 80,
+    "mode": "longevity"
+  },
+  "rollback": {
+    "engine": "timeshift-rsync",
+    "enabled": true,
+    "last_snapshot_ts": "2025-12-01T19:22:31Z"
+  },
+  "diag": {
+    "slowdown_monitor_running": true
+  },
+  "apps_installed": {
+    "earlyoom": true,
+    "tlp": true,
+    "timeshift": true,
+    "timeshift_autosnap": true,
+    "brave": true,
+    "obsidian": true,
+    "vscode_insiders": true,
+    "rclone": true
+  },
+  "compliance": {
+    "ok": true,
+    "violations": []
+  }
+}

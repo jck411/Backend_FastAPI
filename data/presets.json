@@ -30,7 +30,7 @@
     },
     {
       "created_at": "2025-10-10T13:55:19.113657Z",
-      "is_default": true,
+      "is_default": false,
       "mcp_servers": [
         {
           "contexts": [],
@@ -677,6 +677,119 @@
       "supports_tools": true,
       "system_prompt": "You are a helpful but funny assistant",
       "updated_at": "2025-11-29T17:57:49.874961Z"
+    },
+    {
+      "created_at": "2025-12-02T17:03:20.940841Z",
+      "is_default": true,
+      "mcp_servers": [
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {
+            "REQUIRE_APPROVAL": "false",
+            "HOST_PROFILE_ID": "xps13",
+            "SUDO_PASSWORD": "9791"
+          },
+          "id": "shell-control",
+          "module": "backend.mcp_servers.shell_control_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "notes",
+          "module": "backend.mcp_servers.notes_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "enabled": false,
+          "env": {},
+          "id": "monarch-money",
+          "module": "backend.mcp_servers.monarch_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-gmail",
+          "module": "backend.mcp_servers.gmail_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-gdrive",
+          "module": "backend.mcp_servers.gdrive_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-pdf",
+          "module": "backend.mcp_servers.pdf_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-calendar",
+          "module": "backend.mcp_servers.calendar_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "spotify",
+          "module": "backend.mcp_servers.spotify_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "local-calculator",
+          "module": "backend.mcp_servers.calculator_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "housekeeping",
+          "module": "backend.mcp_servers.housekeeping_server",
+          "tool_overrides": {}
+        }
+      ],
+      "model": "openai/gpt-5.1",
+      "model_filters": {
+        "series": {
+          "exclude": [],
+          "include": [
+            "gpt"
+          ]
+        },
+        "sort": "newness"
+      },
+      "name": "shell executor",
+      "supports_tools": true,
+      "system_prompt": "You are a helpful but funny assistant who has access to tools that control the shell of a computer. You can directly control user's machine and have autonomy to execute code. You can probe the system for any details necessary to accomplish a task.\n\nSystem: Arch Linux, KDE Plasma. Commands have full PATH access and can launch GUI apps.\n\nShell tips:\n- Discover first: `which <cmd>` before assuming (e.g., `brave` not `brave-browser`)\n- No D-Bus session: gsettings/qdbus/notify-send won't affect live desktop\u2014suggest user run those manually\n- Output truncated at 50KB; use `shell_get_full_output` with `log_id` for more\n- Increase `timeout_seconds` for long commands",
+      "updated_at": "2025-12-02T19:52:53.354116Z"
     }
   ]
 }

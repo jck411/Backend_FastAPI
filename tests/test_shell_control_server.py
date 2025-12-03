@@ -21,9 +21,18 @@ def log_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture(autouse=True)
+def host_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    path = tmp_path / "host"
+    path.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(shell_control_server, "_get_host_root", lambda: path)
+    return path
+
+
+@pytest.fixture(autouse=True)
 def reset_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REQUIRE_APPROVAL", "false")
     monkeypatch.delenv("SUDO_PASSWORD", raising=False)
+    monkeypatch.delenv("HOST_PROFILE_ID", raising=False)
 
 
 async def test_shell_execute_simple_command(log_dir: Path) -> None:
@@ -156,3 +165,44 @@ async def test_shell_execute_working_directory(tmp_path: Path) -> None:
 
     assert result["stdout"].strip() == str(workdir)
     assert result["exit_code"] == 0
+
+
+def test_get_host_id_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HOST_PROFILE_ID", raising=False)
+
+    assert shell_control_server._get_host_id() == "local"
+
+
+def test_load_profile_missing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOST_PROFILE_ID", "xps13")
+
+    with pytest.raises(FileNotFoundError):
+        shell_control_server._load_profile()
+
+
+def test_load_profile_success(host_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOST_PROFILE_ID", "xps13")
+    profile = {"meta": {"host_id": "xps13"}, "intent": {}}
+
+    profile_path = shell_control_server._get_profile_path()
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text(json.dumps(profile), encoding="utf-8")
+
+    loaded = shell_control_server._load_profile()
+
+    assert loaded == profile
+
+
+def test_state_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOST_PROFILE_ID", "demo")
+    payload = {"ts": "now", "ok": True}
+
+    shell_control_server._save_state(payload)
+
+    assert shell_control_server._load_state() == payload
+
+
+def test_load_state_missing_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HOST_PROFILE_ID", "demo")
+
+    assert shell_control_server._load_state() == {}

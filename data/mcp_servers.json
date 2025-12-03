@@ -5,6 +5,7 @@
       "disabled_tools": [],
       "enabled": true,
       "env": {
+        "HOST_PROFILE_ID": "xps13",
         "REQUIRE_APPROVAL": "false",
         "SUDO_PASSWORD": "9791"
       },

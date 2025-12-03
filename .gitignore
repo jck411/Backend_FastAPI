@@ -42,7 +42,6 @@ data/chat_sessions.db
 # Log files
 logs/*
 !logs/.gitkeep
-!logs/shell/
 !logs/shell/.gitkeep
 *.log
 backend.log

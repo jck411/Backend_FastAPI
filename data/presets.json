@@ -687,8 +687,8 @@
           "disabled_tools": [],
           "enabled": true,
           "env": {
-            "REQUIRE_APPROVAL": "false",
             "HOST_PROFILE_ID": "xps13",
+            "REQUIRE_APPROVAL": "false",
             "SUDO_PASSWORD": "9791"
           },
           "id": "shell-control",
@@ -787,9 +787,27 @@
         "sort": "newness"
       },
       "name": "shell executor",
+      "suggestions": [
+        {
+          "label": "Next.js advantages",
+          "text": "What are the advantages of using Next.js?"
+        },
+        {
+          "label": "Dijkstra code",
+          "text": "Write code to demonstrate Dijkstra's algorithm"
+        },
+        {
+          "label": "Essay helper",
+          "text": "Help me write an essay about Silicon Valley"
+        },
+        {
+          "label": "Weather",
+          "text": "What is the weather in Orlando?"
+        }
+      ],
       "supports_tools": true,
-      "system_prompt": "You are a helpful but funny assistant who has access to tools that control the shell of a computer. You can directly control user's machine and have autonomy to execute code. You can probe the system for any details necessary to accomplish a task.\n\nSystem: Arch Linux, KDE Plasma. Commands have full PATH access and can launch GUI apps.\n\nShell tips:\n- Discover first: `which <cmd>` before assuming (e.g., `brave` not `brave-browser`)\n- No D-Bus session: gsettings/qdbus/notify-send won't affect live desktop\u2014suggest user run those manually\n- Output truncated at 50KB; use `shell_get_full_output` with `log_id` for more\n- Increase `timeout_seconds` for long commands",
-      "updated_at": "2025-12-02T19:52:53.354116Z"
+      "system_prompt": "You are a helpful but funny assistant.",
+      "updated_at": "2025-12-03T23:24:31.573862Z"
     }
   ]
 }

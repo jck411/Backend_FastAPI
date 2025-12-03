@@ -1,0 +1,24 @@
+{
+  "os": "EndeavourOS",
+  "os_base": "Arch Linux",
+  "desktop": "KDE Plasma",
+  "hostname": "archlinux-xps",
+  "shell": "bash",
+  "package_manager": "pacman",
+  "aur_helper": "yay",
+  "hardware_model": "Dell XPS 13 9365",
+  "user": "jack",
+  "location": "Orlando, FL",
+  "capabilities": {
+    "gui_apps": true,
+    "sudo": true,
+    "systemd": true
+  },
+  "limitations": {
+    "no_dbus_session": "D-Bus commands (gsettings, qdbus, notify-send) run from this server won't affect the live desktop session. For desktop notifications or settings changes, user should run those commands manually in their terminal."
+  },
+  "notes": {
+    "browser_binary": "Use 'brave' not 'brave-browser'",
+    "code_binary": "Use 'code' for VS Code"
+  }
+}

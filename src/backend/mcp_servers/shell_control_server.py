@@ -759,7 +759,21 @@ async def shell_execute(
     timeout_seconds: int = 30,
     confirm: bool = False,
 ) -> str:
-    """Execute a shell command with optional approval and logging."""
+    """Execute a shell command on the host system.
+
+    Full PATH is configured automatically (includes ~/.local/bin, snap, flatpak, cargo, etc.).
+    GUI applications can be launched. Sudo is supported if SUDO_PASSWORD is configured.
+
+    Returns: stdout, stderr, exit_code, duration_ms, and log_id.
+    - If output exceeds 50KB, 'truncated' will be true; use shell_get_full_output(log_id) for complete output.
+    - If command times out, increase timeout_seconds.
+    - If exit_code is 0 and command modified packages/services/defaults, state is auto-snapshotted.
+
+    Limitation: D-Bus commands (gsettings, qdbus, notify-send) won't affect the live desktop
+    session—suggest user run those manually if needed.
+
+    Tip: Call host_get_profile first to learn OS, desktop, package manager, and installed apps.
+    """
 
     require_approval = os.environ.get("REQUIRE_APPROVAL", "false").lower() == "true"
 
@@ -787,7 +801,15 @@ async def shell_get_full_output(
     offset: int = 0,
     limit: int = 100000,
 ) -> str:
-    """Retrieve stored command output by log id with optional chunking."""
+    """Retrieve full command output when shell_execute returned truncated=true.
+
+    Args:
+        log_id: The log_id returned by shell_execute
+        offset: Byte offset to start reading from (for chunked retrieval)
+        limit: Maximum bytes to return (default 100KB)
+
+    Logs are retained for 48 hours.
+    """
 
     log_path = _get_log_dir() / f"{log_id}.json"
     if not log_path.exists():
@@ -827,7 +849,17 @@ async def shell_get_full_output(
 
 @mcp.tool("host_get_profile")  # type: ignore
 async def host_get_profile() -> str:
-    """Return the active host profile JSON."""
+    """Get static host configuration (OS, desktop, hardware, capabilities, limitations).
+
+    Call this FIRST before running commands to understand:
+    - OS and package manager (e.g., Arch/pacman vs Ubuntu/apt)
+    - Desktop environment (KDE, GNOME, etc.)
+    - Known binary names (e.g., 'brave' not 'brave-browser')
+    - System limitations (e.g., D-Bus restrictions)
+    - Hardware model for device-specific commands
+
+    Profile is manually curated and rarely changes.
+    """
 
     try:
         profile = _load_profile()
@@ -853,7 +885,16 @@ async def host_get_profile() -> str:
 
 @mcp.tool("host_get_state")  # type: ignore
 async def host_get_state() -> str:
-    """Return the active host state JSON (empty if missing)."""
+    """Get dynamic host state (installed packages, enabled services, default apps).
+
+    State is auto-updated when shell_execute runs commands that modify:
+    - Packages (pacman/apt/dnf install/remove)
+    - Services (systemctl enable/disable)
+    - Default apps (xdg-settings/xdg-mime)
+
+    Returns tracked categories: browsers, editors, terminals, system_tools, media, dev_tools.
+    Use this to check what's already installed before suggesting installations.
+    """
 
     try:
         state = _load_state()
@@ -871,14 +912,18 @@ async def host_get_state() -> str:
 
 @mcp.tool("host_update_profile")  # type: ignore
 async def host_update_profile(updates: dict, reason: str | None = None) -> str:
-    """Merge updates into the host profile for significant system changes.
+    """Update static host profile (use sparingly for permanent config changes).
 
-    Use this after installing/removing software, changing defaults, or modifying
-    system capabilities. Updates are deep-merged into the existing profile.
+    Use for:
+    - Adding notes about discovered binary names
+    - Documenting new capabilities or limitations
+    - Recording user preferences
+
+    Do NOT use for: installed packages, services, defaults (those go in state).
 
     Args:
-        updates: Dict of changes to merge (e.g., {"apps": {"browser": "firefox"}})
-        reason: Optional explanation for the change (logged to deltas)
+        updates: Dict to deep-merge (set value to null to delete a key)
+        reason: Explanation logged to deltas.log for audit
     """
 
     try:
@@ -911,14 +956,18 @@ async def host_update_profile(updates: dict, reason: str | None = None) -> str:
 
 @mcp.tool("host_update_state")  # type: ignore
 async def host_update_state(updates: dict, reason: str | None = None) -> str:
-    """Merge updates into the host state for runtime changes.
+    """Manually update host state for changes not auto-detected.
 
-    Use this to record current system state after commands that change
-    runtime configuration (CPU governor, memory settings, service status, etc.).
+    Auto-snapshot handles: package installs, service enable/disable, xdg defaults.
+    Use this for other runtime state like:
+    - CPU governor settings
+    - Display configuration
+    - Network profiles
+    - Custom environment changes
 
     Args:
-        updates: Dict of changes to merge (e.g., {"cpu_policy": {"governor": "powersave"}})
-        reason: Optional explanation for the change (logged to deltas)
+        updates: Dict to deep-merge (set value to null to delete a key)
+        reason: Explanation logged to deltas.log for audit
     """
 
     try:
@@ -952,10 +1001,10 @@ async def host_update_state(updates: dict, reason: str | None = None) -> str:
 
 @mcp.tool("host_list")  # type: ignore
 async def host_list() -> str:
-    """List all available host profiles.
+    """List all configured hosts (for multi-machine setups).
 
-    Returns all hosts found in the host root directory, indicating which
-    is currently active and what files exist for each host.
+    Shows which host is currently active and what config files exist.
+    Useful when HOST_PROFILE_ID env var switches between machines.
     """
 
     host_root = _get_host_root()

@@ -151,11 +151,22 @@ def _save_profile(profile: dict) -> None:
 
 
 def _deep_merge(base: dict, updates: dict) -> dict:
-    """Recursively merge updates into base dict (returns new dict)."""
+    """Recursively merge updates into base dict (returns new dict).
+
+    Special handling:
+    - None values DELETE the key from base
+    - Nested dicts are merged recursively
+    - All other values replace the existing value
+    """
 
     result = base.copy()
     for key, value in updates.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+        if value is None:
+            # None means "delete this key"
+            result.pop(key, None)
+        elif (
+            key in result and isinstance(result[key], dict) and isinstance(value, dict)
+        ):
             result[key] = _deep_merge(result[key], value)
         else:
             result[key] = value
@@ -174,6 +185,290 @@ def _append_delta(delta_type: str, changes: dict, reason: str | None = None) -> 
     }
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+# Patterns that trigger state snapshots
+_SNAPSHOT_TRIGGERS: list[tuple[str, str]] = [
+    # Package managers (all distros)
+    (r"(pacman|yay|paru)\s+-S\s", "packages"),
+    (r"(pacman|yay|paru)\s+-R", "packages"),
+    (r"pacman\s+-Syu", "packages"),
+    (r"apt(-get)?\s+(install|remove|purge|upgrade)", "packages"),
+    (r"dnf\s+(install|remove|upgrade)", "packages"),
+    (r"flatpak\s+(install|uninstall)", "packages"),
+    (r"snap\s+(install|remove)", "packages"),
+    (r"pipx\s+(install|uninstall)", "packages"),
+    # Services
+    (r"systemctl\s+(enable|disable)\s", "services"),
+    # Default apps
+    (r"xdg-settings\s+set\s", "defaults"),
+    (r"xdg-mime\s+default\s", "defaults"),
+    (r"update-alternatives\s+--set\s", "defaults"),
+]
+
+# Categories of packages to track (grep patterns for pacman -Qe)
+_TRACKED_CATEGORIES: dict[str, list[str]] = {
+    "browsers": [
+        "brave",
+        "firefox",
+        "chromium",
+        "google-chrome",
+        "vivaldi",
+        "microsoft-edge",
+        "librewolf",
+        "floorp",
+        "zen-browser",
+    ],
+    "editors": [
+        "code",
+        "visual-studio-code",
+        "neovim",
+        "vim",
+        "emacs",
+        "sublime-text",
+        "atom",
+        "gedit",
+        "kate",
+        "helix",
+    ],
+    "terminals": [
+        "alacritty",
+        "kitty",
+        "wezterm",
+        "foot",
+        "konsole",
+        "gnome-terminal",
+        "tilix",
+        "terminator",
+    ],
+    "system_tools": [
+        "earlyoom",
+        "timeshift",
+        "tlp",
+        "auto-cpufreq",
+        "zram-generator",
+        "preload",
+        "thermald",
+        "power-profiles-daemon",
+    ],
+    "media": [
+        "spotify",
+        "vlc",
+        "mpv",
+        "obs-studio",
+        "kdenlive",
+        "audacity",
+        "gimp",
+        "inkscape",
+        "krita",
+    ],
+    "dev_tools": [
+        "docker",
+        "podman",
+        "nodejs",
+        "npm",
+        "yarn",
+        "python",
+        "go",
+        "rust",
+        "cargo",
+        "git",
+        "github-cli",
+    ],
+}
+
+
+async def _snapshot_tracked_packages() -> dict[str, list[str]]:
+    """Snapshot only the tracked package categories (fast, ~100 tokens)."""
+
+    # Build a single grep pattern for all tracked packages
+    all_patterns = []
+    for packages in _TRACKED_CATEGORIES.values():
+        all_patterns.extend(packages)
+
+    # Escape special chars and join with |
+    pattern = "|".join(f"^{p}" for p in all_patterns)
+
+    # Run pacman -Qe and grep for our tracked packages
+    try:
+        process = await asyncio.create_subprocess_shell(
+            f"pacman -Qe 2>/dev/null | grep -E '{pattern}' || true",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=5.0)
+        output = stdout.decode("utf-8", errors="replace").strip()
+    except (asyncio.TimeoutError, Exception):
+        return {}
+
+    if not output:
+        return {}
+
+    # Parse output and categorize
+    result: dict[str, list[str]] = {}
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        # Line format: "package-name version"
+        parts = line.split()
+        if not parts:
+            continue
+        pkg_name = parts[0]
+        pkg_with_ver = line.strip()
+
+        # Find which category this belongs to
+        for category, patterns in _TRACKED_CATEGORIES.items():
+            for pattern in patterns:
+                if pkg_name.startswith(pattern) or pkg_name == pattern:
+                    if category not in result:
+                        result[category] = []
+                    result[category].append(pkg_with_ver)
+                    break
+
+    return result
+
+
+async def _snapshot_enabled_services() -> list[str]:
+    """Snapshot user-enabled systemd services (fast, ~20 tokens)."""
+
+    # Only get user-enabled services, not all system services
+    tracked_services = [
+        "earlyoom",
+        "tlp",
+        "thermald",
+        "auto-cpufreq",
+        "docker",
+        "podman",
+        "libvirtd",
+        "bluetooth",
+        "cups",
+        "sshd",
+        "power-profiles-daemon",
+        "timeshift-autosnap",
+    ]
+    pattern = "|".join(tracked_services)
+
+    try:
+        process = await asyncio.create_subprocess_shell(
+            f"systemctl list-unit-files --state=enabled --type=service 2>/dev/null "
+            f"| grep -E '{pattern}' | awk '{{print $1}}' || true",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=5.0)
+        output = stdout.decode("utf-8", errors="replace").strip()
+    except (asyncio.TimeoutError, Exception):
+        return []
+
+    return [s.strip() for s in output.splitlines() if s.strip()]
+
+
+async def _snapshot_defaults() -> dict[str, str]:
+    """Snapshot XDG default applications (browser, file manager, etc.)."""
+
+    defaults: dict[str, str] = {}
+
+    # Key XDG settings the LLM needs for natural language commands
+    xdg_queries = [
+        ("default-web-browser", "browser"),
+        ("default-url-scheme-handler https", "browser_https"),
+    ]
+
+    for query, key in xdg_queries:
+        try:
+            process = await asyncio.create_subprocess_shell(
+                f"xdg-settings get {query} 2>/dev/null || true",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=2.0)
+            value = stdout.decode("utf-8", errors="replace").strip()
+            if value:
+                # Strip .desktop suffix for cleaner output
+                defaults[key] = value.replace(".desktop", "")
+        except (asyncio.TimeoutError, Exception):
+            pass
+
+    # Also get xdg-mime defaults for common types
+    mime_queries = [
+        ("inode/directory", "file_manager"),
+        ("application/pdf", "pdf_viewer"),
+        ("image/png", "image_viewer"),
+        ("video/mp4", "video_player"),
+        ("audio/mpeg", "audio_player"),
+        ("text/plain", "text_editor"),
+    ]
+
+    for mime_type, key in mime_queries:
+        try:
+            process = await asyncio.create_subprocess_shell(
+                f"xdg-mime query default {mime_type} 2>/dev/null || true",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=2.0)
+            value = stdout.decode("utf-8", errors="replace").strip()
+            if value:
+                defaults[key] = value.replace(".desktop", "")
+        except (asyncio.TimeoutError, Exception):
+            pass
+
+    return defaults
+
+
+async def _auto_snapshot_state(triggers: set[str]) -> dict[str, object]:
+    """Run targeted snapshots based on what triggered, update state automatically.
+
+    Triggers:
+        - "packages": Snapshot installed apps in tracked categories
+        - "services": Snapshot enabled systemd services
+        - "defaults": Snapshot XDG default applications
+    """
+
+    snapshot: dict[str, object] = {}
+
+    # Package changes -> snapshot tracked packages + defaults (install may change defaults)
+    if "packages" in triggers:
+        snapshot["packages"] = await _snapshot_tracked_packages()
+        snapshot["defaults"] = await _snapshot_defaults()  # May have changed
+
+    # Service changes -> snapshot enabled services
+    if "services" in triggers:
+        snapshot["enabled_services"] = await _snapshot_enabled_services()
+
+    # Default app changes -> just snapshot defaults
+    if "defaults" in triggers and "packages" not in triggers:
+        snapshot["defaults"] = await _snapshot_defaults()
+
+    if not snapshot:
+        return {}
+
+    # Update state with snapshot
+    try:
+        current = _load_state()
+    except ValueError:
+        current = {}
+
+    snapshot["snapshot_ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    merged = _deep_merge(current, snapshot)
+    _save_state(merged)
+
+    return snapshot
+
+
+def _detect_snapshot_triggers(command: str) -> set[str]:
+    """Check if a command should trigger a state snapshot.
+
+    Returns a set of trigger categories: "packages", "services", "defaults"
+    """
+
+    import re
+
+    triggers: set[str] = set()
+    for pattern, trigger in _SNAPSHOT_TRIGGERS:
+        if re.search(pattern, command, re.IGNORECASE):
+            triggers.add(trigger)
+    return triggers
 
 
 def _truncate_output(text: str) -> tuple[str, bool]:
@@ -372,7 +667,7 @@ async def _execute_and_log(
         json.dumps(log_payload, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    return {
+    result: dict[str, object] = {
         "stdout": truncated_stdout,
         "stderr": truncated_stderr,
         "exit_code": exit_code,
@@ -382,6 +677,17 @@ async def _execute_and_log(
         "command": command,
         "working_directory": working_directory,
     }
+
+    # Auto-snapshot if command succeeded and triggers snapshot
+    if exit_code == 0:
+        triggers = _detect_snapshot_triggers(command)
+        if triggers:
+            snapshot = await _auto_snapshot_state(triggers)
+            if snapshot:
+                result["state_updated"] = True
+                result["snapshot"] = snapshot
+
+    return result
 
 
 @mcp.tool("shell_execute")  # type: ignore

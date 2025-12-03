@@ -394,9 +394,9 @@
     appearance: none;
     padding: 0.45rem 2rem 0.45rem 0.75rem;
     border-radius: 0.5rem;
-    background: rgba(9, 14, 26, 0.9);
-    color: #f2f4f8;
-    border: 1px solid #25314d;
+    background-color: rgba(9, 14, 26, 0.92);
+    color: #f3f5ff;
+    border: 1px solid rgba(37, 49, 77, 0.9);
     cursor: pointer;
     transition:
       border-color 0.2s ease,
@@ -405,7 +405,7 @@
     background-image: url('data:image/svg+xml,%3Csvg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M7 8l3 3 3-3" stroke="%23d4daee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/%3E%3C/svg%3E');
     background-repeat: no-repeat;
     background-position: right 0.65rem center;
-    background-size: 1rem;
+    background-size: 0.9rem;
     min-width: 160px;
     font: inherit;
   }
@@ -423,11 +423,11 @@
   :global(.chat-header .controls select:disabled) {
     opacity: 0.6;
     cursor: not-allowed;
-    background: rgba(9, 14, 26, 0.6);
+    background-color: rgba(9, 14, 26, 0.6);
   }
   :global(.chat-header .controls select option) {
     background: #0a101a;
-    color: #f2f4f8;
+    color: #f3f5ff;
   }
   :global(.chat-header .controls .ghost) {
     display: inline-flex;

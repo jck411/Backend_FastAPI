@@ -48,10 +48,10 @@
 
   .sort-select {
     appearance: none;
-    background: rgba(9, 14, 26, 0.9);
-    border: 1px solid #25314d;
+    background-color: rgba(9, 14, 26, 0.92);
+    border: 1px solid rgba(37, 49, 77, 0.9);
     border-radius: 0.5rem;
-    color: #f2f4f8;
+    color: #f3f5ff;
     padding: 0.45rem 2rem 0.45rem 0.75rem;
     font-size: 0.9rem;
     cursor: pointer;
@@ -61,7 +61,7 @@
     background-image: url('data:image/svg+xml,%3Csvg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M7 8l3 3 3-3" stroke="%23d4daee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/%3E%3C/svg%3E');
     background-repeat: no-repeat;
     background-position: right 0.65rem center;
-    background-size: 1rem;
+    background-size: 0.9rem;
     min-width: 140px;
     flex-shrink: 0;
   }
@@ -79,7 +79,7 @@
 
   .sort-select option {
     background: #0a101a;
-    color: #f2f4f8;
+    color: #f3f5ff;
     padding: 0.5rem;
   }
 </style>

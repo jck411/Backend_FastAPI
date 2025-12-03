@@ -120,10 +120,10 @@
   width: 100%;
   min-height: 140px;
   resize: vertical;
-  border-radius: 0.75rem;
-  border: 1px solid rgba(71, 99, 150, 0.55);
-  background: rgba(10, 16, 28, 0.9);
-  color: #f2f4f8;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(37, 49, 77, 0.9);
+  background: rgba(9, 14, 26, 0.92);
+  color: #f3f5ff;
   padding: 0.85rem 1rem;
   font: inherit;
   line-height: 1.45;
@@ -132,6 +132,11 @@
 .system-prompt:focus-visible {
   outline: 2px solid #38bdf8;
   border-color: #38bdf8;
+}
+
+.system-prompt:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .server-list {
@@ -364,17 +369,23 @@
 }
 
 .monarch-form input {
+  appearance: none;
   border-radius: 0.5rem;
-  border: 1px solid rgba(71, 99, 150, 0.55);
-  background: rgba(10, 16, 28, 0.9);
-  color: #f2f4f8;
-  padding: 0.55rem 0.75rem;
+  border: 1px solid rgba(37, 49, 77, 0.9);
+  background: rgba(9, 14, 26, 0.92);
+  color: #f3f5ff;
+  padding: 0.45rem 0.6rem;
   font: inherit;
 }
 
 .monarch-form input:focus-visible {
   outline: 2px solid #38bdf8;
   border-color: #38bdf8;
+}
+
+.monarch-form input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .password-input-wrapper {
@@ -411,20 +422,23 @@
   cursor: not-allowed;
 }
 
-/* Shell settings inputs and selects */
+/* Shell settings inputs and selects - consistent with model settings */
 .shell-setting input[type="text"],
+.shell-setting input[type="password"],
 .shell-setting select {
   width: 100%;
   max-width: 320px;
+  appearance: none;
   border-radius: 0.5rem;
-  border: 1px solid rgba(71, 99, 150, 0.55);
-  background: rgba(10, 16, 28, 0.9);
-  color: #f2f4f8;
-  padding: 0.55rem 0.75rem;
+  border: 1px solid rgba(37, 49, 77, 0.9);
+  background-color: rgba(9, 14, 26, 0.92);
+  color: #f3f5ff;
+  padding: 0.45rem 0.6rem;
   font: inherit;
 }
 
 .shell-setting input[type="text"]:focus-visible,
+.shell-setting input[type="password"]:focus-visible,
 .shell-setting select:focus-visible {
   outline: 2px solid #38bdf8;
   border-color: #38bdf8;
@@ -432,15 +446,21 @@
 
 .shell-setting select {
   cursor: pointer;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2.5 4.5L6 8L9.5 4.5' stroke='%238094bb' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url('data:image/svg+xml,%3Csvg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M7 8l3 3 3-3" stroke="%23d4daee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/%3E%3C/svg%3E');
   background-repeat: no-repeat;
-  background-position: right 0.75rem center;
+  background-position: right 0.6rem center;
+  background-size: 0.9rem;
   padding-right: 2rem;
 }
 
+.shell-setting select option {
+  background: #0a101a;
+  color: #f3f5ff;
+}
+
 .shell-setting select:disabled,
-.shell-setting input[type="text"]:disabled {
+.shell-setting input[type="text"]:disabled,
+.shell-setting input[type="password"]:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

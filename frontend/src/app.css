@@ -38,3 +38,103 @@ select,
 textarea {
   font: inherit;
 }
+
+/* ==========================================================================
+   Shared Form Styles
+   ========================================================================== */
+
+/* Consistent select/dropdown styling */
+select.styled-select,
+.styled-select select,
+.form-field select {
+  appearance: none;
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(37, 49, 77, 0.9);
+  background-color: rgba(9, 14, 26, 0.92);
+  background-image: url('data:image/svg+xml,%3Csvg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M7 8l3 3 3-3" stroke="%23d4daee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/%3E%3C/svg%3E');
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 0.9rem;
+  color: #f3f5ff;
+  padding: 0.45rem 2rem 0.45rem 0.6rem;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease, outline 0.15s ease;
+}
+
+select.styled-select:focus-visible,
+.styled-select select:focus-visible,
+.form-field select:focus-visible {
+  outline: 2px solid #38bdf8;
+  border-color: #38bdf8;
+}
+
+select.styled-select:disabled,
+.styled-select select:disabled,
+.form-field select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+select.styled-select option,
+.styled-select select option,
+.form-field select option {
+  background: #0a101a;
+  color: #f3f5ff;
+}
+
+/* Consistent text/number input styling */
+input.styled-input,
+.styled-input input,
+.form-field input[type='text'],
+.form-field input[type='number'],
+.form-field input[type='email'],
+.form-field input[type='password'] {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(37, 49, 77, 0.9);
+  background: rgba(9, 14, 26, 0.92);
+  color: #f3f5ff;
+  padding: 0.45rem 0.6rem;
+  font: inherit;
+  transition: border-color 0.15s ease, outline 0.15s ease;
+}
+
+input.styled-input:focus-visible,
+.styled-input input:focus-visible,
+.form-field input[type='text']:focus-visible,
+.form-field input[type='number']:focus-visible,
+.form-field input[type='email']:focus-visible,
+.form-field input[type='password']:focus-visible {
+  outline: 2px solid #38bdf8;
+  border-color: #38bdf8;
+}
+
+input.styled-input:disabled,
+.styled-input input:disabled,
+.form-field input[type='text']:disabled,
+.form-field input[type='number']:disabled,
+.form-field input[type='email']:disabled,
+.form-field input[type='password']:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Form field wrapper with label */
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.form-field-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #cfd8f3;
+}
+
+.form-field-hint {
+  font-size: 0.72rem;
+  color: #8094bb;
+}

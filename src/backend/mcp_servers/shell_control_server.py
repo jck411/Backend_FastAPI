@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import time
 import uuid
 from pathlib import Path
@@ -20,6 +21,9 @@ DELTAS_RETENTION_DAYS = 30
 DELTAS_MAX_ENTRIES = 100
 HOST_PROFILE_ENV = "HOST_PROFILE_ID"
 HOST_ROOT_ENV = "HOST_ROOT_PATH"
+
+# Validation pattern for host_id to prevent path traversal attacks
+_VALID_HOST_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def _get_repo_root() -> Path:
@@ -74,9 +78,19 @@ def _get_host_id() -> str:
 
 
 def _get_host_dir(host_id: str | None = None) -> Path:
-    """Return (and create) the directory for the given or active host."""
+    """Return (and create) the directory for the given or active host.
 
+    Raises:
+        ValueError: If host_id contains invalid characters (path traversal prevention).
+    """
     resolved_id = host_id or _get_host_id()
+
+    # Validate host_id to prevent path traversal attacks
+    if not _VALID_HOST_ID.match(resolved_id):
+        raise ValueError(
+            f"Invalid host_id: {resolved_id!r}. Must be alphanumeric with - or _"
+        )
+
     host_dir = _get_host_root() / resolved_id
     host_dir.mkdir(parents=True, exist_ok=True)
     return host_dir

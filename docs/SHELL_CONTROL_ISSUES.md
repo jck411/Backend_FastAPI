@@ -41,36 +41,15 @@
 
 ---
 
-## ❌ 4. Missing Input Validation for host_id (NOT STARTED)
+## ✅ 4. Missing Input Validation for host_id (RESOLVED)
 
 **Problem:** `_get_host_dir()` accepts any string. A malicious `host_id` like `../../../etc` could cause path traversal.
 
-```python
-# Current vulnerable code:
-def _get_host_dir(host_id: str | None = None) -> Path:
-    resolved_id = host_id or _get_host_id()
-    host_dir = _get_host_root() / resolved_id  # No validation!
-    host_dir.mkdir(parents=True, exist_ok=True)
-    return host_dir
-```
-
-**Proposed Fix:**
-```python
-import re
-
-_VALID_HOST_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
-
-def _get_host_dir(host_id: str | None = None) -> Path:
-    resolved_id = host_id or _get_host_id()
-
-    # Validate host_id to prevent path traversal
-    if not _VALID_HOST_ID.match(resolved_id):
-        raise ValueError(f"Invalid host_id: {resolved_id!r}. Must be alphanumeric with - or _")
-
-    host_dir = _get_host_root() / resolved_id
-    host_dir.mkdir(parents=True, exist_ok=True)
-    return host_dir
-```
+**Solution Implemented:**
+- Added `_VALID_HOST_ID` regex pattern: `^[a-zA-Z0-9_-]+$`
+- Updated `_get_host_dir()` to validate `host_id` before using it
+- Raises `ValueError` for invalid host IDs containing path separators, dots, spaces, etc.
+- Added tests: `test_host_id_validation_prevents_path_traversal` and `test_host_id_validation_allows_valid_ids`
 
 ---
 
@@ -92,5 +71,5 @@ def _get_host_dir(host_id: str | None = None) -> Path:
 | 1. Missing State Update Tool | ✅ Resolved | - |
 | 2. Unused `_get_deltas_path` | ✅ Resolved | - |
 | 3. TOCTOU Race Condition | ✅ Resolved | - |
-| 4. Path Traversal Vulnerability | ❌ Not Started | **High** |
+| 4. Path Traversal Vulnerability | ✅ Resolved | - |
 | 5. No Host Listing Tool | ✅ Resolved | - |

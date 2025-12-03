@@ -259,3 +259,30 @@ async def test_host_list_with_hosts(
     assert hosts_by_id["xps13"]["has_state"] is True
     assert hosts_by_id["ryzen-desktop"]["has_profile"] is True
     assert hosts_by_id["ryzen-desktop"]["has_state"] is False
+
+
+async def test_host_id_validation_prevents_path_traversal() -> None:
+    """Test that invalid host_id values are rejected to prevent path traversal."""
+    invalid_ids = [
+        "../../../etc",
+        "..%2F..%2Fetc",
+        "host/../other",
+        "/etc/passwd",
+        "host with spaces",
+        "host.with.dots",
+    ]
+
+    for invalid_id in invalid_ids:
+        with pytest.raises(ValueError, match="Invalid host_id"):
+            shell_control_server._get_host_dir(invalid_id)
+
+
+async def test_host_id_validation_allows_valid_ids(host_root: Path) -> None:
+    """Test that valid host_id values are accepted."""
+    valid_ids = ["xps13", "ryzen-desktop", "my_laptop", "Host123", "a-b_c"]
+
+    for valid_id in valid_ids:
+        # Should not raise
+        result = shell_control_server._get_host_dir(valid_id)
+        assert result.name == valid_id
+        assert result.exists()

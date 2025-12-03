@@ -16,7 +16,7 @@
   <div class="reasoning-controls">
     <label class="reasoning-field">
       <span>Enabled behavior</span>
-      <select value={reasoning.enabledSelection} on:change={handlers.onEnabledChange}>
+      <select class="select-control" value={reasoning.enabledSelection} on:change={handlers.onEnabledChange}>
         <option value="default">Use provider default</option>
         <option value="on">Force enabled</option>
         <option value="off">Disable reasoning</option>
@@ -26,6 +26,7 @@
       <label class="reasoning-field" aria-disabled={!reasoning.effort.supported}>
         <span>Effort</span>
         <select
+          class="select-control"
           value={reasoning.effort.supported ? reasoning.effort.value ?? '' : ''}
           disabled={!reasoning.effort.supported}
           on:change={handlers.onEffortChange}
@@ -41,6 +42,7 @@
       <label class="reasoning-field" aria-disabled={!reasoning.maxTokens.supported}>
         <span>Max reasoning tokens</span>
         <input
+          class="input-control"
           type="number"
           inputmode="numeric"
           min={reasoning.schemas.maxTokens?.min ?? undefined}

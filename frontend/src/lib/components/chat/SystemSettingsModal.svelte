@@ -239,7 +239,7 @@
         <div class="system-card-actions">
           <button
             type="button"
-            class="ghost"
+            class="btn btn-ghost btn-small"
             on:click={() => systemPrompt.reset()}
             disabled={!$systemPrompt.dirty ||
               $systemPrompt.saving ||
@@ -257,7 +257,7 @@
           <p class="status error">{$systemPrompt.error}</p>
         {:else}
           <textarea
-            class="system-prompt"
+            class="system-prompt textarea-control"
             rows="6"
             bind:value={$systemPrompt.value}
             on:input={handlePromptInput}
@@ -286,7 +286,7 @@
         <div class="system-card-actions">
           <button
             type="button"
-            class="primary"
+            class="btn btn-primary"
             on:click={() => void startGoogleAuthorization()}
             disabled={$googleAuth.loading || $googleAuth.authorizing}
           >
@@ -307,7 +307,7 @@
           <div class="google-auth-actions">
             <button
               type="button"
-              class="ghost"
+              class="btn btn-ghost btn-small"
               on:click={refreshGoogleAuth}
               disabled={$googleAuth.loading || $googleAuth.authorizing}
             >
@@ -356,7 +356,7 @@
         <div class="system-card-actions">
           <button
             type="button"
-            class="primary"
+            class="btn btn-primary"
             on:click={() => void startSpotifyAuthorization()}
             disabled={$spotifyAuth.loading || $spotifyAuth.authorizing}
           >
@@ -377,7 +377,7 @@
           <div class="google-auth-actions">
             <button
               type="button"
-              class="ghost"
+              class="btn btn-ghost btn-small"
               on:click={refreshSpotifyAuth}
               disabled={$spotifyAuth.loading || $spotifyAuth.authorizing}
             >
@@ -419,13 +419,13 @@
               >{$monarchAuth.email}</span
             >.
           </p>
-          <div class="system-card-actions">
-            <button
-              type="button"
-              class="ghost"
-              on:click={() => monarchAuth.remove()}
-              disabled={$monarchAuth.saving}
-            >
+            <div class="system-card-actions">
+              <button
+                type="button"
+                class="btn btn-ghost btn-small"
+                on:click={() => monarchAuth.remove()}
+                disabled={$monarchAuth.saving}
+              >
               Disconnect
             </button>
           </div>
@@ -435,6 +435,7 @@
               Email
               <input
                 type="email"
+                class="input-control"
                 bind:value={monarchEmail}
                 placeholder="email@example.com"
               />
@@ -443,13 +444,14 @@
               Password
               <div class="password-input-wrapper">
                 <input
+                  class="input-control"
                   type={showMonarchPassword ? "text" : "password"}
                   bind:value={monarchPassword}
                   placeholder="Password"
                 />
                 <button
                   type="button"
-                  class="ghost icon-only"
+                  class="btn btn-ghost btn-icon btn-small"
                   on:click={() => (showMonarchPassword = !showMonarchPassword)}
                   title={showMonarchPassword
                     ? "Hide password"
@@ -498,6 +500,7 @@
               MFA Secret (Optional)
               <input
                 type="text"
+                class="input-control"
                 bind:value={monarchMfaSecret}
                 placeholder="MFA Secret"
               />
@@ -512,7 +515,7 @@
             </p>
             <button
               type="button"
-              class="primary"
+              class="btn btn-primary"
               on:click={saveMonarch}
               disabled={$monarchAuth.saving ||
                 !monarchEmail ||
@@ -545,7 +548,7 @@
         <div class="system-card-actions">
           <button
             type="button"
-            class="ghost"
+            class="btn btn-ghost btn-small"
             on:click={refreshServers}
             disabled={$mcpServers.refreshing ||
               $mcpServers.saving ||
@@ -655,6 +658,7 @@
                             </span>
                           </div>
                           <select
+                            class="select-control"
                             value={server.env?.HOST_PROFILE_ID ?? ""}
                             disabled={$mcpServers.pending[server.id] ||
                               $mcpServers.saving}
@@ -682,6 +686,7 @@
                           </div>
                           <div class="password-input-wrapper">
                             <input
+                              class="input-control"
                               type={showShellPassword ? "text" : "password"}
                               value={server.env?.SUDO_PASSWORD ?? ""}
                               autocomplete="off"

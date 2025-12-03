@@ -274,35 +274,6 @@
     align-self: start;
   }
 
-  :global(.ghost) {
-    background: none;
-    border: 1px solid #25314d;
-    border-radius: 999px;
-    color: #f2f4f8;
-    padding: 0.4rem 1rem;
-    cursor: pointer;
-    transition:
-      border-color 0.2s ease,
-      color 0.2s ease,
-      background 0.2s ease;
-  }
-
-  :global(.ghost:hover:not(:disabled)) {
-    border-color: #38bdf8;
-    color: #38bdf8;
-  }
-
-  :global(.ghost:disabled) {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  :global(.ghost.small) {
-    padding: 0.35rem 0.85rem;
-    font-size: 0.85rem;
-    border-radius: 0.85rem;
-  }
-
   .body {
     flex: 1;
     min-height: 0;

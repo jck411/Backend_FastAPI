@@ -57,29 +57,6 @@
   gap: 0.5rem;
 }
 
-.system-card-actions .primary {
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.85), rgba(59, 130, 246, 0.85));
-  border: none;
-  border-radius: 999px;
-  color: #07101e;
-  padding: 0.4rem 1rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-}
-
-.system-card-actions .primary:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.system-card-actions .primary:not(:disabled):hover,
-.system-card-actions .primary:not(:disabled):focus-visible {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 16px rgba(56, 189, 248, 0.3);
-}
-
 .status.success {
   color: #34d399;
 }
@@ -117,26 +94,8 @@
 }
 
 .system-prompt {
-  width: 100%;
   min-height: 140px;
-  resize: vertical;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(37, 49, 77, 0.9);
-  background: rgba(9, 14, 26, 0.92);
-  color: #f3f5ff;
-  padding: 0.85rem 1rem;
-  font: inherit;
   line-height: 1.45;
-}
-
-.system-prompt:focus-visible {
-  outline: 2px solid #38bdf8;
-  border-color: #38bdf8;
-}
-
-.system-prompt:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .server-list {
@@ -271,16 +230,6 @@
   flex: 1;
 }
 
-.field-label {
-  font-weight: 600;
-  font-size: 0.85rem;
-}
-
-.field-hint {
-  color: #8094bb;
-  font-size: 0.75rem;
-}
-
 .shell-setting .password-input-wrapper {
   width: 100%;
   max-width: 320px;
@@ -368,26 +317,6 @@
   color: #cfd8f3;
 }
 
-.monarch-form input {
-  appearance: none;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(37, 49, 77, 0.9);
-  background: rgba(9, 14, 26, 0.92);
-  color: #f3f5ff;
-  padding: 0.45rem 0.6rem;
-  font: inherit;
-}
-
-.monarch-form input:focus-visible {
-  outline: 2px solid #38bdf8;
-  border-color: #38bdf8;
-}
-
-.monarch-form input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
 .password-input-wrapper {
   display: flex;
   align-items: center;
@@ -399,27 +328,24 @@
   padding-right: 2.5rem;
 }
 
-.password-input-wrapper button {
+.password-input-wrapper .btn {
   position: absolute;
-  right: 0.5rem;
-  background: none;
+  right: 0.35rem;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 0.2rem 0.4rem;
+  width: auto;
+  height: auto;
   border: none;
+  background: none;
   color: #8094bb;
-  cursor: pointer;
-  padding: 0.25rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: color 0.2s ease;
+  box-shadow: none;
 }
 
-.password-input-wrapper button:hover {
+.password-input-wrapper .btn:hover,
+.password-input-wrapper .btn:focus-visible {
   color: #38bdf8;
-}
-
-.password-input-wrapper button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+  box-shadow: none;
 }
 
 /* Shell settings inputs and selects - consistent with model settings */
@@ -428,39 +354,4 @@
 .shell-setting select {
   width: 100%;
   max-width: 320px;
-  appearance: none;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(37, 49, 77, 0.9);
-  background-color: rgba(9, 14, 26, 0.92);
-  color: #f3f5ff;
-  padding: 0.45rem 0.6rem;
-  font: inherit;
-}
-
-.shell-setting input[type="text"]:focus-visible,
-.shell-setting input[type="password"]:focus-visible,
-.shell-setting select:focus-visible {
-  outline: 2px solid #38bdf8;
-  border-color: #38bdf8;
-}
-
-.shell-setting select {
-  cursor: pointer;
-  background-image: url('data:image/svg+xml,%3Csvg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M7 8l3 3 3-3" stroke="%23d4daee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/%3E%3C/svg%3E');
-  background-repeat: no-repeat;
-  background-position: right 0.6rem center;
-  background-size: 0.9rem;
-  padding-right: 2rem;
-}
-
-.shell-setting select option {
-  background: #0a101a;
-  color: #f3f5ff;
-}
-
-.shell-setting select:disabled,
-.shell-setting input[type="text"]:disabled,
-.shell-setting input[type="password"]:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }

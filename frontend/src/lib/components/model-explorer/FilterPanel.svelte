@@ -160,7 +160,7 @@
     </div>
     <button
       type="button"
-      class="ghost small"
+      class="btn btn-ghost btn-small"
       on:click={resetFilters}
       disabled={!filtersActive}
     >

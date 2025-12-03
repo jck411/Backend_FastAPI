@@ -95,7 +95,7 @@
   <div class="topbar-content">
     <div class="controls">
       <button
-        class="ghost explorer"
+        class="btn btn-ghost btn-small explorer"
         type="button"
         on:click={handleExplorerClick}
       >
@@ -131,7 +131,7 @@
           data-loading={webSearchMenuLoading}
           aria-hidden="true"
         >
-          <button class="ghost web-search-summary" type="button" disabled>
+          <button class="btn btn-ghost btn-small web-search-summary" type="button" disabled>
             <span>Web search</span>
             <span class="status" data-enabled={$webSearchStore.enabled}>
               {$webSearchStore.enabled ? "On" : "Off"}
@@ -141,7 +141,7 @@
       {/if}
 
       <button
-        class="ghost"
+        class="btn btn-ghost btn-small"
         type="button"
         on:click={forwardOpenModelSettings}
         aria-label="Model settings"
@@ -175,7 +175,7 @@
       </button>
 
       <button
-        class="ghost"
+        class="btn btn-ghost btn-small"
         type="button"
         on:click={forwardOpenPresets}
         aria-label="Presets"
@@ -215,7 +215,7 @@
       {/if}
 
       <button
-        class="ghost system-settings"
+        class="btn btn-ghost btn-small system-settings"
         type="button"
         on:click={forwardOpenSystemSettings}
         aria-label="System settings"
@@ -248,7 +248,7 @@
       </button>
 
       <button
-        class="ghost"
+        class="btn btn-ghost btn-small"
         type="button"
         on:click={forwardOpenSpeechSettings}
         aria-label="Speech settings"
@@ -281,7 +281,7 @@
       </button>
 
       <button
-        class="ghost"
+        class="btn btn-ghost btn-small"
         type="button"
         on:click={handleClear}
         disabled={!hasMessages}
@@ -429,35 +429,12 @@
     background: #0a101a;
     color: #f3f5ff;
   }
-  :global(.chat-header .controls .ghost) {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.4rem;
-    background: none;
-    border: 1px solid #25314d;
-    border-radius: 999px;
-    color: #f2f4f8;
-    padding: 0.55rem 1.1rem;
+  :global(.chat-header .controls .btn) {
     white-space: nowrap;
-    cursor: pointer;
-    transition:
-      border-color 0.2s ease,
-      color 0.2s ease,
-      background 0.2s ease;
-    font: inherit;
   }
-  :global(.chat-header .controls .ghost.system-settings svg) {
+  :global(.chat-header .controls .btn.system-settings svg) {
     width: 1.05rem;
     height: 1.05rem;
-  }
-  :global(.chat-header .controls .ghost:hover:not(:disabled)) {
-    border-color: #38bdf8;
-    color: #38bdf8;
-  }
-  :global(.chat-header .controls .ghost:disabled) {
-    opacity: 0.6;
-    cursor: not-allowed;
   }
   .model-picker-loading,
   .web-search-loading {
@@ -501,7 +478,7 @@
       width: 100%;
       min-width: 0;
     }
-    :global(.chat-header .controls .ghost),
+    :global(.chat-header .controls .btn),
     :global(.chat-header .controls select),
     .preset-badge,
     .model-picker-loading,
@@ -510,7 +487,7 @@
     :global(.chat-header .controls .web-search) {
       width: 100%;
     }
-    :global(.chat-header .controls .ghost),
+    :global(.chat-header .controls .btn),
     .preset-badge {
       justify-content: center;
     }
@@ -551,11 +528,11 @@
     .controls {
       max-width: 100%;
     }
-    :global(.chat-header .controls .ghost),
+    :global(.chat-header .controls .btn),
     :global(.chat-header .controls select) {
       padding: 0.55rem 0.9rem;
     }
-    :global(.chat-header .controls .ghost.system-settings svg) {
+    :global(.chat-header .controls .btn.system-settings svg) {
       width: 1rem;
       height: 1rem;
     }

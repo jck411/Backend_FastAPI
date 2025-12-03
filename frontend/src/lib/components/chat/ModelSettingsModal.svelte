@@ -64,7 +64,7 @@
     <button
       slot="actions"
       type="button"
-      class="ghost small"
+      class="btn btn-ghost btn-small"
       on:click={resetToDefaults}
       disabled={!$hasCustomParameters || $settingsState.saving}
     >

@@ -20,7 +20,7 @@
 <header class="explorer-header">
   <div class="title-group">
     <a
-      class="ghost small chat-link"
+      class="btn btn-ghost btn-small chat-link"
       href="/chat"
       aria-label="Return to chat"
       on:click|preventDefault={onClose}
@@ -34,6 +34,7 @@
     <label class="search">
       <span class="visually-hidden">Search models</span>
       <input
+        class="input-control"
         type="search"
         placeholder="Search by name, provider, description, or tags"
         value={searchValue}
@@ -117,11 +118,6 @@
 
   .search input {
     width: 100%;
-    padding: 0.6rem 0.9rem;
-    border-radius: 0.85rem;
-    border: 1px solid #16203a;
-    background: rgba(9, 14, 26, 0.85);
-    color: inherit;
   }
 
   .meta-row {

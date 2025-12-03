@@ -157,7 +157,7 @@
       <p class="model-settings-subtitle">Configure Deepgram speech-to-text dictation settings.</p>
     </svelte:fragment>
 
-    <button slot="actions" type="button" class="ghost small" on:click={handleReset} disabled={saving}>
+    <button slot="actions" type="button" class="btn btn-ghost btn-small" on:click={handleReset} disabled={saving}>
       Reset to defaults
     </button>
 
@@ -171,6 +171,7 @@
         <div class="speech-field">
           <span class="field-label">Model</span>
           <select
+            class="select-control"
             value={draft.stt.model}
             on:change={(event) => updateStt('model', (event.target as HTMLSelectElement).value)}
           >
@@ -182,9 +183,9 @@
         <div class="speech-field presets-field">
           <span class="field-label">Speech timing presets</span>
           <div class="speech-presets" aria-label="Timing presets">
-            <button type="button" on:click={() => applyPreset('fast')}>Fast</button>
-            <button type="button" on:click={() => applyPreset('normal')}>Normal</button>
-            <button type="button" on:click={() => applyPreset('slow')}>Slow</button>
+            <button class="btn btn-soft btn-small" type="button" on:click={() => applyPreset('fast')}>Fast</button>
+            <button class="btn btn-soft btn-small" type="button" on:click={() => applyPreset('normal')}>Normal</button>
+            <button class="btn btn-soft btn-small" type="button" on:click={() => applyPreset('slow')}>Slow</button>
           </div>
         </div>
       </div>
@@ -259,6 +260,7 @@
         <div class="speech-field">
           <span class="field-label">Endpointing window (ms)</span>
           <input
+            class="input-control"
             type="number"
             min="300"
             max="5000"
@@ -271,6 +273,7 @@
         <div class="speech-field">
           <span class="field-label">Utterance gap (ms)</span>
           <input
+            class="input-control"
             type="number"
             min="500"
             max="5000"
@@ -285,10 +288,11 @@
       <div class="auto-submit-block">
         <div class="auto-submit-row">
           <label class="inline-checkbox">
-            <input
-              type="checkbox"
-              checked={draft.stt.autoSubmit}
-              on:change={(event) => updateStt('autoSubmit', (event.target as HTMLInputElement).checked)}
+          <input
+            class="input-control"
+            type="checkbox"
+            checked={draft.stt.autoSubmit}
+            on:change={(event) => updateStt('autoSubmit', (event.target as HTMLInputElement).checked)}
             />
             <span class="field-label">Auto-submit</span>
           </label>
@@ -298,6 +302,7 @@
           <label class="delay-label" for="auto-submit-delay-input">Delay (ms)</label>
           <input
             id="auto-submit-delay-input"
+            class="input-control"
             type="number"
             min="0"
             max="20000"

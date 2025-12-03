@@ -54,70 +54,11 @@
   font-weight: 600;
 }
 
-/* Use shared form styles - just adjust dimensions as needed */
-.speech-field select,
-.speech-field input[type='number'] {
-  /* Inherits from app.css .form-field styles via styled-select/styled-input classes */
-  /* Fallback styles for components that don't use those classes */
-  appearance: none;
-  width: 100%;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(37, 49, 77, 0.9);
-  background-color: rgba(9, 14, 26, 0.92);
-  color: #f3f5ff;
-  padding: 0.45rem 0.6rem;
-  font: inherit;
-}
-
-.speech-field select {
-  background-image: url('data:image/svg+xml,%3Csvg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M7 8l3 3 3-3" stroke="%23d4daee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/%3E%3C/svg%3E');
-  background-repeat: no-repeat;
-  background-position: right 0.6rem center;
-  background-size: 0.9rem;
-  padding-right: 2rem;
-  cursor: pointer;
-}
-
-.speech-field select:focus-visible,
-.speech-field input[type='number']:focus-visible {
-  outline: 2px solid #38bdf8;
-  border-color: #38bdf8;
-}
-
-.speech-field select:disabled,
-.speech-field input[type='number']:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.speech-field select option {
-  background: #0a101a;
-  color: #f3f5ff;
-}
-
 .presets-field .speech-presets {
   display: flex;
   flex-wrap: wrap;
   gap: 0.45rem;
   align-items: center;
-}
-
-.speech-presets button {
-  border: 1px solid rgba(79, 70, 229, 0.6);
-  background: transparent;
-  border-radius: 999px;
-  color: #c7d2fe;
-  font-size: 0.75rem;
-  padding: 0.35rem 0.9rem;
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
-}
-
-.speech-presets button:hover,
-.speech-presets button:focus-visible {
-  border-color: #6366f1;
-  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.25);
-  outline: none;
 }
 
 .toggle-grid {
@@ -191,23 +132,6 @@
 
 .delay-inline input[type='number'] {
   width: 120px;
-  appearance: none;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(37, 49, 77, 0.9);
-  background: rgba(9, 14, 26, 0.92);
-  color: #f3f5ff;
-  padding: 0.45rem 0.6rem;
-  font: inherit;
-}
-
-.delay-inline input[type='number']:focus-visible {
-  outline: 2px solid #38bdf8;
-  border-color: #38bdf8;
-}
-
-.delay-inline input[type='number']:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .delay-label {

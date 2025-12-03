@@ -77,7 +77,7 @@
           <slot name="actions" />
           <button
             type="button"
-            class="modal-close"
+            class="btn btn-ghost btn-small"
             on:click={handleClose}
             aria-label={closeLabel}
             disabled={closeDisabled}

@@ -113,7 +113,7 @@
   .generation-detail-row dd pre {
     margin: 0;
     white-space: pre-wrap;
-    font-family: 'Fira Code', 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    font-family: var(--font-mono);
     background: rgba(12, 18, 32, 0.75);
     border-radius: 0.55rem;
     padding: 0.65rem 0.75rem;

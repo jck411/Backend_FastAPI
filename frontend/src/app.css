@@ -1,26 +1,48 @@
 :root {
-  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  line-height: 1.5;
+  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --line-height: 1.5;
+  --color-bg: #0b101b;
+  --color-surface: rgba(10, 16, 28, 0.95);
+  --color-surface-2: rgba(12, 18, 32, 0.9);
+  --color-surface-3: rgba(11, 18, 34, 0.82);
+  --color-border: rgba(37, 49, 77, 0.85);
+  --color-border-strong: rgba(67, 91, 136, 0.6);
+  --color-text: #f3f5ff;
+  --color-muted: #9fb3d8;
+  --color-subtle: #7b87a1;
+  --color-accent: #38bdf8;
+  --color-accent-strong: #4f46e5;
+  --color-accent-contrast: #07101e;
+  --color-danger: #f87171;
+  --color-danger-strong: #fecaca;
+  --shadow-elevated: 0 18px 48px rgba(3, 8, 20, 0.55);
+  --shadow-soft: 0 12px 28px rgba(4, 8, 20, 0.45);
+  --shadow-focus: 0 0 0 3px rgba(56, 189, 248, 0.2);
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-pill: 999px;
+  --transition-fast: 0.15s ease;
+  --transition-med: 0.2s ease;
+
+  /* Responsive Breakpoints */
+  --bp-xl: 1280px; /* Large desktop / wide header layouts */
+  --bp-lg: 1024px; /* Small desktop / large tablet */
+  --bp-md: 768px; /* Tablet / landscape phone */
+  --bp-sm: 640px; /* Large phone */
+  --bp-xs: 480px; /* Small phone */
+
+  font-family: var(--font-sans);
+  line-height: var(--line-height);
   font-weight: 400;
   color-scheme: dark;
-  background-color: #0b101b;
-  color: #f2f4f8;
+  background-color: var(--color-bg);
+  color: var(--color-text);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  /* Responsive Breakpoints */
-  --bp-xl: 1280px;
-  /* Large desktop / wide header layouts */
-  --bp-lg: 1024px;
-  /* Small desktop / large tablet */
-  --bp-md: 768px;
-  /* Tablet / landscape phone */
-  --bp-sm: 640px;
-  /* Large phone */
-  --bp-xs: 480px;
-  /* Small phone */
 }
 
 * {
@@ -30,6 +52,12 @@
 body {
   margin: 0;
   min-height: 100vh;
+  background: var(--color-bg);
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
 }
 
 button,
@@ -40,36 +68,190 @@ textarea {
 }
 
 /* ==========================================================================
+   Buttons
+   ========================================================================== */
+
+.btn {
+  --btn-bg: transparent;
+  --btn-border: var(--color-border);
+  --btn-color: var(--color-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--btn-border);
+  background: var(--btn-bg);
+  color: var(--btn-color);
+  font-weight: 600;
+  line-height: 1.1;
+  cursor: pointer;
+  transition: border-color var(--transition-med), color var(--transition-med), background var(--transition-med), box-shadow var(--transition-med), transform var(--transition-fast);
+}
+
+.btn:hover:not(:disabled),
+.btn:focus-visible:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
+  outline: none;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-primary {
+  --btn-bg: linear-gradient(135deg, rgba(56, 189, 248, 0.9), rgba(59, 130, 246, 0.9));
+  --btn-border: transparent;
+  --btn-color: var(--color-accent-contrast);
+  box-shadow: 0 10px 30px rgba(56, 189, 248, 0.25);
+}
+
+.btn-primary:hover:not(:disabled),
+.btn-primary:focus-visible:not(:disabled) {
+  color: var(--color-accent-contrast);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(56, 189, 248, 0.35);
+}
+
+.btn-ghost {
+  --btn-bg: transparent;
+  --btn-border: var(--color-border);
+  --btn-color: var(--color-text);
+}
+
+.btn-ghost:hover:not(:disabled),
+.btn-ghost:focus-visible:not(:disabled) {
+  background: rgba(16, 25, 43, 0.75);
+}
+
+.btn-danger {
+  --btn-bg: rgba(139, 35, 35, 0.12);
+  --btn-border: rgba(139, 35, 35, 0.6);
+  --btn-color: var(--color-danger-strong);
+}
+
+.btn-danger:hover:not(:disabled),
+.btn-danger:focus-visible:not(:disabled) {
+  border-color: #fca5a5;
+  color: #ffe4e6;
+  background: rgba(160, 45, 45, 0.2);
+}
+
+.btn-soft {
+  --btn-bg: rgba(79, 70, 229, 0.16);
+  --btn-border: rgba(79, 70, 229, 0.35);
+  --btn-color: #c7d2fe;
+}
+
+.btn-soft:hover:not(:disabled),
+.btn-soft:focus-visible:not(:disabled) {
+  border-color: rgba(99, 102, 241, 0.55);
+  color: #e0e7ff;
+  background: rgba(79, 70, 229, 0.22);
+}
+
+.btn-quiet {
+  --btn-bg: var(--color-surface-3);
+  --btn-border: rgba(71, 99, 150, 0.45);
+  --btn-color: var(--color-text);
+}
+
+.btn-small {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.86rem;
+}
+
+.btn-icon {
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+}
+
+.btn-tonal {
+  --btn-bg: rgba(56, 189, 248, 0.12);
+  --btn-border: rgba(56, 189, 248, 0.4);
+  --btn-color: #e0f2fe;
+}
+
+/* ==========================================================================
    Shared Form Styles
    ========================================================================== */
 
-/* Consistent select/dropdown styling */
+.input-control,
+input.styled-input,
+.styled-input input,
+.form-field input[type="text"],
+.form-field input[type="number"],
+.form-field input[type="email"],
+.form-field input[type="password"] {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: rgba(9, 14, 26, 0.92);
+  color: var(--color-text);
+  padding: 0.48rem 0.65rem;
+  font: inherit;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), outline var(--transition-fast);
+}
+
+.input-control:focus-visible,
+input.styled-input:focus-visible,
+.styled-input input:focus-visible,
+.form-field input[type="text"]:focus-visible,
+.form-field input[type="number"]:focus-visible,
+.form-field input[type="email"]:focus-visible,
+.form-field input[type="password"]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
+}
+
+.input-control:disabled,
+input.styled-input:disabled,
+.styled-input input:disabled,
+.form-field input[type="text"]:disabled,
+.form-field input[type="number"]:disabled,
+.form-field input[type="email"]:disabled,
+.form-field input[type="password"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.select-control,
 select.styled-select,
 .styled-select select,
 .form-field select {
   appearance: none;
   width: 100%;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(37, 49, 77, 0.9);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
   background-color: rgba(9, 14, 26, 0.92);
   background-image: url('data:image/svg+xml,%3Csvg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"%3E%3Cpath d="M7 8l3 3 3-3" stroke="%23d4daee" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/%3E%3C/svg%3E');
   background-repeat: no-repeat;
   background-position: right 0.6rem center;
   background-size: 0.9rem;
-  color: #f3f5ff;
-  padding: 0.45rem 2rem 0.45rem 0.6rem;
+  color: var(--color-text);
+  padding: 0.48rem 2rem 0.48rem 0.65rem;
   font: inherit;
   cursor: pointer;
-  transition: border-color 0.15s ease, outline 0.15s ease;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), outline var(--transition-fast);
 }
 
+.select-control:focus-visible,
 select.styled-select:focus-visible,
 .styled-select select:focus-visible,
 .form-field select:focus-visible {
-  outline: 2px solid #38bdf8;
-  border-color: #38bdf8;
+  outline: 2px solid var(--color-accent);
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
 }
 
+.select-control:disabled,
 select.styled-select:disabled,
 .styled-select select:disabled,
 .form-field select:disabled {
@@ -77,64 +259,58 @@ select.styled-select:disabled,
   cursor: not-allowed;
 }
 
+.select-control option,
 select.styled-select option,
 .styled-select select option,
 .form-field select option {
   background: #0a101a;
-  color: #f3f5ff;
+  color: var(--color-text);
 }
 
-/* Consistent text/number input styling */
-input.styled-input,
-.styled-input input,
-.form-field input[type='text'],
-.form-field input[type='number'],
-.form-field input[type='email'],
-.form-field input[type='password'] {
+.textarea-control,
+textarea.form-field,
+textarea.styled-textarea {
   width: 100%;
-  border-radius: 0.5rem;
-  border: 1px solid rgba(37, 49, 77, 0.9);
+  min-height: 120px;
+  resize: vertical;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
   background: rgba(9, 14, 26, 0.92);
-  color: #f3f5ff;
-  padding: 0.45rem 0.6rem;
+  color: var(--color-text);
+  padding: 0.85rem 1rem;
   font: inherit;
-  transition: border-color 0.15s ease, outline 0.15s ease;
+  line-height: 1.5;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast), outline var(--transition-fast);
 }
 
-input.styled-input:focus-visible,
-.styled-input input:focus-visible,
-.form-field input[type='text']:focus-visible,
-.form-field input[type='number']:focus-visible,
-.form-field input[type='email']:focus-visible,
-.form-field input[type='password']:focus-visible {
-  outline: 2px solid #38bdf8;
-  border-color: #38bdf8;
+.textarea-control:focus-visible,
+textarea.form-field:focus-visible,
+textarea.styled-textarea:focus-visible {
+  outline: 2px solid var(--color-accent);
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
 }
 
-input.styled-input:disabled,
-.styled-input input:disabled,
-.form-field input[type='text']:disabled,
-.form-field input[type='number']:disabled,
-.form-field input[type='email']:disabled,
-.form-field input[type='password']:disabled {
+.textarea-control:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-/* Form field wrapper with label */
 .form-field {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
 }
 
-.form-field-label {
-  font-size: 0.8rem;
+.form-field-label,
+.field-label {
+  font-size: 0.82rem;
   font-weight: 600;
   color: #cfd8f3;
 }
 
-.form-field-hint {
-  font-size: 0.72rem;
+.form-field-hint,
+.field-hint {
+  font-size: 0.75rem;
   color: #8094bb;
 }

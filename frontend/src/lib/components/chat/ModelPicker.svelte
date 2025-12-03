@@ -25,6 +25,7 @@
 
 <div class="model-picker">
   <select
+    class="select-control"
     on:change={handleModelChange}
     bind:value={selectedModel}
     disabled={modelsLoading}

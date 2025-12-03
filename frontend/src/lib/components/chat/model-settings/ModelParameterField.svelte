@@ -44,6 +44,7 @@
       />
     {:else}
       <input
+        class="input-control"
         type="number"
         inputmode={field.type === 'integer' ? 'numeric' : 'decimal'}
         step={field.step ?? (field.type === 'integer' ? 1 : 'any')}

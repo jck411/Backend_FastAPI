@@ -171,6 +171,7 @@
         <div class="create-row">
             <input
                 type="text"
+                class="input-control"
                 placeholder="Preset name"
                 bind:value={creatingName}
                 aria-label="Preset name"
@@ -179,7 +180,7 @@
             />
             <button
                 type="button"
-                class="primary"
+                class="btn btn-primary"
                 on:click={handleCreate}
                 disabled={!creatingName.trim() || $presetsStore.creating}
                 aria-busy={$presetsStore.creating}
@@ -252,7 +253,7 @@
                         <div class="actions">
                             <button
                                 type="button"
-                                class="ghost small"
+                                class="btn btn-ghost btn-small"
                                 on:click={() => handleApply(item)}
                                 disabled={$presetsStore.applying === item.name}
                                 aria-busy={$presetsStore.applying === item.name}
@@ -264,7 +265,7 @@
                             </button>
                             <button
                                 type="button"
-                                class="ghost small"
+                                class="btn btn-ghost btn-small"
                                 on:click={() => handleSaveSnapshot(item)}
                                 disabled={$presetsStore.saving}
                                 aria-busy={$presetsStore.saving}
@@ -277,7 +278,7 @@
                             {#if !item.is_default}
                                 <button
                                     type="button"
-                                    class="ghost small"
+                                    class="btn btn-ghost btn-small"
                                     on:click={() => handleSetDefault(item)}
                                     disabled={$presetsStore.settingDefault ===
                                         item.name}
@@ -292,7 +293,7 @@
                             {/if}
                             <button
                                 type="button"
-                                class="danger small"
+                                class="btn btn-danger btn-small"
                                 on:click={() => handleDelete(item)}
                                 disabled={item.is_default ||
                                     $presetsStore.deleting === item.name}
@@ -346,24 +347,6 @@
     .create-row input[type="text"] {
         flex: 1;
         min-width: 200px;
-        padding: 0.55rem 0.75rem;
-        border-radius: 0.5rem;
-        border: 1px solid #25314d;
-        background: rgba(9, 14, 26, 0.9);
-        color: #f2f4f8;
-        font: inherit;
-    }
-    .create-row .primary {
-        border: 1px solid #2c6f8c;
-        background: rgba(3, 76, 112, 0.4);
-        color: #c7e9ff;
-        border-radius: 999px;
-        padding: 0.55rem 0.9rem;
-        cursor: pointer;
-    }
-    .create-row .primary[disabled] {
-        opacity: 0.6;
-        cursor: not-allowed;
     }
     .preset-list {
         list-style: none;
@@ -438,17 +421,5 @@
         gap: 0.35rem;
         white-space: nowrap;
         font: inherit;
-    }
-    .danger.small {
-        background: none;
-        border: 1px solid rgba(139, 35, 35, 0.6);
-        border-radius: 999px;
-        padding: 0.35rem 0.7rem;
-        color: #fecaca;
-        cursor: pointer;
-    }
-    .danger.small:hover {
-        border-color: rgba(200, 55, 55, 0.85);
-        color: #ffb4b4;
     }
 </style>

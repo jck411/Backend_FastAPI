@@ -22,6 +22,12 @@
   let closing = false;
   let expandedServers: Set<string> = new Set();
 
+  // Hardcoded host profiles - each machine has its own path
+  const HOST_PROFILES = [
+    { id: "xps13", label: "Dell XPS 13", path: "/home/jack/Desktop/gdrive/host_profiles" },
+    { id: "ryzen-desktop", label: "Ryzen Desktop", path: "/home/human/gdrive/host_profiles" },
+  ] as const;
+
   $: {
     if (open && !hasInitialized) {
       hasInitialized = true;
@@ -84,6 +90,15 @@
   let monarchMfaSecret = "";
   let showMonarchPassword = false;
   let showShellPassword = false;
+
+  function handleHostProfileChange(serverId: string, profileId: string): void {
+    const profile = HOST_PROFILES.find((p) => p.id === profileId);
+    if (profile) {
+      // Set both the host ID and the root path for this profile
+      handleShellEnv(serverId, "HOST_PROFILE_ID", profile.id);
+      handleShellEnv(serverId, "HOST_ROOT_PATH", profile.path);
+    }
+  }
 
   function saveMonarch(): void {
     if (!monarchEmail || !monarchPassword) return;
@@ -634,48 +649,28 @@
 
                         <div class="shell-setting">
                           <div class="shell-setting__info">
-                            <span class="field-label">Host profile</span>
+                            <span class="field-label">This machine</span>
                             <span class="field-hint">
-                              Passed as HOST_PROFILE_ID; identifies this machine's profile.
+                              Select which computer you're on. Sets host profile and storage path.
                             </span>
                           </div>
-                          <input
-                            type="text"
+                          <select
                             value={server.env?.HOST_PROFILE_ID ?? ""}
-                            autocomplete="off"
-                            placeholder="e.g. xps13 or ryzen-desktop"
                             disabled={$mcpServers.pending[server.id] ||
                               $mcpServers.saving}
-                            on:input={(event) =>
-                              handleShellEnv(
+                            on:change={(event) =>
+                              handleHostProfileChange(
                                 server.id,
-                                "HOST_PROFILE_ID",
-                                (event.target as HTMLInputElement).value,
+                                (event.target as HTMLSelectElement).value,
                               )}
-                          />
-                        </div>
-
-                        <div class="shell-setting">
-                          <div class="shell-setting__info">
-                            <span class="field-label">Host root path</span>
-                            <span class="field-hint">
-                              Optional; override where host profiles are stored (e.g. GDrive sync folder).
-                            </span>
-                          </div>
-                          <input
-                            type="text"
-                            value={server.env?.HOST_ROOT_PATH ?? ""}
-                            autocomplete="off"
-                            placeholder="e.g. /home/user/gdrive/host_profiles"
-                            disabled={$mcpServers.pending[server.id] ||
-                              $mcpServers.saving}
-                            on:input={(event) =>
-                              handleShellEnv(
-                                server.id,
-                                "HOST_ROOT_PATH",
-                                (event.target as HTMLInputElement).value,
-                              )}
-                          />
+                          >
+                            <option value="">-- Select machine --</option>
+                            {#each HOST_PROFILES as profile}
+                              <option value={profile.id}>
+                                {profile.label}
+                              </option>
+                            {/each}
+                          </select>
                         </div>
 
                         <div class="shell-setting">

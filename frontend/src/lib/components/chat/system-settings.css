@@ -410,3 +410,37 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* Shell settings inputs and selects */
+.shell-setting input[type="text"],
+.shell-setting select {
+  width: 100%;
+  max-width: 320px;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(71, 99, 150, 0.55);
+  background: rgba(10, 16, 28, 0.9);
+  color: #f2f4f8;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+}
+
+.shell-setting input[type="text"]:focus-visible,
+.shell-setting select:focus-visible {
+  outline: 2px solid #38bdf8;
+  border-color: #38bdf8;
+}
+
+.shell-setting select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2.5 4.5L6 8L9.5 4.5' stroke='%238094bb' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+}
+
+.shell-setting select:disabled,
+.shell-setting input[type="text"]:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

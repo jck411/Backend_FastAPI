@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
+from ..chat.mcp_registry import MCPServerConfig
 from ..chat.orchestrator import ChatOrchestrator
 from ..schemas.mcp_servers import (
     MCPServerCollectionPayload,
@@ -16,7 +17,6 @@ from ..schemas.mcp_servers import (
     MCPServerUpdatePayload,
 )
 from ..services.mcp_server_settings import MCPServerSettingsService
-from ..chat.mcp_registry import MCPServerConfig
 
 router = APIRouter(prefix="/api/mcp/servers", tags=["mcp"])
 
@@ -59,7 +59,9 @@ async def _build_status_response(
             cwd=config.cwd,
             env=config.env,
             tool_prefix=config.tool_prefix,
-            disabled_tools=sorted(config.disabled_tools) if config.disabled_tools else [],
+            disabled_tools=sorted(config.disabled_tools)
+            if config.disabled_tools
+            else [],
             tool_count=int(runtime_entry.get("tool_count", 0)),
             tools=tools,
             contexts=list(config.contexts),
@@ -88,7 +90,9 @@ async def replace_mcp_servers(
     service: MCPServerSettingsService = Depends(get_mcp_settings_service),
     orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
 ) -> MCPServerStatusResponse:
-    configs = [MCPServerConfig.model_validate(defn.model_dump()) for defn in payload.servers]
+    configs = [
+        MCPServerConfig.model_validate(defn.model_dump()) for defn in payload.servers
+    ]
     persisted = await service.replace_configs(configs)
     await orchestrator.apply_mcp_configs(persisted)
     return await _build_status_response(service, orchestrator)

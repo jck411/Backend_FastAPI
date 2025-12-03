@@ -14,10 +14,11 @@ from backend.chat.mcp_registry import MCPServerConfig, MCPServerToolConfig
 from backend.routers.mcp_servers import (
     get_chat_orchestrator,
     get_mcp_settings_service,
+)
+from backend.routers.mcp_servers import (
     router as mcp_router,
 )
 from backend.services.mcp_server_settings import MCPServerSettingsService
-
 
 pytestmark = pytest.mark.anyio
 
@@ -53,7 +54,12 @@ class StubMCPServerSettingsService:
         overrides: dict[str, Any] | None = None,
     ) -> MCPServerConfig:
         overrides = overrides or {}
-        self.patch_calls.append((server_id, {"enabled": enabled, "disabled_tools": disabled_tools, **overrides}))
+        self.patch_calls.append(
+            (
+                server_id,
+                {"enabled": enabled, "disabled_tools": disabled_tools, **overrides},
+            )
+        )
         for index, cfg in enumerate(self._configs):
             if cfg.id != server_id:
                 continue
@@ -164,9 +170,11 @@ async def test_router_combines_status() -> None:
                 id="alpha",
                 module="pkg.alpha",
                 contexts=["calendar"],
-                tool_overrides={"ping": MCPServerToolConfig(contexts=["calendar"])}
+                tool_overrides={"ping": MCPServerToolConfig(contexts=["calendar"])},
             ),
-            MCPServerConfig(id="beta", module="pkg.beta", enabled=False, contexts=["tasks"]),
+            MCPServerConfig(
+                id="beta", module="pkg.beta", enabled=False, contexts=["tasks"]
+            ),
         ]
     )
     orchestrator = StubChatOrchestrator()
@@ -224,7 +232,9 @@ async def test_router_patch_updates_service_and_runtime() -> None:
     assert payload["servers"][0]["enabled"] is False
     assert payload["servers"][0]["disabled_tools"] == ["ping"]
     assert payload["servers"][0]["contexts"] == ["maintenance"]
-    assert payload["servers"][0]["tool_overrides"]["ping"]["contexts"] == ["maintenance"]
+    assert payload["servers"][0]["tool_overrides"]["ping"]["contexts"] == [
+        "maintenance"
+    ]
     assert orchestrator.applied[-1] == ["alpha"]
 
 

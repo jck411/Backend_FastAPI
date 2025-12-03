@@ -53,14 +53,14 @@ async def test_shell_execute_with_stderr() -> None:
 
 
 async def test_shell_execute_exit_code() -> None:
-    command = "python -c \"import sys; sys.exit(42)\""
+    command = 'python -c "import sys; sys.exit(42)"'
     result = json.loads(await shell_control_server.shell_execute(command))
 
     assert result["exit_code"] == 42
 
 
 async def test_shell_execute_timeout() -> None:
-    command = "python -c \"import time; time.sleep(10)\""
+    command = 'python -c "import time; time.sleep(10)"'
     result = json.loads(
         await shell_control_server.shell_execute(command, timeout_seconds=1)
     )
@@ -69,7 +69,9 @@ async def test_shell_execute_timeout() -> None:
     assert "timed out" in result["stderr"]
 
 
-async def test_shell_execute_approval_gate(log_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_shell_execute_approval_gate(
+    log_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setenv("REQUIRE_APPROVAL", "true")
 
     result = json.loads(await shell_control_server.shell_execute("echo test"))
@@ -79,17 +81,23 @@ async def test_shell_execute_approval_gate(log_dir: Path, monkeypatch: pytest.Mo
     assert list(log_dir.iterdir()) == []
 
 
-async def test_shell_execute_approval_confirmed(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_shell_execute_approval_confirmed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setenv("REQUIRE_APPROVAL", "true")
 
-    result = json.loads(await shell_control_server.shell_execute("echo ok", confirm=True))
+    result = json.loads(
+        await shell_control_server.shell_execute("echo ok", confirm=True)
+    )
 
     assert result["stdout"].strip() == "ok"
     assert result["exit_code"] == 0
 
 
 async def test_shell_execute_yolo_mode() -> None:
-    result = json.loads(await shell_control_server.shell_execute("echo free", confirm=False))
+    result = json.loads(
+        await shell_control_server.shell_execute("echo free", confirm=False)
+    )
 
     assert result["stdout"].strip() == "free"
     assert result["exit_code"] == 0
@@ -102,7 +110,10 @@ async def test_shell_execute_truncation() -> None:
     result = json.loads(await shell_control_server.shell_execute(command))
 
     assert result["truncated"] is True
-    assert len(result["stdout"].encode("utf-8")) <= shell_control_server.OUTPUT_TRUNCATE_BYTES
+    assert (
+        len(result["stdout"].encode("utf-8"))
+        <= shell_control_server.OUTPUT_TRUNCATE_BYTES
+    )
     assert result["log_id"]
 
 
@@ -144,7 +155,9 @@ async def test_shell_execute_sudo_password(monkeypatch: pytest.MonkeyPatch) -> N
         calls["process"] = proc
         return proc
 
-    monkeypatch.setattr(shell_control_server.asyncio, "create_subprocess_shell", fake_subprocess)
+    monkeypatch.setattr(
+        shell_control_server.asyncio, "create_subprocess_shell", fake_subprocess
+    )
 
     result = json.loads(await shell_control_server.shell_execute("sudo echo ok"))
 
@@ -206,3 +219,43 @@ def test_load_state_missing_returns_empty(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("HOST_PROFILE_ID", "demo")
 
     assert shell_control_server._load_state() == {}
+
+
+async def test_host_list_empty(
+    host_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOST_PROFILE_ID", "xps13")
+
+    result = json.loads(await shell_control_server.host_list())
+
+    assert result["status"] == "ok"
+    assert result["active_host"] == "xps13"
+    assert result["hosts"] == []
+
+
+async def test_host_list_with_hosts(
+    host_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOST_PROFILE_ID", "xps13")
+
+    # Create some host directories with profiles/state
+    (host_root / "xps13").mkdir()
+    (host_root / "xps13" / "profile.json").write_text("{}", encoding="utf-8")
+    (host_root / "xps13" / "state.json").write_text("{}", encoding="utf-8")
+
+    (host_root / "ryzen-desktop").mkdir()
+    (host_root / "ryzen-desktop" / "profile.json").write_text("{}", encoding="utf-8")
+
+    (host_root / "empty-dir").mkdir()  # Should be ignored (no profile or state)
+
+    result = json.loads(await shell_control_server.host_list())
+
+    assert result["status"] == "ok"
+    assert result["active_host"] == "xps13"
+    assert len(result["hosts"]) == 2
+
+    hosts_by_id = {h["id"]: h for h in result["hosts"]}
+    assert hosts_by_id["xps13"]["has_profile"] is True
+    assert hosts_by_id["xps13"]["has_state"] is True
+    assert hosts_by_id["ryzen-desktop"]["has_profile"] is True
+    assert hosts_by_id["ryzen-desktop"]["has_state"] is False

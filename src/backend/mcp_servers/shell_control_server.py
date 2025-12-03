@@ -19,6 +19,7 @@ LOG_RETENTION_HOURS = 48
 DELTAS_RETENTION_DAYS = 30
 DELTAS_MAX_ENTRIES = 100
 HOST_PROFILE_ENV = "HOST_PROFILE_ID"
+HOST_ROOT_ENV = "HOST_ROOT_PATH"
 
 
 def _get_repo_root() -> Path:
@@ -50,9 +51,17 @@ def _cleanup_old_logs() -> None:
 
 
 def _get_host_root() -> Path:
-    """Return the root directory containing host profiles and state."""
+    """Return the root directory containing host profiles and state.
 
-    host_root = _get_repo_root() / "host"
+    Override with HOST_ROOT_PATH env var to use a custom location (e.g., GDrive sync folder).
+    """
+
+    custom_root = os.environ.get(HOST_ROOT_ENV, "").strip()
+    if custom_root:
+        host_root = Path(custom_root).expanduser()
+    else:
+        host_root = _get_repo_root() / "host"
+
     host_root.mkdir(parents=True, exist_ok=True)
     return host_root
 
@@ -927,6 +936,52 @@ async def host_update_state(updates: dict, reason: str | None = None) -> str:
     )
 
 
+@mcp.tool("host_list")  # type: ignore
+async def host_list() -> str:
+    """List all available host profiles.
+
+    Returns all hosts found in the host root directory, indicating which
+    is currently active and what files exist for each host.
+    """
+
+    host_root = _get_host_root()
+    hosts: list[dict[str, object]] = []
+
+    try:
+        for entry in host_root.iterdir():
+            if entry.is_dir():
+                profile_exists = (entry / "profile.json").exists()
+                state_exists = (entry / "state.json").exists()
+                deltas_exists = (entry / "deltas.log").exists()
+
+                # Only include if it has at least a profile or state
+                if profile_exists or state_exists:
+                    hosts.append(
+                        {
+                            "id": entry.name,
+                            "has_profile": profile_exists,
+                            "has_state": state_exists,
+                            "has_deltas": deltas_exists,
+                        }
+                    )
+    except OSError as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "message": f"Failed to list hosts: {exc}",
+            }
+        )
+
+    return json.dumps(
+        {
+            "status": "ok",
+            "active_host": _get_host_id(),
+            "host_root": str(host_root),
+            "hosts": hosts,
+        }
+    )
+
+
 def run() -> None:  # pragma: no cover - integration entrypoint
     mcp.run()
 
@@ -943,5 +998,6 @@ __all__ = [
     "host_get_state",
     "host_update_profile",
     "host_update_state",
+    "host_list",
     "run",
 ]

@@ -74,33 +74,14 @@ def _get_host_dir(host_id: str | None = None) -> Path:
 
 ---
 
-## ❌ 5. No Tool to List Available Hosts (NOT STARTED)
+## ✅ 5. No Tool to List Available Hosts (RESOLVED)
 
 **Problem:** Users can't discover what hosts exist - only work with the one from `HOST_PROFILE_ENV`.
 
-**Proposed Fix:**
-```python
-@mcp.tool("host_list")
-async def host_list() -> str:
-    """List all available host profiles."""
-
-    host_root = _get_host_root()
-    hosts = []
-
-    for entry in host_root.iterdir():
-        if entry.is_dir() and (entry / "profile.json").exists():
-            hosts.append({
-                "id": entry.name,
-                "has_state": (entry / "state.json").exists(),
-                "has_deltas": (entry / "deltas.log").exists(),
-            })
-
-    return json.dumps({
-        "status": "ok",
-        "active_host": _get_host_id(),
-        "hosts": hosts,
-    })
-```
+**Solution Implemented:**
+- Added `host_list` tool - lists all hosts in host root directory
+- Added `HOST_ROOT_PATH` env var to override default host location (e.g., GDrive sync folder)
+- Returns: `active_host`, `host_root` path, and list of hosts with `has_profile`, `has_state`, `has_deltas` flags
 
 ---
 
@@ -112,4 +93,4 @@ async def host_list() -> str:
 | 2. Unused `_get_deltas_path` | ✅ Resolved | - |
 | 3. TOCTOU Race Condition | ✅ Resolved | - |
 | 4. Path Traversal Vulnerability | ❌ Not Started | **High** |
-| 5. No Host Listing Tool | ❌ Not Started | Medium |
+| 5. No Host Listing Tool | ✅ Resolved | - |

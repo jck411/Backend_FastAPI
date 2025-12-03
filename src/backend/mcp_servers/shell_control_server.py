@@ -16,6 +16,8 @@ mcp: FastMCP = FastMCP("shell-control")  # type: ignore
 
 OUTPUT_TRUNCATE_BYTES = 50 * 1024
 LOG_RETENTION_HOURS = 48
+DELTAS_RETENTION_DAYS = 30
+DELTAS_MAX_ENTRIES = 100
 HOST_PROFILE_ENV = "HOST_PROFILE_ID"
 
 
@@ -173,10 +175,49 @@ def _deep_merge(base: dict, updates: dict) -> dict:
     return result
 
 
+def _cleanup_old_deltas(path: Path) -> None:
+    """Remove delta entries older than DELTAS_RETENTION_DAYS or exceeding DELTAS_MAX_ENTRIES."""
+
+    if not path.exists():
+        return
+
+    try:
+        lines = path.read_text(encoding="utf-8").strip().splitlines()
+    except OSError:
+        return
+
+    if not lines:
+        return
+
+    cutoff = time.time() - (DELTAS_RETENTION_DAYS * 24 * 3600)
+    kept: list[str] = []
+
+    for line in lines:
+        try:
+            entry = json.loads(line)
+            if entry.get("ts", 0) >= cutoff:
+                kept.append(line)
+        except json.JSONDecodeError:
+            pass  # Skip corrupted entries
+
+    # Also enforce max entries (keep most recent)
+    if len(kept) > DELTAS_MAX_ENTRIES:
+        kept = kept[-DELTAS_MAX_ENTRIES:]
+
+    # Rewrite file atomically
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text("\n".join(kept) + "\n" if kept else "", encoding="utf-8")
+    tmp_path.replace(path)
+
+
 def _append_delta(delta_type: str, changes: dict, reason: str | None = None) -> None:
     """Append a change record to the deltas log for audit purposes."""
 
     path = _get_deltas_path()
+
+    # Periodic cleanup (run before appending)
+    _cleanup_old_deltas(path)
+
     entry = {
         "ts": time.time(),
         "type": delta_type,

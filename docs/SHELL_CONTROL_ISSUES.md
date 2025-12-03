@@ -36,7 +36,7 @@
 ```python
 # Current vulnerable pattern:
 if not path.exists():        # Check
-    raise FileNotFoundError  
+    raise FileNotFoundError
 payload = path.read_text()   # Use - file could have changed!
 ```
 
@@ -76,11 +76,11 @@ _VALID_HOST_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 def _get_host_dir(host_id: str | None = None) -> Path:
     resolved_id = host_id or _get_host_id()
-    
+
     # Validate host_id to prevent path traversal
     if not _VALID_HOST_ID.match(resolved_id):
         raise ValueError(f"Invalid host_id: {resolved_id!r}. Must be alphanumeric with - or _")
-    
+
     host_dir = _get_host_root() / resolved_id
     host_dir.mkdir(parents=True, exist_ok=True)
     return host_dir
@@ -97,10 +97,10 @@ def _get_host_dir(host_id: str | None = None) -> Path:
 @mcp.tool("host_list")
 async def host_list() -> str:
     """List all available host profiles."""
-    
+
     host_root = _get_host_root()
     hosts = []
-    
+
     for entry in host_root.iterdir():
         if entry.is_dir() and (entry / "profile.json").exists():
             hosts.append({
@@ -108,7 +108,7 @@ async def host_list() -> str:
                 "has_state": (entry / "state.json").exists(),
                 "has_deltas": (entry / "deltas.log").exists(),
             })
-    
+
     return json.dumps({
         "status": "ok",
         "active_host": _get_host_id(),

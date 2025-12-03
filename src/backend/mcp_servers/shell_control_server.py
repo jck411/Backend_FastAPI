@@ -95,14 +95,13 @@ def _load_profile() -> dict:
     """Load the current host profile; raise if it is missing or invalid."""
 
     path = _get_profile_path()
-    if not path.exists():
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
         host_id = _get_host_id()
         raise FileNotFoundError(
             f"Host profile not found for id '{host_id}'. Expected at: {path}"
         )
-
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"Host profile at {path} is not valid JSON") from exc
 
@@ -116,11 +115,10 @@ def _load_state() -> dict:
     """Load the current host state; return an empty object if missing."""
 
     path = _get_state_path()
-    if not path.exists():
-        return {}
-
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
     except json.JSONDecodeError as exc:
         raise ValueError(f"Host state at {path} is not valid JSON") from exc
 

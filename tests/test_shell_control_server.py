@@ -286,3 +286,106 @@ async def test_host_id_validation_allows_valid_ids(host_root: Path) -> None:
         result = shell_control_server._get_host_dir(valid_id)
         assert result.name == valid_id
         assert result.exists()
+
+
+async def test_shell_execute_yay_sudo_handling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that yay commands get sudo pre-auth and --sudoloop."""
+    monkeypatch.setenv("SUDO_PASSWORD", "testpass")
+    calls: list[str] = []
+
+    class DummyProcess:
+        def __init__(self) -> None:
+            self.returncode = 0
+
+        async def communicate(self, input: bytes | None = None):
+            return b"done", b""
+
+        def kill(self) -> None:
+            pass
+
+    async def fake_subprocess(command: str, *args, **kwargs):
+        calls.append(command)
+        return DummyProcess()
+
+    monkeypatch.setattr(
+        shell_control_server.asyncio, "create_subprocess_shell", fake_subprocess
+    )
+
+    await shell_control_server.shell_execute("yay -Syu code")
+
+    # First call should be the main command
+    main_cmd = calls[0]
+    # Should have sudo pre-auth
+    assert "sudo -S -v" in main_cmd
+    # Should have --sudoloop
+    assert "--sudoloop" in main_cmd
+    # Should auto-add --noconfirm
+    assert "--noconfirm" in main_cmd
+
+
+async def test_shell_execute_pacman_auto_noconfirm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that sudo pacman -S commands get --noconfirm auto-added."""
+    monkeypatch.setenv("SUDO_PASSWORD", "testpass")
+    calls: list[str] = []
+
+    class DummyProcess:
+        def __init__(self) -> None:
+            self.returncode = 0
+
+        async def communicate(self, input: bytes | None = None):
+            return b"done", b""
+
+        def kill(self) -> None:
+            pass
+
+    async def fake_subprocess(command: str, *args, **kwargs):
+        calls.append(command)
+        return DummyProcess()
+
+    monkeypatch.setattr(
+        shell_control_server.asyncio, "create_subprocess_shell", fake_subprocess
+    )
+
+    await shell_control_server.shell_execute("sudo pacman -Syu code")
+
+    # First call should be the main command
+    main_cmd = calls[0]
+    assert "--noconfirm" in main_cmd
+    assert "sudo -S" in main_cmd
+
+
+async def test_shell_execute_noconfirm_not_duplicated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that --noconfirm is not duplicated if already present."""
+    monkeypatch.setenv("SUDO_PASSWORD", "testpass")
+    calls: list[str] = []
+
+    class DummyProcess:
+        def __init__(self) -> None:
+            self.returncode = 0
+
+        async def communicate(self, input: bytes | None = None):
+            return b"done", b""
+
+        def kill(self) -> None:
+            pass
+
+    async def fake_subprocess(command: str, *args, **kwargs):
+        calls.append(command)
+        return DummyProcess()
+
+    monkeypatch.setattr(
+        shell_control_server.asyncio, "create_subprocess_shell", fake_subprocess
+    )
+
+    await shell_control_server.shell_execute("yay -Syu --noconfirm code")
+
+    # First call should be the main command
+    main_cmd = calls[0]
+    # Should only have one --noconfirm
+    assert main_cmd.count("--noconfirm") == 1

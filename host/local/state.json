@@ -1,0 +1,14 @@
+{
+  "packages": {},
+  "defaults": {
+    "browser": "done",
+    "browser_https": "done",
+    "file_manager": "done",
+    "pdf_viewer": "done",
+    "image_viewer": "done",
+    "video_player": "done",
+    "audio_player": "done",
+    "text_editor": "done"
+  },
+  "snapshot_ts": "2025-12-03T23:47:23Z"
+}

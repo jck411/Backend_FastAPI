@@ -633,18 +633,61 @@ async def _run_command(
     sudo_password = os.environ.get("SUDO_PASSWORD")
     prepared_command = command
     send_password = False
+    use_askpass = False
 
     stripped = command.lstrip()
-    if stripped.startswith("sudo") and sudo_password:
+
+    # Check if command starts with an AUR helper that calls sudo internally
+    aur_helpers = ("yay", "paru", "pikaur", "trizen", "aurman")
+    aur_match = None
+    for helper in aur_helpers:
+        if stripped.startswith(helper + " ") or stripped == helper:
+            aur_match = helper
+            break
+
+    if aur_match and sudo_password:
+        # AUR helpers call sudo multiple times - use SUDO_ASKPASS approach
+        # This is more reliable than --sudoflags for multi-sudo scenarios
+        use_askpass = True
+    elif stripped.startswith("sudo") and sudo_password:
+        # Direct sudo command - use stdin
         send_password = True
         rest = stripped[len("sudo") :].lstrip()
+
+        # Auto-add --noconfirm for pacman commands if missing
+        if re.search(r"pacman\s+-S", rest) and "--noconfirm" not in rest:
+            # Insert --noconfirm after pacman -S... flags
+            rest = re.sub(r"(pacman\s+-\S+)", r"\1 --noconfirm", rest, count=1)
+
         if " -S " not in stripped and not stripped.startswith("sudo -S"):
             stripped = f"sudo -S {rest}".strip()
+        else:
+            stripped = f"sudo {rest}".strip()
         prepared_command = (
             f"{command[: len(command) - len(command.lstrip())]}{stripped}"
         )
 
     shell_env = _build_shell_env()
+
+    # For AUR helpers, set up SUDO_ASKPASS with an inline script
+    # This handles multiple sudo calls during package builds
+    if use_askpass and sudo_password and aur_match:
+        # AUR helpers call sudo multiple times during builds
+        # Strategy: pre-authenticate sudo with -v, then use --sudoloop to keep it alive
+        rest_of_command = stripped[len(aur_match) :].lstrip()
+
+        # Escape password for shell (handle special chars like $, `, ", ', etc.)
+        escaped_password = sudo_password.replace("'", "'\"'\"'")
+
+        # Auto-add --noconfirm if not present (non-interactive requirement)
+        if "--noconfirm" not in rest_of_command:
+            rest_of_command = f"--noconfirm {rest_of_command}"
+
+        prepared_command = (
+            f"echo '{escaped_password}' | sudo -S -v && "  # Validate/refresh sudo
+            f"{aur_match} --sudoloop {rest_of_command}"
+        )
+        send_password = False  # Password already in command
 
     start = time.perf_counter()
     try:
@@ -764,8 +807,12 @@ async def shell_execute(
     Full PATH is configured automatically (includes ~/.local/bin, snap, flatpak, cargo, etc.).
     GUI applications can be launched. Sudo is supported if SUDO_PASSWORD is configured.
 
+    Sudo handling:
+    - Direct 'sudo ...' commands: Password auto-injected via stdin (-S flag added automatically)
+    - AUR helpers (yay, paru, etc.): Password passed via --sudoflags "-S" automatically
+
     IMPORTANT: Commands run non-interactively (no TTY). Always use flags to skip prompts:
-    - pacman/yay/paru: Use --noconfirm (e.g., 'sudo pacman -Syu --noconfirm code')
+    - pacman/yay/paru: Use --noconfirm (e.g., 'yay -Syu --noconfirm package')
     - apt: Use -y (e.g., 'sudo apt install -y package')
     - dnf: Use -y (e.g., 'sudo dnf install -y package')
     - pip: Use --yes or avoid prompts

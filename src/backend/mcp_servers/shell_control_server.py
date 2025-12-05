@@ -878,6 +878,8 @@ async def shell_execute(
 
     Sudo supported if SUDO_PASSWORD is set. GUI apps can be launched.
 
+    Non-interactive (no TTY); --noconfirm auto-added for pacman/yay.
+
     Packages: Use 'yay -S <pkg>' for installs (NOT -Syu).
     'yay -Syu' upgrades ALL packages — only if user explicitly asks.
 

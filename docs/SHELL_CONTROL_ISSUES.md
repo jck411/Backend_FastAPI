@@ -53,14 +53,15 @@
 
 ---
 
-## ✅ 5. No Tool to List Available Hosts (RESOLVED)
+## ~~5. No Tool to List Available Hosts~~ (REMOVED)
 
-**Problem:** Users can't discover what hosts exist - only work with the one from `HOST_PROFILE_ENV`.
+**Original Problem:** Users can't discover what hosts exist.
 
-**Solution Implemented:**
-- Added `host_list` tool - lists all hosts in host root directory
-- Added `HOST_ROOT_PATH` env var to override default host location (e.g., GDrive sync folder)
-- Returns: `active_host`, `host_root` path, and list of hosts with `has_profile`, `has_state`, `has_deltas` flags
+**Resolution:** Removed `host_list` tool. Host profiles are hardcoded in the frontend dropdown since:
+- Each machine only operates on its own profile
+- Profiles are stored in GDrive (synced across machines)
+- `HOST_ROOT_PATH` env var points to the GDrive-synced folder
+- No need for dynamic discovery
 
 ---
 
@@ -72,4 +73,4 @@
 | 2. Unused `_get_deltas_path` | ✅ Resolved | - |
 | 3. TOCTOU Race Condition | ✅ Resolved | - |
 | 4. Path Traversal Vulnerability | ✅ Resolved | - |
-| 5. No Host Listing Tool | ✅ Resolved | - |
+| 5. Host Listing Tool | ❌ Removed | - |

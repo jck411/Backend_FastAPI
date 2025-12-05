@@ -24,7 +24,7 @@
 
   // Hardcoded host profiles - each machine has its own path
   const HOST_PROFILES = [
-    { id: "xps13", label: "Dell XPS 13", path: "/home/jack/Desktop/gdrive/host_profiles" },
+    { id: "xps13", label: "Dell XPS 13", path: "/home/jack/gdrive/host_profiles" },
     { id: "ryzen-desktop", label: "Ryzen Desktop", path: "/home/human/gdrive/host_profiles" },
   ] as const;
 

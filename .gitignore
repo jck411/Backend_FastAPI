@@ -69,3 +69,6 @@ data/model_settings.json
 
 # Kreuzberg cache
 .kreuzberg/
+
+# Host profiles (stored in GDrive, not repo)
+host/

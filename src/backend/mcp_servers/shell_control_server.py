@@ -9,22 +9,18 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
 mcp: FastMCP = FastMCP("shell-control")  # type: ignore
 
 
-OUTPUT_TRUNCATE_BYTES = 50 * 1024
+OUTPUT_TRUNCATE_BYTES = 20 * 1024
 LOG_RETENTION_HOURS = 48
 DELTAS_RETENTION_DAYS = 30
 DELTAS_MAX_ENTRIES = 100
 HOST_PROFILE_ENV = "HOST_PROFILE_ID"
 HOST_ROOT_ENV = "HOST_ROOT_PATH"
-
-# Track background jobs: job_id -> {process, command, start_time, log_id, ...}
-_background_jobs: dict[str, dict[str, Any]] = {}
 
 # Validation pattern for host_id to prevent path traversal attacks
 _VALID_HOST_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -255,12 +251,10 @@ def _append_delta(delta_type: str, changes: dict, reason: str | None = None) -> 
 
 # Patterns that trigger state snapshots
 _SNAPSHOT_TRIGGERS: list[tuple[str, str]] = [
-    # Package managers (all distros)
+    # Package managers (Arch)
     (r"(pacman|yay|paru)\s+-S\s", "packages"),
     (r"(pacman|yay|paru)\s+-R", "packages"),
     (r"pacman\s+-Syu", "packages"),
-    (r"apt(-get)?\s+(install|remove|purge|upgrade)", "packages"),
-    (r"dnf\s+(install|remove|upgrade)", "packages"),
     (r"flatpak\s+(install|uninstall)", "packages"),
     (r"snap\s+(install|remove)", "packages"),
     (r"pipx\s+(install|uninstall)", "packages"),
@@ -623,6 +617,13 @@ def _build_shell_env() -> dict[str, str]:
         if os.path.isdir(xdg_runtime):
             env["XDG_RUNTIME_DIR"] = xdg_runtime
 
+    # Ensure D-Bus session bus for desktop settings (gsettings, qdbus, etc.)
+    if "DBUS_SESSION_BUS_ADDRESS" not in env:
+        uid = os.getuid()
+        dbus_socket = f"/run/user/{uid}/bus"
+        if os.path.exists(dbus_socket):
+            env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={dbus_socket}"
+
     return env
 
 
@@ -805,43 +806,18 @@ async def shell_execute(
     working_directory: str | None = None,
     timeout_seconds: int = 30,
     confirm: bool = False,
-    background: bool = False,
 ) -> str:
     """Execute a shell command on the host system.
 
-    Full PATH is configured automatically (includes ~/.local/bin, snap, flatpak, cargo, etc.).
-    GUI applications can be launched. Sudo is supported if SUDO_PASSWORD is configured.
+    Call host_get_profile first if unsure about OS/package manager.
 
-    Sudo handling:
-    - Direct 'sudo ...' commands: Password auto-injected via stdin (-S flag added automatically)
-    - AUR helpers (yay, paru, etc.): Pre-authenticated with --sudoloop for long builds
+    Sudo supported if SUDO_PASSWORD is set. GUI apps can be launched.
 
-    IMPORTANT - Non-interactive execution:
-    - Commands run without TTY. Always use flags to skip prompts.
-    - --noconfirm is auto-added for pacman/yay/paru commands.
+    Packages: Use 'yay -S <pkg>' for installs (NOT -Syu).
+    'yay -Syu' upgrades ALL packages — only if user explicitly asks.
 
-    IMPORTANT - Package installation best practices:
-    - For installing/updating a SINGLE package: Use 'yay -S package' (NOT -Syu)
-    - For full system upgrade: Use 'yay -Syu' (can take 30+ minutes for AUR rebuilds)
-    - The -u flag upgrades ALL packages, which rebuilds all outdated AUR packages
-    - Example: 'yay -S visual-studio-code-insiders-bin' (fast, just installs/updates one package)
-
-    IMPORTANT - Long-running commands:
-    - For commands expected to take >30 seconds, set background=True
-    - This returns immediately with a job_id
-    - Use shell_job_status(job_id) to check progress and get results
-    - Example: Package updates, large builds, system upgrades
-
-    Returns: stdout, stderr, exit_code, duration_ms, and log_id.
-    - If background=True: Returns immediately with job_id and status="running"
-    - If output exceeds 50KB, 'truncated' will be true; use shell_get_full_output(log_id) for complete output.
-    - If command times out, increase timeout_seconds.
-    - If exit_code is 0 and command modified packages/services/defaults, state is auto-snapshotted.
-
-    Limitation: D-Bus commands (gsettings, qdbus, notify-send) won't affect the live desktop
-    session—suggest user run those manually if needed.
-
-    Tip: Call host_get_profile first to learn OS, desktop, package manager, and installed apps.
+    Returns: stdout, stderr, exit_code, duration_ms, log_id.
+    If truncated=true, use shell_get_full_output(log_id).
     """
 
     require_approval = os.environ.get("REQUIRE_APPROVAL", "false").lower() == "true"
@@ -853,35 +829,6 @@ async def shell_execute(
                 "command": command,
                 "working_directory": working_directory,
                 "message": "Set confirm=True to execute this command",
-            }
-        )
-
-    # Background execution for long-running commands
-    if background:
-        job_id = uuid.uuid4().hex[:12]
-        _background_jobs[job_id] = {
-            "command": command,
-            "working_directory": working_directory,
-            "timeout_seconds": timeout_seconds,
-            "start_time": time.time(),
-            "status": "running",
-            "result": None,
-            "error": None,
-            "end_time": 0,
-        }
-
-        # Start the background task
-        asyncio.create_task(
-            _run_background_job(job_id, command, working_directory, timeout_seconds)
-        )
-
-        return json.dumps(
-            {
-                "status": "running",
-                "job_id": job_id,
-                "command": command,
-                "message": "Command started in background. Use shell_job_status(job_id) to check progress.",
-                "tip": "Poll shell_job_status every 10-30 seconds for long operations.",
             }
         )
 
@@ -945,124 +892,12 @@ async def shell_get_full_output(
     return json.dumps(response)
 
 
-async def _run_background_job(
-    job_id: str,
-    command: str,
-    working_directory: str | None,
-    timeout_seconds: int,
-) -> None:
-    """Background task that runs a command and updates job status when done."""
-    job = _background_jobs.get(job_id)
-    if not job:
-        return
-
-    try:
-        result = await _execute_and_log(
-            command,
-            working_directory=working_directory,
-            timeout_seconds=timeout_seconds,
-        )
-        job["status"] = "completed"
-        job["result"] = result
-        job["end_time"] = time.time()
-    except Exception as exc:  # noqa: BLE001
-        job["status"] = "failed"
-        job["error"] = str(exc)
-        job["end_time"] = time.time()
-
-
-@mcp.tool("shell_job_status")  # type: ignore
-async def shell_job_status(job_id: str | None = None) -> str:
-    """Check status of background shell jobs.
-
-    Args:
-        job_id: Specific job to check. If None, returns all active jobs.
-
-    Returns job status:
-    - "running": Command still executing (shows elapsed time)
-    - "completed": Finished successfully (includes full result)
-    - "failed": Finished with error
-
-    Use this to monitor long-running commands started with background=True.
-    """
-    # Clean up old completed jobs (keep for 1 hour)
-    cutoff = time.time() - 3600
-    to_remove = [
-        jid
-        for jid, job in _background_jobs.items()
-        if job.get("end_time", 0) > 0 and job["end_time"] < cutoff
-    ]
-    for jid in to_remove:
-        del _background_jobs[jid]
-
-    if job_id:
-        job = _background_jobs.get(job_id)
-        if not job:
-            return json.dumps(
-                {
-                    "status": "error",
-                    "message": f"Job {job_id} not found (may have expired)",
-                    "job_id": job_id,
-                }
-            )
-
-        elapsed = time.time() - job["start_time"]
-        response: dict[str, Any] = {
-            "job_id": job_id,
-            "command": job["command"],
-            "status": job["status"],
-            "elapsed_seconds": round(elapsed, 1),
-            "started_at": time.strftime(
-                "%Y-%m-%d %H:%M:%S", time.localtime(job["start_time"])
-            ),
-        }
-
-        if job["status"] == "completed":
-            response["result"] = job.get("result", {})
-        elif job["status"] == "failed":
-            response["error"] = job.get("error", "Unknown error")
-
-        return json.dumps(response)
-
-    # Return all jobs
-    jobs_summary = []
-    for jid, job in _background_jobs.items():
-        elapsed = time.time() - job["start_time"]
-        summary: dict[str, Any] = {
-            "job_id": jid,
-            "command": job["command"][:80]
-            + ("..." if len(job["command"]) > 80 else ""),
-            "status": job["status"],
-            "elapsed_seconds": round(elapsed, 1),
-        }
-        if job["status"] == "completed":
-            summary["exit_code"] = job.get("result", {}).get("exit_code")
-        jobs_summary.append(summary)
-
-    return json.dumps(
-        {
-            "status": "ok",
-            "active_jobs": len(
-                [j for j in _background_jobs.values() if j["status"] == "running"]
-            ),
-            "total_jobs": len(_background_jobs),
-            "jobs": jobs_summary,
-        }
-    )
-
-
 @mcp.tool("host_get_profile")  # type: ignore
 async def host_get_profile() -> str:
     """Get static host configuration (OS, desktop, hardware, capabilities, limitations).
 
-    Call this FIRST before running commands to understand:
-    - OS and package manager (e.g., Arch/pacman vs Ubuntu/apt)
-    - Desktop environment (KDE, GNOME, etc.)
-    - Known binary names (e.g., 'brave' not 'brave-browser')
-    - System limitations (e.g., D-Bus restrictions)
-    - Hardware model for device-specific commands
-
-    Profile is manually curated and rarely changes.
+    Returns: OS, package manager, desktop environment, known binary names,
+    system limitations, hardware model. Manually curated, rarely changes.
     """
 
     try:
@@ -1092,7 +927,7 @@ async def host_get_state() -> str:
     """Get dynamic host state (installed packages, enabled services, default apps).
 
     State is auto-updated when shell_execute runs commands that modify:
-    - Packages (pacman/apt/dnf install/remove)
+    - Packages (pacman/yay/paru install/remove)
     - Services (systemctl enable/disable)
     - Default apps (xdg-settings/xdg-mime)
 
@@ -1262,7 +1097,6 @@ __all__ = [
     "mcp",
     "shell_execute",
     "shell_get_full_output",
-    "shell_job_status",
     "host_get_profile",
     "host_get_state",
     "host_update_profile",

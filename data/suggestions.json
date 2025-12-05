@@ -1,20 +1,3 @@
 {
-  "suggestions": [
-    {
-      "label": "Update VS Code",
-      "text": "Update VS Code Insiders"
-    },
-    {
-      "label": "System info",
-      "text": "Show me system information"
-    },
-    {
-      "label": "Install package",
-      "text": "Install htop"
-    },
-    {
-      "label": "Weather",
-      "text": "What is the weather in Orlando?"
-    }
-  ]
+  "suggestions": []
 }

@@ -102,12 +102,6 @@ def _get_profile_path(host_id: str | None = None) -> Path:
     return _get_host_dir(host_id) / "profile.json"
 
 
-def _get_state_path(host_id: str | None = None) -> Path:
-    """Return the state.json path for the given or active host."""
-
-    return _get_host_dir(host_id) / "state.json"
-
-
 def _get_deltas_path(host_id: str | None = None) -> Path:
     """Return the deltas.log path for the given or active host."""
 
@@ -132,34 +126,6 @@ def _load_profile() -> dict:
         raise ValueError(f"Host profile at {path} must contain a JSON object")
 
     return payload
-
-
-def _load_state() -> dict:
-    """Load the current host state; return an empty object if missing."""
-
-    path = _get_state_path()
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {}
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Host state at {path} is not valid JSON") from exc
-
-    if not isinstance(payload, dict):
-        raise ValueError(f"Host state at {path} must contain a JSON object")
-
-    return payload
-
-
-def _save_state(state: dict) -> None:
-    """Persist host state to disk atomically."""
-
-    path = _get_state_path()
-    tmp_path = path.with_suffix(".tmp")
-    tmp_path.write_text(
-        json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    tmp_path.replace(path)
 
 
 def _save_profile(profile: dict) -> None:
@@ -476,8 +442,100 @@ async def _snapshot_defaults() -> dict[str, str]:
     return defaults
 
 
-async def _auto_snapshot_state(triggers: set[str]) -> dict[str, object]:
-    """Run targeted snapshots based on what triggered, update state automatically.
+async def _detect_system_info() -> dict[str, object]:
+    """Detect static system information (OS, desktop, display server, kernel)."""
+
+    info: dict[str, object] = {}
+
+    # OS info from /etc/os-release
+    try:
+        process = await asyncio.create_subprocess_shell(
+            "cat /etc/os-release 2>/dev/null || true",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=2.0)
+        output = stdout.decode("utf-8", errors="replace")
+
+        for line in output.splitlines():
+            if line.startswith("NAME="):
+                info["os"] = line.split("=", 1)[1].strip().strip('"')
+            elif line.startswith("ID_LIKE="):
+                info["os_base"] = line.split("=", 1)[1].strip().strip('"')
+            elif line.startswith("ID=") and "os_base" not in info:
+                # Fallback if ID_LIKE not present
+                info["os_base"] = line.split("=", 1)[1].strip().strip('"')
+    except (asyncio.TimeoutError, Exception):
+        pass
+
+    # Kernel version
+    try:
+        process = await asyncio.create_subprocess_shell(
+            "uname -r 2>/dev/null || true",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=2.0)
+        value = stdout.decode("utf-8", errors="replace").strip()
+        if value:
+            info["kernel"] = value
+    except (asyncio.TimeoutError, Exception):
+        pass
+
+    # Desktop environment from XDG_CURRENT_DESKTOP
+    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").strip()
+    if desktop:
+        info["desktop"] = desktop
+
+    # Session type (wayland/x11)
+    session_type = os.environ.get("XDG_SESSION_TYPE", "").strip()
+    if session_type:
+        info["display_server"] = session_type
+
+    # Detect package manager and AUR helper
+    pkg_managers = [
+        ("pacman", "pacman"),
+        ("apt", "apt"),
+        ("dnf", "dnf"),
+        ("zypper", "zypper"),
+        ("emerge", "portage"),
+    ]
+    for cmd, name in pkg_managers:
+        try:
+            process = await asyncio.create_subprocess_shell(
+                f"command -v {cmd} >/dev/null 2>&1 && echo found || true",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=2.0)
+            if b"found" in stdout:
+                info["package_manager"] = name
+                break
+        except (asyncio.TimeoutError, Exception):
+            pass
+
+    # Detect AUR helper (Arch-based only)
+    if info.get("package_manager") == "pacman":
+        aur_helpers = ["yay", "paru", "pikaur", "trizen", "aurman"]
+        for helper in aur_helpers:
+            try:
+                process = await asyncio.create_subprocess_shell(
+                    f"command -v {helper} >/dev/null 2>&1 && echo found || true",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(process.communicate(), timeout=2.0)
+                if b"found" in stdout:
+                    info["aur_helper"] = helper
+                    break
+            except (asyncio.TimeoutError, Exception):
+                pass
+
+    return info
+
+
+async def _auto_snapshot_software(triggers: set[str]) -> dict[str, object]:
+    """Run targeted snapshots based on what triggered, update profile.software automatically.
 
     Triggers:
         - "packages": Snapshot installed apps in tracked categories
@@ -503,15 +561,22 @@ async def _auto_snapshot_state(triggers: set[str]) -> dict[str, object]:
     if not snapshot:
         return {}
 
-    # Update state with snapshot
+    # Update profile.software section with snapshot
     try:
-        current = _load_state()
-    except ValueError:
+        current = _load_profile()
+    except (FileNotFoundError, ValueError):
         current = {}
 
+    # Ensure software section exists
+    if "software" not in current:
+        current["software"] = {}
+
+    # Merge snapshot into software section
     snapshot["snapshot_ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    merged = _deep_merge(current, snapshot)
-    _save_state(merged)
+    current["software"] = _deep_merge(current.get("software", {}), snapshot)
+    current["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    _save_profile(current)
+    _append_delta("software_snapshot", snapshot, "Auto-snapshot after command")
 
     return snapshot
 
@@ -792,10 +857,10 @@ async def _execute_and_log(
     if exit_code == 0:
         triggers = _detect_snapshot_triggers(command)
         if triggers:
-            snapshot = await _auto_snapshot_state(triggers)
+            snapshot = await _auto_snapshot_software(triggers)
             if snapshot:
-                result["state_updated"] = True
-                result["snapshot"] = snapshot
+                result["profile_updated"] = True
+                result["software_snapshot"] = snapshot
 
     return result
 
@@ -894,10 +959,19 @@ async def shell_get_full_output(
 
 @mcp.tool("host_get_profile")  # type: ignore
 async def host_get_profile() -> str:
-    """Get static host configuration (OS, desktop, hardware, capabilities, limitations).
+    """Get host profile with hardware, software, and notes.
 
-    Returns: OS, package manager, desktop environment, known binary names,
-    system limitations, hardware model. Manually curated, rarely changes.
+    Profile structure:
+    - hardware: CPU, GPU, RAM, model, has_discrete_gpu
+    - software: OS, desktop, package_manager, aur_helper, plus:
+      - packages: Auto-tracked installed apps by category (browsers, editors, etc.)
+      - enabled_services: Auto-tracked systemd services
+      - defaults: Auto-tracked XDG default apps (browser, file_manager, etc.)
+    - notes: Binary quirks, limitations, user preferences
+
+    The software section is auto-updated after shell_execute runs
+    package/service/xdg commands. Check profile.software.packages
+    before suggesting installations.
     """
 
     try:
@@ -922,43 +996,18 @@ async def host_get_profile() -> str:
     return json.dumps({"status": "ok", "host_id": _get_host_id(), "profile": profile})
 
 
-@mcp.tool("host_get_state")  # type: ignore
-async def host_get_state() -> str:
-    """Get dynamic host state (installed packages, enabled services, default apps).
-
-    State is auto-updated when shell_execute runs commands that modify:
-    - Packages (pacman/yay/paru install/remove)
-    - Services (systemctl enable/disable)
-    - Default apps (xdg-settings/xdg-mime)
-
-    Returns tracked categories: browsers, editors, terminals, system_tools, media, dev_tools.
-    Use this to check what's already installed before suggesting installations.
-    """
-
-    try:
-        state = _load_state()
-    except ValueError as exc:
-        return json.dumps(
-            {
-                "status": "error",
-                "host_id": _get_host_id(),
-                "message": str(exc),
-            }
-        )
-
-    return json.dumps({"status": "ok", "host_id": _get_host_id(), "state": state})
-
-
 @mcp.tool("host_update_profile")  # type: ignore
 async def host_update_profile(updates: dict, reason: str | None = None) -> str:
-    """Update static host profile (use sparingly for permanent config changes).
+    """Update host profile (hardware, software, notes).
 
-    Use for:
-    - Adding notes about discovered binary names
-    - Documenting new capabilities or limitations
-    - Recording user preferences
+    Profile sections:
+    - hardware: CPU, GPU, RAM, model (rarely changes)
+    - software: OS, desktop, package manager, plus auto-tracked packages/services/defaults
+    - notes: Binary quirks, limitations, user preferences
 
-    Do NOT use for: installed packages, services, defaults (those go in state).
+    The software.packages, software.enabled_services, and software.defaults
+    are auto-updated by shell_execute after install/service/xdg commands.
+    Use this tool for manual corrections or non-auto-detected changes.
 
     Args:
         updates: Dict to deep-merge (set value to null to delete a key)
@@ -994,47 +1043,59 @@ async def host_update_profile(updates: dict, reason: str | None = None) -> str:
     )
 
 
-@mcp.tool("host_update_state")  # type: ignore
-async def host_update_state(updates: dict, reason: str | None = None) -> str:
-    """Manually update host state for changes not auto-detected.
+@mcp.tool("host_detect_system")  # type: ignore
+async def host_detect_system() -> str:
+    """Detect and update profile with current system information.
 
-    Auto-snapshot handles: package installs, service enable/disable, xdg defaults.
-    Use this for other runtime state like:
-    - CPU governor settings
-    - Display configuration
-    - Network profiles
-    - Custom environment changes
+    Auto-detects: OS, kernel, desktop environment, display server (wayland/x11),
+    package manager, AUR helper, installed packages, enabled services, default apps.
 
-    Args:
-        updates: Dict to deep-merge (set value to null to delete a key)
-        reason: Explanation logged to deltas.log for audit
+    Run this to initialize a new profile or audit an existing one.
+    Safe to run anytime — merges detected info into profile without overwriting
+    manual notes or hardware info.
     """
 
+    # Detect static system info
+    system_info = await _detect_system_info()
+
+    # Also snapshot dynamic software state
+    packages = await _snapshot_tracked_packages()
+    services = await _snapshot_enabled_services()
+    defaults = await _snapshot_defaults()
+
+    # Build software section
+    software_update: dict[str, object] = {**system_info}
+    if packages:
+        software_update["packages"] = packages
+    if services:
+        software_update["enabled_services"] = services
+    if defaults:
+        software_update["defaults"] = defaults
+    software_update["snapshot_ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    # Load current profile and merge
     try:
-        current = _load_state()
-    except ValueError as exc:
-        return json.dumps(
-            {
-                "status": "error",
-                "host_id": _get_host_id(),
-                "message": str(exc),
-            }
-        )
+        current = _load_profile()
+    except (FileNotFoundError, ValueError):
+        current = {}
 
-    # Auto-update timestamp
-    updates_with_ts = {"ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    updates_with_ts.update(updates)
+    # Merge into software section
+    if "software" not in current:
+        current["software"] = {}
+    current["software"] = _deep_merge(current.get("software", {}), software_update)
+    current["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-    merged = _deep_merge(current, updates_with_ts)
-    _save_state(merged)
-    _append_delta("state", updates, reason)
+    _save_profile(current)
+    _append_delta(
+        "system_detect", {"software": software_update}, "Auto-detected system info"
+    )
 
     return json.dumps(
         {
             "status": "ok",
             "host_id": _get_host_id(),
-            "message": "State updated",
-            "applied": updates,
+            "message": "System info detected and profile updated",
+            "detected": software_update,
         }
     )
 
@@ -1052,8 +1113,7 @@ __all__ = [
     "shell_execute",
     "shell_get_full_output",
     "host_get_profile",
-    "host_get_state",
     "host_update_profile",
-    "host_update_state",
+    "host_detect_system",
     "run",
 ]

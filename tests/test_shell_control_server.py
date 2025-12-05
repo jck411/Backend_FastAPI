@@ -206,21 +206,6 @@ def test_load_profile_success(host_root: Path, monkeypatch: pytest.MonkeyPatch) 
     assert loaded == profile
 
 
-def test_state_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HOST_PROFILE_ID", "demo")
-    payload = {"ts": "now", "ok": True}
-
-    shell_control_server._save_state(payload)
-
-    assert shell_control_server._load_state() == payload
-
-
-def test_load_state_missing_returns_empty(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HOST_PROFILE_ID", "demo")
-
-    assert shell_control_server._load_state() == {}
-
-
 async def test_host_id_validation_prevents_path_traversal() -> None:
     """Test that invalid host_id values are rejected to prevent path traversal."""
     invalid_ids = [
@@ -349,58 +334,6 @@ async def test_shell_execute_noconfirm_not_duplicated(
     main_cmd = calls[0]
     # Should only have one --noconfirm
     assert main_cmd.count("--noconfirm") == 1
-
-
-async def test_shell_execute_background_mode() -> None:
-    """Test that background=True returns immediately with job_id."""
-    result = json.loads(
-        await shell_control_server.shell_execute(
-            "sleep 2 && echo done",
-            background=True,
-        )
-    )
-
-    assert result["status"] == "running"
-    assert "job_id" in result
-    assert "command" in result
-
-    job_id = result["job_id"]
-
-    # Check job status - should still be running
-    status = json.loads(await shell_control_server.shell_job_status(job_id))
-    assert status["status"] == "running"
-    assert status["job_id"] == job_id
-
-    # Wait for completion
-    import asyncio
-
-    await asyncio.sleep(3)
-
-    # Check again - should be completed
-    status = json.loads(await shell_control_server.shell_job_status(job_id))
-    assert status["status"] == "completed"
-    assert "result" in status
-    assert status["result"]["exit_code"] == 0
-    assert "done" in status["result"]["stdout"]
-
-
-async def test_shell_job_status_all_jobs() -> None:
-    """Test listing all background jobs."""
-    # Clear any existing jobs
-    shell_control_server._background_jobs.clear()
-
-    # Start a quick background job
-    result = json.loads(
-        await shell_control_server.shell_execute("echo test", background=True)
-    )
-    job_id = result["job_id"]
-
-    # List all jobs
-    all_jobs = json.loads(await shell_control_server.shell_job_status())
-
-    assert all_jobs["status"] == "ok"
-    assert all_jobs["total_jobs"] >= 1
-    assert any(j["job_id"] == job_id for j in all_jobs["jobs"])
 
 
 async def test_host_update_profile_adds_timestamp(

@@ -875,13 +875,15 @@ async def shell_execute(
             _run_background_job(job_id, command, working_directory, timeout_seconds)
         )
 
-        return json.dumps({
-            "status": "running",
-            "job_id": job_id,
-            "command": command,
-            "message": "Command started in background. Use shell_job_status(job_id) to check progress.",
-            "tip": "Poll shell_job_status every 10-30 seconds for long operations.",
-        })
+        return json.dumps(
+            {
+                "status": "running",
+                "job_id": job_id,
+                "command": command,
+                "message": "Command started in background. Use shell_job_status(job_id) to check progress.",
+                "tip": "Poll shell_job_status every 10-30 seconds for long operations.",
+            }
+        )
 
     result = await _execute_and_log(
         command,
@@ -986,7 +988,8 @@ async def shell_job_status(job_id: str | None = None) -> str:
     # Clean up old completed jobs (keep for 1 hour)
     cutoff = time.time() - 3600
     to_remove = [
-        jid for jid, job in _background_jobs.items()
+        jid
+        for jid, job in _background_jobs.items()
         if job.get("end_time", 0) > 0 and job["end_time"] < cutoff
     ]
     for jid in to_remove:
@@ -995,11 +998,13 @@ async def shell_job_status(job_id: str | None = None) -> str:
     if job_id:
         job = _background_jobs.get(job_id)
         if not job:
-            return json.dumps({
-                "status": "error",
-                "message": f"Job {job_id} not found (may have expired)",
-                "job_id": job_id,
-            })
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": f"Job {job_id} not found (may have expired)",
+                    "job_id": job_id,
+                }
+            )
 
         elapsed = time.time() - job["start_time"]
         response: dict[str, Any] = {
@@ -1025,7 +1030,8 @@ async def shell_job_status(job_id: str | None = None) -> str:
         elapsed = time.time() - job["start_time"]
         summary: dict[str, Any] = {
             "job_id": jid,
-            "command": job["command"][:80] + ("..." if len(job["command"]) > 80 else ""),
+            "command": job["command"][:80]
+            + ("..." if len(job["command"]) > 80 else ""),
             "status": job["status"],
             "elapsed_seconds": round(elapsed, 1),
         }
@@ -1033,12 +1039,16 @@ async def shell_job_status(job_id: str | None = None) -> str:
             summary["exit_code"] = job.get("result", {}).get("exit_code")
         jobs_summary.append(summary)
 
-    return json.dumps({
-        "status": "ok",
-        "active_jobs": len([j for j in _background_jobs.values() if j["status"] == "running"]),
-        "total_jobs": len(_background_jobs),
-        "jobs": jobs_summary,
-    })
+    return json.dumps(
+        {
+            "status": "ok",
+            "active_jobs": len(
+                [j for j in _background_jobs.values() if j["status"] == "running"]
+            ),
+            "total_jobs": len(_background_jobs),
+            "jobs": jobs_summary,
+        }
+    )
 
 
 @mcp.tool("host_get_profile")  # type: ignore

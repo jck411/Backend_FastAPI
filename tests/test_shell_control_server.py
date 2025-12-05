@@ -413,6 +413,7 @@ async def test_shell_execute_background_mode() -> None:
 
     # Wait for completion
     import asyncio
+
     await asyncio.sleep(3)
 
     # Check again - should be completed

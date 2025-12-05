@@ -15,7 +15,9 @@ from mcp.server.fastmcp import FastMCP
 mcp: FastMCP = FastMCP("shell-control")  # type: ignore
 
 
-OUTPUT_TRUNCATE_BYTES = 20 * 1024
+OUTPUT_TAIL_BYTES = 4 * 1024  # For success: last 4KB is usually enough
+OUTPUT_HEAD_BYTES = 2 * 1024  # For failure: first 2KB (context)
+OUTPUT_FAIL_TAIL_BYTES = 4 * 1024  # For failure: last 4KB (error details)
 LOG_RETENTION_HOURS = 48
 DELTAS_RETENTION_DAYS = 30
 DELTAS_MAX_ENTRIES = 100
@@ -596,15 +598,31 @@ def _detect_snapshot_triggers(command: str) -> set[str]:
     return triggers
 
 
-def _truncate_output(text: str) -> tuple[str, bool]:
-    """Truncate stdout/stderr to the configured limit."""
+def _smart_truncate(text: str, *, success: bool) -> tuple[str, bool]:
+    """Truncate output smartly based on command result.
 
+    Success: Return only tail (last N bytes) - LLM just needs confirmation.
+    Failure: Return head + tail - context at start, error at end.
+    """
     encoded = text.encode("utf-8", errors="replace")
-    if len(encoded) <= OUTPUT_TRUNCATE_BYTES:
-        return text, False
+    total_len = len(encoded)
 
-    slice_bytes = encoded[:OUTPUT_TRUNCATE_BYTES]
-    return slice_bytes.decode("utf-8", errors="replace"), True
+    if success:
+        # Success: just the tail is enough
+        if total_len <= OUTPUT_TAIL_BYTES:
+            return text, False
+        tail = encoded[-OUTPUT_TAIL_BYTES:]
+        return tail.decode("utf-8", errors="replace"), True
+    else:
+        # Failure: head + tail for context
+        max_bytes = OUTPUT_HEAD_BYTES + OUTPUT_FAIL_TAIL_BYTES
+        if total_len <= max_bytes:
+            return text, False
+        head = encoded[:OUTPUT_HEAD_BYTES]
+        tail = encoded[-OUTPUT_FAIL_TAIL_BYTES:]
+        separator = b"\n...truncated...\n"
+        combined = head + separator + tail
+        return combined.decode("utf-8", errors="replace"), True
 
 
 def _build_shell_env() -> dict[str, str]:
@@ -816,8 +834,9 @@ async def _execute_and_log(
         timeout_seconds=timeout_seconds,
     )
 
-    truncated_stdout, truncated_stdout_flag = _truncate_output(stdout)
-    truncated_stderr, truncated_stderr_flag = _truncate_output(stderr)
+    success = exit_code == 0
+    truncated_stdout, truncated_stdout_flag = _smart_truncate(stdout, success=success)
+    truncated_stderr, truncated_stderr_flag = _smart_truncate(stderr, success=success)
     truncated = truncated_stdout_flag or truncated_stderr_flag
 
     # Clean up old logs before writing new one

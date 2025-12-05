@@ -1,16 +1,16 @@
 {
   "suggestions": [
     {
-      "label": "Next.js advantages",
-      "text": "What are the advantages of using Next.js?"
+      "label": "Update VS Code",
+      "text": "Update VS Code Insiders"
     },
     {
-      "label": "Dijkstra code",
-      "text": "Write code to demonstrate Dijkstra's algorithm"
+      "label": "System info",
+      "text": "Show me system information"
     },
     {
-      "label": "Essay helper",
-      "text": "Help me write an essay about Silicon Valley"
+      "label": "Install package",
+      "text": "Install htop"
     },
     {
       "label": "Weather",

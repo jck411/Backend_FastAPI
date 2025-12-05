@@ -389,3 +389,82 @@ async def test_shell_execute_noconfirm_not_duplicated(
     main_cmd = calls[0]
     # Should only have one --noconfirm
     assert main_cmd.count("--noconfirm") == 1
+
+
+async def test_shell_execute_background_mode() -> None:
+    """Test that background=True returns immediately with job_id."""
+    result = json.loads(
+        await shell_control_server.shell_execute(
+            "sleep 2 && echo done",
+            background=True,
+        )
+    )
+
+    assert result["status"] == "running"
+    assert "job_id" in result
+    assert "command" in result
+
+    job_id = result["job_id"]
+
+    # Check job status - should still be running
+    status = json.loads(await shell_control_server.shell_job_status(job_id))
+    assert status["status"] == "running"
+    assert status["job_id"] == job_id
+
+    # Wait for completion
+    import asyncio
+    await asyncio.sleep(3)
+
+    # Check again - should be completed
+    status = json.loads(await shell_control_server.shell_job_status(job_id))
+    assert status["status"] == "completed"
+    assert "result" in status
+    assert status["result"]["exit_code"] == 0
+    assert "done" in status["result"]["stdout"]
+
+
+async def test_shell_job_status_all_jobs() -> None:
+    """Test listing all background jobs."""
+    # Clear any existing jobs
+    shell_control_server._background_jobs.clear()
+
+    # Start a quick background job
+    result = json.loads(
+        await shell_control_server.shell_execute("echo test", background=True)
+    )
+    job_id = result["job_id"]
+
+    # List all jobs
+    all_jobs = json.loads(await shell_control_server.shell_job_status())
+
+    assert all_jobs["status"] == "ok"
+    assert all_jobs["total_jobs"] >= 1
+    assert any(j["job_id"] == job_id for j in all_jobs["jobs"])
+
+
+async def test_host_update_profile_adds_timestamp(
+    host_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Test that host_update_profile adds updated_at timestamp."""
+    monkeypatch.setenv("HOST_PROFILE_ID", "test-host")
+
+    # Create initial profile
+    profile_path = host_root / "test-host" / "profile.json"
+    profile_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_path.write_text('{"hostname": "test"}', encoding="utf-8")
+
+    # Update profile
+    result = json.loads(
+        await shell_control_server.host_update_profile(
+            {"notes": {"test": "value"}}, reason="test update"
+        )
+    )
+
+    assert result["status"] == "ok"
+
+    # Verify timestamp was added
+    updated_profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    assert "updated_at" in updated_profile
+    # Verify format is ISO 8601
+    assert updated_profile["updated_at"].endswith("Z")
+    assert "T" in updated_profile["updated_at"]

@@ -787,27 +787,10 @@
         "sort": "newness"
       },
       "name": "shell executor",
-      "suggestions": [
-        {
-          "label": "Next.js advantages",
-          "text": "What are the advantages of using Next.js?"
-        },
-        {
-          "label": "Dijkstra code",
-          "text": "Write code to demonstrate Dijkstra's algorithm"
-        },
-        {
-          "label": "Essay helper",
-          "text": "Help me write an essay about Silicon Valley"
-        },
-        {
-          "label": "Weather",
-          "text": "What is the weather in Orlando?"
-        }
-      ],
+      "suggestions": [],
       "supports_tools": true,
-      "system_prompt": "You are a helpful but funny assistant.",
-      "updated_at": "2025-12-03T23:24:31.573862Z"
+      "system_prompt": "You are a funny but helpful assistant with shell access to an Arch Linux system.\n\nIMPORTANT - Always explain your plan BEFORE executing commands:\n1. Tell the user what you're about to do and why\n\n2. Notify the user if it will take a long time\n\n3. If you encounter an error, explain what went wrong and what you'll try next",
+      "updated_at": "2025-12-04T01:17:58.530636Z"
     }
   ]
 }

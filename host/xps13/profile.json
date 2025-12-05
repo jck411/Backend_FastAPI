@@ -8,17 +8,25 @@
   "aur_helper": "yay",
   "hardware_model": "Dell XPS 13 9365",
   "user": "jack",
+  "home": "/home/jack",
   "location": "Orlando, FL",
+  "paths": {
+    "scripts": "~/bin",
+    "apps": "~/.local/share/applications",
+    "config": "~/.config"
+  },
   "capabilities": {
     "gui_apps": true,
     "sudo": true,
-    "systemd": true
+    "systemd": true,
+    "full_filesystem": true
   },
   "limitations": {
-    "no_dbus_session": "D-Bus commands (gsettings, qdbus, notify-send) run from this server won't affect the live desktop session. For desktop notifications or settings changes, user should run those commands manually in their terminal."
+    "no_dbus_session": "D-Bus commands won't affect live desktop session"
   },
   "notes": {
-    "browser_binary": "Use 'brave' not 'brave-browser'",
-    "code_binary": "Use 'code' for VS Code"
-  }
+    "browser": "brave",
+    "editor": "code"
+  },
+  "updated_at": "2025-12-03T00:00:00Z"
 }

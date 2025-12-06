@@ -8,7 +8,12 @@ import os
 import re
 import time
 import uuid
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from asyncio.subprocess import Process
 
 from mcp.server.fastmcp import FastMCP
 
@@ -24,8 +29,200 @@ DELTAS_MAX_ENTRIES = 100
 HOST_PROFILE_ENV = "HOST_PROFILE_ID"
 HOST_ROOT_ENV = "HOST_ROOT_PATH"
 
+# Shell session settings
+SESSION_IDLE_TIMEOUT = 300  # 5 minutes idle = cleanup
+SESSION_MAX_AGE = 3600  # 1 hour max session lifetime
+SESSION_MAX_COUNT = 5  # Max concurrent sessions
+
 # Validation pattern for host_id to prevent path traversal attacks
 _VALID_HOST_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+# =============================================================================
+# Persistent Shell Session Management
+# =============================================================================
+
+
+@dataclass
+class ShellSession:
+    """A persistent bash shell session."""
+
+    session_id: str
+    process: "Process"
+    created_at: float = field(default_factory=time.time)
+    last_used: float = field(default_factory=time.time)
+    cwd: str = field(default_factory=lambda: os.path.expanduser("~"))
+    command_count: int = 0
+
+    def is_alive(self) -> bool:
+        """Check if the shell process is still running."""
+        return self.process.returncode is None
+
+    def is_expired(self) -> bool:
+        """Check if session should be cleaned up."""
+        now = time.time()
+        idle_expired = (now - self.last_used) > SESSION_IDLE_TIMEOUT
+        age_expired = (now - self.created_at) > SESSION_MAX_AGE
+        return idle_expired or age_expired or not self.is_alive()
+
+
+# Global session store
+_sessions: dict[str, ShellSession] = {}
+_sessions_lock = asyncio.Lock()
+
+
+async def _cleanup_expired_sessions() -> None:
+    """Remove expired sessions."""
+    async with _sessions_lock:
+        expired = [sid for sid, sess in _sessions.items() if sess.is_expired()]
+        for sid in expired:
+            sess = _sessions.pop(sid, None)
+            if sess and sess.is_alive():
+                sess.process.terminate()
+                try:
+                    await asyncio.wait_for(sess.process.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    sess.process.kill()
+
+
+async def _get_or_create_session(session_id: str | None = None) -> ShellSession:
+    """Get existing session or create a new one."""
+    await _cleanup_expired_sessions()
+
+    async with _sessions_lock:
+        # If session_id provided, try to find it
+        if session_id and session_id in _sessions:
+            sess = _sessions[session_id]
+            if sess.is_alive() and not sess.is_expired():
+                sess.last_used = time.time()
+                return sess
+            # Session dead/expired, remove it
+            _sessions.pop(session_id, None)
+
+        # Enforce max sessions
+        if len(_sessions) >= SESSION_MAX_COUNT:
+            # Remove oldest session
+            oldest_id = min(_sessions, key=lambda s: _sessions[s].last_used)
+            old_sess = _sessions.pop(oldest_id)
+            if old_sess.is_alive():
+                old_sess.process.terminate()
+
+        # Create new session
+        new_id = session_id or uuid.uuid4().hex[:12]
+        shell_env = _build_shell_env()
+
+        # Use non-interactive bash to avoid command echoing
+        process = await asyncio.create_subprocess_shell(
+            "bash --norc --noprofile",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,  # Merge stderr into stdout
+            env=shell_env,
+            start_new_session=True,
+        )
+
+        sess = ShellSession(session_id=new_id, process=process)
+        _sessions[new_id] = sess
+
+        return sess
+
+
+async def _run_in_session(
+    sess: ShellSession,
+    command: str,
+    timeout_seconds: int = 30,
+) -> tuple[str, int, str]:
+    """Run a command in an existing session.
+
+    Returns: (output, exit_code, new_cwd)
+    """
+    if not sess.is_alive():
+        raise RuntimeError("Session is no longer alive")
+
+    if not sess.process.stdin or not sess.process.stdout:
+        raise RuntimeError("Session has no stdin/stdout")
+
+    # Use a unique end marker for this command
+    end_marker = f"___END_{uuid.uuid4().hex[:8]}___"
+
+    # Build a script that:
+    # 1. Runs the user command
+    # 2. Captures exit code
+    # 3. Prints marker with exit code and cwd on a single line
+    wrapped_cmd = f"""{command}
+__ec__=$?
+echo ""
+echo "{end_marker}:$__ec__:$(pwd)"
+"""
+
+    sess.process.stdin.write(wrapped_cmd.encode())
+    await sess.process.stdin.drain()
+
+    # Read output until we see the end marker
+    output_lines: list[str] = []
+    exit_code = -1
+    new_cwd = sess.cwd
+    start = time.time()
+
+    while True:
+        if time.time() - start > timeout_seconds:
+            # Timeout - try to interrupt
+            sess.process.send_signal(2)  # SIGINT
+            raise TimeoutError(f"Command timed out after {timeout_seconds}s")
+
+        try:
+            line_bytes = await asyncio.wait_for(
+                sess.process.stdout.readline(), timeout=0.5
+            )
+        except asyncio.TimeoutError:
+            continue
+
+        if not line_bytes:
+            # EOF - process died
+            raise RuntimeError("Shell process terminated unexpectedly")
+
+        line = line_bytes.decode("utf-8", errors="replace").rstrip("\n\r")
+
+        # Check for our end marker
+        if line.startswith(end_marker):
+            # Parse: ___END_xxxx___:<exit_code>:<cwd>
+            parts = line.split(":", 2)
+            if len(parts) >= 3:
+                try:
+                    exit_code = int(parts[1])
+                except ValueError:
+                    exit_code = -1
+                new_cwd = parts[2]
+            break
+
+        # Skip empty lines at the start (from echo "")
+        if output_lines or line:
+            output_lines.append(line)
+
+    # Remove trailing empty line if present
+    while output_lines and not output_lines[-1]:
+        output_lines.pop()
+
+    sess.cwd = new_cwd
+    sess.command_count += 1
+    sess.last_used = time.time()
+
+    return "\n".join(output_lines), exit_code, new_cwd
+
+
+async def _close_session(session_id: str) -> bool:
+    """Close a session explicitly."""
+    async with _sessions_lock:
+        sess = _sessions.pop(session_id, None)
+        if not sess:
+            return False
+        if sess.is_alive():
+            sess.process.terminate()
+            try:
+                await asyncio.wait_for(sess.process.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                sess.process.kill()
+        return True
 
 
 def _get_repo_root() -> Path:
@@ -243,6 +440,102 @@ _SNAPSHOT_TRIGGERS: list[tuple[str, str]] = [
     (r"xdg-mime\s+default\s", "defaults"),
     (r"update-alternatives\s+--set\s", "defaults"),
 ]
+
+# Settings panels to open after certain commands (pattern -> panel)
+# Supports: gnome-control-center, systemsettings (KDE), or generic commands
+_SETTINGS_PANELS: dict[str, dict[str, str | None]] = {
+    # Bluetooth
+    r"bluetooth(ctl)?\s+(connect|pair|trust|power|scan)": {
+        "gnome": "gnome-control-center bluetooth",
+        "kde": "systemsettings kcm_bluetooth",
+        "generic": "blueman-manager",
+    },
+    r"rfkill\s+(un)?block\s+bluetooth": {
+        "gnome": "gnome-control-center bluetooth",
+        "kde": "systemsettings kcm_bluetooth",
+        "generic": "blueman-manager",
+    },
+    # Audio/Volume
+    r"(pactl|pamixer|amixer)\s+.*(volume|mute|sink|source)": {
+        "gnome": "gnome-control-center sound",
+        "kde": "systemsettings kcm_pulseaudio",
+        "generic": "pavucontrol",
+    },
+    r"wpctl\s+set-(volume|mute)": {
+        "gnome": "gnome-control-center sound",
+        "kde": "systemsettings kcm_pulseaudio",
+        "generic": "pavucontrol",
+    },
+    # Display/Monitor
+    r"(xrandr|wlr-randr|gnome-randr)\s+": {
+        "gnome": "gnome-control-center display",
+        "kde": "systemsettings kcm_kscreen",
+        "generic": "arandr",
+    },
+    # Network/WiFi
+    r"nmcli\s+(dev|device|con|connection)\s+(wifi|connect|up|down|modify)": {
+        "gnome": "gnome-control-center wifi",
+        "kde": "systemsettings kcm_networkmanagement",
+        "generic": "nm-connection-editor",
+    },
+    r"nmcli\s+radio\s+wifi": {
+        "gnome": "gnome-control-center wifi",
+        "kde": "systemsettings kcm_networkmanagement",
+        "generic": "nm-connection-editor",
+    },
+    # Power settings
+    r"(powerprofilesctl|power-profiles-daemon)": {
+        "gnome": "gnome-control-center power",
+        "kde": "systemsettings kcm_powerdevilprofilesconfig",
+        "generic": None,
+    },
+    r"(tlp|auto-cpufreq)": {
+        "gnome": "gnome-control-center power",
+        "kde": "systemsettings kcm_powerdevilprofilesconfig",
+        "generic": None,
+    },
+    # Appearance/Theme
+    r"gsettings\s+set\s+org\.gnome\.(desktop\.interface|shell\.extensions)": {
+        "gnome": "gnome-control-center appearance",
+        "kde": None,
+        "generic": None,
+    },
+    r"plasma-apply-(lookandfeel|colorscheme|desktoptheme)": {
+        "gnome": None,
+        "kde": "systemsettings kcm_lookandfeel",
+        "generic": None,
+    },
+    # Keyboard
+    r"(setxkbmap|localectl\s+set-x11-keymap)": {
+        "gnome": "gnome-control-center keyboard",
+        "kde": "systemsettings kcm_keyboard",
+        "generic": None,
+    },
+    # Mouse/Touchpad
+    r"(xinput|libinput).*set-prop": {
+        "gnome": "gnome-control-center mouse",
+        "kde": "systemsettings kcm_touchpad",
+        "generic": None,
+    },
+    # Printers
+    r"(lpadmin|lpstat|cupsenable|cupsdisable)": {
+        "gnome": "gnome-control-center printers",
+        "kde": "systemsettings kcm_printer_manager",
+        "generic": "system-config-printer",
+    },
+    # Default applications
+    r"xdg-(settings|mime)\s+(set|default)": {
+        "gnome": "gnome-control-center default-apps",
+        "kde": "systemsettings kcm_componentchooser",
+        "generic": None,
+    },
+    # Night light / color temperature
+    r"(gsettings.*night-light|redshift|gammastep)": {
+        "gnome": "gnome-control-center display",
+        "kde": "systemsettings kcm_nightcolor",
+        "generic": None,
+    },
+}
 
 # Categories of packages to track (grep patterns for pacman -Qe)
 _TRACKED_CATEGORIES: dict[str, list[str]] = {
@@ -608,6 +901,48 @@ def _detect_snapshot_triggers(command: str) -> set[str]:
     return triggers
 
 
+def _detect_desktop_environment() -> str:
+    """Detect the current desktop environment type."""
+    desktop = os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+    session = os.environ.get("DESKTOP_SESSION", "").lower()
+
+    if "gnome" in desktop or "gnome" in session or "unity" in desktop:
+        return "gnome"
+    elif "kde" in desktop or "plasma" in desktop or "kde" in session:
+        return "kde"
+    else:
+        return "generic"
+
+
+async def _open_settings_panel(command: str) -> str | None:
+    """Check if command triggers a settings panel and open it.
+
+    Returns the panel command that was launched, or None.
+    """
+    desktop = _detect_desktop_environment()
+
+    for pattern, panels in _SETTINGS_PANELS.items():
+        if re.search(pattern, command, re.IGNORECASE):
+            panel_cmd = panels.get(desktop) or panels.get("generic")
+            if not panel_cmd:
+                return None
+
+            # Launch the settings panel in background (fire and forget)
+            shell_env = _build_shell_env()
+            try:
+                await asyncio.create_subprocess_shell(
+                    f"nohup {panel_cmd} >/dev/null 2>&1 &",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    env=shell_env,
+                )
+                return panel_cmd
+            except Exception:
+                return None
+
+    return None
+
+
 def _smart_truncate(text: str, *, success: bool) -> tuple[str, bool]:
     """Truncate output smartly based on command result.
 
@@ -891,7 +1226,183 @@ async def _execute_and_log(
                 result["profile_updated"] = True
                 result["software_snapshot"] = snapshot
 
+        # Auto-open settings panel for configuration commands
+        panel_opened = await _open_settings_panel(command)
+        if panel_opened:
+            result["settings_panel_opened"] = panel_opened
+
     return result
+
+
+async def _launch_gui_app(
+    command: str,
+    working_directory: str | None = None,
+) -> dict[str, object]:
+    """Launch a GUI application in background without waiting.
+
+    Uses setsid + nohup to fully detach from the subprocess.
+    Returns immediately after spawning.
+    """
+    shell_env = _build_shell_env()
+
+    # Extract the base command (first word) for the response
+    base_cmd = command.split()[0] if command.split() else command
+
+    # Use setsid to create new session, nohup to ignore hangup,
+    # redirect all I/O to /dev/null to fully detach
+    detached_command = f"setsid nohup {command} >/dev/null 2>&1 &"
+
+    start = time.perf_counter()
+    try:
+        await asyncio.create_subprocess_shell(
+            detached_command,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+            stdin=asyncio.subprocess.DEVNULL,
+            cwd=working_directory or None,
+            env=shell_env,
+            start_new_session=True,
+        )
+        # Don't wait for the process - it's fully detached
+        # Just give it a moment to spawn
+        await asyncio.sleep(0.1)
+        duration_ms = (time.perf_counter() - start) * 1000
+
+        return {
+            "status": "launched",
+            "command": command,
+            "app": base_cmd,
+            "background": True,
+            "duration_ms": duration_ms,
+            "message": f"GUI app '{base_cmd}' launched in background",
+        }
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - start) * 1000
+        return {
+            "status": "error",
+            "command": command,
+            "error": str(exc),
+            "duration_ms": duration_ms,
+        }
+
+
+@mcp.tool("shell_session")  # type: ignore
+async def shell_session(
+    command: str,
+    session_id: str | None = None,
+    timeout_seconds: int = 30,
+) -> str:
+    """Run a command in a persistent shell session.
+
+    PREFER THIS over shell_execute for multi-step tasks. The session persists:
+    - cd changes carry over to next command
+    - Environment variables persist (export FOO=bar)
+    - Background jobs continue running
+    - Command history within session
+
+    Workflow example (bluetooth connect):
+    1. shell_session(command="bluetoothctl devices | grep -i pixel")
+       → Returns session_id, use it for subsequent commands
+    2. shell_session(command="bluetoothctl connect XX:XX:XX", session_id="abc123")
+       → Same session, can reference previous context
+
+    Args:
+        command: The command to run
+        session_id: Reuse an existing session. Omit to create new session.
+        timeout_seconds: Max time to wait for command (default 30s)
+
+    Returns: JSON with output, exit_code, cwd, session_id.
+    Always returns session_id - use it for follow-up commands.
+
+    Sessions auto-expire after 5 min idle or 1 hour total.
+    """
+    start = time.perf_counter()
+
+    try:
+        sess = await _get_or_create_session(session_id)
+        output, exit_code, cwd = await _run_in_session(sess, command, timeout_seconds)
+        duration_ms = (time.perf_counter() - start) * 1000
+
+        return json.dumps(
+            {
+                "status": "ok",
+                "output": output,
+                "exit_code": exit_code,
+                "cwd": cwd,
+                "session_id": sess.session_id,
+                "command_count": sess.command_count,
+                "duration_ms": duration_ms,
+            }
+        )
+
+    except TimeoutError as e:
+        duration_ms = (time.perf_counter() - start) * 1000
+        return json.dumps(
+            {
+                "status": "timeout",
+                "error": str(e),
+                "session_id": session_id,
+                "duration_ms": duration_ms,
+            }
+        )
+
+    except Exception as e:
+        duration_ms = (time.perf_counter() - start) * 1000
+        return json.dumps(
+            {
+                "status": "error",
+                "error": str(e),
+                "session_id": session_id,
+                "duration_ms": duration_ms,
+            }
+        )
+
+
+@mcp.tool("shell_session_close")  # type: ignore
+async def shell_session_close(session_id: str) -> str:
+    """Close a shell session explicitly.
+
+    Use when done with a multi-step task to free resources.
+    Sessions also auto-expire after 5 min idle.
+    """
+    closed = await _close_session(session_id)
+    return json.dumps(
+        {
+            "status": "ok" if closed else "not_found",
+            "session_id": session_id,
+            "message": "Session closed" if closed else "Session not found",
+        }
+    )
+
+
+@mcp.tool("shell_session_list")  # type: ignore
+async def shell_session_list() -> str:
+    """List all active shell sessions.
+
+    Shows session IDs, age, last command time, and current directory.
+    """
+    await _cleanup_expired_sessions()
+
+    sessions_info = []
+    for sid, sess in _sessions.items():
+        sessions_info.append(
+            {
+                "session_id": sid,
+                "cwd": sess.cwd,
+                "command_count": sess.command_count,
+                "age_seconds": round(time.time() - sess.created_at, 1),
+                "idle_seconds": round(time.time() - sess.last_used, 1),
+                "alive": sess.is_alive(),
+            }
+        )
+
+    return json.dumps(
+        {
+            "status": "ok",
+            "sessions": sessions_info,
+            "count": len(sessions_info),
+        }
+    )
 
 
 @mcp.tool("shell_execute")  # type: ignore
@@ -900,8 +1411,17 @@ async def shell_execute(
     working_directory: str | None = None,
     timeout_seconds: int = 30,
     confirm: bool = False,
+    background: bool = False,
 ) -> str:
-    """Execute a shell command on the host system.
+    """Execute a shell command (one-shot, no session persistence).
+
+    For multi-step tasks, PREFER shell_session instead - it maintains
+    state between commands (cd, env vars, etc.).
+
+    Use shell_execute for:
+    - Simple one-off commands
+    - Commands that need sudo (shell_session doesn't support sudo yet)
+    - GUI app launches (with background=true)
 
     Call host_get_profile first if unsure about OS/package manager.
 
@@ -909,8 +1429,9 @@ async def shell_execute(
 
     Non-interactive (no TTY); --noconfirm auto-added for pacman/yay.
 
-    Packages: Use 'yay -S <pkg>' for installs (NOT -Syu).
-    'yay -Syu' upgrades ALL packages — only if user explicitly asks.
+    Args:
+        background: Set True for GUI apps (wizards, dialogs, editors).
+                    Returns immediately without waiting for app to close.
 
     Returns: stdout, stderr, exit_code, duration_ms, log_id.
     If truncated=true, use shell_get_full_output(log_id).
@@ -927,6 +1448,11 @@ async def shell_execute(
                 "message": "Set confirm=True to execute this command",
             }
         )
+
+    # For GUI apps, use background mode to avoid blocking
+    if background:
+        result = await _launch_gui_app(command, working_directory)
+        return json.dumps(result)
 
     result = await _execute_and_log(
         command,
@@ -1141,6 +1667,9 @@ if __name__ == "__main__":  # pragma: no cover - CLI helper
 
 __all__ = [
     "mcp",
+    "shell_session",
+    "shell_session_close",
+    "shell_session_list",
     "shell_execute",
     "shell_get_full_output",
     "host_get_profile",

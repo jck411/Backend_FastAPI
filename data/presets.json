@@ -680,15 +680,15 @@
     },
     {
       "created_at": "2025-12-02T17:03:20.940841Z",
-      "is_default": true,
+      "is_default": false,
       "mcp_servers": [
         {
           "contexts": [],
           "disabled_tools": [],
           "enabled": true,
           "env": {
-            "HOST_ROOT_PATH": "/home/jack/gdrive/host_profiles",
             "HOST_PROFILE_ID": "xps13",
+            "HOST_ROOT_PATH": "/home/jack/gdrive/host_profiles",
             "REQUIRE_APPROVAL": "false",
             "SUDO_PASSWORD": "9791"
           },
@@ -799,16 +799,16 @@
       "updated_at": "2025-12-06T00:20:10.734334Z"
     },
     {
-      "created_at": "2025-12-06T00:45:00.000000Z",
-      "is_default": false,
+      "created_at": "2025-12-06T00:45:00Z",
+      "is_default": true,
       "mcp_servers": [
         {
           "contexts": [],
           "disabled_tools": [],
           "enabled": true,
           "env": {
-            "HOST_ROOT_PATH": "/home/jack/gdrive/host_profiles",
             "HOST_PROFILE_ID": "xps13",
+            "HOST_ROOT_PATH": "/home/jack/gdrive/host_profiles",
             "REQUIRE_APPROVAL": "false",
             "SUDO_PASSWORD": "9791"
           },
@@ -872,7 +872,7 @@
         {
           "contexts": [],
           "disabled_tools": [],
-          "enabled": false,
+          "enabled": true,
           "env": {},
           "id": "spotify",
           "module": "backend.mcp_servers.spotify_server",
@@ -897,12 +897,12 @@
           "tool_overrides": {}
         }
       ],
-      "model": "anthropic/claude-sonnet-4",
+      "model": "openai/gpt-5.1",
       "model_filters": {
         "series": {
           "exclude": [],
           "include": [
-            "claude"
+            "gpt"
           ]
         },
         "sort": "newness"
@@ -912,11 +912,15 @@
         {
           "label": "update profile",
           "text": "lets update host profile"
+        },
+        {
+          "label": "bluetooth connect",
+          "text": "connect to my bluetooth headphones"
         }
       ],
       "supports_tools": true,
-      "system_prompt": "You control the user's system via shell. Call host_get_profile first - it contains OS, config paths, cli tools, and notes about quirks.\n\nCore rules:\n1. READ before WRITE. grep/cat the config file first. Never assume structure.\n2. USE the profile. It tells you exact paths, keys, and which tools work.\n3. SIMPLE tools. Prefer sed/grep over kwriteconfig for complex config files.\n4. BACKUP before edit. cp file file.backup-$(date +%Y%m%d-%H%M%S)\n5. VERIFY after. grep the file again to confirm your change exists.\n6. If stuck, restore backup rather than making more changes.\n\nWorkflow: get profile → grep current state → backup → sed to modify → grep to verify → restart if needed → report.",
-      "updated_at": "2025-12-06T01:25:00.000000Z"
+      "system_prompt": "You control the user's system via shell. Call host_get_profile first - it contains OS, config paths, cli tools, and notes about quirks.\n\nBEHAVIOR: ACT, don't instruct. Execute commands to accomplish tasks directly. Never tell the user to click buttons or navigate menus - do it yourself via CLI. If you need device names/MACs, query them first, then act.\n\nCore rules:\n1. READ before WRITE. grep/cat the config file first. Never assume structure.\n2. USE the profile. It tells you exact paths, keys, and which tools work.\n3. CLI over GUI. Use bluetoothctl not wizards, nmcli not GUI, pactl not settings panels.\n4. BACKUP before edit. cp file file.backup-$(date +%Y%m%d-%H%M%S)\n5. VERIFY after. grep/query to confirm your change worked.\n6. If stuck, restore backup rather than making more changes.\n\nCommon CLI patterns:\n- Bluetooth: bluetoothctl devices | grep -i NAME, then bluetoothctl connect MAC\n- WiFi: nmcli dev wifi list, nmcli dev wifi connect SSID password PASS\n- Audio: pactl list sinks short, pactl set-sink-volume @DEFAULT_SINK@ 50%\n- Apps: Launch GUI apps with background=true parameter\n\nWorkflow: get profile → query current state → execute action → verify → report result.",
+      "updated_at": "2025-12-06T06:40:52.675337Z"
     }
   ]
 }

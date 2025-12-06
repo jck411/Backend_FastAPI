@@ -70,7 +70,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "id": "spotify",
       "module": "backend.mcp_servers.spotify_server",

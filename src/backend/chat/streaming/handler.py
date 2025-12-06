@@ -16,25 +16,38 @@ from ...services.attachment_urls import refresh_message_attachments
 from ...services.attachments import AttachmentService
 from ...services.conversation_logging import ConversationLogWriter
 from ...services.model_settings import ModelCapabilities, ModelSettingsService
-from .attachments import normalize_structured_fragments as _normalize_structured_fragments
+from .attachments import (
+    normalize_structured_fragments as _normalize_structured_fragments,
+)
 from .content_builder import AssistantContentBuilder as _AssistantContentBuilder
 from .messages import (
     parse_attachment_references as _parse_attachment_references,
+)
+from .messages import (
     prepare_messages_for_model as _prepare_messages_for_model,
 )
 from .reasoning import (
     extend_reasoning_segments as _extend_reasoning_segments,
+)
+from .reasoning import (
     extract_reasoning_segments as _extract_reasoning_segments,
 )
 from .tooling import (
     classify_tool_followup as _classify_tool_followup,
+)
+from .tooling import (
     finalize_tool_calls as _finalize_tool_calls,
+)
+from .tooling import (
     is_tool_support_error as _is_tool_support_error,
+)
+from .tooling import (
     merge_tool_calls as _merge_tool_calls,
+)
+from .tooling import (
     tool_requires_session_id as _tool_requires_session_id,
 )
 from .types import AssistantTurn, SseEvent, ToolExecutor
-
 
 logger = logging.getLogger(__name__)
 
@@ -233,27 +246,37 @@ class StreamingHandler:
                     tool_source = attachment_fragment.get("_tool_source")
                     if tool_source:
                         # Map tool names to user-friendly source labels
-                        source_label = "Google Drive" if "gdrive" in tool_source.lower() else "tool"
+                        source_label = (
+                            "Google Drive"
+                            if "gdrive" in tool_source.lower()
+                            else "tool"
+                        )
                         content_builder.add_text(f"Image from {source_label}:")
 
                     # Add image without _tool_source metadata
-                    clean_fragment = {k: v for k, v in attachment_fragment.items() if k != "_tool_source"}
+                    clean_fragment = {
+                        k: v
+                        for k, v in attachment_fragment.items()
+                        if k != "_tool_source"
+                    }
                     content_builder.add_structured([clean_fragment])
 
                     # Emit attachment as SSE delta for frontend
                     yield {
                         "event": "message",
-                        "data": json.dumps({
-                            "choices": [
-                                {
-                                    "delta": {
-                                        "content": [clean_fragment],
-                                        "role": "assistant",
-                                    },
-                                    "index": 0,
-                                }
-                            ],
-                        }),
+                        "data": json.dumps(
+                            {
+                                "choices": [
+                                    {
+                                        "delta": {
+                                            "content": [clean_fragment],
+                                            "role": "assistant",
+                                        },
+                                        "index": 0,
+                                    }
+                                ],
+                            }
+                        ),
                     }
 
                 pending_tool_attachments.clear()
@@ -726,15 +749,11 @@ class StreamingHandler:
                 status = "finished"
                 result_text = ""
                 result_obj: Any | None = None
-                missing_arguments = False
                 tool_error_flag = False
+
+                # Parse arguments - treat empty/missing as empty dict for no-arg tools
                 if not arguments_raw or arguments_raw.strip() == "":
-                    result_text = (
-                        f"Tool {tool_name} requires arguments but none were provided."
-                    )
-                    status = "error"
-                    missing_arguments = True
-                    logger.warning("Missing tool arguments for %s", tool_name)
+                    arguments = {}
                 else:
                     try:
                         arguments = json.loads(arguments_raw)
@@ -746,38 +765,38 @@ class StreamingHandler:
                         logger.warning(
                             "Tool argument parse failure for %s: %s", tool_name, exc
                         )
+                        arguments = None
+
+                if arguments is not None:
+                    if not isinstance(arguments, dict):
+                        result_text = (
+                            f"Tool {tool_name} expected a JSON object for arguments but "
+                            f"received {type(arguments).__name__}."
+                        )
+                        status = "error"
+                        logger.warning(
+                            "Unexpected tool argument type for %s: %s",
+                            tool_name,
+                            type(arguments).__name__,
+                        )
                     else:
-                        if not isinstance(arguments, dict):
-                            result_text = (
-                                f"Tool {tool_name} expected a JSON object for arguments but "
-                                f"received {type(arguments).__name__}."
+                        working_arguments = dict(arguments)
+                        if session_id and _tool_requires_session_id(tool_name):
+                            working_arguments.setdefault("session_id", session_id)
+                        try:
+                            result_obj = await self._tool_client.call_tool(
+                                tool_name, working_arguments
                             )
+                            result_text = self._tool_client.format_tool_result(
+                                result_obj
+                            )
+                            tool_error_flag = getattr(result_obj, "isError", False)
+                            status = "error" if tool_error_flag else "finished"
+                        except Exception as exc:  # pragma: no cover - MCP errors
+                            logger.exception("Tool '%s' raised an exception", tool_name)
+                            result_text = f"Tool error: {exc}"
                             status = "error"
-                            logger.warning(
-                                "Unexpected tool argument type for %s: %s",
-                                tool_name,
-                                type(arguments).__name__,
-                            )
-                        else:
-                            working_arguments = dict(arguments)
-                            if session_id and _tool_requires_session_id(tool_name):
-                                working_arguments.setdefault("session_id", session_id)
-                            try:
-                                result_obj = await self._tool_client.call_tool(
-                                    tool_name, working_arguments
-                                )
-                                result_text = self._tool_client.format_tool_result(
-                                    result_obj
-                                )
-                                tool_error_flag = getattr(result_obj, "isError", False)
-                                status = "error" if tool_error_flag else "finished"
-                            except Exception as exc:  # pragma: no cover - MCP errors
-                                logger.exception(
-                                    "Tool '%s' raised an exception", tool_name
-                                )
-                                result_text = f"Tool error: {exc}"
-                                status = "error"
-                                tool_error_flag = True
+                            tool_error_flag = True
 
                 tool_metadata = {
                     "tool_name": tool_name,
@@ -826,7 +845,9 @@ class StreamingHandler:
                                 attachment_metadata.update(
                                     {
                                         "mime_type": attachment_record.get("mime_type"),
-                                        "size_bytes": attachment_record.get("size_bytes"),
+                                        "size_bytes": attachment_record.get(
+                                            "size_bytes"
+                                        ),
                                         "display_url": signed_url,
                                         "delivery_url": signed_url,
                                     }
@@ -840,9 +861,7 @@ class StreamingHandler:
 
                             attachment_fragment = {
                                 "type": "image_url",
-                                "image_url": {
-                                    "url": signed_url
-                                },
+                                "image_url": {"url": signed_url},
                                 "metadata": attachment_metadata,
                             }
                             content_parts.append(attachment_fragment)
@@ -857,9 +876,7 @@ class StreamingHandler:
                             content_parts.append(
                                 {
                                     "type": "image_url",
-                                    "image_url": {
-                                        "url": ""
-                                    },
+                                    "image_url": {"url": ""},
                                     "metadata": {"attachment_id": attachment_id},
                                 }
                             )
@@ -908,7 +925,7 @@ class StreamingHandler:
                     status,
                     result_text,
                     tool_error_flag=tool_error_flag,
-                    missing_arguments=missing_arguments,
+                    missing_arguments=False,
                 )
                 if notice_reason is not None:
                     notice_payload = {

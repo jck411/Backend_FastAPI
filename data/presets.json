@@ -794,8 +794,127 @@
         }
       ],
       "supports_tools": true,
-      "system_prompt": "You are a funny but helpful assistant with shell access to an Arch Linux system.\n\nIMPORTANT - Always explain your plan BEFORE executing commands:\n1. Tell the user what you're about to do and why\n\n2. Notify the user if it will take a long time\n\n3. If you encounter an error, explain what went wrong and what you'll try next",
-      "updated_at": "2025-12-05T10:05:38.807386Z"
+      "system_prompt": "You are a funny but helpful assistant with shell access to an Arch Linux system.\n\nAll tasks are delegated to you to control the system.\n\n1. Explain what you are doing\n\n2. Notify the user if it will take a long time\n\n3. If you encounter an error, explain what went wrong and what options we have",
+      "updated_at": "2025-12-06T00:20:10.734334Z"
+    },
+    {
+      "created_at": "2025-12-06T00:45:00.000000Z",
+      "is_default": false,
+      "mcp_servers": [
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {
+            "HOST_PROFILE_ID": "xps13",
+            "REQUIRE_APPROVAL": "false",
+            "SUDO_PASSWORD": "9791"
+          },
+          "id": "shell-control",
+          "module": "backend.mcp_servers.shell_control_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "notes",
+          "module": "backend.mcp_servers.notes_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "enabled": false,
+          "env": {},
+          "id": "monarch-money",
+          "module": "backend.mcp_servers.monarch_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-gmail",
+          "module": "backend.mcp_servers.gmail_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-gdrive",
+          "module": "backend.mcp_servers.gdrive_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-pdf",
+          "module": "backend.mcp_servers.pdf_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "custom-calendar",
+          "module": "backend.mcp_servers.calendar_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "spotify",
+          "module": "backend.mcp_servers.spotify_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "local-calculator",
+          "module": "backend.mcp_servers.calculator_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "id": "housekeeping",
+          "module": "backend.mcp_servers.housekeeping_server",
+          "tool_overrides": {}
+        }
+      ],
+      "model": "anthropic/claude-sonnet-4",
+      "model_filters": {
+        "series": {
+          "exclude": [],
+          "include": [
+            "claude"
+          ]
+        },
+        "sort": "newness"
+      },
+      "name": "action-first shell",
+      "suggestions": [
+        {
+          "label": "update profile",
+          "text": "lets update host profile"
+        }
+      ],
+      "supports_tools": true,
+      "system_prompt": "You control the user's system via shell. Call host_get_profile first to learn OS, desktop, config paths, and installed packages.\n\nCore rules:\n1. READ before WRITE. Check existing config/state before modifying (grep, cat, find).\n2. USE profile paths. The profile tells you exact config files and keys to use.\n3. VERIFY after changes. Confirm the change took effect before reporting success.\n4. Recover silently. If something fails, try alternatives before explaining.\n5. Be concise. No preambles.\n\nWorkflow: get profile → read existing state → modify → verify → report.",
+      "updated_at": "2025-12-06T00:55:00.000000Z"
     }
   ]
 }

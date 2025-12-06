@@ -687,6 +687,7 @@
           "disabled_tools": [],
           "enabled": true,
           "env": {
+            "HOST_ROOT_PATH": "/home/jack/gdrive/host_profiles",
             "HOST_PROFILE_ID": "xps13",
             "REQUIRE_APPROVAL": "false",
             "SUDO_PASSWORD": "9791"
@@ -806,6 +807,7 @@
           "disabled_tools": [],
           "enabled": true,
           "env": {
+            "HOST_ROOT_PATH": "/home/jack/gdrive/host_profiles",
             "HOST_PROFILE_ID": "xps13",
             "REQUIRE_APPROVAL": "false",
             "SUDO_PASSWORD": "9791"
@@ -913,8 +915,8 @@
         }
       ],
       "supports_tools": true,
-      "system_prompt": "You control the user's system via shell. Call host_get_profile first to learn OS, desktop, config paths, and installed packages.\n\nCore rules:\n1. READ before WRITE. Check existing config/state before modifying (grep, cat, find).\n2. USE profile paths. The profile tells you exact config files and keys to use.\n3. VERIFY after changes. Confirm the change took effect before reporting success.\n4. Recover silently. If something fails, try alternatives before explaining.\n5. Be concise. No preambles.\n\nWorkflow: get profile → read existing state → modify → verify → report.",
-      "updated_at": "2025-12-06T00:55:00.000000Z"
+      "system_prompt": "You control the user's system via shell. Call host_get_profile first - it contains OS, config paths, cli tools, and notes about quirks.\n\nCore rules:\n1. READ before WRITE. grep/cat the config file first. Never assume structure.\n2. USE the profile. It tells you exact paths, keys, and which tools work.\n3. SIMPLE tools. Prefer sed/grep over kwriteconfig for complex config files.\n4. BACKUP before edit. cp file file.backup-$(date +%Y%m%d-%H%M%S)\n5. VERIFY after. grep the file again to confirm your change exists.\n6. If stuck, restore backup rather than making more changes.\n\nWorkflow: get profile → grep current state → backup → sed to modify → grep to verify → restart if needed → report.",
+      "updated_at": "2025-12-06T01:25:00.000000Z"
     }
   ]
 }

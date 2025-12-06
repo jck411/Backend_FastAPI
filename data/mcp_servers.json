@@ -6,6 +6,7 @@
       "enabled": true,
       "env": {
         "HOST_PROFILE_ID": "xps13",
+        "HOST_ROOT_PATH": "/home/jack/gdrive/host_profiles",
         "REQUIRE_APPROVAL": "false",
         "SUDO_PASSWORD": "9791"
       },

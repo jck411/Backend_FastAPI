@@ -57,26 +57,36 @@ def _cleanup_old_logs() -> None:
 
 
 def _get_host_root() -> Path:
-    """Return the root directory containing host profiles and state.
+    """Return the root directory containing host profiles.
 
-    Override with HOST_ROOT_PATH env var to use a custom location (e.g., GDrive sync folder).
+    Raises:
+        RuntimeError: If HOST_ROOT_PATH is not set.
     """
-
-    custom_root = os.environ.get(HOST_ROOT_ENV, "").strip()
-    if custom_root:
-        host_root = Path(custom_root).expanduser()
-    else:
-        host_root = _get_repo_root() / "host"
-
-    host_root.mkdir(parents=True, exist_ok=True)
-    return host_root
+    host_root = os.environ.get(HOST_ROOT_ENV, "").strip()
+    if not host_root:
+        raise RuntimeError(
+            f"{HOST_ROOT_ENV} environment variable is required. "
+            "Set it to the host profiles directory (e.g., '/home/jack/gdrive/host_profiles')."
+        )
+    path = Path(host_root).expanduser()
+    if not path.exists():
+        raise RuntimeError(f"Host profiles directory does not exist: {path}")
+    return path
 
 
 def _get_host_id() -> str:
-    """Return the active host identifier from the environment."""
+    """Return the active host identifier from the environment.
 
+    Raises:
+        RuntimeError: If HOST_PROFILE_ID is not set.
+    """
     env_value = os.environ.get(HOST_PROFILE_ENV, "").strip()
-    return env_value or "local"
+    if not env_value:
+        raise RuntimeError(
+            f"{HOST_PROFILE_ENV} environment variable is required. "
+            "Set it in the MCP server config (e.g., 'xps13')."
+        )
+    return env_value
 
 
 def _get_host_dir(host_id: str | None = None) -> Path:

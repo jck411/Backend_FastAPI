@@ -1464,7 +1464,9 @@ async def host_get_profile() -> str:
             }
         )
 
-    return json.dumps({"status": "ok", "host_id": _get_host_id_safe(), "profile": profile})
+    return json.dumps(
+        {"status": "ok", "host_id": _get_host_id_safe(), "profile": profile}
+    )
 
 
 @mcp.tool("host_update_profile")  # type: ignore

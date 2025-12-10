@@ -286,6 +286,11 @@ def _get_host_id() -> str:
     return env_value
 
 
+def _get_host_id_safe() -> str:
+    """Return the host identifier or 'unknown' if not set."""
+    return os.environ.get(HOST_PROFILE_ENV, "").strip() or "unknown"
+
+
 def _get_host_dir(host_id: str | None = None) -> Path:
     """Return (and create) the directory for the given or active host.
 
@@ -1450,24 +1455,16 @@ async def host_get_profile() -> str:
 
     try:
         profile = _load_profile()
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
         return json.dumps(
             {
                 "status": "error",
-                "host_id": _get_host_id(),
-                "message": str(exc),
-            }
-        )
-    except ValueError as exc:
-        return json.dumps(
-            {
-                "status": "error",
-                "host_id": _get_host_id(),
+                "host_id": _get_host_id_safe(),
                 "message": str(exc),
             }
         )
 
-    return json.dumps({"status": "ok", "host_id": _get_host_id(), "profile": profile})
+    return json.dumps({"status": "ok", "host_id": _get_host_id_safe(), "profile": profile})
 
 
 @mcp.tool("host_update_profile")  # type: ignore
@@ -1493,24 +1490,33 @@ async def host_update_profile(updates: dict, reason: str | None = None) -> str:
     except FileNotFoundError:
         # Allow creating profile if it doesn't exist
         current = {}
-    except ValueError as exc:
+    except (ValueError, RuntimeError) as exc:
         return json.dumps(
             {
                 "status": "error",
-                "host_id": _get_host_id(),
+                "host_id": _get_host_id_safe(),
                 "message": str(exc),
             }
         )
 
-    merged = _deep_merge(current, updates)
-    merged["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    _save_profile(merged)
-    _append_delta("profile", updates, reason)
+    try:
+        merged = _deep_merge(current, updates)
+        merged["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        _save_profile(merged)
+        _append_delta("profile", updates, reason)
+    except RuntimeError as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "host_id": _get_host_id_safe(),
+                "message": str(exc),
+            }
+        )
 
     return json.dumps(
         {
             "status": "ok",
-            "host_id": _get_host_id(),
+            "host_id": _get_host_id_safe(),
             "message": "Profile updated",
             "applied": updates,
         }
@@ -1550,7 +1556,7 @@ async def host_detect_system() -> str:
     # Load current profile and merge
     try:
         current = _load_profile()
-    except (FileNotFoundError, ValueError):
+    except (FileNotFoundError, ValueError, RuntimeError):
         current = {}
 
     # Merge into software section
@@ -1559,15 +1565,24 @@ async def host_detect_system() -> str:
     current["software"] = _deep_merge(current.get("software", {}), software_update)
     current["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
-    _save_profile(current)
-    _append_delta(
-        "system_detect", {"software": software_update}, "Auto-detected system info"
-    )
+    try:
+        _save_profile(current)
+        _append_delta(
+            "system_detect", {"software": software_update}, "Auto-detected system info"
+        )
+    except RuntimeError as exc:
+        return json.dumps(
+            {
+                "status": "error",
+                "host_id": _get_host_id_safe(),
+                "message": str(exc),
+            }
+        )
 
     return json.dumps(
         {
             "status": "ok",
-            "host_id": _get_host_id(),
+            "host_id": _get_host_id_safe(),
             "message": "System info detected and profile updated",
             "detected": software_update,
         }

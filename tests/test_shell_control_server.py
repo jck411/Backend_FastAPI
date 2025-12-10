@@ -162,6 +162,19 @@ async def test_host_id_validation_allows_valid_ids(host_root: Path) -> None:
         assert result.exists()
 
 
+async def test_host_get_profile_missing_host_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that host_get_profile returns error when HOST_PROFILE_ID is missing."""
+    monkeypatch.delenv("HOST_PROFILE_ID", raising=False)
+
+    result = json.loads(await shell_control_server.host_get_profile())
+
+    assert result["status"] == "error"
+    assert result["host_id"] == "unknown"
+    assert "HOST_PROFILE_ID" in result["message"]
+
+
 async def test_host_update_profile_adds_timestamp(
     host_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1210,7 +1210,7 @@ async def _launch_gui_app(
                 search_name = os.path.basename(expanded.rstrip("/"))
                 found = await _find_path(search_name)
                 if found:
-                    command = f"xdg-open {found}"
+                    command = f"xdg-open {shlex.quote(found)}"
                 else:
                     return {
                         "status": "error",

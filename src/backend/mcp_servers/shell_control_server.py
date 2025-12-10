@@ -127,63 +127,12 @@ async def _get_or_create_session(session_id: str | None = None) -> ShellSession:
         return sess
 
 
-def _prepare_sudo_command_for_session(command: str) -> str:
-    """Transform a command to handle sudo in a session (no TTY).
-
-    Uses sudo -v pre-authentication approach since sessions don't have stdin
-    available for password injection (it's used for command input).
-    """
-    sudo_password = os.environ.get("SUDO_PASSWORD")
-    if not sudo_password:
-        return command  # No password available, return as-is
-
-    stripped = command.lstrip()
-
-    # Check if command starts with an AUR helper that calls sudo internally
-    aur_helpers = ("yay", "paru", "pikaur", "trizen", "aurman")
-    aur_match = None
-    for helper in aur_helpers:
-        if stripped.startswith(helper + " ") or stripped == helper:
-            aur_match = helper
-            break
-
-    # Escape password for shell - single quotes inside single-quoted strings use '\''
-    escaped_password = sudo_password.replace("'", "'\\''")
-
-    if aur_match:
-        # AUR helpers call sudo multiple times during builds
-        rest_of_command = stripped[len(aur_match) :].lstrip()
-
-        # Auto-add --noconfirm if not present (non-interactive requirement)
-        if "--noconfirm" not in rest_of_command:
-            rest_of_command = f"--noconfirm {rest_of_command}"
-
-        # Pre-authenticate sudo with -v, then use --sudoloop to keep it alive
-        return (
-            f"echo '{escaped_password}' | sudo -S -v 2>/dev/null && "
-            f"{aur_match} --sudoloop {rest_of_command}"
-        )
-
-    # Check if command contains ANY sudo calls (multi-line scripts, pipes, etc.)
-    # This handles cases like: "sudo cp x y; sudo tee file; sudo systemctl restart"
-    if re.search(r"(^|\s|;|&&|\|\|)sudo(\s|$)", command):
-        # Pre-authenticate sudo, then run the entire command
-        # The -v flag validates/refreshes sudo credentials for subsequent calls
-        return f"echo '{escaped_password}' | sudo -S -v 2>/dev/null && {command}"
-
-    return command
-
-
 async def _run_in_session(
     sess: ShellSession,
     command: str,
     timeout_seconds: int = 30,
 ) -> tuple[str, int, str]:
     """Run a command in an existing session.
-
-    Sudo is supported via SUDO_PASSWORD environment variable. Commands starting
-    with 'sudo' or AUR helpers (yay, paru, etc.) are automatically transformed
-    to inject the password non-interactively.
 
     Returns: (output, exit_code, new_cwd)
     """
@@ -193,9 +142,6 @@ async def _run_in_session(
     if not sess.process.stdin or not sess.process.stdout:
         raise RuntimeError("Session has no stdin/stdout")
 
-    # Transform sudo commands to use password injection
-    prepared_command = _prepare_sudo_command_for_session(command)
-
     # Use a unique end marker for this command
     end_marker = f"___END_{uuid.uuid4().hex[:8]}___"
 
@@ -203,7 +149,7 @@ async def _run_in_session(
     # 1. Runs the user command
     # 2. Captures exit code
     # 3. Prints marker with exit code and cwd on a single line
-    wrapped_cmd = f"""{prepared_command}
+    wrapped_cmd = f"""{command}
 __ec__=$?
 echo ""
 echo "{end_marker}:$__ec__:$(pwd)"
@@ -1115,85 +1061,22 @@ async def _run_command(
     working_directory: str | None,
     timeout_seconds: int,
 ) -> tuple[str, str, int, float]:
-    """Execute the shell command and capture results."""
-
-    sudo_password = os.environ.get("SUDO_PASSWORD")
-    prepared_command = command
-    send_password = False
-    use_askpass = False
-
-    stripped = command.lstrip()
-
-    # Check if command starts with an AUR helper that calls sudo internally
-    aur_helpers = ("yay", "paru", "pikaur", "trizen", "aurman")
-    aur_match = None
-    for helper in aur_helpers:
-        if stripped.startswith(helper + " ") or stripped == helper:
-            aur_match = helper
-            break
-
-    if aur_match and sudo_password:
-        # AUR helpers call sudo multiple times - use SUDO_ASKPASS approach
-        # This is more reliable than --sudoflags for multi-sudo scenarios
-        use_askpass = True
-    elif stripped.startswith("sudo") and sudo_password:
-        # Direct sudo command - use stdin
-        send_password = True
-        rest = stripped[len("sudo") :].lstrip()
-
-        # Auto-add --noconfirm for pacman commands if missing
-        if re.search(r"pacman\s+-S", rest) and "--noconfirm" not in rest:
-            # Insert --noconfirm after pacman -S... flags
-            rest = re.sub(r"(pacman\s+-\S+)", r"\1 --noconfirm", rest, count=1)
-
-        if " -S " not in stripped and not stripped.startswith("sudo -S"):
-            stripped = f"sudo -S {rest}".strip()
-        else:
-            stripped = f"sudo {rest}".strip()
-        prepared_command = (
-            f"{command[: len(command) - len(command.lstrip())]}{stripped}"
-        )
-
+    """Execute a shell command and capture results."""
     shell_env = _build_shell_env()
-
-    # For AUR helpers, set up SUDO_ASKPASS with an inline script
-    # This handles multiple sudo calls during package builds
-    if use_askpass and sudo_password and aur_match:
-        # AUR helpers call sudo multiple times during builds
-        # Strategy: pre-authenticate sudo with -v, then use --sudoloop to keep it alive
-        rest_of_command = stripped[len(aur_match) :].lstrip()
-
-        # Escape password for shell - single quotes inside single-quoted strings use '\''
-        escaped_password = sudo_password.replace("'", "'\\''")
-
-        # Auto-add --noconfirm if not present (non-interactive requirement)
-        if "--noconfirm" not in rest_of_command:
-            rest_of_command = f"--noconfirm {rest_of_command}"
-
-        prepared_command = (
-            f"echo '{escaped_password}' | sudo -S -v && "  # Validate/refresh sudo
-            f"{aur_match} --sudoloop {rest_of_command}"
-        )
-        send_password = False  # Password already in command
 
     start = time.perf_counter()
     try:
         process = await asyncio.create_subprocess_shell(
-            prepared_command,
-            stdin=asyncio.subprocess.PIPE,
+            command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=working_directory or None,
             env=shell_env,
         )
 
-        stdin_data = None
-        if send_password and sudo_password:
-            stdin_data = f"{sudo_password}\n".encode()
-
         try:
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(input=stdin_data),
+                process.communicate(),
                 timeout=float(timeout_seconds),
             )
             exit_code = process.returncode if process.returncode is not None else -1
@@ -1354,9 +1237,6 @@ async def shell_session(
     - Background jobs continue running
     - Command history within session
 
-    Sudo is supported if SUDO_PASSWORD is set. Commands starting with 'sudo'
-    or AUR helpers (yay, paru, etc.) are automatically handled.
-
     Workflow example (bluetooth connect):
     1. shell_session(command="bluetoothctl devices | grep -i pixel")
        → Returns session_id, use it for subsequent commands
@@ -1467,7 +1347,6 @@ async def shell_execute(
     command: str,
     working_directory: str | None = None,
     timeout_seconds: int = 30,
-    confirm: bool = False,
     background: bool = False,
 ) -> str:
     """Execute a shell command (one-shot, no session persistence).
@@ -1481,10 +1360,6 @@ async def shell_execute(
 
     Call host_get_profile first if unsure about OS/package manager.
 
-    Sudo supported if SUDO_PASSWORD is set. GUI apps can be launched.
-
-    Non-interactive (no TTY); --noconfirm auto-added for pacman/yay.
-
     Args:
         background: Set True for GUI apps (wizards, dialogs, editors).
                     Returns immediately without waiting for app to close.
@@ -1492,20 +1367,6 @@ async def shell_execute(
     Returns: stdout, stderr, exit_code, duration_ms, log_id.
     If truncated=true, use shell_get_full_output(log_id).
     """
-
-    require_approval = os.environ.get("REQUIRE_APPROVAL", "false").lower() == "true"
-
-    if require_approval and not confirm:
-        return json.dumps(
-            {
-                "status": "awaiting_confirmation",
-                "command": command,
-                "working_directory": working_directory,
-                "message": "Set confirm=True to execute this command",
-            }
-        )
-
-    # For GUI apps, use background mode to avoid blocking
     if background:
         result = await _launch_gui_app(command, working_directory)
         return json.dumps(result)

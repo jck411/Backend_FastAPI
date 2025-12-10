@@ -688,8 +688,7 @@
           "enabled": true,
           "env": {
             "HOST_PROFILE_ID": "xps13",
-            "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles",
-            "REQUIRE_APPROVAL": "false"
+            "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"
           },
           "id": "shell-control",
           "module": "backend.mcp_servers.shell_control_server",
@@ -807,8 +806,7 @@
           "enabled": true,
           "env": {
             "HOST_PROFILE_ID": "xps13",
-            "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles",
-            "REQUIRE_APPROVAL": "false"
+            "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"
           },
           "id": "shell-control",
           "module": "backend.mcp_servers.shell_control_server",

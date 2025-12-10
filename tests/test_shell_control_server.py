@@ -30,8 +30,6 @@ def host_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture(autouse=True)
 def reset_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("REQUIRE_APPROVAL", "false")
-    monkeypatch.delenv("SUDO_PASSWORD", raising=False)
     monkeypatch.delenv("HOST_PROFILE_ID", raising=False)
 
 
@@ -69,40 +67,6 @@ async def test_shell_execute_timeout() -> None:
     assert "timed out" in result["stderr"]
 
 
-async def test_shell_execute_approval_gate(
-    log_dir: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("REQUIRE_APPROVAL", "true")
-
-    result = json.loads(await shell_control_server.shell_execute("echo test"))
-
-    assert result["status"] == "awaiting_confirmation"
-    assert "log_id" not in result
-    assert list(log_dir.iterdir()) == []
-
-
-async def test_shell_execute_approval_confirmed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("REQUIRE_APPROVAL", "true")
-
-    result = json.loads(
-        await shell_control_server.shell_execute("echo ok", confirm=True)
-    )
-
-    assert result["stdout"].strip() == "ok"
-    assert result["exit_code"] == 0
-
-
-async def test_shell_execute_yolo_mode() -> None:
-    result = json.loads(
-        await shell_control_server.shell_execute("echo free", confirm=False)
-    )
-
-    assert result["stdout"].strip() == "free"
-    assert result["exit_code"] == 0
-
-
 async def test_shell_execute_truncation() -> None:
     payload = "A" * 60000
     command = f"python -c \"print('{payload}')\""
@@ -111,8 +75,7 @@ async def test_shell_execute_truncation() -> None:
 
     assert result["truncated"] is True
     assert (
-        len(result["stdout"].encode("utf-8"))
-        <= shell_control_server.OUTPUT_TRUNCATE_BYTES
+        len(result["stdout"].encode("utf-8")) <= shell_control_server.OUTPUT_TAIL_BYTES
     )
     assert result["log_id"]
 
@@ -133,41 +96,6 @@ async def test_shell_get_full_output(monkeypatch: pytest.MonkeyPatch) -> None:
     assert full["stdout"].startswith("B" * 10)
 
 
-async def test_shell_execute_sudo_password(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
-    calls: dict[str, object] = {}
-
-    class DummyProcess:
-        def __init__(self) -> None:
-            self.returncode = 0
-            self.inputs: list[bytes | None] = []
-
-        async def communicate(self, input: bytes | None = None):
-            self.inputs.append(input)
-            return b"done", b""
-
-        def kill(self) -> None:
-            calls["killed"] = True
-
-    async def fake_subprocess(command: str, *args, **kwargs):
-        calls["command"] = command
-        proc = DummyProcess()
-        calls["process"] = proc
-        return proc
-
-    monkeypatch.setattr(
-        shell_control_server.asyncio, "create_subprocess_shell", fake_subprocess
-    )
-
-    result = json.loads(await shell_control_server.shell_execute("sudo echo ok"))
-
-    assert result["exit_code"] == 0
-    assert "sudo -S echo ok" in str(calls["command"])
-    proc = calls["process"]
-    assert isinstance(proc, DummyProcess)
-    assert proc.inputs and proc.inputs[0] == b"sekret\n"
-
-
 async def test_shell_execute_working_directory(tmp_path: Path) -> None:
     workdir = tmp_path / "work"
     workdir.mkdir()
@@ -180,10 +108,11 @@ async def test_shell_execute_working_directory(tmp_path: Path) -> None:
     assert result["exit_code"] == 0
 
 
-def test_get_host_id_default(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_get_host_id_missing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("HOST_PROFILE_ID", raising=False)
 
-    assert shell_control_server._get_host_id() == "local"
+    with pytest.raises(RuntimeError, match="HOST_PROFILE_ID"):
+        shell_control_server._get_host_id()
 
 
 def test_load_profile_missing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -231,210 +160,6 @@ async def test_host_id_validation_allows_valid_ids(host_root: Path) -> None:
         result = shell_control_server._get_host_dir(valid_id)
         assert result.name == valid_id
         assert result.exists()
-
-
-async def test_shell_execute_yay_sudo_handling(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that yay commands get sudo pre-auth and --sudoloop."""
-    monkeypatch.setenv("SUDO_PASSWORD", "testpass")
-    calls: list[str] = []
-
-    class DummyProcess:
-        def __init__(self) -> None:
-            self.returncode = 0
-
-        async def communicate(self, input: bytes | None = None):
-            return b"done", b""
-
-        def kill(self) -> None:
-            pass
-
-    async def fake_subprocess(command: str, *args, **kwargs):
-        calls.append(command)
-        return DummyProcess()
-
-    monkeypatch.setattr(
-        shell_control_server.asyncio, "create_subprocess_shell", fake_subprocess
-    )
-
-    await shell_control_server.shell_execute("yay -Syu code")
-
-    # First call should be the main command
-    main_cmd = calls[0]
-    # Should have sudo pre-auth
-    assert "sudo -S -v" in main_cmd
-    # Should have --sudoloop
-    assert "--sudoloop" in main_cmd
-    # Should auto-add --noconfirm
-    assert "--noconfirm" in main_cmd
-
-
-async def test_shell_execute_pacman_auto_noconfirm(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that sudo pacman -S commands get --noconfirm auto-added."""
-    monkeypatch.setenv("SUDO_PASSWORD", "testpass")
-    calls: list[str] = []
-
-    class DummyProcess:
-        def __init__(self) -> None:
-            self.returncode = 0
-
-        async def communicate(self, input: bytes | None = None):
-            return b"done", b""
-
-        def kill(self) -> None:
-            pass
-
-    async def fake_subprocess(command: str, *args, **kwargs):
-        calls.append(command)
-        return DummyProcess()
-
-    monkeypatch.setattr(
-        shell_control_server.asyncio, "create_subprocess_shell", fake_subprocess
-    )
-
-    await shell_control_server.shell_execute("sudo pacman -Syu code")
-
-    # First call should be the main command
-    main_cmd = calls[0]
-    assert "--noconfirm" in main_cmd
-    assert "sudo -S" in main_cmd
-
-
-async def test_shell_execute_noconfirm_not_duplicated(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that --noconfirm is not duplicated if already present."""
-    monkeypatch.setenv("SUDO_PASSWORD", "testpass")
-    calls: list[str] = []
-
-    class DummyProcess:
-        def __init__(self) -> None:
-            self.returncode = 0
-
-        async def communicate(self, input: bytes | None = None):
-            return b"done", b""
-
-        def kill(self) -> None:
-            pass
-
-    async def fake_subprocess(command: str, *args, **kwargs):
-        calls.append(command)
-        return DummyProcess()
-
-    monkeypatch.setattr(
-        shell_control_server.asyncio, "create_subprocess_shell", fake_subprocess
-    )
-
-    await shell_control_server.shell_execute("yay -Syu --noconfirm code")
-
-    # First call should be the main command
-    main_cmd = calls[0]
-    # Should only have one --noconfirm
-    assert main_cmd.count("--noconfirm") == 1
-
-
-def test_prepare_sudo_command_for_session_no_password(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Without SUDO_PASSWORD, commands pass through unchanged."""
-    monkeypatch.delenv("SUDO_PASSWORD", raising=False)
-
-    result = shell_control_server._prepare_sudo_command_for_session(
-        "sudo pacman -S vim"
-    )
-    assert result == "sudo pacman -S vim"
-
-
-def test_prepare_sudo_command_for_session_direct_sudo(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Direct sudo commands use pre-authentication approach."""
-    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
-
-    result = shell_control_server._prepare_sudo_command_for_session(
-        "sudo pacman -S vim"
-    )
-    # Should pre-authenticate with sudo -v, then run original command
-    assert "echo 'sekret' | sudo -S -v" in result
-    assert "sudo pacman -S vim" in result
-
-
-def test_prepare_sudo_command_for_session_sudo_n_flag_preserved(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Sudo -n commands get pre-authenticated; -n flag preserved for the actual call."""
-    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
-
-    result = shell_control_server._prepare_sudo_command_for_session("sudo -n true")
-    # Pre-auth happens first, original command (including -n) runs after
-    assert "echo 'sekret' | sudo -S -v" in result
-    assert "sudo -n true" in result
-
-
-def test_prepare_sudo_command_for_session_yay(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """AUR helpers use sudo -v pre-auth with --sudoloop."""
-    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
-
-    result = shell_control_server._prepare_sudo_command_for_session("yay -S code")
-    assert "echo 'sekret' | sudo -S -v" in result
-    assert "--sudoloop" in result
-    assert "--noconfirm" in result
-
-
-def test_prepare_sudo_command_for_session_non_sudo_unchanged(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Non-sudo commands pass through unchanged."""
-    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
-
-    result = shell_control_server._prepare_sudo_command_for_session("ls -la")
-    assert result == "ls -la"
-
-
-def test_prepare_sudo_command_for_session_multi_sudo_script(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Multi-line scripts with multiple sudo calls use pre-authentication."""
-    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
-
-    # Multi-line script with multiple sudo commands
-    command = "sudo cp /etc/file /etc/file.bak; sudo tee /etc/file; sudo systemctl restart service"
-    result = shell_control_server._prepare_sudo_command_for_session(command)
-
-    # Should pre-authenticate with sudo -v, then run original command
-    assert "echo 'sekret' | sudo -S -v" in result
-    assert command in result
-
-
-def test_prepare_sudo_command_for_session_sudo_in_pipeline(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Sudo in a pipeline gets pre-authenticated."""
-    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
-
-    command = "cat file.txt | sudo tee /etc/config"
-    result = shell_control_server._prepare_sudo_command_for_session(command)
-
-    assert "echo 'sekret' | sudo -S -v" in result
-    assert command in result
-
-
-def test_prepare_sudo_command_for_session_password_with_single_quote(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Password containing single quotes is properly escaped."""
-    monkeypatch.setenv("SUDO_PASSWORD", "test'quote")
-
-    command = "sudo whoami"
-    result = shell_control_server._prepare_sudo_command_for_session(command)
-
-    # Single quote should be escaped as '\'' for shell
-    assert "echo 'test'\\''quote' | sudo -S -v" in result
 
 
 async def test_host_update_profile_adds_timestamp(

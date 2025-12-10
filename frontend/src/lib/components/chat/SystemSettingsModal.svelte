@@ -89,7 +89,6 @@
   let monarchPassword = "";
   let monarchMfaSecret = "";
   let showMonarchPassword = false;
-  let showShellPassword = false;
 
   function handleHostProfileChange(serverId: string, profileId: string): void {
     const profile = HOST_PROFILES.find((p) => p.id === profileId);
@@ -135,10 +134,6 @@
     mcpServers.setServerEnv(serverId, key, value);
   }
 
-  function isShellApprovalEnabled(env?: Record<string, string>): boolean {
-    const raw = env?.REQUIRE_APPROVAL ?? "true";
-    return String(raw).toLowerCase() === "true";
-  }
 
   function refreshServers(): void {
     const snapshot = get(mcpServers);
@@ -625,34 +620,6 @@
                       <div class="shell-server-settings">
                         <div class="shell-setting">
                           <div class="shell-setting__info">
-                            <span class="field-label">Require approval</span>
-                            <span class="field-hint">
-                              Commands only run when confirm=True if approval is required.
-                            </span>
-                          </div>
-                          <label class="toggle">
-                            <input
-                              type="checkbox"
-                              checked={isShellApprovalEnabled(server.env)}
-                              disabled={$mcpServers.pending[server.id] ||
-                                $mcpServers.saving}
-                              on:change={(event) =>
-                                handleShellEnv(
-                                  server.id,
-                                  "REQUIRE_APPROVAL",
-                                  (event.target as HTMLInputElement).checked ? "true" : "false",
-                                )}
-                            />
-                            <span>
-                              {isShellApprovalEnabled(server.env)
-                                ? "Approval required"
-                                : "Yolo mode"}
-                            </span>
-                          </label>
-                        </div>
-
-                        <div class="shell-setting">
-                          <div class="shell-setting__info">
                             <span class="field-label">This machine</span>
                             <span class="field-hint">
                               Select which computer you're on. Sets host profile and storage path.
@@ -676,41 +643,6 @@
                               </option>
                             {/each}
                           </select>
-                        </div>
-
-                        <div class="shell-setting">
-                          <div class="shell-setting__info">
-                            <span class="field-label">Sudo password</span>
-                            <span class="field-hint">
-                              Optional; sent to sudo via stdin when commands start with sudo.
-                            </span>
-                          </div>
-                          <div class="password-input-wrapper">
-                            <input
-                              class="input-control"
-                              type={showShellPassword ? "text" : "password"}
-                              value={server.env?.SUDO_PASSWORD ?? ""}
-                              autocomplete="off"
-                              placeholder="Enter password"
-                              disabled={$mcpServers.pending[server.id] ||
-                                $mcpServers.saving}
-                              on:input={(event) =>
-                                handleShellEnv(
-                                  server.id,
-                                  "SUDO_PASSWORD",
-                                  (event.target as HTMLInputElement).value,
-                                )}
-                            />
-                            <button
-                              type="button"
-                              aria-label={showShellPassword ? "Hide password" : "Show password"}
-                              disabled={$mcpServers.pending[server.id] ||
-                                $mcpServers.saving}
-                              on:click={() => (showShellPassword = !showShellPassword)}
-                            >
-                              {showShellPassword ? "Hide" : "Show"}
-                            </button>
-                          </div>
                         </div>
                       </div>
                     {/if}

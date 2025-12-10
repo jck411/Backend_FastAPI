@@ -1176,19 +1176,47 @@ async def _execute_and_log(
     return result
 
 
+async def _find_path(name: str) -> str | None:
+    """Search for a file/directory by name under home. Returns first match or None."""
+    home = os.path.expanduser("~")
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            f"find {home} -maxdepth 4 -iname '*{name}*' -type d 2>/dev/null | head -1",
+            stdout=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
+        result = stdout.decode().strip()
+        return result if result else None
+    except Exception:
+        return None
+
+
 async def _launch_gui_app(
     command: str,
     working_directory: str | None = None,
 ) -> dict[str, object]:
-    """Launch a GUI application in background without waiting.
-
-    Uses setsid + nohup to fully detach from the subprocess.
-    Returns immediately after spawning.
-    """
+    """Launch a GUI application in background. Searches for path if not found."""
     shell_env = _build_shell_env()
+    parts = command.split()
+    base_cmd = parts[0] if parts else command
 
-    # Extract the base command (first word) for the response
-    base_cmd = command.split()[0] if command.split() else command
+    # For xdg-open: if path doesn't exist, search for it
+    if base_cmd == "xdg-open" and len(parts) >= 2:
+        target = parts[1]
+        if not target.startswith(("http://", "https://", "file://")):
+            expanded = os.path.expanduser(target)
+            if not os.path.exists(expanded):
+                # Extract the name to search for (last component)
+                search_name = os.path.basename(expanded.rstrip("/"))
+                found = await _find_path(search_name)
+                if found:
+                    command = f"xdg-open {found}"
+                else:
+                    return {
+                        "status": "error",
+                        "command": command,
+                        "error": f"Path not found: {expanded}",
+                    }
 
     # Use setsid to create new session, nohup to ignore hangup,
     # redirect all I/O to /dev/null to fully detach

@@ -681,18 +681,16 @@ class StreamingHandler:
                     client_message_id=assistant_client_message_id,
                     parent_client_message_id=assistant_parent_message_id,
                 )
-                # Stream the pause message to the user
+                # Stream the pause message using 'tool' event (frontend handles this)
                 yield {
-                    "event": "content",
-                    "data": json.dumps({"text": pause_message}),
-                }
-                yield {
-                    "event": "hop_limit",
+                    "event": "tool",
                     "data": json.dumps(
                         {
+                            "status": "hop_limit",
+                            "name": "system",
+                            "message": pause_message,
                             "hop_count": hop_count,
                             "limit": self._tool_hop_limit,
-                            "message": pause_message,
                         }
                     ),
                 }

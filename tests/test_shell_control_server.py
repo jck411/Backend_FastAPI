@@ -342,7 +342,9 @@ def test_prepare_sudo_command_for_session_no_password(
     """Without SUDO_PASSWORD, commands pass through unchanged."""
     monkeypatch.delenv("SUDO_PASSWORD", raising=False)
 
-    result = shell_control_server._prepare_sudo_command_for_session("sudo pacman -S vim")
+    result = shell_control_server._prepare_sudo_command_for_session(
+        "sudo pacman -S vim"
+    )
     assert result == "sudo pacman -S vim"
 
 
@@ -352,7 +354,9 @@ def test_prepare_sudo_command_for_session_direct_sudo(
     """Direct sudo commands use pre-authentication approach."""
     monkeypatch.setenv("SUDO_PASSWORD", "sekret")
 
-    result = shell_control_server._prepare_sudo_command_for_session("sudo pacman -S vim")
+    result = shell_control_server._prepare_sudo_command_for_session(
+        "sudo pacman -S vim"
+    )
     # Should pre-authenticate with sudo -v, then run original command
     assert "echo 'sekret' | sudo -S -v" in result
     assert "sudo pacman -S vim" in result
@@ -418,6 +422,19 @@ def test_prepare_sudo_command_for_session_sudo_in_pipeline(
 
     assert "echo 'sekret' | sudo -S -v" in result
     assert command in result
+
+
+def test_prepare_sudo_command_for_session_password_with_single_quote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Password containing single quotes is properly escaped."""
+    monkeypatch.setenv("SUDO_PASSWORD", "test'quote")
+
+    command = "sudo whoami"
+    result = shell_control_server._prepare_sudo_command_for_session(command)
+
+    # Single quote should be escaped as '\'' for shell
+    assert "echo 'test'\\''quote' | sudo -S -v" in result
 
 
 async def test_host_update_profile_adds_timestamp(

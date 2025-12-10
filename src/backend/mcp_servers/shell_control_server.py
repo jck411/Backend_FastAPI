@@ -147,8 +147,8 @@ def _prepare_sudo_command_for_session(command: str) -> str:
             aur_match = helper
             break
 
-    # Escape password for shell (handle special chars like $, `, ", ', etc.)
-    escaped_password = sudo_password.replace("'", "'\"'\"'")
+    # Escape password for shell - single quotes inside single-quoted strings use '\''
+    escaped_password = sudo_password.replace("'", "'\\''")
 
     if aur_match:
         # AUR helpers call sudo multiple times during builds
@@ -169,10 +169,7 @@ def _prepare_sudo_command_for_session(command: str) -> str:
     if re.search(r"(^|\s|;|&&|\|\|)sudo(\s|$)", command):
         # Pre-authenticate sudo, then run the entire command
         # The -v flag validates/refreshes sudo credentials for subsequent calls
-        return (
-            f"echo '{escaped_password}' | sudo -S -v 2>/dev/null && "
-            f"{command}"
-        )
+        return f"echo '{escaped_password}' | sudo -S -v 2>/dev/null && {command}"
 
     return command
 
@@ -1166,8 +1163,8 @@ async def _run_command(
         # Strategy: pre-authenticate sudo with -v, then use --sudoloop to keep it alive
         rest_of_command = stripped[len(aur_match) :].lstrip()
 
-        # Escape password for shell (handle special chars like $, `, ", ', etc.)
-        escaped_password = sudo_password.replace("'", "'\"'\"'")
+        # Escape password for shell - single quotes inside single-quoted strings use '\''
+        escaped_password = sudo_password.replace("'", "'\\''")
 
         # Auto-add --noconfirm if not present (non-interactive requirement)
         if "--noconfirm" not in rest_of_command:

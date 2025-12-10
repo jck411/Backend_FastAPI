@@ -336,6 +336,62 @@ async def test_shell_execute_noconfirm_not_duplicated(
     assert main_cmd.count("--noconfirm") == 1
 
 
+def test_prepare_sudo_command_for_session_no_password(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without SUDO_PASSWORD, commands pass through unchanged."""
+    monkeypatch.delenv("SUDO_PASSWORD", raising=False)
+
+    result = shell_control_server._prepare_sudo_command_for_session("sudo pacman -S vim")
+    assert result == "sudo pacman -S vim"
+
+
+def test_prepare_sudo_command_for_session_direct_sudo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Direct sudo commands use echo-pipe approach."""
+    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
+
+    result = shell_control_server._prepare_sudo_command_for_session("sudo pacman -S vim")
+    assert "echo 'sekret' | sudo -S" in result
+    assert "--noconfirm" in result
+    assert "pacman" in result
+    assert "vim" in result
+
+
+def test_prepare_sudo_command_for_session_sudo_n_flag_removed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The -n flag should be removed since it conflicts with password injection."""
+    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
+
+    result = shell_control_server._prepare_sudo_command_for_session("sudo -n true")
+    assert "-n" not in result
+    assert "echo 'sekret' | sudo -S" in result
+
+
+def test_prepare_sudo_command_for_session_yay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AUR helpers use sudo -v pre-auth with --sudoloop."""
+    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
+
+    result = shell_control_server._prepare_sudo_command_for_session("yay -S code")
+    assert "echo 'sekret' | sudo -S -v" in result
+    assert "--sudoloop" in result
+    assert "--noconfirm" in result
+
+
+def test_prepare_sudo_command_for_session_non_sudo_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-sudo commands pass through unchanged."""
+    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
+
+    result = shell_control_server._prepare_sudo_command_for_session("ls -la")
+    assert result == "ls -la"
+
+
 async def test_host_update_profile_adds_timestamp(
     host_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -128,5 +128,8 @@
         "eval": false,
         "Invoke-Expression": false,
         "iex": false
-    }
+    },
+    "zenMode.centerLayout": false,
+    "zenMode.hideActivityBar": false,
+    "zenMode.hideLineNumbers": false
 }

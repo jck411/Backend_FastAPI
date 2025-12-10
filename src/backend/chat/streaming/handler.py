@@ -62,7 +62,7 @@ class StreamingHandler:
         tool_client: ToolExecutor,
         *,
         default_model: str,
-        tool_hop_limit: int = 8,
+        tool_hop_limit: int = 20,
         model_settings: ModelSettingsService | None = None,
         attachment_service: AttachmentService | None = None,
         conversation_logger: ConversationLogWriter | None = None,
@@ -663,15 +663,36 @@ class StreamingHandler:
                 break
 
             if hop_count >= self._tool_hop_limit:
-                warning = "Tool execution stopped after hop limit"
-                logger.warning("%s for session %s", warning, session_id)
+                pause_message = (
+                    f"I've completed {hop_count} steps so far. "
+                    "Would you like me to continue?"
+                )
+                logger.info(
+                    "Hop limit (%d) reached for session %s, pausing for user",
+                    self._tool_hop_limit,
+                    session_id,
+                )
+                # Save pause message to conversation so LLM sees it on continue
+                await self._repo.add_message(
+                    session_id,
+                    role="assistant",
+                    content=pause_message,
+                    metadata={"hop_limit_pause": True, "hop_count": hop_count},
+                    client_message_id=assistant_client_message_id,
+                    parent_client_message_id=assistant_parent_message_id,
+                )
+                # Stream the pause message to the user
                 yield {
-                    "event": "tool",
+                    "event": "content",
+                    "data": json.dumps({"text": pause_message}),
+                }
+                yield {
+                    "event": "hop_limit",
                     "data": json.dumps(
                         {
-                            "status": "error",
-                            "name": "system",
-                            "message": warning,
+                            "hop_count": hop_count,
+                            "limit": self._tool_hop_limit,
+                            "message": pause_message,
                         }
                     ),
                 }

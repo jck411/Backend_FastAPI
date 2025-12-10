@@ -127,12 +127,70 @@ async def _get_or_create_session(session_id: str | None = None) -> ShellSession:
         return sess
 
 
+def _prepare_sudo_command_for_session(command: str) -> str:
+    """Transform a command to handle sudo in a session (no TTY).
+
+    Uses SUDO_ASKPASS approach since sessions don't have stdin available
+    for password injection (it's used for command input).
+    """
+    sudo_password = os.environ.get("SUDO_PASSWORD")
+    if not sudo_password:
+        return command  # No password available, return as-is
+
+    stripped = command.lstrip()
+
+    # Check if command starts with an AUR helper that calls sudo internally
+    aur_helpers = ("yay", "paru", "pikaur", "trizen", "aurman")
+    aur_match = None
+    for helper in aur_helpers:
+        if stripped.startswith(helper + " ") or stripped == helper:
+            aur_match = helper
+            break
+
+    # Escape password for shell (handle special chars like $, `, ", ', etc.)
+    escaped_password = sudo_password.replace("'", "'\"'\"'")
+
+    if aur_match:
+        # AUR helpers call sudo multiple times during builds
+        rest_of_command = stripped[len(aur_match) :].lstrip()
+
+        # Auto-add --noconfirm if not present (non-interactive requirement)
+        if "--noconfirm" not in rest_of_command:
+            rest_of_command = f"--noconfirm {rest_of_command}"
+
+        # Pre-authenticate sudo with -v, then use --sudoloop to keep it alive
+        return (
+            f"echo '{escaped_password}' | sudo -S -v 2>/dev/null && "
+            f"{aur_match} --sudoloop {rest_of_command}"
+        )
+
+    if stripped.startswith("sudo "):
+        # Direct sudo command - use -S to read from stdin via echo pipe
+        rest = stripped[len("sudo ") :].lstrip()
+
+        # Remove -n flag if present (it conflicts with password injection)
+        rest = re.sub(r"(^|\s)-n(\s|$)", r"\1\2", rest).strip()
+
+        # Auto-add --noconfirm for pacman commands if missing
+        if re.search(r"pacman\s+-S", rest) and "--noconfirm" not in rest:
+            rest = re.sub(r"(pacman\s+-\S+)", r"\1 --noconfirm", rest, count=1)
+
+        # Use echo pipe with sudo -S
+        return f"echo '{escaped_password}' | sudo -S {rest}"
+
+    return command
+
+
 async def _run_in_session(
     sess: ShellSession,
     command: str,
     timeout_seconds: int = 30,
 ) -> tuple[str, int, str]:
     """Run a command in an existing session.
+
+    Sudo is supported via SUDO_PASSWORD environment variable. Commands starting
+    with 'sudo' or AUR helpers (yay, paru, etc.) are automatically transformed
+    to inject the password non-interactively.
 
     Returns: (output, exit_code, new_cwd)
     """
@@ -142,6 +200,9 @@ async def _run_in_session(
     if not sess.process.stdin or not sess.process.stdout:
         raise RuntimeError("Session has no stdin/stdout")
 
+    # Transform sudo commands to use password injection
+    prepared_command = _prepare_sudo_command_for_session(command)
+
     # Use a unique end marker for this command
     end_marker = f"___END_{uuid.uuid4().hex[:8]}___"
 
@@ -149,7 +210,7 @@ async def _run_in_session(
     # 1. Runs the user command
     # 2. Captures exit code
     # 3. Prints marker with exit code and cwd on a single line
-    wrapped_cmd = f"""{command}
+    wrapped_cmd = f"""{prepared_command}
 __ec__=$?
 echo ""
 echo "{end_marker}:$__ec__:$(pwd)"
@@ -1300,6 +1361,9 @@ async def shell_session(
     - Background jobs continue running
     - Command history within session
 
+    Sudo is supported if SUDO_PASSWORD is set. Commands starting with 'sudo'
+    or AUR helpers (yay, paru, etc.) are automatically handled.
+
     Workflow example (bluetooth connect):
     1. shell_session(command="bluetoothctl devices | grep -i pixel")
        → Returns session_id, use it for subsequent commands
@@ -1420,7 +1484,6 @@ async def shell_execute(
 
     Use shell_execute for:
     - Simple one-off commands
-    - Commands that need sudo (shell_session doesn't support sudo yet)
     - GUI app launches (with background=true)
 
     Call host_get_profile first if unsure about OS/package manager.

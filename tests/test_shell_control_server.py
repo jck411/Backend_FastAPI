@@ -349,25 +349,25 @@ def test_prepare_sudo_command_for_session_no_password(
 def test_prepare_sudo_command_for_session_direct_sudo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Direct sudo commands use echo-pipe approach."""
+    """Direct sudo commands use pre-authentication approach."""
     monkeypatch.setenv("SUDO_PASSWORD", "sekret")
 
     result = shell_control_server._prepare_sudo_command_for_session("sudo pacman -S vim")
-    assert "echo 'sekret' | sudo -S" in result
-    assert "--noconfirm" in result
-    assert "pacman" in result
-    assert "vim" in result
+    # Should pre-authenticate with sudo -v, then run original command
+    assert "echo 'sekret' | sudo -S -v" in result
+    assert "sudo pacman -S vim" in result
 
 
-def test_prepare_sudo_command_for_session_sudo_n_flag_removed(
+def test_prepare_sudo_command_for_session_sudo_n_flag_preserved(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The -n flag should be removed since it conflicts with password injection."""
+    """Sudo -n commands get pre-authenticated; -n flag preserved for the actual call."""
     monkeypatch.setenv("SUDO_PASSWORD", "sekret")
 
     result = shell_control_server._prepare_sudo_command_for_session("sudo -n true")
-    assert "-n" not in result
-    assert "echo 'sekret' | sudo -S" in result
+    # Pre-auth happens first, original command (including -n) runs after
+    assert "echo 'sekret' | sudo -S -v" in result
+    assert "sudo -n true" in result
 
 
 def test_prepare_sudo_command_for_session_yay(
@@ -390,6 +390,34 @@ def test_prepare_sudo_command_for_session_non_sudo_unchanged(
 
     result = shell_control_server._prepare_sudo_command_for_session("ls -la")
     assert result == "ls -la"
+
+
+def test_prepare_sudo_command_for_session_multi_sudo_script(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Multi-line scripts with multiple sudo calls use pre-authentication."""
+    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
+
+    # Multi-line script with multiple sudo commands
+    command = "sudo cp /etc/file /etc/file.bak; sudo tee /etc/file; sudo systemctl restart service"
+    result = shell_control_server._prepare_sudo_command_for_session(command)
+
+    # Should pre-authenticate with sudo -v, then run original command
+    assert "echo 'sekret' | sudo -S -v" in result
+    assert command in result
+
+
+def test_prepare_sudo_command_for_session_sudo_in_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sudo in a pipeline gets pre-authenticated."""
+    monkeypatch.setenv("SUDO_PASSWORD", "sekret")
+
+    command = "cat file.txt | sudo tee /etc/config"
+    result = shell_control_server._prepare_sudo_command_for_session(command)
+
+    assert "echo 'sekret' | sudo -S -v" in result
+    assert command in result
 
 
 async def test_host_update_profile_adds_timestamp(

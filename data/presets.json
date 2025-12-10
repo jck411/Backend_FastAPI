@@ -689,8 +689,7 @@
           "env": {
             "HOST_PROFILE_ID": "xps13",
             "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles",
-            "REQUIRE_APPROVAL": "false",
-            "SUDO_PASSWORD": "9791"
+            "REQUIRE_APPROVAL": "false"
           },
           "id": "shell-control",
           "module": "backend.mcp_servers.shell_control_server",
@@ -809,8 +808,7 @@
           "env": {
             "HOST_PROFILE_ID": "xps13",
             "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles",
-            "REQUIRE_APPROVAL": "false",
-            "SUDO_PASSWORD": "9791"
+            "REQUIRE_APPROVAL": "false"
           },
           "id": "shell-control",
           "module": "backend.mcp_servers.shell_control_server",

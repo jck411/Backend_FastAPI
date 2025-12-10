@@ -130,8 +130,8 @@ async def _get_or_create_session(session_id: str | None = None) -> ShellSession:
 def _prepare_sudo_command_for_session(command: str) -> str:
     """Transform a command to handle sudo in a session (no TTY).
 
-    Uses SUDO_ASKPASS approach since sessions don't have stdin available
-    for password injection (it's used for command input).
+    Uses sudo -v pre-authentication approach since sessions don't have stdin
+    available for password injection (it's used for command input).
     """
     sudo_password = os.environ.get("SUDO_PASSWORD")
     if not sudo_password:
@@ -164,19 +164,15 @@ def _prepare_sudo_command_for_session(command: str) -> str:
             f"{aur_match} --sudoloop {rest_of_command}"
         )
 
-    if stripped.startswith("sudo "):
-        # Direct sudo command - use -S to read from stdin via echo pipe
-        rest = stripped[len("sudo ") :].lstrip()
-
-        # Remove -n flag if present (it conflicts with password injection)
-        rest = re.sub(r"(^|\s)-n(\s|$)", r"\1\2", rest).strip()
-
-        # Auto-add --noconfirm for pacman commands if missing
-        if re.search(r"pacman\s+-S", rest) and "--noconfirm" not in rest:
-            rest = re.sub(r"(pacman\s+-\S+)", r"\1 --noconfirm", rest, count=1)
-
-        # Use echo pipe with sudo -S
-        return f"echo '{escaped_password}' | sudo -S {rest}"
+    # Check if command contains ANY sudo calls (multi-line scripts, pipes, etc.)
+    # This handles cases like: "sudo cp x y; sudo tee file; sudo systemctl restart"
+    if re.search(r"(^|\s|;|&&|\|\|)sudo(\s|$)", command):
+        # Pre-authenticate sudo, then run the entire command
+        # The -v flag validates/refreshes sudo credentials for subsequent calls
+        return (
+            f"echo '{escaped_password}' | sudo -S -v 2>/dev/null && "
+            f"{command}"
+        )
 
     return command
 

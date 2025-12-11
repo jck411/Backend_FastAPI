@@ -45,9 +45,38 @@ CLEANUP_THROTTLE_SECONDS = 300  # 5 minutes between cleanups
 _last_log_cleanup: float = 0.0
 _last_delta_cleanup: float = 0.0
 
+# Cached package manager detection (set lazily on first use)
+_cached_package_manager: str | None = None
+
 # Input validation bounds
 TIMEOUT_MIN_SECONDS = 1
 TIMEOUT_MAX_SECONDS = 600  # 10 minutes max
+
+
+def _get_package_manager() -> str:
+    """Detect and cache the system package manager.
+
+    Returns: 'pacman', 'dnf', 'apt', or 'unknown'
+    """
+    global _cached_package_manager
+
+    if _cached_package_manager is not None:
+        return _cached_package_manager
+
+    # Check in order of preference
+    pkg_managers = [
+        ("pacman", "/usr/bin/pacman"),
+        ("dnf", "/usr/bin/dnf"),
+        ("apt", "/usr/bin/apt"),
+    ]
+
+    for name, path in pkg_managers:
+        if os.path.exists(path):
+            _cached_package_manager = name
+            return name
+
+    _cached_package_manager = "unknown"
+    return "unknown"
 
 
 # =============================================================================
@@ -470,6 +499,11 @@ _SNAPSHOT_TRIGGERS: list[tuple[str, str]] = [
     (r"(pacman|yay|paru)\s+-S\s", "packages"),
     (r"(pacman|yay|paru)\s+-R", "packages"),
     (r"pacman\s+-Syu", "packages"),
+    # Package managers (Fedora/RHEL)
+    (r"dnf\s+(install|remove|erase)\s", "packages"),
+    (r"dnf\s+(upgrade|update)(\s|$)", "packages"),
+    (r"dnf\s+group\s+(install|remove)\s", "packages"),
+    # Universal package managers
     (r"flatpak\s+(install|uninstall)", "packages"),
     (r"snap\s+(install|remove)", "packages"),
     (r"pipx\s+(install|uninstall)", "packages"),
@@ -650,7 +684,11 @@ _TRACKED_CATEGORIES: dict[str, list[str]] = {
 
 
 async def _snapshot_tracked_packages() -> dict[str, list[str]]:
-    """Snapshot only the tracked package categories (fast, ~100 tokens)."""
+    """Snapshot only the tracked package categories (fast, ~100 tokens).
+
+    Supports: pacman (Arch), dnf (Fedora/RHEL)
+    """
+    pkg_manager = _get_package_manager()
 
     # Build a single grep pattern for all tracked packages
     all_patterns = []
@@ -658,12 +696,25 @@ async def _snapshot_tracked_packages() -> dict[str, list[str]]:
         all_patterns.extend(packages)
 
     # Escape special chars and join with |
-    pattern = "|".join(f"^{p}" for p in all_patterns)
+    grep_pattern = "|".join(f"^{p}" for p in all_patterns)
 
-    # Run pacman -Qe and grep for our tracked packages
+    # Select command based on package manager
+    if pkg_manager == "pacman":
+        # Output: "package-name version"
+        cmd = f"pacman -Qe 2>/dev/null | grep -E '{grep_pattern}' || true"
+    elif pkg_manager == "dnf":
+        # Output: "package-name.arch version repo"
+        # Use awk to normalize output to "package-name version"
+        cmd = (
+            f"dnf list installed 2>/dev/null | grep -E '{grep_pattern}' | "
+            f"awk '{{split($1,a,\".\"); print a[1], $2}}' || true"
+        )
+    else:
+        return {}
+
     try:
         process = await asyncio.create_subprocess_shell(
-            f"pacman -Qe 2>/dev/null | grep -E '{pattern}' || true",
+            cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -676,11 +727,11 @@ async def _snapshot_tracked_packages() -> dict[str, list[str]]:
         return {}
 
     # Parse output and categorize
+    # Both pacman and dnf (after awk) output: "package-name version"
     result: dict[str, list[str]] = {}
     for line in output.splitlines():
         if not line.strip():
             continue
-        # Line format: "package-name version"
         parts = line.split()
         if not parts:
             continue

@@ -1548,7 +1548,7 @@ async def shell_get_full_output(
         )
 
     start = max(offset, 0)
-    end = start + limit if limit is not None else None
+    end = start + limit
     stdout = payload.get("stdout", "")
     stderr = payload.get("stderr", "")
 

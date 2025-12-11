@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
+import glob as glob_module
 import json
 import os
 import re
@@ -37,6 +39,15 @@ SESSION_MAX_COUNT = 5  # Max concurrent sessions
 
 # Validation pattern for host_id to prevent path traversal attacks
 _VALID_HOST_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+# Cleanup throttling (avoid scanning files on every command)
+CLEANUP_THROTTLE_SECONDS = 300  # 5 minutes between cleanups
+_last_log_cleanup: float = 0.0
+_last_delta_cleanup: float = 0.0
+
+# Input validation bounds
+TIMEOUT_MIN_SECONDS = 1
+TIMEOUT_MAX_SECONDS = 600  # 10 minutes max
 
 
 # =============================================================================
@@ -84,6 +95,11 @@ async def _cleanup_expired_sessions() -> None:
                     await asyncio.wait_for(sess.process.wait(), timeout=2.0)
                 except asyncio.TimeoutError:
                     sess.process.kill()
+                    # Reap the process to avoid zombies
+                    try:
+                        await asyncio.wait_for(sess.process.wait(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        pass  # Process truly stuck, nothing more we can do
 
 
 async def _get_or_create_session(session_id: str | None = None) -> ShellSession:
@@ -241,10 +257,19 @@ def _get_log_dir() -> Path:
 
 
 def _cleanup_old_logs() -> None:
-    """Remove shell logs older than LOG_RETENTION_HOURS."""
+    """Remove shell logs older than LOG_RETENTION_HOURS.
+
+    Throttled to run at most once every CLEANUP_THROTTLE_SECONDS.
+    """
+    global _last_log_cleanup
+
+    now = time.time()
+    if now - _last_log_cleanup < CLEANUP_THROTTLE_SECONDS:
+        return  # Throttled, skip this cleanup
+    _last_log_cleanup = now
 
     log_dir = _get_log_dir()
-    cutoff = time.time() - (LOG_RETENTION_HOURS * 3600)
+    cutoff = now - (LOG_RETENTION_HOURS * 3600)
 
     for log_file in log_dir.glob("*.json"):
         try:
@@ -378,7 +403,16 @@ def _deep_merge(base: dict, updates: dict) -> dict:
 
 
 def _cleanup_old_deltas(path: Path) -> None:
-    """Remove delta entries older than DELTAS_RETENTION_DAYS or exceeding DELTAS_MAX_ENTRIES."""
+    """Remove delta entries older than DELTAS_RETENTION_DAYS or exceeding DELTAS_MAX_ENTRIES.
+
+    Throttled to run at most once every CLEANUP_THROTTLE_SECONDS.
+    """
+    global _last_delta_cleanup
+
+    now = time.time()
+    if now - _last_delta_cleanup < CLEANUP_THROTTLE_SECONDS:
+        return  # Throttled, skip this cleanup
+    _last_delta_cleanup = now
 
     if not path.exists():
         return
@@ -391,7 +425,7 @@ def _cleanup_old_deltas(path: Path) -> None:
     if not lines:
         return
 
-    cutoff = time.time() - (DELTAS_RETENTION_DAYS * 24 * 3600)
+    cutoff = now - (DELTAS_RETENTION_DAYS * 24 * 3600)
     kept: list[str] = []
 
     for line in lines:
@@ -694,7 +728,9 @@ async def _snapshot_enabled_services() -> list[str]:
         )
         stdout, _ = await asyncio.wait_for(process.communicate(), timeout=5.0)
         output = stdout.decode("utf-8", errors="replace").strip()
-    except (asyncio.TimeoutError, Exception):
+    except asyncio.CancelledError:
+        raise
+    except Exception:
         return []
 
     return [s.strip() for s in output.splitlines() if s.strip()]
@@ -723,7 +759,9 @@ async def _snapshot_defaults() -> dict[str, str]:
             if value:
                 # Strip .desktop suffix for cleaner output
                 defaults[key] = value.replace(".desktop", "")
-        except (asyncio.TimeoutError, Exception):
+        except asyncio.CancelledError:
+            raise
+        except Exception:
             pass
 
     # Also get xdg-mime defaults for common types
@@ -776,7 +814,9 @@ async def _detect_system_info() -> dict[str, object]:
             elif line.startswith("ID=") and "os_base" not in info:
                 # Fallback if ID_LIKE not present
                 info["os_base"] = line.split("=", 1)[1].strip().strip('"')
-    except (asyncio.TimeoutError, Exception):
+    except asyncio.CancelledError:
+        raise
+    except Exception:
         pass
 
     # Kernel version
@@ -822,7 +862,9 @@ async def _detect_system_info() -> dict[str, object]:
             if b"found" in stdout:
                 info["package_manager"] = name
                 break
-        except (asyncio.TimeoutError, Exception):
+        except asyncio.CancelledError:
+            raise
+        except Exception:
             pass
 
     # Detect AUR helper (Arch-based only)
@@ -839,7 +881,9 @@ async def _detect_system_info() -> dict[str, object]:
                 if b"found" in stdout:
                     info["aur_helper"] = helper
                     break
-            except (asyncio.TimeoutError, Exception):
+            except asyncio.CancelledError:
+                raise
+            except Exception:
                 pass
 
     return info
@@ -897,9 +941,6 @@ def _detect_snapshot_triggers(command: str) -> set[str]:
 
     Returns a set of trigger categories: "packages", "services", "defaults"
     """
-
-    import re
-
     triggers: set[str] = set()
     for pattern, trigger in _SNAPSHOT_TRIGGERS:
         if re.search(pattern, command, re.IGNORECASE):
@@ -943,6 +984,8 @@ async def _open_settings_panel(command: str) -> str | None:
                     env=shell_env,
                 )
                 return panel_cmd
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 return None
 
@@ -1029,9 +1072,7 @@ def _build_shell_env() -> dict[str, str]:
     for sys_path in system_paths:
         # Handle glob patterns
         if "*" in sys_path:
-            import glob
-
-            matched = glob.glob(sys_path)
+            matched = glob_module.glob(sys_path)
             for match in matched:
                 if match not in path_parts and os.path.isdir(match):
                     path_parts.append(match)
@@ -1095,6 +1136,8 @@ async def _run_command(
                     f"Process timed out after {timeout_seconds} seconds".encode()
                 )
 
+    except asyncio.CancelledError:
+        raise
     except Exception as exc:  # noqa: BLE001
         duration_ms = (time.perf_counter() - start) * 1000
         message = f"Error executing command: {exc}"
@@ -1180,14 +1223,18 @@ async def _execute_and_log(
 async def _find_path(name: str) -> str | None:
     """Search for a file/directory by name under home. Returns first match or None."""
     home = os.path.expanduser("~")
+    # Escape name to prevent shell injection
+    safe_name = shlex.quote(f"*{name}*")
     try:
         proc = await asyncio.create_subprocess_shell(
-            f"find {home} -maxdepth 4 -iname '*{name}*' -type d 2>/dev/null | head -1",
+            f"find {shlex.quote(home)} -maxdepth 4 -iname {safe_name} -type d 2>/dev/null | head -1",
             stdout=asyncio.subprocess.PIPE,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
         result = stdout.decode().strip()
         return result if result else None
+    except asyncio.CancelledError:
+        raise
     except Exception:
         return None
 
@@ -1257,6 +1304,37 @@ async def _launch_gui_app(
         }
 
 
+def _validate_timeout(timeout_seconds: int) -> int:
+    """Validate and clamp timeout to safe bounds."""
+    return max(TIMEOUT_MIN_SECONDS, min(timeout_seconds, TIMEOUT_MAX_SECONDS))
+
+
+def _validate_working_directory(working_directory: str | None) -> str | None:
+    """Validate working directory to prevent path traversal.
+
+    Returns the validated path or None. Raises ValueError for invalid paths.
+    """
+    if working_directory is None:
+        return None
+
+    # Expand user home (~)
+    expanded = os.path.expanduser(working_directory)
+
+    # Resolve to absolute path to catch traversal attempts
+    try:
+        resolved = Path(expanded).resolve()
+    except (OSError, ValueError) as e:
+        raise ValueError(f"Invalid working directory path: {e}") from e
+
+    # Must exist and be a directory
+    if not resolved.exists():
+        raise ValueError(f"Working directory does not exist: {resolved}")
+    if not resolved.is_dir():
+        raise ValueError(f"Working directory is not a directory: {resolved}")
+
+    return str(resolved)
+
+
 @mcp.tool("shell_session")  # type: ignore
 async def shell_session(
     command: str,
@@ -1280,13 +1358,16 @@ async def shell_session(
     Args:
         command: The command to run
         session_id: Reuse an existing session. Omit to create new session.
-        timeout_seconds: Max time to wait for command (default 30s)
+        timeout_seconds: Max time to wait for command (default 30s, max 600s)
 
     Returns: JSON with output, exit_code, cwd, session_id.
     Always returns session_id - use it for follow-up commands.
 
     Sessions auto-expire after 5 min idle or 1 hour total.
     """
+    # Validate inputs
+    timeout_seconds = _validate_timeout(timeout_seconds)
+
     start = time.perf_counter()
 
     try:
@@ -1317,6 +1398,8 @@ async def shell_session(
             }
         )
 
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         duration_ms = (time.perf_counter() - start) * 1000
         return json.dumps(
@@ -1397,10 +1480,24 @@ async def shell_execute(
     Args:
         background: Set True for GUI apps (wizards, dialogs, editors).
                     Returns immediately without waiting for app to close.
+        timeout_seconds: Max time to wait (default 30s, max 600s)
 
     Returns: stdout, stderr, exit_code, duration_ms, log_id.
     If truncated=true, use shell_get_full_output(log_id).
     """
+    # Validate inputs
+    timeout_seconds = _validate_timeout(timeout_seconds)
+    try:
+        working_directory = _validate_working_directory(working_directory)
+    except ValueError as e:
+        return json.dumps(
+            {
+                "status": "error",
+                "error": str(e),
+                "command": command,
+            }
+        )
+
     if background:
         result = await _launch_gui_app(command, working_directory)
         return json.dumps(result)
@@ -1618,6 +1715,31 @@ async def host_detect_system() -> str:
             "detected": software_update,
         }
     )
+
+
+def _shutdown_sessions() -> None:
+    """Synchronously terminate all active shell sessions on shutdown.
+
+    Called via atexit to prevent orphaned bash processes.
+    """
+    for sid, sess in list(_sessions.items()):
+        if sess.is_alive():
+            try:
+                sess.process.terminate()
+                # Give it a moment to terminate
+                sess.process.wait()
+            except Exception:
+                # Last resort: force kill
+                try:
+                    sess.process.kill()
+                    sess.process.wait()
+                except Exception:
+                    pass  # Nothing more we can do
+    _sessions.clear()
+
+
+# Register shutdown handler to cleanup sessions on exit
+atexit.register(_shutdown_sessions)
 
 
 def run() -> None:  # pragma: no cover - integration entrypoint

@@ -7,6 +7,7 @@ export default defineConfig({
   server: {
     host: '0.0.0.0', // Listen on all network interfaces
     port: 5173,
+    strictPort: true, // Fail if port is in use (we kill it via start_server.sh)
     proxy: {
       '/api': 'http://localhost:8000',
       '/health': 'http://localhost:8000',

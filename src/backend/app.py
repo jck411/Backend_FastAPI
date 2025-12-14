@@ -251,6 +251,24 @@ def create_app() -> FastAPI:
     app.include_router(presets_router)
     app.include_router(mcp_router)
     app.include_router(stt_router)
+
+    # helper for voice assistant imports to avoid circular deps if any,
+    # though here it should be fine.
+    from .routers import voice_assistant
+    from .services.voice_session import VoiceConnectionManager
+    from .services.stt_service import STTService
+    from .services.tts_service import TTSService
+
+    try:
+        app.state.voice_manager = VoiceConnectionManager()
+        app.state.stt_service = STTService()
+        app.state.tts_service = TTSService()
+        app.include_router(voice_assistant.router)
+        logging.info("Voice Assistant initialized successfully.")
+    except Exception as e:
+        logging.error(f"Failed to initialize Voice Assistant: {e}")
+        # We don't crash the whole app, just this feature won't work
+
     app.include_router(
         suggestions_router, prefix="/api/suggestions", tags=["suggestions"]
     )
@@ -288,6 +306,37 @@ def create_app() -> FastAPI:
             "default_model": settings.default_model,
             "active_model": active_model,
         }
+
+    from fastapi.staticfiles import StaticFiles
+    from starlette.responses import FileResponse
+    import os
+
+    # Serve Static Files (Vite Frontend)
+    # Check if static directory exists (it should after build)
+    static_dir = Path(__file__).resolve().parent / "static"
+
+    if static_dir.exists():
+        # Mount the assets folder specifically
+        app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
+
+        # Serve index.html for root and any other SPA routes (catch-all)
+        @app.get("/{full_path:path}")
+        async def serve_spa(full_path: str):
+            # If API route, let it pass through (already handled above appropriately,
+            # but usually catch-all is last resort).
+            # Actually, FastAPI matches in order. Since this is last, logic is simpler.
+            if full_path.startswith("api/"):
+                return Response(status_code=404)
+
+            # Check if file exists (e.g. valid static file not in assets)
+            file_path = static_dir / full_path
+            if file_path.exists() and file_path.is_file():
+                return FileResponse(file_path)
+
+            # Default to index.html for SPA routing
+            return FileResponse(static_dir / "index.html")
+    else:
+        logging.warning(f"Static directory not found at {static_dir}. Frontend will not be served.")
 
     return app
 

@@ -177,6 +177,24 @@ class Settings(BaseSettings):
     def attachment_signed_url_ttl(self) -> timedelta:
         return timedelta(days=self.attachments_retention_days)
 
+    # Voice Assistant Settings
+    pi_websocket_heartbeat_interval: int = Field(
+        default=10,
+        validation_alias=AliasChoices("PI_WEBSOCKET_HEARTBEAT_INTERVAL", "heartbeat_interval"),
+    )
+    stt_silence_timeout: int = Field(
+        default=10,
+        validation_alias=AliasChoices("STT_SILENCE_TIMEOUT", "stt_silence_timeout"),
+    )
+    stt_max_duration: int = Field(
+        default=60,
+        validation_alias=AliasChoices("STT_MAX_DURATION", "stt_max_duration"),
+    )
+    tts_provider: str = Field(
+        default="deepgram",
+        validation_alias=AliasChoices("TTS_PROVIDER", "tts_provider"),
+    )
+
     # Deepgram (optional, only needed if using browser STT)
     deepgram_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("DEEPGRAM_API_KEY")

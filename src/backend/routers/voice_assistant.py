@@ -8,11 +8,12 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request
 from backend.services.voice_session import VoiceConnectionManager
 from backend.services.stt_service import STTService
 from backend.services.tts_service import TTSService
+from backend.services.kiosk_chat_service import KioskChatService
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 logger = logging.getLogger(__name__)
 
-async def handle_connection(websocket: WebSocket, client_id: str, manager: VoiceConnectionManager, stt_service: STTService, tts_service: TTSService):
+async def handle_connection(websocket: WebSocket, client_id: str, manager: VoiceConnectionManager, stt_service: STTService, tts_service: TTSService, kiosk_chat_service: KioskChatService):
     """
     Main loop for handling a single client's WebSocket connection.
     """
@@ -31,29 +32,41 @@ async def handle_connection(websocket: WebSocket, client_id: str, manager: Voice
             await manager.broadcast({"type": "transcript", "text": text, "is_final": is_final})
 
             if is_final:
-                # Transition to PROCESSING
+                # Get LLM response stream from OpenRouter
                 await manager.update_state(client_id, "PROCESSING")
 
-                # Phase 1 Logic: Echo back
-                response_text = f"I heard you say: {text}"
+                # Send initial clear/setup if needed
+                # We reuse "transcript" type for assistant output so it shows on screen
+                full_text = ""
 
-                if response_text:
-                    await manager.update_state(client_id, "SPEAKING")
-                    # Use TTS
-                    try:
-                        audio_data = await tts_service.synthesize(response_text)
+                try:
+                    async for chunk in kiosk_chat_service.stream_response(client_id, text):
+                        full_text += chunk
+                        # Broadcast chunk as transcript update
+                        # is_final=False keeps it updating
+                        await manager.broadcast({
+                            "type": "transcript",
+                            "text": full_text,
+                            "is_final": False
+                        })
 
-                        if audio_data:
-                            # 4. Play Audio on Client
-                            await websocket.send_json({
-                                "type": "tts_audio",
-                                "data": base64.b64encode(audio_data).decode('utf-8')
-                            })
-                            logger.info(f"Sent TTS audio for {client_id}")
-                    except Exception as e:
-                        logger.error(f"TTS generation failed: {e}")
-                    finally:
-                        await manager.update_state(client_id, "IDLE")
+                    # Send final update
+                    await manager.broadcast({
+                        "type": "transcript",
+                        "text": full_text,
+                        "is_final": True
+                    })
+
+                except Exception as e:
+                    logger.error(f"LLM streaming failed for {client_id}: {e}")
+                    await manager.broadcast({
+                        "type": "transcript",
+                        "text": "I'm sorry, something went wrong.",
+                        "is_final": True
+                    })
+
+                # Reset state to IDLE after response
+                await manager.update_state(client_id, "IDLE")
 
         async def on_stt_error(error: str):
             logger.error(f"STT Error for {client_id}: {error}")
@@ -141,5 +154,6 @@ async def voice_connect(websocket: WebSocket):
     manager = app_state.voice_manager
     stt_service = app_state.stt_service
     tts_service = app_state.tts_service
+    kiosk_chat_service = app_state.kiosk_chat_service
 
-    await handle_connection(websocket, client_id, manager, stt_service, tts_service)
+    await handle_connection(websocket, client_id, manager, stt_service, tts_service, kiosk_chat_service)

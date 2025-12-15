@@ -258,11 +258,13 @@ def create_app() -> FastAPI:
     from .services.voice_session import VoiceConnectionManager
     from .services.stt_service import STTService
     from .services.tts_service import TTSService
+    from .services.kiosk_chat_service import KioskChatService
 
     try:
         app.state.voice_manager = VoiceConnectionManager()
         app.state.stt_service = STTService()
         app.state.tts_service = TTSService()
+        app.state.kiosk_chat_service = KioskChatService(settings)
         app.include_router(voice_assistant.router)
         logging.info("Voice Assistant initialized successfully.")
     except Exception as e:

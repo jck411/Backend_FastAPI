@@ -205,13 +205,29 @@ class Settings(BaseSettings):
         ge=1,
         le=3600,
     )
-    deepgram_allow_apikey_fallback: bool = Field(
-        default=False,
-        validation_alias=AliasChoices(
-            "DEEPGRAM_ALLOW_APIKEY_FALLBACK",
-            "DEEPGRAM_DEV_APIKEY_FALLBACK",
-        ),
-    )
+    def clone_for_kiosk(self) -> "Settings":
+        """
+        Create a copy of settings with Kiosk-specific data paths.
+
+        This enables complete isolation of:
+        - Chat History (kiosk_chat_sessions.db)
+        - MCP Servers (kiosk_mcp_servers.json)
+        - Model Settings (kiosk_model_settings.json)
+        """
+        # Create a copy of the current settings model
+        # We use model_dump to get values, then create new instance with overrides
+        values = self.model_dump()
+
+        # Override paths for Kiosk isolation
+        overrides = {
+            "chat_database_path": Path("data/kiosk_chat_sessions.db"),
+            "mcp_servers_path": Path("data/kiosk_mcp_servers.json"),
+            "model_settings_path": Path("data/kiosk_model_settings.json"),
+        }
+
+        values.update(overrides)
+
+        return Settings(**values)
 
 
 @lru_cache(maxsize=1)

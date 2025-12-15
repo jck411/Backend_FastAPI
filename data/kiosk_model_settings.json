@@ -1,0 +1,6 @@
+{
+  "model": "openai/gpt-4o-mini-2024-07-18",
+  "supports_tools": true,
+  "system_prompt": "you are a helpful voice assistant, reply succinctly and to the point",
+  "updated_at": "2025-12-15T16:43:47.119935+00:00"
+}

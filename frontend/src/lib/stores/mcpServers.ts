@@ -46,13 +46,19 @@ function mergeResponse(state: McpServersState, payload: McpServersResponse): Mcp
   };
 }
 
-export function createMcpServersStore() {
+const DEFAULT_CLIENT = {
+  fetch: fetchMcpServers,
+  patch: patchMcpServer,
+  refresh: refreshMcpServers,
+};
+
+export function createMcpServersStore(client = DEFAULT_CLIENT) {
   const store = writable<McpServersState>({ ...INITIAL_STATE });
 
   async function load(): Promise<void> {
     store.set({ ...INITIAL_STATE, loading: true });
     try {
-      const response = await fetchMcpServers();
+      const response = await client.fetch();
       store.set({
         ...INITIAL_STATE,
         servers: response.servers,
@@ -180,7 +186,7 @@ export function createMcpServersStore() {
       error: null,
     }));
     try {
-      const response = await refreshMcpServers();
+      const response = await client.refresh();
       store.update((state) => ({
         ...mergeResponse(state, response),
         refreshing: false,
@@ -228,7 +234,7 @@ export function createMcpServersStore() {
       }));
 
       try {
-        const response = await patchMcpServer(serverId, payload);
+        const response = await client.patch(serverId, payload);
         store.update((state) => {
           const nextPending = { ...state.pending };
           delete nextPending[serverId];

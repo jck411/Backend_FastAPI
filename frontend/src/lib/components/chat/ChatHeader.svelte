@@ -19,6 +19,7 @@
     openSystemSettings: void;
     openSpeechSettings: void;
     openPresets: void;
+    openKioskSettings: void;
   }>();
 
   export let selectableModels: SelectableModel[] = [];
@@ -272,6 +273,38 @@
           />
           <path
             d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+
+      <button
+        class="btn btn-ghost btn-small icon-only"
+        type="button"
+        on:click={() => dispatch("openKioskSettings")}
+        aria-label="Kiosk settings"
+        title="Kiosk settings"
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <path
+            d="M4 6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6Z"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M12 18v3m-3 0h6"
             stroke="currentColor"
             stroke-width="1.5"
             stroke-linecap="round"

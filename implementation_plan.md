@@ -17,7 +17,7 @@ Backend (FastAPI) - http://192.168.1.223:8000
 ├── STT Service            ✅ COMPLETE (stt_service.py)
 ├── TTS Service            ✅ COMPLETE (tts_service.py)
 ├── Voice Session Manager  ✅ COMPLETE (voice_session.py)
-├── Intent Parser          ⏳ TODO (intent_parser.py)
+├── Voice Intelligence     ⏳ TODO (Upgrade KioskChatService)
 └── Existing Infrastructure (reuse)
     ├── OpenRouter Client  ✅ EXISTS
     ├── MCP Client         ✅ EXISTS
@@ -92,12 +92,11 @@ Complete Python audio agent deployed to Pi at `/home/jck411/.gemini/antigravity/
 **Deepgram Configuration:**
 ```python
 {
-    "model": "nova-2",
-    "language": "en-US",
-    "smart_format": "true",
-    "interim_results": "true",
-    "vad_events": "true",
-    "endpointing": "1000"
+    "model": "flux-general-en",
+    "encoding": "linear16",
+    "sample_rate": "16000",
+    "eot_threshold": "0.7",
+    "eot_timeout_ms": "5000"
 }
 ```
 
@@ -163,29 +162,31 @@ Complete Python audio agent deployed to Pi at `/home/jck411/.gemini/antigravity/
 
 ---
 
-## ⏳ TODO - Upgrade Voice Capabilities (KioskChatService)
+## ✅ COMPLETED - Upgrade Voice Capabilities (KioskChatService)
 
 **File:** `src/backend/services/kiosk_chat_service.py` (Upgrade)
 
 ### Purpose
 Enable the Voice Assistant to use MCP tools (e.g., "turn on lights", "check weather") by upgrading the lightweight `KioskChatService` to use a **dedicated** instance of `ChatOrchestrator`.
 
-### Design Decision: Independent Instance
+### Design Decision: Dual-Orchestrator with Isolation
 To keep the Kiosk/Voice assistant distinct from the main Svelte frontend:
-- **Separate Settings:** It will use its own system prompt and model preferences.
-- **Separate Orchestrator:** It will instantiate its own `ChatOrchestrator` rather than sharing the global singleton used by the main web UI.
+- **Separate Settings:** It will use `data/kiosk_model_settings.json` and `data/kiosk_mcp_servers.json`.
+- **Separate Database:** It will use `data/kiosk_chat_sessions.db`.
+- **Separate Orchestrator:** It will instantiate its own `ChatOrchestrator` with a cloned `Settings` object pointing to these private files.
 - **Why?** This prevents "pollution" of the main chat history and allows specific tuning (e.g., faster/smaller models) for voice interactions.
 
 ### Implementation Checklist
-- [ ] Update `KioskChatService` class:
-  - [ ] Initialize a private `ChatOrchestrator` instance
-  - [ ] Configure it with Kiosk-specific settings (if available) or defaults
-  - [ ] Update `stream_response` to use `orchestrator.process_message` instead of raw `OpenRouterClient`
-- [ ] Connect MCP Tools:
-  - [ ] Ensure the Kiosk Orchestrator has access to the MCP Registry
-  - [ ] Verify tool execution works via voice commands
-- [ ] System Prompt:
-  - [ ] Ensure rigid "voice mode" system prompt (concise, no markdown) is preserved
+- [ ] Backend: Upgrade `KioskChatService`
+  - [ ] Create `Settings.clone_for_kiosk()` helper
+  - [ ] Initialize private `ChatOrchestrator` with kiosk settings
+  - [ ] Add API endpoints for Kiosk config (GET/PUT `api/kiosk/settings`, `api/kiosk/mcp`)
+- [ ] Frontend: Add Kiosk Configuration GUI
+  - [ ] Create `KioskSettingsModal.svelte` (System Prompt, Model, MCP toggles)
+  - [ ] Add **Icon-only** "Kiosk" button to `ChatHeader.svelte` (next to Speech settings, no text label to save space)
+  - [ ] Connect to new backend endpoints
+- [ ] Integration:
+  - [ ] Update `voice_assistant.py` to use the upgraded service
 
 ---
 
@@ -240,8 +241,9 @@ sudo firewall-cmd --list-ports
 ## Next Steps
 
 ### Phase 2: Intelligent Responses
-1. Create `intent_parser.py` to integrate with ChatOrchestrator
-2. Replace echo logic in `voice_assistant.py` with IntentParser
+1. Upgrade `KioskChatService` (Dual-Orchestrator)
+2. Implement Kiosk Configuration GUI (Svelte Modal)
+3. Connect MCP tools via `KioskChatService`
 3. Test with existing MCP tools
 
 ### Phase 3: Smart Home Integration
@@ -259,7 +261,7 @@ sudo firewall-cmd --list-ports
 | `src/backend/services/stt_service.py` | ✅ Complete | 184 |
 | `src/backend/services/tts_service.py` | ✅ Complete | 50 |
 | `src/backend/services/voice_session.py` | ✅ Complete | 74 |
-| `src/backend/services/intent_parser.py` | ⏳ TODO | - |
+| `src/backend/services/kiosk_chat_service.py` | ✅ Complete | ~130 |
 | `frontend-kiosk/` | ✅ Complete | ~400 |
 
 **Total Backend Voice Code:** ~450 lines (complete)

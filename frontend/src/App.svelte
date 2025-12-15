@@ -14,6 +14,7 @@
   import MessageEditor from "./lib/components/chat/MessageEditor.svelte";
   import MessageList from "./lib/components/chat/MessageList.svelte";
   import ModelSettingsModal from "./lib/components/chat/ModelSettingsModal.svelte";
+  import KioskSettingsModal from "./lib/components/chat/KioskSettingsModal.svelte";
   import PresetsModal from "./lib/components/chat/PresetsModal.svelte";
   import QuickPrompts from "./lib/components/chat/QuickPrompts.svelte";
   import SpeechSettingsModal from "./lib/components/chat/SpeechSettingsModal.svelte";
@@ -57,6 +58,7 @@
   let generationModalOpen = false;
   let modelSettingsOpen = false;
   let systemSettingsOpen = false;
+  let kioskSettingsOpen = false;
   let speechSettingsOpen = false;
   let presetsOpen = false;
   let lastSpeechPromptVersion = 0;
@@ -307,6 +309,7 @@
     on:modelChange={(event) => handleModelChange(event.detail.id)}
     on:openModelSettings={() => (modelSettingsOpen = true)}
     on:openSystemSettings={() => (systemSettingsOpen = true)}
+    on:openKioskSettings={() => (kioskSettingsOpen = true)}
     on:openSpeechSettings={() => (speechSettingsOpen = true)}
     on:openPresets={() => (presetsOpen = true)}
   />
@@ -378,15 +381,21 @@
   />
 
   <SystemSettingsModal
-    open={systemSettingsOpen}
+    bind:open={systemSettingsOpen}
     on:close={() => (systemSettingsOpen = false)}
   />
-
+  <KioskSettingsModal
+    bind:open={kioskSettingsOpen}
+    on:close={() => (kioskSettingsOpen = false)}
+  />
   <SpeechSettingsModal
-    open={speechSettingsOpen}
+    bind:open={speechSettingsOpen}
     on:close={() => (speechSettingsOpen = false)}
   />
-  <PresetsModal open={presetsOpen} on:close={() => (presetsOpen = false)} />
+  <PresetsModal
+    bind:open={presetsOpen}
+    on:close={() => (presetsOpen = false)}
+  />
 
   <ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />
 </main>

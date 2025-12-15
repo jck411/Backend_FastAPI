@@ -58,10 +58,16 @@ echo "Backend:        http://localhost:8000"
 echo "Svelte Chat UI: http://localhost:5173"
 echo "Kiosk UI:       http://localhost:5174"
 echo ""
+# Helper to get the first non-local IP
+HOST_IP=$(hostname -I | awk '{print $1}')
+if [ -z "$HOST_IP" ]; then
+    HOST_IP="YOUR_IP_ADDRESS"
+fi
+
 echo "From other machines (use your IP):"
-echo "  Backend:        http://192.168.1.223:8000"
-echo "  Svelte Chat UI: http://192.168.1.223:5173"
-echo "  Kiosk UI:       http://192.168.1.223:5174"
+echo "  Backend:        http://$HOST_IP:8000"
+echo "  Svelte Chat UI: http://$HOST_IP:5173"
+echo "  Kiosk UI:       http://$HOST_IP:5174"
 echo "=============================================="
 echo "Press Ctrl+C to stop all servers"
 echo ""

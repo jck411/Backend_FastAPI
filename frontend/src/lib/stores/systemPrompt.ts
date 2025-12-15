@@ -22,7 +22,10 @@ const INITIAL_STATE: SystemPromptState = {
   dirty: false,
 };
 
-export function createSystemPromptStore() {
+export function createSystemPromptStore(
+  fetchClient: () => Promise<SystemPromptResponse> = fetchSystemPrompt,
+  updateClient: (payload: { system_prompt: string | null }) => Promise<SystemPromptResponse> = updateSystemPrompt
+) {
   const store = writable<SystemPromptState>({ ...INITIAL_STATE });
 
   function computeDirty(value: string, initialValue: string): boolean {
@@ -36,7 +39,7 @@ export function createSystemPromptStore() {
   async function load(): Promise<void> {
     store.set({ ...INITIAL_STATE, loading: true });
     try {
-      const response = await fetchSystemPrompt();
+      const response = await fetchClient();
       const prompt = normalizeResponse(response);
       store.set({
         loading: false,
@@ -81,7 +84,7 @@ export function createSystemPromptStore() {
     };
 
     try {
-      const response = await updateSystemPrompt(payload);
+      const response = await updateClient(payload);
       const prompt = normalizeResponse(response);
       store.set({
         loading: false,

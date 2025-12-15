@@ -252,6 +252,9 @@ def create_app() -> FastAPI:
     app.include_router(mcp_router)
     app.include_router(stt_router)
 
+    from .routers import kiosk
+    app.include_router(kiosk.router)
+
     # helper for voice assistant imports to avoid circular deps if any,
     # though here it should be fine.
     from .routers import voice_assistant
@@ -259,8 +262,11 @@ def create_app() -> FastAPI:
     from .services.stt_service import STTService
     from .services.tts_service import TTSService
     from .services.kiosk_chat_service import KioskChatService
+    from .services.kiosk_stt_settings import KioskSttSettingsService
 
     try:
+        kiosk_stt_settings_path = _resolve_under(project_root, Path("data/kiosk_stt_settings.json"))
+        app.state.kiosk_stt_settings_service = KioskSttSettingsService(kiosk_stt_settings_path)
         app.state.voice_manager = VoiceConnectionManager()
         app.state.stt_service = STTService()
         app.state.tts_service = TTSService()

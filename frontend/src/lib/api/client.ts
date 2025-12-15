@@ -1,33 +1,33 @@
 import { resolveApiPath } from './config';
 import { parseSsePayload } from './sse';
 import type {
-    ActiveModelSettingsPayload,
-    ActiveModelSettingsResponse,
-    AttachmentUploadResponse,
-    ChatCompletionChunk,
-    ChatCompletionRequest,
-    DeepgramTokenResponse,
-    GenerationDetailsResponse,
-    GoogleAuthAuthorizeRequest,
-    GoogleAuthAuthorizeResponse,
-    GoogleAuthStatusResponse,
-    McpServersCollectionPayload,
-    McpServersResponse,
-    McpServerUpdatePayload,
-    ModelListResponse,
-    MonarchCredentials,
-    MonarchStatusResponse,
-    PresetConfig,
-    PresetCreatePayload,
-    // Presets
-    PresetListItem,
-    PresetSaveSnapshotPayload,
-    SpotifyAuthAuthorizeRequest,
-    SpotifyAuthAuthorizeResponse,
-    SpotifyAuthStatusResponse,
-    SseEvent,
-    SystemPromptPayload,
-    SystemPromptResponse,
+  ActiveModelSettingsPayload,
+  ActiveModelSettingsResponse,
+  AttachmentUploadResponse,
+  ChatCompletionChunk,
+  ChatCompletionRequest,
+  DeepgramTokenResponse,
+  GenerationDetailsResponse,
+  GoogleAuthAuthorizeRequest,
+  GoogleAuthAuthorizeResponse,
+  GoogleAuthStatusResponse,
+  McpServersCollectionPayload,
+  McpServersResponse,
+  McpServerUpdatePayload,
+  ModelListResponse,
+  MonarchCredentials,
+  MonarchStatusResponse,
+  PresetConfig,
+  PresetCreatePayload,
+  // Presets
+  PresetListItem,
+  PresetSaveSnapshotPayload,
+  SpotifyAuthAuthorizeRequest,
+  SpotifyAuthAuthorizeResponse,
+  SpotifyAuthStatusResponse,
+  SseEvent,
+  SystemPromptPayload,
+  SystemPromptResponse,
 } from './types';
 
 class ApiError extends Error {
@@ -449,6 +449,92 @@ export async function setDefaultPreset(name: string): Promise<PresetConfig> {
 
 export async function fetchDefaultPreset(): Promise<PresetConfig | null> {
   return requestJson<PresetConfig | null>(resolveApiPath('/api/presets/default'));
+}
+
+
+/* Kiosk API */
+
+export async function fetchKioskModelSettings(): Promise<ActiveModelSettingsResponse> {
+  return requestJson<ActiveModelSettingsResponse>(resolveApiPath('/api/kiosk/settings/model'));
+}
+
+export async function updateKioskModelSettings(
+  payload: ActiveModelSettingsPayload,
+): Promise<ActiveModelSettingsResponse> {
+  return requestJson<ActiveModelSettingsResponse>(resolveApiPath('/api/kiosk/settings/model'), {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchKioskSystemPrompt(): Promise<SystemPromptResponse> {
+  return requestJson<SystemPromptResponse>(resolveApiPath('/api/kiosk/settings/system-prompt'));
+}
+
+export async function updateKioskSystemPrompt(
+  payload: SystemPromptPayload,
+): Promise<SystemPromptResponse> {
+  return requestJson<SystemPromptResponse>(resolveApiPath('/api/kiosk/settings/system-prompt'), {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function fetchKioskMcpServers(): Promise<McpServersResponse> {
+  return requestJson<McpServersResponse>(resolveApiPath('/api/kiosk/mcp/servers/'));
+}
+
+export async function replaceKioskMcpServers(
+  payload: McpServersCollectionPayload,
+): Promise<McpServersResponse> {
+  return requestJson<McpServersResponse>(resolveApiPath('/api/kiosk/mcp/servers/'), {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function patchKioskMcpServer(
+  serverId: string,
+  payload: McpServerUpdatePayload,
+): Promise<McpServersResponse> {
+  const path = `/api/kiosk/mcp/servers/${encodeURIComponent(serverId)}`;
+  return requestJson<McpServersResponse>(resolveApiPath(path), {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function refreshKioskMcpServers(): Promise<McpServersResponse> {
+  return requestJson<McpServersResponse>(resolveApiPath('/api/kiosk/mcp/servers/refresh'), {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+/* Kiosk STT Settings */
+
+export interface KioskSttSettingsResponse {
+  eot_timeout_ms: number;
+  eot_threshold: number;
+  updated_at: string | null;
+}
+
+export interface KioskSttSettingsPayload {
+  eot_timeout_ms?: number;
+  eot_threshold?: number;
+}
+
+export async function fetchKioskSttSettings(): Promise<KioskSttSettingsResponse> {
+  return requestJson<KioskSttSettingsResponse>(resolveApiPath('/api/kiosk/settings/stt'));
+}
+
+export async function updateKioskSttSettings(
+  payload: KioskSttSettingsPayload,
+): Promise<KioskSttSettingsResponse> {
+  return requestJson<KioskSttSettingsResponse>(resolveApiPath('/api/kiosk/settings/stt'), {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
 }
 
 export { ApiError };

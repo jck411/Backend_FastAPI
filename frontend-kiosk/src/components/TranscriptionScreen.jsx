@@ -37,7 +37,9 @@ export default function TranscriptionScreen({ transcript, isListening, agentStat
                             animate={{ opacity: 1 }}
                             className="text-white/40"
                         >
-                            <p className="text-3xl font-light tracking-wide">Say "Hey Jarvis"</p>
+                            <p className="text-3xl font-light tracking-wide">
+                                {isListening ? "Listening..." : "Say \"Hey Jarvis\""}
+                            </p>
                         </motion.div>
                     )}
                 </AnimatePresence>

@@ -37,10 +37,21 @@ class STTService:
         self,
         session_id: str,
         on_transcript: Callable[[str, bool], None],
-        on_error: Optional[Callable[[str], None]] = None
+        on_error: Optional[Callable[[str], None]] = None,
+        on_close: Optional[Callable[[], None]] = None,
+        eot_timeout_ms: int = 5000,
+        eot_threshold: float = 0.7,
     ):
         """
         Start a new live transcription session.
+
+        Args:
+            session_id: Unique session identifier
+            on_transcript: Called with (text, is_final) for each transcript
+            on_error: Called with error message on errors
+            on_close: Called when Deepgram connection closes (timeout/disconnect)
+            eot_timeout_ms: Max silence before EndOfTurn (500-10000, default 5000)
+            eot_threshold: Confidence threshold for EndOfTurn (0.5-0.9, default 0.7)
         """
         try:
             # Create and start the session
@@ -49,6 +60,9 @@ class STTService:
                 session_id=session_id,
                 on_transcript=on_transcript,
                 on_error=on_error,
+                on_close=on_close,
+                eot_timeout_ms=eot_timeout_ms,
+                eot_threshold=eot_threshold,
             )
             session.connect()
 
@@ -75,16 +89,28 @@ class STTService:
         if not session:
             return
 
-        while session_id in self.sessions and session.is_running:
+        while session_id in self.sessions:
             try:
                 # Check for transcripts with timeout
                 transcript, is_final = session.get_transcript(timeout=0.1)
-                if transcript:
+                if transcript == "__CLOSE__":
+                    # Deepgram connection closed - invoke on_close callback
+                    logger.info(f"Deepgram close signal received for {session_id}")
+                    if session.on_close:
+                        if asyncio.iscoroutinefunction(session.on_close):
+                            await session.on_close()
+                        else:
+                            session.on_close()
+                    break  # Exit polling loop
+                elif transcript:
                     if asyncio.iscoroutinefunction(session.on_transcript):
                         await session.on_transcript(transcript, is_final)
                     else:
                         session.on_transcript(transcript, is_final)
             except queue.Empty:
+                # If session is no longer running and queue is empty, exit
+                if not session.is_running:
+                    break
                 await asyncio.sleep(0.01)
             except Exception as e:
                 logger.error(f"Error polling transcripts: {e}")
@@ -122,11 +148,17 @@ class DeepgramSession:
         session_id: str,
         on_transcript: Callable[[str, bool], None],
         on_error: Optional[Callable[[str], None]] = None,
+        on_close: Optional[Callable[[], None]] = None,
+        eot_timeout_ms: int = 5000,
+        eot_threshold: float = 0.7,
     ):
         self.api_key = api_key
         self.session_id = session_id
         self.on_transcript = on_transcript
         self.on_error = on_error
+        self.on_close = on_close
+        self.eot_timeout_ms = eot_timeout_ms
+        self.eot_threshold = eot_threshold
 
         self._client = DeepgramClient(api_key=api_key)
         self._context_manager = None
@@ -134,6 +166,7 @@ class DeepgramSession:
         self._ready = threading.Event()
         self._running = False
         self._listening_thread = None
+        self._close_signaled = False  # Prevent duplicate close callbacks
 
         # Thread-safe queue for transcripts (thread -> async)
         self._transcript_queue = queue.Queue()
@@ -168,19 +201,25 @@ class DeepgramSession:
         self._ready.set()
 
     def _on_close(self, _) -> None:
-        """Handle connection close."""
+        """Handle connection close (e.g., due to inactivity timeout)."""
         logger.info(f"Deepgram disconnected for {self.session_id}")
         self._ready.clear()
+        self._running = False
+        # Signal that connection closed (only once)
+        if not self._close_signaled and self.on_close:
+            self._close_signaled = True
+            # Put a special marker in the queue to signal close
+            self._transcript_queue.put(("__CLOSE__", True))
 
     def connect(self) -> None:
         """Connect to Deepgram in a background thread."""
-        # EXACT params from working deepgram-voice-transcriber
+        # Use configurable EOT parameters
         params = {
             "model": "flux-general-en",
             "encoding": "linear16",
             "sample_rate": "16000",
-            "eot_threshold": "0.7",
-            "eot_timeout_ms": "5000",
+            "eot_threshold": str(self.eot_threshold),
+            "eot_timeout_ms": str(self.eot_timeout_ms),
         }
 
         logger.info(f"Connecting to Deepgram for {self.session_id} with params: {params}")

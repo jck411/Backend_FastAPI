@@ -1,0 +1,96 @@
+{
+  "servers": [
+    {
+      "contexts": [],
+      "disabled_tools": [],
+      "enabled": false,
+      "env": {
+        "HOST_PROFILE_ID": "xps13",
+        "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"
+      },
+      "id": "shell-control",
+      "module": "backend.mcp_servers.shell_control_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "disabled_tools": [],
+      "enabled": false,
+      "env": {},
+      "id": "notes",
+      "module": "backend.mcp_servers.notes_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "enabled": false,
+      "env": {},
+      "id": "monarch-money",
+      "module": "backend.mcp_servers.monarch_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "disabled_tools": [],
+      "enabled": false,
+      "env": {},
+      "id": "custom-gmail",
+      "module": "backend.mcp_servers.gmail_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "disabled_tools": [],
+      "enabled": false,
+      "env": {},
+      "id": "custom-gdrive",
+      "module": "backend.mcp_servers.gdrive_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "disabled_tools": [],
+      "enabled": false,
+      "env": {},
+      "id": "custom-pdf",
+      "module": "backend.mcp_servers.pdf_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "disabled_tools": [],
+      "enabled": false,
+      "env": {},
+      "id": "custom-calendar",
+      "module": "backend.mcp_servers.calendar_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "disabled_tools": [],
+      "enabled": true,
+      "env": {},
+      "id": "spotify",
+      "module": "backend.mcp_servers.spotify_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "disabled_tools": [],
+      "enabled": false,
+      "env": {},
+      "id": "local-calculator",
+      "module": "backend.mcp_servers.calculator_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "disabled_tools": [],
+      "enabled": true,
+      "env": {},
+      "id": "housekeeping",
+      "module": "backend.mcp_servers.housekeeping_server",
+      "tool_overrides": {}
+    }
+  ]
+}

@@ -151,6 +151,8 @@ class StreamingHandler:
         can_retry_without_tools = (
             requested_tool_choice in (None, "auto") and not has_structured_tool_choice
         )
+        # Track if we've disabled tools due to a provider error (persists across loop iterations)
+        tools_disabled_by_retry = False
 
         total_tool_calls = 0
         # Track tool attachments to inject into next assistant response
@@ -158,7 +160,7 @@ class StreamingHandler:
 
         while True:
             tools_available = bool(active_tools_payload)
-            tools_disabled = base_tools_disabled or not tools_available
+            tools_disabled = base_tools_disabled or not tools_available or tools_disabled_by_retry
             routing_headers: dict[str, Any] | None = None
             active_model = self._default_model
             overrides: dict[str, Any] = {}
@@ -523,7 +525,7 @@ class StreamingHandler:
                         session_id,
                         exc.detail,
                     )
-                    tools_disabled = True
+                    tools_disabled_by_retry = True
                     warning_text = (
                         "Tools unavailable for this model; continuing without them."
                     )

@@ -66,7 +66,12 @@ function sanitizeParameters(
   return Object.keys(sanitized).length > 0 ? (sanitized as ModelHyperparameters) : undefined;
 }
 
-export function createModelSettingsStore() {
+const DEFAULT_CLIENT = {
+  fetch: fetchModelSettings,
+  update: updateModelSettings,
+};
+
+export function createModelSettingsStore(client = DEFAULT_CLIENT) {
   const store = writable<ModelSettingsState>({ ...INITIAL_STATE });
   let loadSequence = 0;
 
@@ -100,7 +105,7 @@ export function createModelSettingsStore() {
     store.update((state) => ({ ...state, saving: true, saveError: null }));
 
     try {
-      const response = await updateModelSettings(payload);
+      const response = await client.update(payload);
       store.update((state) => {
         const now = Date.now();
         if (state.version !== version) {
@@ -135,10 +140,10 @@ export function createModelSettingsStore() {
     store.set({ ...INITIAL_STATE, loading: true });
 
     try {
-      const response = await fetchModelSettings();
+      const response = await client.fetch();
       let data = response;
       if (selectedModel && response.model !== selectedModel) {
-        data = await updateModelSettings({ model: selectedModel, parameters: null, provider: null });
+        data = await client.update({ model: selectedModel, parameters: null, provider: null });
       }
       if (sequence !== loadSequence) {
         return;

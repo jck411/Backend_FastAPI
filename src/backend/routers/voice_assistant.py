@@ -9,18 +9,41 @@ from backend.services.voice_session import VoiceConnectionManager
 from backend.services.stt_service import STTService
 from backend.services.tts_service import TTSService
 from backend.services.kiosk_chat_service import KioskChatService
+from backend.services.kiosk_stt_settings import KioskSttSettingsService
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 logger = logging.getLogger(__name__)
 
-async def handle_connection(websocket: WebSocket, client_id: str, manager: VoiceConnectionManager, stt_service: STTService, tts_service: TTSService, kiosk_chat_service: KioskChatService):
+async def handle_connection(
+    websocket: WebSocket,
+    client_id: str,
+    manager: VoiceConnectionManager,
+    stt_service: STTService,
+    tts_service: TTSService,
+    kiosk_chat_service: KioskChatService,
+    stt_settings_service: KioskSttSettingsService,
+):
     """
     Main loop for handling a single client's WebSocket connection.
     """
     await manager.connect(websocket, client_id)
 
-    # Session state for this specific connection
-    # (In addition to the global session object, we might need local vars)
+    async def end_conversation():
+        """Called when conversation ends (Deepgram connection closed due to inactivity).
+
+        This happens when Deepgram closes the WebSocket after ~10-12 seconds of no audio.
+        We clear the chat context and return to IDLE state.
+        """
+        logger.info(f"Conversation ended for {client_id} - clearing context and returning to IDLE")
+        # Clear the chat context for this session
+        kiosk_chat_service.clear_session(client_id)
+        # Clear the transcript display
+        await manager.broadcast({
+            "type": "transcript",
+            "text": "",
+            "is_final": False
+        })
+        await manager.update_state(client_id, "IDLE")
 
     async def start_stt_session():
         """Helper to start the STT session with callbacks."""
@@ -35,7 +58,6 @@ async def handle_connection(websocket: WebSocket, client_id: str, manager: Voice
                 # Get LLM response stream from OpenRouter
                 await manager.update_state(client_id, "PROCESSING")
 
-                # Send initial clear/setup if needed
                 # We reuse "transcript" type for assistant output so it shows on screen
                 full_text = ""
 
@@ -50,7 +72,7 @@ async def handle_connection(websocket: WebSocket, client_id: str, manager: Voice
                             "is_final": False
                         })
 
-                    # Send final update
+                    # Send final update - keep transcript visible!
                     await manager.broadcast({
                         "type": "transcript",
                         "text": full_text,
@@ -65,14 +87,39 @@ async def handle_connection(websocket: WebSocket, client_id: str, manager: Voice
                         "is_final": True
                     })
 
-                # Reset state to IDLE after response
-                await manager.update_state(client_id, "IDLE")
+                # After LLM response, restart listening for follow-up conversation
+                # Close the current STT session (it may have already closed after EndOfTurn)
+                await stt_service.close_session(client_id)
+                # Keep transcript visible - don't clear it
+                # Go back to LISTENING state for follow-up questions
+                await manager.update_state(client_id, "LISTENING")
+                # Start a new STT session for the next turn
+                # Deepgram will handle the timeout if no speech is detected
+                await start_stt_session()
 
         async def on_stt_error(error: str):
             logger.error(f"STT Error for {client_id}: {error}")
-            await manager.update_state(client_id, "IDLE")
+            await end_conversation()
 
-        await stt_service.create_session(client_id, on_transcript_received, on_stt_error)
+        async def on_stt_close():
+            """Called when Deepgram connection closes (timeout due to inactivity)."""
+            logger.info(f"Deepgram connection closed for {client_id}")
+            await end_conversation()
+
+        # Get current STT settings for this session
+        eot_timeout_ms = stt_settings_service.get_eot_timeout_ms()
+        eot_threshold = stt_settings_service.get_eot_threshold()
+        logger.debug(f"Creating STT session with eot_timeout_ms={eot_timeout_ms}, eot_threshold={eot_threshold}")
+
+        await stt_service.create_session(
+            client_id,
+            on_transcript_received,
+            on_stt_error,
+            on_stt_close,
+            eot_timeout_ms=eot_timeout_ms,
+            eot_threshold=eot_threshold,
+        )
+
 
     try:
         while True:
@@ -155,5 +202,14 @@ async def voice_connect(websocket: WebSocket):
     stt_service = app_state.stt_service
     tts_service = app_state.tts_service
     kiosk_chat_service = app_state.kiosk_chat_service
+    stt_settings_service = app_state.kiosk_stt_settings_service
 
-    await handle_connection(websocket, client_id, manager, stt_service, tts_service, kiosk_chat_service)
+    await handle_connection(
+        websocket,
+        client_id,
+        manager,
+        stt_service,
+        tts_service,
+        kiosk_chat_service,
+        stt_settings_service,
+    )

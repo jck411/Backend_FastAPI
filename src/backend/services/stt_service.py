@@ -1,19 +1,185 @@
+"""
+Deepgram STT service using the synchronous SDK pattern with threading.
+Based on working implementation from deepgram-voice-transcriber.
+"""
 import asyncio
-import json
 import logging
+import threading
 from typing import Callable, Optional
 
-from deepgram import DeepgramClient, AsyncDeepgramClient
+from deepgram import DeepgramClient
 from deepgram.core.events import EventType
 
 from backend.config import get_settings
 
 logger = logging.getLogger(__name__)
 
+# Audio settings (must match Pi sender)
+SAMPLE_RATE = 16000
+
+
+class DeepgramSession:
+    """Manages a single Deepgram connection using the SDK v5 sync pattern."""
+
+    def __init__(
+        self,
+        api_key: str,
+        session_id: str,
+        on_transcript: Callable[[str, bool], None],
+        on_error: Optional[Callable[[str], None]] = None
+    ):
+        self.api_key = api_key
+        self.session_id = session_id
+        self.on_transcript = on_transcript
+        self.on_error = on_error
+
+        self._client = DeepgramClient(api_key=api_key)
+        self._context_manager = None
+        self._socket = None
+        self._ready = threading.Event()
+        self._running = False
+        self._listening_thread = None
+
+    def _handle_message(self, result):
+        """Handle transcript messages from Deepgram."""
+        try:
+            # For v2 (Flux): transcript is at top level with event type
+            transcript = getattr(result, "transcript", None)
+            if transcript:
+                event = getattr(result, "event", None)
+                is_end_of_turn = event == "EndOfTurn"
+                logger.info(f"Transcript for {self.session_id}: '{transcript}' (eot={is_end_of_turn})")
+
+                # Call callback - need to schedule in asyncio loop if it's async
+                if asyncio.iscoroutinefunction(self.on_transcript):
+                    try:
+                        loop = asyncio.get_running_loop()
+                        asyncio.run_coroutine_threadsafe(
+                            self.on_transcript(transcript, is_end_of_turn),
+                            loop
+                        )
+                    except RuntimeError:
+                        # No running loop, try to create one
+                        asyncio.run(self.on_transcript(transcript, is_end_of_turn))
+                else:
+                    self.on_transcript(transcript, is_end_of_turn)
+            else:
+                # v1 style: check for channel.alternatives
+                if hasattr(result, 'channel'):
+                    alternatives = result.channel.alternatives
+                    if alternatives and len(alternatives) > 0:
+                        transcript_text = alternatives[0].transcript
+                        is_final = getattr(result, 'is_final', False)
+
+                        if transcript_text:
+                            logger.info(f"Transcript for {self.session_id}: '{transcript_text}' (final={is_final})")
+                            if asyncio.iscoroutinefunction(self.on_transcript):
+                                try:
+                                    loop = asyncio.get_running_loop()
+                                    asyncio.run_coroutine_threadsafe(
+                                        self.on_transcript(transcript_text, is_final),
+                                        loop
+                                    )
+                                except RuntimeError:
+                                    asyncio.run(self.on_transcript(transcript_text, is_final))
+                            else:
+                                self.on_transcript(transcript_text, is_final)
+        except Exception as e:
+            logger.error(f"Error processing transcript for {self.session_id}: {e}", exc_info=True)
+
+    def _on_open(self, _):
+        logger.info(f"✅ Deepgram connected for {self.session_id}")
+        self._ready.set()
+
+    def _on_close(self, _):
+        logger.info(f"Deepgram disconnected for {self.session_id}")
+        self._ready.clear()
+
+    def _on_error(self, error):
+        logger.error(f"Deepgram error for {self.session_id}: {error}")
+        if self.on_error:
+            if asyncio.iscoroutinefunction(self.on_error):
+                try:
+                    loop = asyncio.get_running_loop()
+                    asyncio.run_coroutine_threadsafe(self.on_error(str(error)), loop)
+                except RuntimeError:
+                    asyncio.run(self.on_error(str(error)))
+            else:
+                self.on_error(str(error))
+
+    def connect(self) -> bool:
+        """Connect to Deepgram."""
+        # Use Flux model with v2 API for fast turn-taking detection
+        params = {
+            "model": "flux-general-en",
+            "encoding": "linear16",
+            "sample_rate": str(SAMPLE_RATE),
+            "eot_threshold": "0.7",       # End-of-turn confidence threshold
+            "eot_timeout_ms": "5000",     # Max wait for end-of-turn
+        }
+
+        logger.info(f"Connecting to Deepgram Flux for {self.session_id}...")
+
+        try:
+            # Use v2 for Flux turn-taking
+            self._context_manager = self._client.listen.v2.connect(**params)
+            self._socket = self._context_manager.__enter__()
+
+            # Register handlers
+            self._socket.on(EventType.OPEN, self._on_open)
+            self._socket.on(EventType.MESSAGE, self._handle_message)
+            self._socket.on(EventType.ERROR, self._on_error)
+            self._socket.on(EventType.CLOSE, self._on_close)
+
+            # Start listening in background thread
+            def listen_loop():
+                try:
+                    self._socket.start_listening()
+                except Exception as e:
+                    if self._running:
+                        logger.error(f"Listen error for {self.session_id}: {e}")
+
+            self._running = True
+            self._listening_thread = threading.Thread(target=listen_loop, daemon=True)
+            self._listening_thread.start()
+
+            # Wait for connection
+            if not self._ready.wait(timeout=10.0):
+                raise RuntimeError(f"Failed to connect to Deepgram for {self.session_id}")
+
+            logger.info(f"Deepgram session ready for {self.session_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to connect to Deepgram for {self.session_id}: {e}", exc_info=True)
+            return False
+
+    def send_audio(self, data: bytes):
+        """Send audio to Deepgram."""
+        if self._socket and self._ready.is_set():
+            try:
+                self._socket.send_media(data)
+            except Exception as e:
+                logger.error(f"Error sending audio for {self.session_id}: {e}")
+
+    def close(self):
+        """Close connection."""
+        self._running = False
+        self._ready.clear()
+        if self._context_manager:
+            try:
+                self._context_manager.__exit__(None, None, None)
+            except Exception as e:
+                logger.warning(f"Error closing Deepgram for {self.session_id}: {e}")
+            self._context_manager = None
+            self._socket = None
+        logger.info(f"Deepgram session closed for {self.session_id}")
+
 
 class STTService:
     """
     Manages Deepgram streaming STT sessions.
+    Uses synchronous SDK pattern with threading for reliable connection management.
     """
 
     def __init__(self):
@@ -22,10 +188,8 @@ class STTService:
         if not api_key:
             raise ValueError("DEEPGRAM_API_KEY is not set")
 
-        self.client = AsyncDeepgramClient(api_key=api_key)
-        self.live_connections = {}  # session_id -> socket_client_instance
-        self.session_tasks = {}      # session_id -> asyncio.Task (manager)
-        self.stop_events = {}        # session_id -> asyncio.Event
+        self.api_key = api_key
+        self.sessions: dict[str, DeepgramSession] = {}
 
     async def create_session(
         self,
@@ -37,21 +201,32 @@ class STTService:
         Start a new live transcription session.
         """
         try:
-            # Create a stop event for this session
-            stop_event = asyncio.Event()
-            self.stop_events[session_id] = stop_event
+            # Close existing session if any
+            if session_id in self.sessions:
+                await self.close_session(session_id)
 
-            # Start background task to manage connection
-            task = asyncio.create_task(
-                self._manage_deepgram_connection(session_id, stop_event, on_transcript, on_error)
+            # Create new session
+            session = DeepgramSession(
+                api_key=self.api_key,
+                session_id=session_id,
+                on_transcript=on_transcript,
+                on_error=on_error
             )
-            self.session_tasks[session_id] = task
 
-            logger.info(f"Started STT initialization task for {session_id}")
-            return True
+            # Connect in thread pool to not block asyncio
+            loop = asyncio.get_running_loop()
+            success = await loop.run_in_executor(None, session.connect)
+
+            if success:
+                self.sessions[session_id] = session
+                logger.info(f"STT session created for {session_id}")
+                return True
+            else:
+                logger.error(f"Failed to create STT session for {session_id}")
+                return False
 
         except Exception as e:
-            logger.error(f"Failed to create STT session: {e}")
+            logger.error(f"Failed to create STT session: {e}", exc_info=True)
             if on_error:
                 if asyncio.iscoroutinefunction(on_error):
                     await on_error(str(e))
@@ -59,125 +234,20 @@ class STTService:
                     on_error(str(e))
             return False
 
-    async def _manage_deepgram_connection(
-        self,
-        session_id: str,
-        stop_event: asyncio.Event,
-        on_transcript: Callable[[str, bool], None],
-        on_error: Optional[Callable[[str], None]] = None
-    ):
-        """
-        Background task to hold the Deepgram WebSocket connection open.
-        """
-        try:
-            # Flattened options as required by this SDK version
-            # Note: passing strings for boolean-like params as per type hints seen in inspection
-            options = {
-                "model": "nova-2",
-                "language": "en-US",
-                "smart_format": "true",
-                "interim_results": "true",
-                "vad_events": "true",
-                "endpointing": "1000",
-            }
-
-            async with self.client.listen.v1.connect(**options) as dg_connection:
-                self.live_connections[session_id] = dg_connection
-                logger.info(f"Deepgram connected for {session_id}")
-
-                # Register handlers
-                async def handle_message(self, result, **kwargs):
-                    # result is an object (V1SocketClientResponse)
-                    # We need to parse it.
-                    # Based on SDK, it emits parsed objects directly.
-                    # result might be ListenV1ResultsEvent etc.
-
-                    try:
-                        # Check if it has 'channel' attribute (Transcript event)
-                        if hasattr(result, 'channel'):
-                            alternatives = result.channel.alternatives
-                            if alternatives and len(alternatives) > 0:
-                                transcript = alternatives[0].transcript
-                                is_final = result.is_final
-
-                                if transcript:
-                                    if asyncio.iscoroutinefunction(on_transcript):
-                                        await on_transcript(transcript, is_final)
-                                    else:
-                                        on_transcript(transcript, is_final)
-
-                        # Handle errors if result is error type?
-                        # The SDK uses EventType.ERROR for errors, passing exc.
-                    except Exception as e:
-                        logger.error(f"Error processing transcript: {e}")
-
-                async def handle_error(self, error, **kwargs):
-                    logger.error(f"Deepgram error for {session_id}: {error}")
-                    if on_error:
-                        if asyncio.iscoroutinefunction(on_error):
-                            await on_error(str(error))
-                        else:
-                            on_error(str(error))
-
-                # Register event listeners
-                # Since dg_connection is AsyncV1SocketClient which is EventEmitterMixin
-                # We typically use .on(EventType.MESSAGE, handler)
-                # But handler signature in EventEmitterMixin?
-                # SDK source says: await handler(self, event_data, **kwargs)
-                dg_connection.on(EventType.MESSAGE, handle_message)
-                dg_connection.on(EventType.ERROR, handle_error)
-
-                # Start the listening loop in a separate task so we can also check stop_event
-                listen_task = asyncio.create_task(dg_connection.start_listening())
-
-                # Wait for stop signal
-                await stop_event.wait()
-
-                # Cleanup
-                # Cancelling listen task (or it stops when connection closes, but we are closing connection by exiting context)
-                listen_task.cancel()
-                try:
-                    await listen_task
-                except asyncio.CancelledError:
-                    pass
-
-        except Exception as e:
-            logger.error(f"Deepgram connection loop failed for {session_id}: {e}")
-            if on_error:
-                if asyncio.iscoroutinefunction(on_error):
-                    await on_error(str(e))
-                else:
-                    on_error(str(e))
-        finally:
-            # Cleanup global state
-            self.live_connections.pop(session_id, None)
-            self.stop_events.pop(session_id, None)
-            self.session_tasks.pop(session_id, None)
-            logger.info(f"Deepgram session ended for {session_id}")
-
     async def stream_audio(self, session_id: str, audio_bytes: bytes):
         """Send audio data to the live connection."""
-        connection = self.live_connections.get(session_id)
-        if connection:
-            try:
-                # Use send_media for binary data
-                await connection.send_media(audio_bytes)
-            except Exception as e:
-                logger.error(f"Error streaming audio for {session_id}: {e}")
+        session = self.sessions.get(session_id)
+        if session:
+            # Run in executor to not block asyncio
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, session.send_audio, audio_bytes)
+        else:
+            logger.warning(f"No session found for {session_id} when streaming audio")
 
     async def close_session(self, session_id: str):
         """Close the live connection."""
-        # Signal the background task to exit
-        event = self.stop_events.get(session_id)
-        if event:
-            event.set()
-
-        # Wait for task to finish?
-        # Optional, but good for cleanup.
-        task = self.session_tasks.get(session_id)
-        if task:
-            try:
-                # wait briefly
-                await asyncio.wait([task], timeout=2.0)
-            except Exception:
-                pass
+        session = self.sessions.pop(session_id, None)
+        if session:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, session.close)
+            logger.info(f"STT session closed for {session_id}")

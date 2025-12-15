@@ -97,8 +97,17 @@ async def handle_connection(websocket: WebSocket, client_id: str, manager: Voice
                 if session and session.state == "LISTENING":
                     payload = data.get("data")
                     if payload:
-                        chunk = base64.b64decode(payload)
+                        audio_b64 = payload.get("audio") if isinstance(payload, dict) else payload
+                        chunk = base64.b64decode(audio_b64)
+                        logger.debug(f"Received audio chunk for {client_id}: {len(chunk)} bytes")
                         await stt_service.stream_audio(client_id, chunk)
+                    else:
+                        logger.warning(f"Received audio_chunk event without data for {client_id}")
+                else:
+                    if not session:
+                        logger.warning(f"Received audio_chunk but no session for {client_id}")
+                    else:
+                        logger.debug(f"Received audio_chunk but state is {session.state}, not LISTENING")
 
             elif event_type == "stream_end":
                 logger.info(f"Stream end for {client_id}")

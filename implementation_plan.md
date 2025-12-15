@@ -163,30 +163,29 @@ Complete Python audio agent deployed to Pi at `/home/jck411/.gemini/antigravity/
 
 ---
 
-## ⏳ TODO - Intent Parser & MCP Integration
+## ⏳ TODO - Upgrade Voice Capabilities (KioskChatService)
 
-**File:** `src/backend/services/intent_parser.py` (NEW - NOT YET CREATED)
+**File:** `src/backend/services/kiosk_chat_service.py` (Upgrade)
 
 ### Purpose
-Parse voice commands and execute actions via existing MCP tools.
+Enable the Voice Assistant to use MCP tools (e.g., "turn on lights", "check weather") by upgrading the lightweight `KioskChatService` to use a **dedicated** instance of `ChatOrchestrator`.
+
+### Design Decision: Independent Instance
+To keep the Kiosk/Voice assistant distinct from the main Svelte frontend:
+- **Separate Settings:** It will use its own system prompt and model preferences.
+- **Separate Orchestrator:** It will instantiate its own `ChatOrchestrator` rather than sharing the global singleton used by the main web UI.
+- **Why?** This prevents "pollution" of the main chat history and allows specific tuning (e.g., faster/smaller models) for voice interactions.
 
 ### Implementation Checklist
-
-- [ ] Create `IntentParser` class
-  - [ ] Initialize with ChatOrchestrator (reuse existing)
-  - [ ] `parse_and_execute(transcript: str) -> str` - Main method
-- [ ] Flow:
-  1. Receive transcript from STT
-  2. Send to ChatOrchestrator with existing MCP tools
-  3. LLM selects appropriate tool
-  4. Execute tool via existing MCP client
-  5. Generate natural language response
-  6. Return response text for TTS
-- [ ] Update `voice_assistant.py` to use IntentParser instead of echo
-
-**Current Behavior (Phase 1):** Echo - "I heard you say: {transcript}"
-
-**Target Behavior:** Intelligent responses using LLM + MCP tools
+- [ ] Update `KioskChatService` class:
+  - [ ] Initialize a private `ChatOrchestrator` instance
+  - [ ] Configure it with Kiosk-specific settings (if available) or defaults
+  - [ ] Update `stream_response` to use `orchestrator.process_message` instead of raw `OpenRouterClient`
+- [ ] Connect MCP Tools:
+  - [ ] Ensure the Kiosk Orchestrator has access to the MCP Registry
+  - [ ] Verify tool execution works via voice commands
+- [ ] System Prompt:
+  - [ ] Ensure rigid "voice mode" system prompt (concise, no markdown) is preserved
 
 ---
 

@@ -30,15 +30,29 @@ export default function App() {
         if (lastMessage !== null) {
             try {
                 const data = JSON.parse(lastMessage.data);
+                console.log('WS message received:', data.type, data);
                 if (data.type === 'transcript') {
                     setTranscript(data.text);
-                } else if (data.type === 'state') {
-                    setAgentState(data.state);
-                    if (data.state === 'LISTENING' || data.state === 'THINKING') {
+                } else if (data.type === 'set_state') {
+                    // Handle new format: {type: 'set_state', data: {state: 'listening'}}
+                    const newState = data.data?.state?.toUpperCase() || 'IDLE';
+                    console.log('Received set_state:', newState);
+                    setAgentState(newState);
+                    if (newState === 'LISTENING' || newState === 'PROCESSING') {
+                        console.log('Transitioning to transcription screen');
                         setCurrentScreen(2); // Auto-jump to transcription screen
                     }
-                    if (data.state === 'IDLE') {
+                    if (newState === 'IDLE') {
                         // Return to clock after delay
+                        setTimeout(() => setCurrentScreen(0), 10000);
+                    }
+                } else if (data.type === 'state') {
+                    // Legacy format: {type: 'state', state: 'LISTENING'}
+                    setAgentState(data.state);
+                    if (data.state === 'LISTENING' || data.state === 'PROCESSING') {
+                        setCurrentScreen(2);
+                    }
+                    if (data.state === 'IDLE') {
                         setTimeout(() => setCurrentScreen(0), 10000);
                     }
                 }

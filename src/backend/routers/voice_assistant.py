@@ -95,9 +95,10 @@ async def handle_connection(websocket: WebSocket, client_id: str, manager: Voice
                 session = manager.get_session(client_id)
                 # Only process audio if we are in listening mode
                 if session and session.state == "LISTENING":
-                    payload = data.get("data")
-                    if payload:
-                        chunk = base64.b64decode(payload)
+                    payload = data.get("data", {})
+                    audio_b64 = payload.get("audio") if isinstance(payload, dict) else payload
+                    if audio_b64:
+                        chunk = base64.b64decode(audio_b64)
                         await stt_service.stream_audio(client_id, chunk)
 
             elif event_type == "stream_end":

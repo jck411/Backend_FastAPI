@@ -1,4 +1,4 @@
-"""Kiosk API router for STT and TTS settings and related configuration."""
+"""Kiosk API router for STT, TTS, and LLM settings and related configuration."""
 
 import logging
 
@@ -6,8 +6,10 @@ from fastapi import APIRouter
 
 from backend.schemas.kiosk_stt_settings import KioskSttSettings, KioskSttSettingsUpdate
 from backend.schemas.kiosk_tts_settings import KioskTtsSettings, KioskTtsSettingsUpdate, DEEPGRAM_VOICES
+from backend.schemas.kiosk_llm_settings import KioskLlmSettings, KioskLlmSettingsUpdate
 from backend.services.kiosk_stt_settings import get_kiosk_stt_settings_service
 from backend.services.kiosk_tts_settings import get_kiosk_tts_settings_service
+from backend.services.kiosk_llm_settings import get_kiosk_llm_settings_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/kiosk", tags=["Kiosk"])
@@ -75,3 +77,32 @@ async def reset_tts_settings() -> KioskTtsSettings:
 async def get_tts_voices() -> list[str]:
     """Get available TTS voice models."""
     return DEEPGRAM_VOICES
+
+
+# ============== LLM Settings ==============
+
+@router.get("/llm-settings", response_model=KioskLlmSettings)
+async def get_llm_settings() -> KioskLlmSettings:
+    """Get current kiosk LLM settings."""
+    service = get_kiosk_llm_settings_service()
+    settings = service.get_settings()
+    logger.debug(f"Returning kiosk LLM settings: {settings}")
+    return settings
+
+
+@router.put("/llm-settings", response_model=KioskLlmSettings)
+async def update_llm_settings(update: KioskLlmSettingsUpdate) -> KioskLlmSettings:
+    """Update kiosk LLM settings."""
+    service = get_kiosk_llm_settings_service()
+    settings = service.update_settings(update)
+    logger.info(f"Updated kiosk LLM settings: {settings}")
+    return settings
+
+
+@router.post("/llm-settings/reset", response_model=KioskLlmSettings)
+async def reset_llm_settings() -> KioskLlmSettings:
+    """Reset kiosk LLM settings to defaults."""
+    service = get_kiosk_llm_settings_service()
+    settings = service.reset_to_defaults()
+    logger.info("Reset kiosk LLM settings to defaults")
+    return settings

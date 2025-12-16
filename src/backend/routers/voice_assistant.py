@@ -8,11 +8,19 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request
 from backend.services.voice_session import VoiceConnectionManager
 from backend.services.stt_service import STTService
 from backend.services.tts_service import TTSService
+from backend.services.kiosk_chat_service import KioskChatService
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 logger = logging.getLogger(__name__)
 
-async def handle_connection(websocket: WebSocket, client_id: str, manager: VoiceConnectionManager, stt_service: STTService, tts_service: TTSService):
+async def handle_connection(
+    websocket: WebSocket,
+    client_id: str,
+    manager: VoiceConnectionManager,
+    stt_service: STTService,
+    tts_service: TTSService,
+    kiosk_chat_service: KioskChatService
+):
     """
     Main loop for handling a single client's WebSocket connection.
     """
@@ -34,8 +42,12 @@ async def handle_connection(websocket: WebSocket, client_id: str, manager: Voice
                 # Transition to PROCESSING
                 await manager.update_state(client_id, "PROCESSING")
 
-                # Phase 1 Logic: Echo back
-                response_text = f"I heard you say: {text}"
+                # Generate LLM response
+                try:
+                    response_text = await kiosk_chat_service.generate_response(text)
+                except Exception as e:
+                    logger.error(f"LLM generation failed for {client_id}: {e}")
+                    response_text = "Sorry, I couldn't process that request."
 
                 if response_text:
                     await manager.update_state(client_id, "SPEAKING")
@@ -143,6 +155,7 @@ async def voice_connect(websocket: WebSocket):
     app_state = websocket.app.state
 
     # Ensure services are initialized
+    # Note: KioskChatService is optional for startup but required for LLM processing
     if not hasattr(app_state, "voice_manager"):
         logger.error("Voice Manager not initialized")
         await websocket.close(code=1000, reason="Server not ready")
@@ -151,5 +164,11 @@ async def voice_connect(websocket: WebSocket):
     manager = app_state.voice_manager
     stt_service = app_state.stt_service
     tts_service = app_state.tts_service
+    kiosk_chat_service = getattr(app_state, "kiosk_chat_service", None)
 
-    await handle_connection(websocket, client_id, manager, stt_service, tts_service)
+    if kiosk_chat_service is None:
+        # Fallback if service not initialized properly (e.g. startup error)
+        # We allow connection but LLM calls will fail individually
+        logger.warning("KioskChatService not found in app state")
+
+    await handle_connection(websocket, client_id, manager, stt_service, tts_service, kiosk_chat_service)

@@ -1,7 +1,7 @@
 import { AnimatePresence } from 'framer-motion';
 import { useEffect } from 'react';
 
-export default function TranscriptionScreen({ messages, liveTranscript, isListening, agentState, messagesEndRef }) {
+export default function TranscriptionScreen({ messages, liveTranscript, isListening, agentState, toolStatus, messagesEndRef }) {
     // Auto-scroll effect
     useEffect(() => {
         if (messagesEndRef.current) {
@@ -11,6 +11,26 @@ export default function TranscriptionScreen({ messages, liveTranscript, isListen
 
     return (
         <div className="h-full w-full flex flex-col bg-black relative overflow-hidden font-sans">
+
+            {/* Tool Status Indicator (Top Left) */}
+            {toolStatus && (
+                <div className="absolute top-6 left-6 z-50">
+                    <div className={`flex items-center space-x-2 backdrop-blur-md px-4 py-2 rounded-full border ${toolStatus.status === 'started'
+                            ? 'bg-amber-500/20 border-amber-500/30 text-amber-400'
+                            : toolStatus.status === 'finished'
+                                ? 'bg-green-500/20 border-green-500/30 text-green-400'
+                                : 'bg-red-500/20 border-red-500/30 text-red-400'
+                        }`}>
+                        <span className="text-lg">🔧</span>
+                        <span className="text-sm font-medium">
+                            {toolStatus.status === 'started' ? 'Running' : toolStatus.status === 'finished' ? 'Done' : 'Error'}: {toolStatus.name}
+                        </span>
+                        {toolStatus.status === 'started' && (
+                            <div className="w-2 h-2 bg-current rounded-full animate-pulse" />
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Status Indicator (Top Right) */}
             <div className="absolute top-6 right-6 z-50">

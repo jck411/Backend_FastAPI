@@ -15,6 +15,7 @@ export default function App() {
     const [messages, setMessages] = useState([]);
     const [liveTranscript, setLiveTranscript] = useState("");
     const [agentState, setAgentState] = useState("IDLE");
+    const [toolStatus, setToolStatus] = useState(null);  // { name: string, status: 'started' | 'finished' | 'error' }
     const [idleReturnDelay, setIdleReturnDelay] = useState(10000); // Default 10s
     const audioRef = useRef(null);
     const messagesEndRef = useRef(null);
@@ -147,6 +148,20 @@ export default function App() {
                         setCurrentScreen(2); // Auto-jump to transcription screen
                         // Do NOT clear messages
                     }
+
+                    // Clear tool status when transitioning to IDLE
+                    if (data.state === 'IDLE') {
+                        setToolStatus(null);
+                    }
+                } else if (data.type === 'tool_status') {
+                    // Handle tool status updates
+                    console.log('Tool status:', data.status, data.name);
+                    setToolStatus({ name: data.name, status: data.status });
+
+                    // Auto-clear after tool finishes (with small delay for visibility)
+                    if (data.status === 'finished' || data.status === 'error') {
+                        setTimeout(() => setToolStatus(null), 2000);
+                    }
                 }
             } catch (e) {
                 console.error("Failed to parse WS message", e);
@@ -181,6 +196,7 @@ export default function App() {
             liveTranscript={liveTranscript}
             isListening={agentState === 'LISTENING'}
             agentState={agentState}
+            toolStatus={toolStatus}
             messagesEndRef={messagesEndRef}
         />
     ];

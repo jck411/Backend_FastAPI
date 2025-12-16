@@ -18,6 +18,7 @@
     openModelSettings: void;
     openSystemSettings: void;
     openSpeechSettings: void;
+    openKioskSettings: void;
     openPresets: void;
   }>();
 
@@ -86,6 +87,10 @@
     dispatch("openSpeechSettings");
   }
 
+  function forwardOpenKioskSettings(): void {
+    dispatch("openKioskSettings");
+  }
+
   function forwardOpenPresets(): void {
     dispatch("openPresets");
   }
@@ -131,7 +136,11 @@
           data-loading={webSearchMenuLoading}
           aria-hidden="true"
         >
-          <button class="btn btn-ghost btn-small web-search-summary" type="button" disabled>
+          <button
+            class="btn btn-ghost btn-small web-search-summary"
+            type="button"
+            disabled
+          >
             <span>Web search</span>
             <span class="status" data-enabled={$webSearchStore.enabled}>
               {$webSearchStore.enabled ? "On" : "Off"}
@@ -276,6 +285,41 @@
             stroke-width="1.5"
             stroke-linecap="round"
             stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+
+      <button
+        class="btn btn-ghost btn-small kiosk-btn"
+        type="button"
+        on:click={forwardOpenKioskSettings}
+        aria-label="Kiosk settings"
+        title="Kiosk settings"
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <!-- Screen/display -->
+          <rect
+            x="4"
+            y="2"
+            width="16"
+            height="12"
+            rx="1.5"
+            stroke="currentColor"
+            stroke-width="1.5"
+          />
+          <!-- Stand -->
+          <path
+            d="M12 14v4M8 22h8M8 18h8"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
           />
         </svg>
       </button>

@@ -11,6 +11,7 @@ from deepgram import DeepgramClient
 from deepgram.core.events import EventType
 
 from backend.config import get_settings
+from backend.services.kiosk_stt_settings import get_kiosk_stt_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +27,22 @@ class DeepgramSession:
         api_key: str,
         session_id: str,
         on_transcript: Callable[[str, bool], None],
-        on_error: Optional[Callable[[str], None]] = None
+        on_error: Optional[Callable[[str], None]] = None,
+        eot_threshold: float = 0.7,
+        eot_timeout_ms: int = 5000,
+        eager_eot_threshold: Optional[float] = None,
+        keyterms: Optional[list[str]] = None,
     ):
         self.api_key = api_key
         self.session_id = session_id
         self.on_transcript = on_transcript
         self.on_error = on_error
+
+        # Configurable STT settings
+        self.eot_threshold = eot_threshold
+        self.eot_timeout_ms = eot_timeout_ms
+        self.eager_eot_threshold = eager_eot_threshold
+        self.keyterms = keyterms or []
 
         self._client = DeepgramClient(api_key=api_key)
         self._context_manager = None
@@ -114,11 +125,22 @@ class DeepgramSession:
             "model": "flux-general-en",
             "encoding": "linear16",
             "sample_rate": str(SAMPLE_RATE),
-            "eot_threshold": "0.7",       # End-of-turn confidence threshold
-            "eot_timeout_ms": "5000",     # Max wait for end-of-turn
+            "eot_threshold": str(self.eot_threshold),
+            "eot_timeout_ms": str(self.eot_timeout_ms),
         }
 
-        logger.info(f"Connecting to Deepgram Flux for {self.session_id}...")
+        # Add optional eager EOT threshold
+        if self.eager_eot_threshold is not None:
+            params["eager_eot_threshold"] = str(self.eager_eot_threshold)
+
+        # Add keyterms (Deepgram supports multiple keyterm params)
+        # Note: The SDK may handle this differently; we pass as list
+        if self.keyterms:
+            params["keyterm"] = self.keyterms
+
+        logger.info(f"Connecting to Deepgram Flux for {self.session_id} with settings: "
+                    f"eot_threshold={self.eot_threshold}, eot_timeout_ms={self.eot_timeout_ms}, "
+                    f"eager_eot={self.eager_eot_threshold}, keyterms={len(self.keyterms)}")
 
         try:
             # Use v2 for Flux turn-taking
@@ -205,12 +227,19 @@ class STTService:
             if session_id in self.sessions:
                 await self.close_session(session_id)
 
-            # Create new session
+            # Get current kiosk STT settings
+            kiosk_settings = get_kiosk_stt_settings_service().get_settings()
+
+            # Create new session with configurable settings
             session = DeepgramSession(
                 api_key=self.api_key,
                 session_id=session_id,
                 on_transcript=on_transcript,
-                on_error=on_error
+                on_error=on_error,
+                eot_threshold=kiosk_settings.eot_threshold,
+                eot_timeout_ms=kiosk_settings.eot_timeout_ms,
+                eager_eot_threshold=kiosk_settings.eager_eot_threshold,
+                keyterms=kiosk_settings.keyterms,
             )
 
             # Connect in thread pool to not block asyncio

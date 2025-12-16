@@ -18,6 +18,7 @@
   import QuickPrompts from "./lib/components/chat/QuickPrompts.svelte";
   import SpeechSettingsModal from "./lib/components/chat/SpeechSettingsModal.svelte";
   import SystemSettingsModal from "./lib/components/chat/SystemSettingsModal.svelte";
+  import KioskSettingsModal from "./lib/components/chat/KioskSettingsModal.svelte";
   import ModelExplorer from "./lib/components/model-explorer/ModelExplorer.svelte";
   import {
     clearPendingSubmit,
@@ -58,6 +59,7 @@
   let modelSettingsOpen = false;
   let systemSettingsOpen = false;
   let speechSettingsOpen = false;
+  let kioskSettingsOpen = false;
   let presetsOpen = false;
   let lastSpeechPromptVersion = 0;
   let generationModalLoading = false;
@@ -110,7 +112,8 @@
           generationModalOpen ||
           modelSettingsOpen ||
           systemSettingsOpen ||
-          speechSettingsOpen,
+          speechSettingsOpen ||
+          kioskSettingsOpen,
       );
     }
   }
@@ -308,6 +311,7 @@
     on:openModelSettings={() => (modelSettingsOpen = true)}
     on:openSystemSettings={() => (systemSettingsOpen = true)}
     on:openSpeechSettings={() => (speechSettingsOpen = true)}
+    on:openKioskSettings={() => (kioskSettingsOpen = true)}
     on:openPresets={() => (presetsOpen = true)}
   />
 
@@ -386,6 +390,12 @@
     open={speechSettingsOpen}
     on:close={() => (speechSettingsOpen = false)}
   />
+
+  <KioskSettingsModal
+    open={kioskSettingsOpen}
+    on:close={() => (kioskSettingsOpen = false)}
+  />
+
   <PresetsModal open={presetsOpen} on:close={() => (presetsOpen = false)} />
 
   <ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />

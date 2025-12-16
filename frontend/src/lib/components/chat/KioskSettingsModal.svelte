@@ -3,7 +3,7 @@
   import {
     getDefaultKioskSttSettings,
     kioskSettingsStore,
-    type KioskSttSettings,
+    type KioskSettings,
   } from "../../stores/kioskSettings";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
   import "./model-settings/model-settings-styles.css";
@@ -12,7 +12,7 @@
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
-  let draft: KioskSttSettings = getDefaultKioskSttSettings();
+  let draft: KioskSettings = getDefaultKioskSttSettings();
   let dirty = false;
   let saving = false;
   let loading = true;
@@ -295,6 +295,62 @@
               </div>
             </div>
           {/if}
+        </div>
+
+        <!-- Display Settings Section -->
+        <div class="setting reasoning">
+          <div class="setting-header">
+            <span class="setting-label">Display</span>
+            <span class="setting-hint"
+              >Kiosk screen behavior settings.</span
+            >
+          </div>
+
+          <div class="reasoning-controls">
+            <!-- Idle Return Delay -->
+            <div class="reasoning-field">
+              <div class="setting-range">
+                <div class="setting-range-header">
+                  <span
+                    class="setting-label"
+                    title="How long (seconds) to wait on the transcription screen after going IDLE before returning to the clock screen."
+                    >Return to Clock</span
+                  >
+                  <span class="range-value"
+                    >{(draft.idle_return_delay_ms / 1000).toFixed(0)}s</span
+                  >
+                </div>
+                <input
+                  type="range"
+                  class="range-input"
+                  min="1000"
+                  max="60000"
+                  step="1000"
+                  value={draft.idle_return_delay_ms}
+                  disabled={saving}
+                  style="--slider-fill: {getSliderFill(
+                    draft.idle_return_delay_ms,
+                    1000,
+                    60000,
+                  )}"
+                  on:input={(e) => {
+                    draft = {
+                      ...draft,
+                      idle_return_delay_ms: parseInt(
+                        (e.target as HTMLInputElement).value,
+                        10,
+                      ),
+                    };
+                    markDirty();
+                  }}
+                />
+                <div class="range-extents">
+                  <span>1s</span>
+                  <span>60s</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Keyterms Section -->

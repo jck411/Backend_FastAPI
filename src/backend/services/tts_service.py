@@ -1,7 +1,10 @@
+import logging
+
 import httpx
-from deepgram import AsyncDeepgramClient
 
 from backend.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 class TTSService:
@@ -13,7 +16,8 @@ class TTSService:
         if not api_key:
             raise ValueError("DEEPGRAM_API_KEY is not set")
 
-        self.client = AsyncDeepgramClient(api_key=api_key)
+        self.api_key = api_key
+        self.base_url = "https://api.deepgram.com/v1/speak"
 
     async def synthesize(self, text: str) -> bytes:
         """
@@ -21,29 +25,35 @@ class TTSService:
         Returns raw PCM audio bytes (16kHz, 16-bit, mono).
         """
         try:
-            # Use dict for options
-            speak_options = {
+            params = {
                 "model": "aura-asteria-en",
                 "encoding": "linear16",
-                "sample_rate": 16000,
+                "sample_rate": "16000",
                 "container": "none",
             }
 
-            # Deepgram SDK synchronous call
-            # Using standard SDK usage, passing options as dict might be supported
-            # or passing kw arguments to the method.
-            # Assuming speak.v("1").stream(source, options) pattern
+            headers = {
+                "Authorization": f"Token {self.api_key}",
+                "Content-Type": "application/json",
+            }
 
-            # The 'source' argument is {"text": text}, and 'options' handles the rest.
+            payload = {"text": text}
 
-            response = await self.client.speak.v("1").stream({"text": text}, speak_options)
-
-            # The response should be a stream-able object.
-            # We want all bytes.
-            return await response.read()
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.base_url,
+                    params=params,
+                    headers=headers,
+                    json=payload,
+                    timeout=30.0,
+                )
+                response.raise_for_status()
+                audio_data = response.content
+                logger.info(f"TTS synthesized {len(audio_data)} bytes for text: {text[:50]}...")
+                return audio_data
 
         except Exception as e:
-            print(f"TTS Error: {e}")
-            # Return empty bytes or raise?
-            # Let's return empty bytes to avoid crashing the caller
+            logger.error(f"TTS Error: {e}")
+            # Return empty bytes to avoid crashing the caller
             return b""
+

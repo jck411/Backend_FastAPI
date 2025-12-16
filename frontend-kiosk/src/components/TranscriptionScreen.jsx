@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion';
 
-export default function TranscriptionScreen({ transcript, isListening, agentState }) {
+export default function TranscriptionScreen({ transcript, assistantResponse, isListening, agentState }) {
     return (
         <div className="h-full w-full flex flex-col items-center justify-center p-12 bg-black relative">
             {/* Status Indicator */}
@@ -19,7 +19,8 @@ export default function TranscriptionScreen({ transcript, isListening, agentStat
             </div>
 
             {/* Main Content Area */}
-            <div className="w-full max-w-5xl text-center">
+            <div className="w-full max-w-5xl text-center space-y-8">
+                {/* User Transcript */}
                 <AnimatePresence mode='wait'>
                     {transcript ? (
                         <motion.div
@@ -38,6 +39,22 @@ export default function TranscriptionScreen({ transcript, isListening, agentStat
                             className="text-white/40"
                         >
                             <p className="text-3xl font-light tracking-wide">Say "Hey Jarvis"</p>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Assistant Response */}
+                <AnimatePresence>
+                    {assistantResponse && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0 }}
+                            className="pt-8 border-t border-white/10"
+                        >
+                            <p className="text-2xl md:text-3xl font-light tracking-tight text-cyan-400 leading-relaxed">
+                                {assistantResponse}
+                            </p>
                         </motion.div>
                     )}
                 </AnimatePresence>

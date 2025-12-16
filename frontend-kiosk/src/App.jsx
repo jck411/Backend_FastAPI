@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
 import Clock from './components/Clock';
 import PhotoFrame from './components/PhotoFrame';
@@ -13,7 +13,26 @@ export default function App() {
     const wsUrl = `ws://${window.location.hostname}:8000/api/voice/connect?client_id=frontend_gui`;
 
     const [transcript, setTranscript] = useState("");
+    const [assistantResponse, setAssistantResponse] = useState("");
     const [agentState, setAgentState] = useState("IDLE");
+    const [idleReturnDelay, setIdleReturnDelay] = useState(10000); // Default 10s
+    const audioRef = useRef(null);
+
+    // Fetch UI settings on mount
+    useEffect(() => {
+        const fetchSettings = async () => {
+            try {
+                const response = await fetch(`http://${window.location.hostname}:8000/api/kiosk/ui/settings`);
+                if (response.ok) {
+                    const data = await response.json();
+                    setIdleReturnDelay(data.idle_return_delay_ms);
+                }
+            } catch (e) {
+                console.error("Failed to fetch UI settings", e);
+            }
+        };
+        fetchSettings();
+    }, []);
 
     const {
         sendMessage,
@@ -26,27 +45,91 @@ export default function App() {
         reconnectInterval: 3000,
     });
 
+    // Play TTS audio
+    const playAudio = (base64Audio) => {
+        try {
+            // Convert base64 to audio blob (PCM 16-bit, 16kHz mono)
+            const binaryString = atob(base64Audio);
+            const bytes = new Uint8Array(binaryString.length);
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+
+            // Create WAV header for PCM data
+            const sampleRate = 16000;
+            const numChannels = 1;
+            const bitsPerSample = 16;
+            const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+            const blockAlign = numChannels * bitsPerSample / 8;
+            const dataSize = bytes.length;
+            const fileSize = 44 + dataSize;
+
+            const wavBuffer = new ArrayBuffer(fileSize);
+            const view = new DataView(wavBuffer);
+
+            // RIFF header
+            view.setUint32(0, 0x52494646, false); // "RIFF"
+            view.setUint32(4, fileSize - 8, true);
+            view.setUint32(8, 0x57415645, false); // "WAVE"
+
+            // fmt chunk
+            view.setUint32(12, 0x666d7420, false); // "fmt "
+            view.setUint32(16, 16, true); // chunk size
+            view.setUint16(20, 1, true); // audio format (PCM)
+            view.setUint16(22, numChannels, true);
+            view.setUint32(24, sampleRate, true);
+            view.setUint32(28, byteRate, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bitsPerSample, true);
+
+            // data chunk
+            view.setUint32(36, 0x64617461, false); // "data"
+            view.setUint32(40, dataSize, true);
+
+            // Copy PCM data
+            const wavBytes = new Uint8Array(wavBuffer);
+            wavBytes.set(bytes, 44);
+
+            const blob = new Blob([wavBytes], { type: 'audio/wav' });
+            const url = URL.createObjectURL(blob);
+
+            if (audioRef.current) {
+                audioRef.current.src = url;
+                audioRef.current.play().catch(e => console.error("Audio play failed:", e));
+            }
+        } catch (e) {
+            console.error("Failed to play audio:", e);
+        }
+    };
+
     useEffect(() => {
         if (lastMessage !== null) {
             try {
                 const data = JSON.parse(lastMessage.data);
                 if (data.type === 'transcript') {
                     setTranscript(data.text);
+                } else if (data.type === 'assistant_response') {
+                    console.log('Received assistant_response:', data.text);
+                    setAssistantResponse(data.text);
+                } else if (data.type === 'tts_audio') {
+                    console.log('Received TTS audio, length:', data.data?.length);
+                    playAudio(data.data);
                 } else if (data.type === 'state') {
                     setAgentState(data.state);
                     if (data.state === 'LISTENING' || data.state === 'THINKING') {
                         setCurrentScreen(2); // Auto-jump to transcription screen
+                        setAssistantResponse(""); // Clear previous response
                     }
                     if (data.state === 'IDLE') {
-                        // Return to clock after delay
-                        setTimeout(() => setCurrentScreen(0), 10000);
+                        // Return to clock after configurable delay
+                        setTimeout(() => setCurrentScreen(0), idleReturnDelay);
                     }
                 }
             } catch (e) {
                 console.error("Failed to parse WS message", e);
             }
         }
-    }, [lastMessage]);
+    }, [lastMessage, idleReturnDelay]);
 
     const handleSwipe = (direction) => {
         if (direction > 0) {
@@ -62,6 +145,7 @@ export default function App() {
         <TranscriptionScreen
             key="transcription"
             transcript={transcript}
+            assistantResponse={assistantResponse}
             isListening={agentState === 'LISTENING'}
             agentState={agentState}
         />
@@ -69,6 +153,9 @@ export default function App() {
 
     return (
         <div className="w-screen h-screen bg-black overflow-hidden relative font-sans text-white select-none">
+            {/* Hidden audio element for TTS playback */}
+            <audio ref={audioRef} />
+
             <AnimatePresence mode="popLayout" initial={false}>
                 <motion.div
                     key={currentScreen}

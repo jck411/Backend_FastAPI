@@ -24,6 +24,7 @@ from .routers.settings import router as settings_router
 from .routers.spotify_auth import router as spotify_auth_router
 from .routers.stt import router as stt_router
 from .routers.kiosk import router as kiosk_router
+from .routers.kiosk_ui import router as kiosk_ui_router
 from .routers.suggestions import router as suggestions_router
 from .routers.uploads import router as uploads_router
 from .services.attachments import AttachmentService
@@ -253,6 +254,7 @@ def create_app() -> FastAPI:
     app.include_router(mcp_router)
     app.include_router(stt_router)
     app.include_router(kiosk_router)
+    app.include_router(kiosk_ui_router)
 
     # helper for voice assistant imports to avoid circular deps if any,
     # though here it should be fine.

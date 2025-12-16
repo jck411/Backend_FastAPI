@@ -39,6 +39,8 @@ async def handle_connection(websocket: WebSocket, client_id: str, manager: Voice
 
                 if response_text:
                     await manager.update_state(client_id, "SPEAKING")
+                    # Send response text to frontend for display
+                    await manager.broadcast({"type": "assistant_response", "text": response_text})
                     # Use TTS
                     try:
                         audio_data = await tts_service.synthesize(response_text)

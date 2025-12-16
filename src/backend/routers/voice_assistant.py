@@ -52,7 +52,11 @@ async def handle_connection(
 
                 # Generate LLM response
                 try:
-                    response_text = await kiosk_chat_service.generate_response(text, client_id=client_id)
+                    response_text = await kiosk_chat_service.generate_response(
+                        text,
+                        client_id=client_id,
+                        broadcast_callback=manager.broadcast,  # Send tool events to all clients
+                    )
                 except Exception as e:
                     logger.error(f"LLM generation failed for {client_id}: {e}", exc_info=True)
                     response_text = "Sorry, I couldn't process that request."

@@ -3,14 +3,14 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {
         "HOST_PROFILE_ID": "xps13",
         "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"
       },
-      "frontend_enabled": false,
+      "frontend_enabled": true,
       "id": "shell-control",
-      "kiosk_enabled": true,
+      "kiosk_enabled": false,
       "module": "backend.mcp_servers.shell_control_server",
       "tool_overrides": {}
     },
@@ -82,7 +82,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "frontend_enabled": true,
       "id": "spotify",

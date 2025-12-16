@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any
+from typing import Any, Callable, Optional, Awaitable
 
 from backend.chat.orchestrator import ChatOrchestrator
 from backend.schemas.chat import ChatCompletionRequest, ChatMessage
@@ -31,11 +31,21 @@ class KioskChatService:
             pass
         logger.info(f"Cleared conversation history for kiosk_{client_id}")
 
-    async def generate_response(self, user_message: str, client_id: str = "default") -> str:
+    async def generate_response(
+        self,
+        user_message: str,
+        client_id: str = "default",
+        broadcast_callback: Optional[Callable[[dict], Awaitable[None]]] = None,
+    ) -> str:
         """Generate LLM response using the main orchestrator.
 
         This routes through the same code path as the main frontend,
         ensuring tool execution works correctly.
+
+        Args:
+            user_message: The user's message
+            client_id: Client identifier for session management
+            broadcast_callback: Optional async callback to broadcast tool status events
         """
         settings = self._settings_service.get_settings()
         session_id = f"kiosk_{client_id}"
@@ -87,17 +97,27 @@ class KioskChatService:
                         continue
 
                 elif event_type == "tool":
-                    # Log tool execution for debugging
+                    # Parse and broadcast tool events
                     try:
                         tool_data = json.loads(data) if data else {}
                         status = tool_data.get("status")
                         name = tool_data.get("name")
+
+                        # Log tool execution
                         if status == "started":
                             logger.info(f"Tool started: {name}")
                         elif status == "finished":
                             logger.info(f"Tool finished: {name}")
                         elif status == "error":
                             logger.warning(f"Tool error: {name} - {tool_data.get('result')}")
+
+                        # Broadcast to connected clients (e.g., Raspberry Pi)
+                        if broadcast_callback and status and name:
+                            await broadcast_callback({
+                                "type": "tool_status",
+                                "status": status,
+                                "name": name,
+                            })
                     except (json.JSONDecodeError, TypeError):
                         pass
 

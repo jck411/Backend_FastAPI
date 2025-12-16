@@ -46,8 +46,8 @@ async def handle_connection(websocket: WebSocket, client_id: str, manager: Voice
                         audio_data = await tts_service.synthesize(response_text)
 
                         if audio_data:
-                            # 4. Play Audio on Client
-                            await websocket.send_json({
+                            # 4. Play Audio on Client - broadcast to all (browser + Pi)
+                            await manager.broadcast({
                                 "type": "tts_audio",
                                 "data": base64.b64encode(audio_data).decode('utf-8')
                             })

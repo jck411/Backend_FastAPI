@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
+  import { fetchTtsVoices } from "../../api/kiosk";
   import {
     getDefaultKioskSttSettings,
     kioskSettingsStore,
@@ -7,6 +8,9 @@
   } from "../../stores/kioskSettings";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
   import "./model-settings/model-settings-styles.css";
+
+  // Available TTS voices (loaded from API)
+  let ttsVoices: string[] = [];
 
   export let open = false;
 
@@ -36,8 +40,12 @@
   async function loadSettings(): Promise<void> {
     loading = true;
     try {
-      const settings = await kioskSettingsStore.load();
+      const [settings, voices] = await Promise.all([
+        kioskSettingsStore.load(),
+        fetchTtsVoices(),
+      ]);
       draft = { ...settings };
+      ttsVoices = voices;
     } catch (error) {
       statusMessage = "Failed to load settings";
     } finally {
@@ -301,9 +309,7 @@
         <div class="setting reasoning">
           <div class="setting-header">
             <span class="setting-label">Display</span>
-            <span class="setting-hint"
-              >Kiosk screen behavior settings.</span
-            >
+            <span class="setting-hint">Kiosk screen behavior settings.</span>
           </div>
 
           <div class="reasoning-controls">
@@ -350,6 +356,71 @@
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- TTS Settings Section -->
+        <div class="setting reasoning">
+          <div class="setting-header">
+            <span class="setting-label">Text-to-Speech</span>
+            <span class="setting-hint"
+              >Voice synthesis settings for assistant responses.</span
+            >
+          </div>
+
+          <div class="reasoning-controls">
+            <!-- TTS Enabled Toggle -->
+            <label
+              class="setting-boolean"
+              title="Enable or disable audio playback of assistant responses."
+            >
+              <input
+                type="checkbox"
+                checked={draft.enabled}
+                disabled={saving}
+                on:change={(e) => {
+                  draft = {
+                    ...draft,
+                    enabled: (e.target as HTMLInputElement).checked,
+                  };
+                  markDirty();
+                }}
+              />
+              <span>Enable TTS</span>
+            </label>
+
+            {#if draft.enabled}
+              <!-- Voice Selection -->
+              <div class="reasoning-field">
+                <div class="setting-select">
+                  <label
+                    class="setting-label"
+                    for="tts-voice"
+                    title="Select the voice for text-to-speech synthesis."
+                    >Voice</label
+                  >
+                  <select
+                    id="tts-voice"
+                    class="select-input"
+                    value={draft.model}
+                    disabled={saving}
+                    on:change={(e) => {
+                      draft = {
+                        ...draft,
+                        model: (e.target as HTMLSelectElement).value,
+                      };
+                      markDirty();
+                    }}
+                  >
+                    {#each ttsVoices as voice}
+                      <option value={voice}
+                        >{voice.replace("aura-", "").replace("-en", "")}</option
+                      >
+                    {/each}
+                  </select>
+                </div>
+              </div>
+            {/if}
           </div>
         </div>
 
@@ -435,5 +506,34 @@
   .keyterms-input::placeholder {
     color: var(--color-muted);
     opacity: 0.6;
+  }
+
+  .setting-select {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .select-input {
+    width: 100%;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.5rem;
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid rgba(67, 91, 136, 0.4);
+    font-family: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  .select-input:focus {
+    outline: none;
+    border-color: var(--color-accent);
+    box-shadow: var(--shadow-focus);
+  }
+
+  .select-input:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>

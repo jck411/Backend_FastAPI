@@ -1,0 +1,6 @@
+{
+  "enabled": false,
+  "provider": "deepgram",
+  "model": "aura-orpheus-en",
+  "sample_rate": 16000
+}

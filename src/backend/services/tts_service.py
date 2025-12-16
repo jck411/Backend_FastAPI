@@ -3,6 +3,7 @@ import logging
 import httpx
 
 from backend.config import get_settings
+from backend.services.kiosk_tts_settings import get_kiosk_tts_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +23,21 @@ class TTSService:
     async def synthesize(self, text: str) -> bytes:
         """
         Synthesize text to audio using Deepgram.
-        Returns raw PCM audio bytes (16kHz, 16-bit, mono).
+        Returns raw PCM audio bytes, or empty bytes if TTS is disabled.
         """
+        # Get current TTS settings
+        tts_settings = get_kiosk_tts_settings_service().get_settings()
+
+        # Check if TTS is enabled
+        if not tts_settings.enabled:
+            logger.info("TTS is disabled, skipping synthesis")
+            return b""
+
         try:
             params = {
-                "model": "aura-asteria-en",
+                "model": tts_settings.model,
                 "encoding": "linear16",
-                "sample_rate": "16000",
+                "sample_rate": str(tts_settings.sample_rate),
                 "container": "none",
             }
 
@@ -56,4 +65,3 @@ class TTSService:
             logger.error(f"TTS Error: {e}")
             # Return empty bytes to avoid crashing the caller
             return b""
-

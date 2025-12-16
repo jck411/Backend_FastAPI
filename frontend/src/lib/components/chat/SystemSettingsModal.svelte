@@ -24,8 +24,16 @@
 
   // Hardcoded host profiles - each machine has its own path
   const HOST_PROFILES = [
-    { id: "xps13", label: "Dell XPS 13", path: "/home/jack/gdrive/host_profiles" },
-    { id: "ryzen-desktop", label: "Ryzen Desktop", path: "/home/human/gdrive/host_profiles" },
+    {
+      id: "xps13",
+      label: "Dell XPS 13",
+      path: "/home/jack/gdrive/host_profiles",
+    },
+    {
+      id: "ryzen-desktop",
+      label: "Ryzen Desktop",
+      path: "/home/human/gdrive/host_profiles",
+    },
   ] as const;
 
   $: {
@@ -120,6 +128,20 @@
     mcpServers.setServerEnabled(serverId, enabled);
   }
 
+  function toggleKiosk(serverId: string, enabled: boolean): void {
+    if ($mcpServers.saving) {
+      return;
+    }
+    mcpServers.setKioskEnabled(serverId, enabled);
+  }
+
+  function toggleFrontend(serverId: string, enabled: boolean): void {
+    if ($mcpServers.saving) {
+      return;
+    }
+    mcpServers.setFrontendEnabled(serverId, enabled);
+  }
+
   function toggleTool(serverId: string, tool: string, enabled: boolean): void {
     if ($mcpServers.saving) {
       return;
@@ -133,7 +155,6 @@
     }
     mcpServers.setServerEnv(serverId, key, value);
   }
-
 
   function refreshServers(): void {
     const snapshot = get(mcpServers);
@@ -418,7 +439,9 @@
               type="button"
               class="btn btn-primary btn-small"
               on:click={saveMonarch}
-              disabled={$monarchAuth.saving || !monarchEmail || !monarchPassword}
+              disabled={$monarchAuth.saving ||
+                !monarchEmail ||
+                !monarchPassword}
             >
               {$monarchAuth.saving ? "Saving..." : "Connect"}
             </button>
@@ -599,20 +622,67 @@
                         {/if}
                       </div>
                     </div>
-                    <label class="toggle">
-                      <input
-                        type="checkbox"
-                        checked={server.enabled}
-                        disabled={$mcpServers.pending[server.id] ||
-                          $mcpServers.saving}
-                        on:change={(event) =>
-                          toggleServer(
-                            server.id,
-                            (event.target as HTMLInputElement).checked,
-                          )}
-                      />
-                      <span>{server.enabled ? "Enabled" : "Disabled"}</span>
-                    </label>
+                    <div class="server-toggles">
+                      <label
+                        class="toggle running-toggle"
+                        title="Start/stop the server process"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={server.enabled}
+                          disabled={$mcpServers.pending[server.id] ||
+                            $mcpServers.saving}
+                          on:change={(event) =>
+                            toggleServer(
+                              server.id,
+                              (event.target as HTMLInputElement).checked,
+                            )}
+                        />
+                        <span>{server.enabled ? "Running" : "Stopped"}</span>
+                      </label>
+                      <label
+                        class="toggle frontend-toggle"
+                        class:toggle-disabled={!server.enabled}
+                        title={server.enabled
+                          ? "Enable for main web frontend"
+                          : "Server must be running"}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={server.frontend_enabled ?? true}
+                          disabled={!server.enabled ||
+                            $mcpServers.pending[server.id] ||
+                            $mcpServers.saving}
+                          on:change={(event) =>
+                            toggleFrontend(
+                              server.id,
+                              (event.target as HTMLInputElement).checked,
+                            )}
+                        />
+                        <span>Frontend</span>
+                      </label>
+                      <label
+                        class="toggle kiosk-toggle"
+                        class:toggle-disabled={!server.enabled}
+                        title={server.enabled
+                          ? "Enable for kiosk voice assistant"
+                          : "Server must be running"}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={server.kiosk_enabled ?? false}
+                          disabled={!server.enabled ||
+                            $mcpServers.pending[server.id] ||
+                            $mcpServers.saving}
+                          on:change={(event) =>
+                            toggleKiosk(
+                              server.id,
+                              (event.target as HTMLInputElement).checked,
+                            )}
+                        />
+                        <span>Kiosk</span>
+                      </label>
+                    </div>
                   </div>
 
                   <div class="server-row-body">
@@ -622,7 +692,8 @@
                           <div class="shell-setting__info">
                             <span class="field-label">This machine</span>
                             <span class="field-hint">
-                              Select which computer you're on. Sets host profile and storage path.
+                              Select which computer you're on. Sets host profile
+                              and storage path.
                             </span>
                           </div>
                           <select

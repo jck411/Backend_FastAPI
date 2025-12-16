@@ -111,6 +111,14 @@ class MCPServerConfig(BaseModel):
         default_factory=dict,
         description="Optional per-tool override settings keyed by tool name",
     )
+    kiosk_enabled: bool = Field(
+        default=False,
+        description="Whether this server's tools are available to the kiosk assistant",
+    )
+    frontend_enabled: bool = Field(
+        default=True,
+        description="Whether this server's tools are available to the main web frontend",
+    )
 
     @field_validator("command", mode="before")
     @classmethod
@@ -743,7 +751,27 @@ class MCPToolAggregator:
         binding = self._bindings.get(name)
         if binding is None:
             raise ValueError(f"Unknown tool: {name}")
-        return await binding.client.call_tool(binding.original_name, arguments)
+        logger.info(
+            "[MCP-DEBUG] Dispatching tool '%s' (original: '%s') to server '%s'",
+            name,
+            binding.original_name,
+            binding.config.id,
+        )
+        try:
+            result = await binding.client.call_tool(binding.original_name, arguments)
+            logger.info(
+                "[MCP-DEBUG] Tool '%s' completed from server '%s'",
+                name,
+                binding.config.id,
+            )
+            return result
+        except Exception as exc:
+            logger.error(
+                "[MCP-DEBUG] Tool '%s' FAILED with exception: %s",
+                name,
+                exc,
+            )
+            raise
 
     def format_tool_result(self, result: Any) -> str:
         return MCPToolClient.format_tool_result(result)

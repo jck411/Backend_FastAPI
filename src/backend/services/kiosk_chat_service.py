@@ -1,143 +1,109 @@
-"""Kiosk chat service for OpenRouter LLM integration."""
+"""Kiosk chat service for OpenRouter LLM integration via ChatOrchestrator."""
 
+import json
 import logging
 from typing import Any
 
-from backend.openrouter import OpenRouterClient
+from backend.chat.orchestrator import ChatOrchestrator
+from backend.schemas.chat import ChatCompletionRequest, ChatMessage
 from backend.services.kiosk_llm_settings import get_kiosk_llm_settings_service
 
 logger = logging.getLogger(__name__)
 
 
-import httpx
-
 class KioskChatService:
-    """Simple chat service for kiosk voice interactions."""
+    """Chat service for kiosk voice interactions using the main orchestrator."""
 
-    def __init__(self, openrouter_client: OpenRouterClient):
-        # We keep the client reference only to get configuration
-        self._config = openrouter_client._settings
+    def __init__(self, orchestrator: ChatOrchestrator):
+        self._orchestrator = orchestrator
         self._settings_service = get_kiosk_llm_settings_service()
-        self._histories: dict[str, list[dict[str, Any]]] = {}
 
     def clear_history(self, client_id: str):
-        """Clear conversation history for a client."""
-        if client_id in self._histories:
-            del self._histories[client_id]
-            logger.info(f"Cleared conversation history for {client_id}")
-
-    def _get_headers(self) -> dict[str, str]:
-        headers = {
-            "Authorization": f"Bearer {self._config.openrouter_api_key.get_secret_value()}",
-            "Content-Type": "application/json",
-            "Accept": "text/event-stream",
-        }
-        if self._config.openrouter_app_url:
-            referer = str(self._config.openrouter_app_url)
-            headers["HTTP-Referer"] = referer
-            headers["Referer"] = referer
-        if self._config.openrouter_app_name:
-            headers["X-Title"] = self._config.openrouter_app_name
-        return headers
+        """Clear conversation history for a client by clearing session."""
+        # The orchestrator manages sessions via repository
+        # We'll clear by session_id which is now f"kiosk_{client_id}"
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._orchestrator.clear_session(f"kiosk_{client_id}"))
+        except RuntimeError:
+            # No running loop - can't clear asynchronously
+            pass
+        logger.info(f"Cleared conversation history for kiosk_{client_id}")
 
     async def generate_response(self, user_message: str, client_id: str = "default") -> str:
-        """Generate LLM response for user's voice input.
+        """Generate LLM response using the main orchestrator.
 
-        Uses a fresh HTTP client for every request to ensure stability and avoid
-        connection pooling issues in the long-running process.
+        This routes through the same code path as the main frontend,
+        ensuring tool execution works correctly.
         """
         settings = self._settings_service.get_settings()
+        session_id = f"kiosk_{client_id}"
 
-        # Initialize history if new
-        if client_id not in self._histories:
-            self._histories[client_id] = []
+        logger.info(f"Kiosk LLM request: session={session_id}, model={settings.model}, msg_len={len(user_message)}")
 
-        history = self._histories[client_id]
+        # Build messages list
+        messages = [
+            ChatMessage(role="user", content=user_message)
+        ]
 
-        messages: list[dict[str, Any]] = []
+        # If there's a system prompt in kiosk settings, prepend it
+        # Note: The orchestrator may also add its own system prompt from model settings
+        # For kiosk, we want to use the kiosk-specific system prompt
         if settings.system_prompt:
-            messages.append({"role": "system", "content": settings.system_prompt})
+            messages.insert(0, ChatMessage(role="system", content=settings.system_prompt))
 
-        # Add history
-        messages.extend(history)
+        # Build the request
+        request = ChatCompletionRequest(
+            session_id=session_id,
+            messages=messages,
+            model=settings.model,
+            temperature=settings.temperature,
+            max_tokens=settings.max_tokens,
+        )
 
-        # Add current user message
-        messages.append({"role": "user", "content": user_message})
-
-        payload = {
-            "model": settings.model,
-            "messages": messages,
-            "temperature": settings.temperature,
-            "max_tokens": settings.max_tokens,
-            "stream": True,
-        }
-
-        # Use fresh client for every request
-        base_url = str(self._config.openrouter_base_url).rstrip("/")
-        url = f"{base_url}/chat/completions"
-
-        logger.info(f"Kiosk LLM request: model={settings.model}, user_msg={user_message[:50]}...")
-        logger.debug(f"Full payload: {payload}")
-
+        # Process through orchestrator - this handles tools correctly
         full_response = ""
 
         try:
-            # Short timeout for connect, generous for read (LLM generation)
-            timeout = httpx.Timeout(60.0, connect=10.0)
+            async for event in self._orchestrator.process_stream(request):
+                event_type = event.get("event")
+                data = event.get("data")
 
-            async with httpx.AsyncClient(timeout=timeout, http2=True) as client:
-                logger.debug("Starting direct OpenRouter stream...")
-                async with client.stream(
-                    "POST",
-                    url,
-                    headers=self._get_headers(),
-                    json=payload,
-                ) as response:
-                    if response.status_code >= 400:
-                        error_text = await response.aread()
-                        logger.error(f"OpenRouter API error: {response.status_code} - {error_text}")
-                        return "I'm sorry, I'm having trouble connecting to the AI service."
+                if event_type == "message" and data and data != "[DONE]":
+                    try:
+                        chunk = json.loads(data)
+                        for choice in chunk.get("choices", []):
+                            delta = choice.get("delta", {})
+                            content = delta.get("content")
+                            if isinstance(content, str):
+                                full_response += content
+                    except (json.JSONDecodeError, TypeError):
+                        continue
 
-                    async for line in response.aiter_lines():
-                        if not line or line.startswith(":"):
-                            continue
-
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-
-                            try:
-                                import json
-                                chunk = json.loads(data)
-                                choices = chunk.get("choices") or []
-                                for choice in choices:
-                                    delta = choice.get("delta") or {}
-                                    content = delta.get("content")
-                                    if isinstance(content, str):
-                                        full_response += content
-                            except Exception:
-                                continue
-
-            logger.info(f"Stream complete. Total length: {len(full_response)}")
+                elif event_type == "tool":
+                    # Log tool execution for debugging
+                    try:
+                        tool_data = json.loads(data) if data else {}
+                        status = tool_data.get("status")
+                        name = tool_data.get("name")
+                        if status == "started":
+                            logger.info(f"Tool started: {name}")
+                        elif status == "finished":
+                            logger.info(f"Tool finished: {name}")
+                        elif status == "error":
+                            logger.warning(f"Tool error: {name} - {tool_data.get('result')}")
+                    except (json.JSONDecodeError, TypeError):
+                        pass
 
         except Exception as e:
             logger.error(f"Kiosk LLM error: {e}", exc_info=True)
-            raise
+            return "I'm sorry, I encountered an error processing your request."
 
-        response_text = full_response.strip()
-        logger.info(f"Kiosk LLM final response: {response_text[:100]}...")
+        result = full_response.strip()
+        logger.info(f"Kiosk LLM response: {result[:100]}..." if len(result) > 100 else f"Kiosk LLM response: {result}")
 
-        if response_text:
-            # Update history
-            history = self._histories[client_id]
-            history.append({"role": "user", "content": user_message})
-            history.append({"role": "assistant", "content": response_text})
-            # Keep only last 10 turns (20 messages)
-            if len(history) > 20:
-                self._histories[client_id] = history[-20:]
-
-        return response_text if response_text else "I'm sorry, I couldn't generate a response."
+        return result if result else "Action completed."
 
 
 __all__ = ["KioskChatService"]

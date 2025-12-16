@@ -91,6 +91,50 @@ export function createMcpServersStore() {
     });
   }
 
+  function setKioskEnabled(serverId: string, kioskEnabled: boolean): void {
+    store.update((state) => {
+      const servers = state.servers.map((server) =>
+        server.id === serverId ? { ...server, kiosk_enabled: kioskEnabled } : server,
+      );
+      const pendingChanges = {
+        ...state.pendingChanges,
+        [serverId]: {
+          ...(state.pendingChanges[serverId] ?? {}),
+          kiosk_enabled: kioskEnabled,
+        },
+      };
+      return {
+        ...state,
+        servers,
+        dirty: true,
+        saveError: null,
+        pendingChanges,
+      };
+    });
+  }
+
+  function setFrontendEnabled(serverId: string, frontendEnabled: boolean): void {
+    store.update((state) => {
+      const servers = state.servers.map((server) =>
+        server.id === serverId ? { ...server, frontend_enabled: frontendEnabled } : server,
+      );
+      const pendingChanges = {
+        ...state.pendingChanges,
+        [serverId]: {
+          ...(state.pendingChanges[serverId] ?? {}),
+          frontend_enabled: frontendEnabled,
+        },
+      };
+      return {
+        ...state,
+        servers,
+        dirty: true,
+        saveError: null,
+        pendingChanges,
+      };
+    });
+  }
+
   function setToolEnabled(serverId: string, tool: string, enabled: boolean): void {
     store.update((state) => {
       const target = state.servers.find((item) => item.id === serverId);
@@ -247,7 +291,19 @@ export function createMcpServersStore() {
           };
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Failed to update MCP server.';
+        let message = 'Failed to update MCP server.';
+        if (error instanceof Error) {
+          message = error.message;
+        } else if (typeof error === 'object' && error !== null) {
+          const errObj = error as Record<string, unknown>;
+          message = String(errObj.detail || errObj.message || errObj.error || JSON.stringify(error));
+        } else if (typeof error === 'string') {
+          message = error;
+        }
+        // Ensure we never show [object Object]
+        if (message.includes('[object Object]')) {
+          message = 'Failed to save MCP server settings. Check server logs for details.';
+        }
         store.update((state) => {
           const nextPending = { ...state.pending };
           delete nextPending[serverId];
@@ -277,6 +333,8 @@ export function createMcpServersStore() {
     load,
     refresh,
     setServerEnabled,
+    setKioskEnabled,
+    setFrontendEnabled,
     setToolEnabled,
     setServerEnv,
     getServer,

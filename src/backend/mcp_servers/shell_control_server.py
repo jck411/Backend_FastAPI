@@ -1536,11 +1536,18 @@ async def shell_execute(
     Returns: stdout, stderr, exit_code, duration_ms, log_id.
     If truncated=true, use shell_get_full_output(log_id).
     """
+    import logging as _logging
+    _logger = _logging.getLogger(__name__)
+    _logger.info("[SHELL-DEBUG] shell_execute ENTERED: command=%r, wd=%r, timeout=%d, bg=%s",
+                 command, working_directory, timeout_seconds, background)
+
     # Validate inputs
     timeout_seconds = _validate_timeout(timeout_seconds)
+    _logger.info("[SHELL-DEBUG] shell_execute after timeout validation")
     try:
         working_directory = _validate_working_directory(working_directory)
     except ValueError as e:
+        _logger.info("[SHELL-DEBUG] shell_execute working_directory invalid: %s", e)
         return json.dumps(
             {
                 "status": "error",
@@ -1549,15 +1556,21 @@ async def shell_execute(
             }
         )
 
+    _logger.info("[SHELL-DEBUG] shell_execute after working_directory validation")
+
     if background:
+        _logger.info("[SHELL-DEBUG] shell_execute launching GUI app in background")
         result = await _launch_gui_app(command, working_directory)
+        _logger.info("[SHELL-DEBUG] shell_execute GUI app launched, returning")
         return json.dumps(result)
 
+    _logger.info("[SHELL-DEBUG] shell_execute calling _execute_and_log")
     result = await _execute_and_log(
         command,
         working_directory=working_directory,
         timeout_seconds=timeout_seconds,
     )
+    _logger.info("[SHELL-DEBUG] shell_execute _execute_and_log returned, returning result")
     return json.dumps(result)
 
 

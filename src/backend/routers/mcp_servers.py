@@ -69,6 +69,8 @@ async def _build_status_response(
                 name: MCPServerToolDefinition(contexts=override.contexts)
                 for name, override in config.tool_overrides.items()
             },
+            kiosk_enabled=config.kiosk_enabled,
+            frontend_enabled=config.frontend_enabled,
         )
         servers.append(status)
 

@@ -803,11 +803,23 @@ class StreamingHandler:
                         if session_id and _tool_requires_session_id(tool_name):
                             working_arguments.setdefault("session_id", session_id)
                         try:
+                            # DEBUG: Log the arguments being sent to the tool
+                            logger.info(
+                                "[TOOL-DEBUG] Calling tool '%s' with arguments: %s",
+                                tool_name,
+                                json.dumps(working_arguments, indent=2),
+                            )
                             result_obj = await self._tool_client.call_tool(
                                 tool_name, working_arguments
                             )
                             result_text = self._tool_client.format_tool_result(
                                 result_obj
+                            )
+                            # DEBUG: Log the result from the tool
+                            logger.info(
+                                "[TOOL-DEBUG] Tool '%s' returned: %s",
+                                tool_name,
+                                result_text[:500] if len(result_text) > 500 else result_text,
                             )
                             tool_error_flag = getattr(result_obj, "isError", False)
                             status = "error" if tool_error_flag else "finished"

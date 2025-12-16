@@ -1,12 +1,3 @@
 {
-  "suggestions": [
-    {
-      "label": "update profile",
-      "text": "lets update host profile"
-    },
-    {
-      "label": "bluetooth connect",
-      "text": "connect to my bluetooth headphones"
-    }
-  ]
+  "suggestions": []
 }

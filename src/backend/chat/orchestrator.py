@@ -268,6 +268,33 @@ class ChatOrchestrator:
         )
         tools_payload = self._mcp_client.get_openai_tools()
 
+        # Filter tools based on session type and server config
+        configs = await self._mcp_settings.get_configs()
+
+        if session_id.startswith("kiosk_"):
+            # Kiosk sessions: filter by kiosk_enabled
+            allowed_servers = {cfg.id for cfg in configs if cfg.kiosk_enabled}
+            session_type = "kiosk"
+        else:
+            # Main frontend sessions: filter by frontend_enabled
+            allowed_servers = {cfg.id for cfg in configs if cfg.frontend_enabled}
+            session_type = "frontend"
+
+        filtered_tools = []
+        for tool in tools_payload:
+            func = tool.get("function", {})
+            desc = func.get("description", "")
+            # Server ID is prefixed in description like "[local-calculator] ..."
+            server_match = any(f"[{server}]" in desc for server in allowed_servers)
+            if server_match:
+                filtered_tools.append(tool)
+
+        logger.info(
+            "%s session %s: filtered tools from %d to %d (allowed servers: %s)",
+            session_type, session_id, len(tools_payload), len(filtered_tools), list(allowed_servers)
+        )
+        tools_payload = filtered_tools
+
         if not existing:
             yield {
                 "event": "session",
@@ -299,6 +326,11 @@ class ChatOrchestrator:
         """Expose the underlying OpenRouter client."""
 
         return self._client
+
+    def get_mcp_client(self) -> MCPToolAggregator:
+        """Expose the underlying MCP client for shared services."""
+
+        return self._mcp_client
 
     async def apply_mcp_configs(self, configs: Sequence[MCPServerConfig]) -> None:
         """Apply MCP configuration updates to the running aggregator."""

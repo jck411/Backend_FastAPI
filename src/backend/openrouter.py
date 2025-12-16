@@ -119,61 +119,90 @@ class OpenRouterClient:
         url = f"{self._base_url}/chat/completions"
         logger.debug(f"Initiating stream_chat_raw to {url}")
 
-        client = await self._get_http_client()
-        logger.debug(f"Got http client: {id(client)} (closed={client.is_closed})")
-        try:
-            async with client.stream(
-                "POST",
-                url,
-                headers=self._headers,
-                json=payload,
-            ) as response:
-                if response.status_code >= 400:
-                    body = await response.aread()
-                    detail = self._extract_error_detail(body)
-                    raise OpenRouterError(response.status_code, detail)
+        max_retries = 2
+        last_error: Exception | None = None
 
-                routing_headers = self._extract_routing_headers(response.headers)
-                if routing_headers:
-                    yield {
-                        "event": "openrouter_headers",
-                        "data": json.dumps(routing_headers),
-                    }
+        for attempt in range(max_retries):
+            client = await self._get_http_client()
+            logger.debug(f"Got http client: {id(client)} (closed={client.is_closed})")
 
-                logger.debug("[IMG-GEN] Starting to read OpenRouter SSE stream")
-                async for event in self._iter_events(response):
-                    # Log if event contains structured content
-                    if event.data and event.data != "[DONE]":
-                        try:
-                            chunk = json.loads(event.data)
-                            if "choices" in chunk and chunk["choices"]:
-                                choice = chunk["choices"][0]
-                                delta = choice.get("delta", {})
-                                if "content" in delta:
-                                    content = delta["content"]
-                                    if isinstance(content, list):
-                                        logger.debug(
-                                            "[IMG-GEN] OpenRouter delta with structured content array: %d items",
-                                            len(content),
-                                        )
-                                        for i, item in enumerate(content):
-                                            if isinstance(item, dict):
-                                                logger.debug(
-                                                    "[IMG-GEN]   Content item %d: type=%s, keys=%s",
-                                                    i,
-                                                    item.get("type"),
-                                                    list(item.keys()),
-                                                )
-                                    elif isinstance(content, str) and len(content) > 0:
-                                        logger.debug(
-                                            "[IMG-GEN] OpenRouter delta with text content: %d chars",
-                                            len(content),
-                                        )
-                        except (json.JSONDecodeError, KeyError, TypeError):
-                            pass  # Skip logging errors for non-standard chunks
-                    yield event.asdict()
-        except httpx.HTTPError as exc:
-            raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+            try:
+                async with client.stream(
+                    "POST",
+                    url,
+                    headers=self._headers,
+                    json=payload,
+                ) as response:
+                    if response.status_code >= 400:
+                        body = await response.aread()
+                        detail = self._extract_error_detail(body)
+                        raise OpenRouterError(response.status_code, detail)
+
+                    routing_headers = self._extract_routing_headers(response.headers)
+                    if routing_headers:
+                        yield {
+                            "event": "openrouter_headers",
+                            "data": json.dumps(routing_headers),
+                        }
+
+                    logger.debug("[IMG-GEN] Starting to read OpenRouter SSE stream")
+                    async for event in self._iter_events(response):
+                        # Log if event contains structured content
+                        if event.data and event.data != "[DONE]":
+                            try:
+                                chunk = json.loads(event.data)
+                                if "choices" in chunk and chunk["choices"]:
+                                    choice = chunk["choices"][0]
+                                    delta = choice.get("delta", {})
+                                    if "content" in delta:
+                                        content = delta["content"]
+                                        if isinstance(content, list):
+                                            logger.debug(
+                                                "[IMG-GEN] OpenRouter delta with structured content array: %d items",
+                                                len(content),
+                                            )
+                                            for i, item in enumerate(content):
+                                                if isinstance(item, dict):
+                                                    logger.debug(
+                                                        "[IMG-GEN]   Content item %d: type=%s, keys=%s",
+                                                        i,
+                                                        item.get("type"),
+                                                        list(item.keys()),
+                                                    )
+                                        elif isinstance(content, str) and len(content) > 0:
+                                            logger.debug(
+                                                "[IMG-GEN] OpenRouter delta with text content: %d chars",
+                                                len(content),
+                                            )
+                            except (json.JSONDecodeError, KeyError, TypeError):
+                                pass  # Skip logging errors for non-standard chunks
+                        yield event.asdict()
+                    # Success - exit retry loop
+                    return
+
+            except (RuntimeError, httpx.RemoteProtocolError) as exc:
+                # Handle closed TCP connection - clear pool and retry
+                error_msg = str(exc).lower()
+                if "handler is closed" in error_msg or "closed" in error_msg:
+                    logger.warning(f"Connection closed on attempt {attempt + 1}, refreshing client pool")
+                    last_error = exc
+                    # Force clear the stale client from pool
+                    key = self._client_key()
+                    async with self.__class__._client_lock:
+                        old_client = self.__class__._client_pool.pop(key, None)
+                        if old_client:
+                            try:
+                                await old_client.aclose()
+                            except Exception:
+                                pass
+                    continue
+                raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+            except httpx.HTTPError as exc:
+                raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+        # All retries exhausted
+        if last_error:
+            raise OpenRouterError(status.HTTP_502_BAD_GATEWAY, str(last_error)) from last_error
 
     async def list_models(
         self, *, params: Optional[dict[str, Any]] = None

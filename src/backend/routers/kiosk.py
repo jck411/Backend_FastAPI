@@ -1,8 +1,9 @@
-"""Kiosk API router for STT, TTS, and LLM settings and related configuration."""
+"""Kiosk API router for STT, TTS, LLM, and MCP settings and related configuration."""
 
 import logging
+from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from backend.schemas.kiosk_stt_settings import KioskSttSettings, KioskSttSettingsUpdate
 from backend.schemas.kiosk_tts_settings import KioskTtsSettings, KioskTtsSettingsUpdate, DEEPGRAM_VOICES
@@ -106,3 +107,42 @@ async def reset_llm_settings() -> KioskLlmSettings:
     settings = service.reset_to_defaults()
     logger.info("Reset kiosk LLM settings to defaults")
     return settings
+
+
+# ============== MCP Server Settings ==============
+# Note: kiosk_enabled is stored in the main MCP server config.
+# Use PATCH /api/mcp/servers/{server_id} with {"kiosk_enabled": true/false} to update.
+
+@router.get("/mcp-servers")
+async def get_mcp_servers(request: Request) -> list[dict[str, Any]]:
+    """Get all available MCP servers with their kiosk enabled status.
+
+    Returns a list of servers with id, tool_count, and kiosk_enabled flag.
+    To update kiosk_enabled, use PATCH /api/mcp/servers/{server_id}.
+    """
+    mcp_settings = getattr(request.app.state, "mcp_server_settings_service", None)
+    orchestrator = getattr(request.app.state, "chat_orchestrator", None)
+
+    if mcp_settings is None or orchestrator is None:
+        logger.warning("MCP settings or orchestrator not configured")
+        return []
+
+    # Get configs to read kiosk_enabled
+    configs = await mcp_settings.get_configs()
+    kiosk_map = {cfg.id: cfg.kiosk_enabled for cfg in configs}
+
+    # Get runtime info from orchestrator
+    servers_info = orchestrator.describe_mcp_servers()
+
+    result = []
+    for server in servers_info:
+        server_id = server.get("id", "")
+        result.append({
+            "id": server_id,
+            "enabled": server.get("enabled", False),
+            "tool_count": server.get("tool_count", 0),
+            "kiosk_enabled": kiosk_map.get(server_id, False),
+        })
+
+    return result
+

@@ -3,12 +3,14 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {
         "HOST_PROFILE_ID": "xps13",
         "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"
       },
+      "frontend_enabled": true,
       "id": "shell-control",
+      "kiosk_enabled": false,
       "module": "backend.mcp_servers.shell_control_server",
       "tool_overrides": {}
     },
@@ -17,7 +19,9 @@
       "disabled_tools": [],
       "enabled": false,
       "env": {},
+      "frontend_enabled": true,
       "id": "notes",
+      "kiosk_enabled": false,
       "module": "backend.mcp_servers.notes_server",
       "tool_overrides": {}
     },
@@ -25,7 +29,9 @@
       "contexts": [],
       "enabled": false,
       "env": {},
+      "frontend_enabled": true,
       "id": "monarch-money",
+      "kiosk_enabled": false,
       "module": "backend.mcp_servers.monarch_server",
       "tool_overrides": {}
     },
@@ -34,7 +40,9 @@
       "disabled_tools": [],
       "enabled": false,
       "env": {},
+      "frontend_enabled": true,
       "id": "custom-gmail",
+      "kiosk_enabled": false,
       "module": "backend.mcp_servers.gmail_server",
       "tool_overrides": {}
     },
@@ -43,7 +51,9 @@
       "disabled_tools": [],
       "enabled": false,
       "env": {},
+      "frontend_enabled": true,
       "id": "custom-gdrive",
+      "kiosk_enabled": false,
       "module": "backend.mcp_servers.gdrive_server",
       "tool_overrides": {}
     },
@@ -52,7 +62,9 @@
       "disabled_tools": [],
       "enabled": false,
       "env": {},
+      "frontend_enabled": true,
       "id": "custom-pdf",
+      "kiosk_enabled": false,
       "module": "backend.mcp_servers.pdf_server",
       "tool_overrides": {}
     },
@@ -61,8 +73,21 @@
       "disabled_tools": [],
       "enabled": false,
       "env": {},
+      "frontend_enabled": true,
       "id": "custom-calendar",
+      "kiosk_enabled": false,
       "module": "backend.mcp_servers.calendar_server",
+      "tool_overrides": {}
+    },
+    {
+      "contexts": [],
+      "disabled_tools": [],
+      "enabled": false,
+      "env": {},
+      "frontend_enabled": true,
+      "id": "spotify",
+      "kiosk_enabled": false,
+      "module": "backend.mcp_servers.spotify_server",
       "tool_overrides": {}
     },
     {
@@ -70,25 +95,20 @@
       "disabled_tools": [],
       "enabled": true,
       "env": {},
-      "id": "spotify",
-      "module": "backend.mcp_servers.spotify_server",
-      "tool_overrides": {}
-    },
-    {
-      "contexts": [],
-      "disabled_tools": [],
-      "enabled": false,
-      "env": {},
+      "frontend_enabled": true,
       "id": "local-calculator",
+      "kiosk_enabled": true,
       "module": "backend.mcp_servers.calculator_server",
       "tool_overrides": {}
     },
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
+      "frontend_enabled": true,
       "id": "housekeeping",
+      "kiosk_enabled": true,
       "module": "backend.mcp_servers.housekeeping_server",
       "tool_overrides": {}
     }

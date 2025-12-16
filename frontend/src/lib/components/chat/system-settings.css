@@ -131,6 +131,42 @@
   gap: 1rem;
 }
 
+.server-toggles {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+}
+
+.running-toggle {
+  color: #34d399;
+}
+
+.running-toggle input {
+  accent-color: #34d399;
+}
+
+.frontend-toggle {
+  color: #38bdf8;
+}
+
+.frontend-toggle input {
+  accent-color: #38bdf8;
+}
+
+.kiosk-toggle {
+  color: #a78bfa;
+}
+
+.kiosk-toggle input {
+  accent-color: #a78bfa;
+}
+
+.toggle-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .server-heading h4 {
   margin: 0;
   font-size: 0.9rem;

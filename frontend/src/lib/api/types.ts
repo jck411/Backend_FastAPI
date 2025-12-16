@@ -344,6 +344,8 @@ export interface McpServerStatus {
   disabled_tools: string[];
   tool_count: number;
   tools: McpServerToolStatus[];
+  kiosk_enabled?: boolean;
+  frontend_enabled?: boolean;
 }
 
 export interface McpServersResponse {
@@ -374,6 +376,8 @@ export interface McpServerUpdatePayload {
   cwd?: string | null;
   env?: Record<string, string> | null;
   tool_prefix?: string | null;
+  kiosk_enabled?: boolean;
+  frontend_enabled?: boolean;
 }
 
 /* Suggestions */

@@ -453,11 +453,6 @@
             }}>{draft.keyterms.join("\n")}</textarea
           >
         </div>
-
-        <!-- Placeholder for future sections -->
-        <!-- TODO: Model Selection -->
-        <!-- TODO: System Prompt -->
-        <!-- TODO: MCP Server Selection -->
       </div>
     {/if}
 

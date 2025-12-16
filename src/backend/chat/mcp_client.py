@@ -493,8 +493,14 @@ class MCPToolClient:
                     arguments.get("notes"),
                 )
 
-        logger.debug("Invoking tool '%s' with args=%s", name, arguments)
-        return await self._session.call_tool(name, arguments or {})
+        logger.info("[MCP-CLIENT-DEBUG] Sending tool '%s' to MCP session with args=%s", name, arguments)
+        try:
+            result = await self._session.call_tool(name, arguments or {})
+            logger.info("[MCP-CLIENT-DEBUG] Tool '%s' returned from MCP session", name)
+            return result
+        except Exception as exc:
+            logger.error("[MCP-CLIENT-DEBUG] Tool '%s' MCP session EXCEPTION: %s", name, exc)
+            raise
 
     def get_openai_tools(self) -> list[dict[str, Any]]:
         """Return tools formatted for OpenAI/OpenRouter tool definitions."""

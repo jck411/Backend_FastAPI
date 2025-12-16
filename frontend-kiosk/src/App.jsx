@@ -96,6 +96,18 @@ export default function App() {
 
             if (audioRef.current) {
                 audioRef.current.src = url;
+
+                // Remove existing listeners to avoid duplicates if any
+                audioRef.current.onplay = () => {
+                    console.log("Audio started playing");
+                    sendMessage(JSON.stringify({ type: "tts_playback_start" }));
+                };
+
+                audioRef.current.onended = () => {
+                    console.log("Audio finished playing");
+                    sendMessage(JSON.stringify({ type: "tts_playback_end" }));
+                };
+
                 audioRef.current.play().catch(e => console.error("Audio play failed:", e));
             }
         } catch (e) {
@@ -130,22 +142,30 @@ export default function App() {
                     playAudio(data.data);
                 } else if (data.type === 'state') {
                     setAgentState(data.state);
-                    if (data.state === 'LISTENING' || data.state === 'THINKING') {
+                    if (data.state === 'LISTENING' || data.state === 'THINKING' || data.state === 'SPEAKING') {
                         setCurrentScreen(2); // Auto-jump to transcription screen
                         // Do NOT clear messages
-                    }
-                    if (data.state === 'IDLE') {
-                        setTimeout(() => {
-                            setCurrentScreen(0);
-                            setMessages([]); // Optional: clear on idle return
-                        }, idleReturnDelay);
                     }
                 }
             } catch (e) {
                 console.error("Failed to parse WS message", e);
             }
         }
-    }, [lastMessage, idleReturnDelay]);
+    }, [lastMessage]);
+
+    // Idle Timeout Logic
+    useEffect(() => {
+        let timeoutId;
+        if (agentState === 'IDLE') {
+            timeoutId = setTimeout(() => {
+                setCurrentScreen(0);
+                setMessages([]);
+            }, idleReturnDelay);
+        }
+        return () => {
+            if (timeoutId) clearTimeout(timeoutId);
+        };
+    }, [agentState, idleReturnDelay]);
 
     const handleSwipe = (direction) => {
         if (direction > 0) {

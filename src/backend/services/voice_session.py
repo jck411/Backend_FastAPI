@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from fastapi import WebSocket
+import logging
 
 
 @dataclass
@@ -71,3 +72,18 @@ class VoiceConnectionManager:
         print(f"Broadcasting {message.get('type')} to {len(clients)} clients: {clients}")
         for client_id in clients:
             await self.send_message(client_id, message)
+
+    async def set_all_states(self, new_state: str):
+        """Update the state of ALL connected clients."""
+        clients = list(self.active_connections.keys())
+        logger = logging.getLogger(__name__)  # local logger if needed or print
+        print(f"Setting ALL {len(clients)} clients to {new_state}")
+
+        for client_id in clients:
+            session = self.active_connections.get(client_id)
+            if session:
+                session.state = new_state
+                session.update_activity()
+
+        # Broadcast the state change to everyone so UIs update
+        await self.broadcast({"type": "state", "state": new_state})

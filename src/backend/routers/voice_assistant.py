@@ -141,17 +141,26 @@ async def handle_connection(
                     if not session:
                         logger.warning(f"Received audio_chunk but no session for {client_id}")
                     else:
-                        logger.debug(f"Received audio_chunk but state is {session.state}, not LISTENING")
+                        # logger.debug(f"Received audio_chunk but state is {session.state}, not LISTENING")
+                        pass
+
+            elif event_type == "tts_playback_start":
+                logger.info(f"TTS playback started for {client_id} - Muting ALL clients (State -> SPEAKING)")
+                await manager.set_all_states("SPEAKING")
+
+            elif event_type == "tts_playback_end":
+                logger.info(f"TTS playback ended for {client_id} - Resuming ALL clients (State -> LISTENING)")
+                # Only resume listening if we were speaking (avoid race conditions if we already moved on)
+                # Or just force it, as end of playback generally means ready to listen.
+                # Check if conversation mode is active or if we should go to IDLE?
+                # Actually, standard flow: User speaks -> STT -> LLM -> TTS -> Client plays -> Client finishes -> Listen again.
+                await manager.set_all_states("LISTENING")
+
+                # Re-initialize STT session if needed, or ensuring it's ready.
+                # Our STT service stays open, we just gate the chunks.
 
             elif event_type == "stream_end":
                 logger.info(f"Stream end for {client_id}")
-                # We might want to keep the session open for the response,
-                # but Deepgram connection might be finished.
-                # Actually, stream_end often means "user stopped speaking" (VAD)
-                # But Deepgram has its own VAD.
-                # If the Pi sends stream_end, we should tell Deepgram we are done sending audio?
-                # But Deepgram keeps connection open for transcripts.
-                # Let's just ensure we don't stream more.
                 pass
 
     except WebSocketDisconnect:

@@ -66,9 +66,14 @@ class KioskChatService:
         full_response = ""
 
         try:
+            logger.info(f"[KIOSK-DEBUG] Starting process_stream iteration for {session_id}")
+            event_count = 0
             async for event in self._orchestrator.process_stream(request):
+                event_count += 1
                 event_type = event.get("event")
                 data = event.get("data")
+
+                logger.debug(f"[KIOSK-DEBUG] Event #{event_count}: type={event_type}")
 
                 if event_type == "message" and data and data != "[DONE]":
                     try:
@@ -95,6 +100,8 @@ class KioskChatService:
                             logger.warning(f"Tool error: {name} - {tool_data.get('result')}")
                     except (json.JSONDecodeError, TypeError):
                         pass
+
+            logger.info(f"[KIOSK-DEBUG] Finished process_stream after {event_count} events")
 
         except Exception as e:
             logger.error(f"Kiosk LLM error: {e}", exc_info=True)

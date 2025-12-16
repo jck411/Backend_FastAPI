@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -100,6 +101,8 @@ async def test_echo(message: str, uppercase: bool = False) -> dict[str, Any]:
 async def current_time(format: Literal["iso", "unix"] = "iso") -> dict[str, Any]:
     """Return the current time with UTC and Eastern Time representations."""
 
+    print(f"[HOUSEKEEPING-DEBUG] current_time called with format={format}", file=sys.stderr, flush=True)
+
     snapshot = create_time_snapshot(EASTERN_TIMEZONE_NAME, fallback=EASTERN_TIMEZONE)
     eastern = snapshot.eastern
 
@@ -114,7 +117,7 @@ async def current_time(format: Literal["iso", "unix"] = "iso") -> dict[str, Any]
     context_lines = list(build_context_lines(snapshot))
     context_summary = "\n".join(context_lines)
 
-    return {
+    result = {
         "format": format,
         "value": rendered,
         "utc_iso": snapshot.iso_utc,
@@ -128,6 +131,9 @@ async def current_time(format: Literal["iso", "unix"] = "iso") -> dict[str, Any]
         "context_lines": context_lines,
         "context_summary": context_summary,
     }
+
+    print(f"[HOUSEKEEPING-DEBUG] current_time returning result", file=sys.stderr, flush=True)
+    return result
 
 
 @mcp.tool(

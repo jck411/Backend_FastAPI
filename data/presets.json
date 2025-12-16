@@ -1087,6 +1087,137 @@
       "supports_tools": true,
       "system_prompt": "You control the user's system via shell. Call host_get_profile first - it tells you everything: OS, paths, tools, and quirks.\n\nPRINCIPLES:\n1. ACT, don't instruct. Execute commands directly. Never tell the user to click, navigate, or check something themselves - do it yourself.\n2. FETCH, don't defer. If answering requires live data (weather, IPs, system state, etc.), get it via shell - don't say you lack access.\n3. READ before WRITE. Query current state before changing anything. Never assume.\n4. VERIFY outcomes. Don't trust exit codes alone - check that the expected result actually exists.\n5. BACKUP before destructive edits. Verify the backup exists before proceeding.\n6. BRIEF STATUS. When calling tools, include a short sentence explaining what you're doing.\n\nWHEN THINGS FAIL:\n- Read both stdout and stderr carefully - they usually explain why.\n- Explain the root cause briefly.\n- Offer what YOU can try next (retry, workaround, different approach).\n- If you need user input (e.g., password, confirmation), ask once and wait - do not dump instructions.\n\nWorkflow: get profile \u2192 query state \u2192 act \u2192 verify \u2192 report.",
       "updated_at": "2025-12-07T02:21:05.668923Z"
+    },
+    {
+      "created_at": "2025-12-16T19:17:39.998659Z",
+      "is_default": false,
+      "mcp_servers": [
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {
+            "HOST_PROFILE_ID": "xps13",
+            "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"
+          },
+          "frontend_enabled": true,
+          "id": "shell-control",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.shell_control_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "notes",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.notes_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "monarch-money",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.monarch_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "custom-gmail",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.gmail_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "custom-gdrive",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.gdrive_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "custom-pdf",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.pdf_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "custom-calendar",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.calendar_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "spotify",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.spotify_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "frontend_enabled": false,
+          "id": "local-calculator",
+          "kiosk_enabled": true,
+          "module": "backend.mcp_servers.calculator_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": true,
+          "env": {},
+          "frontend_enabled": false,
+          "id": "housekeeping",
+          "kiosk_enabled": true,
+          "module": "backend.mcp_servers.housekeeping_server",
+          "tool_overrides": {}
+        }
+      ],
+      "model": "openai/gpt-4o:extended",
+      "model_filters": {
+        "series": {
+          "exclude": [],
+          "include": [
+            "gpt"
+          ]
+        },
+        "sort": "newness"
+      },
+      "name": "kiosk",
+      "system_prompt": "You are a helpful but funny assistant with access to tools",
+      "updated_at": "2025-12-16T19:17:39.998659Z"
     }
   ]
 }

@@ -32,6 +32,7 @@ class DeepgramSession:
         eot_timeout_ms: int = 5000,
         eager_eot_threshold: Optional[float] = None,
         keyterms: Optional[list[str]] = None,
+        event_loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
         self.api_key = api_key
         self.session_id = session_id
@@ -43,6 +44,9 @@ class DeepgramSession:
         self.eot_timeout_ms = eot_timeout_ms
         self.eager_eot_threshold = eager_eot_threshold
         self.keyterms = keyterms or []
+
+        # Store the main event loop reference for scheduling callbacks from worker thread
+        self._event_loop = event_loop
 
         self._client = DeepgramClient(api_key=api_key)
         self._context_manager = None
@@ -69,15 +73,14 @@ class DeepgramSession:
 
                 # Call callback - need to schedule in asyncio loop if it's async
                 if asyncio.iscoroutinefunction(self.on_transcript):
-                    try:
-                        loop = asyncio.get_running_loop()
+                    if self._event_loop is not None:
+                        # Use the stored event loop reference (main loop)
                         asyncio.run_coroutine_threadsafe(
                             self.on_transcript(transcript, is_end_of_turn),
-                            loop
+                            self._event_loop
                         )
-                    except RuntimeError:
-                        # No running loop, try to create one
-                        asyncio.run(self.on_transcript(transcript, is_end_of_turn))
+                    else:
+                        logger.error(f"No event loop available for transcript callback")
                 else:
                     self.on_transcript(transcript, is_end_of_turn)
             else:
@@ -91,14 +94,13 @@ class DeepgramSession:
                         if transcript_text:
                             logger.info(f"Transcript for {self.session_id}: '{transcript_text}' (final={is_final})")
                             if asyncio.iscoroutinefunction(self.on_transcript):
-                                try:
-                                    loop = asyncio.get_running_loop()
+                                if self._event_loop is not None:
                                     asyncio.run_coroutine_threadsafe(
                                         self.on_transcript(transcript_text, is_final),
-                                        loop
+                                        self._event_loop
                                     )
-                                except RuntimeError:
-                                    asyncio.run(self.on_transcript(transcript_text, is_final))
+                                else:
+                                    logger.error(f"No event loop available for transcript callback")
                             else:
                                 self.on_transcript(transcript_text, is_final)
         except Exception as e:
@@ -116,11 +118,10 @@ class DeepgramSession:
         logger.error(f"Deepgram error for {self.session_id}: {error}")
         if self.on_error:
             if asyncio.iscoroutinefunction(self.on_error):
-                try:
-                    loop = asyncio.get_running_loop()
-                    asyncio.run_coroutine_threadsafe(self.on_error(str(error)), loop)
-                except RuntimeError:
-                    asyncio.run(self.on_error(str(error)))
+                if self._event_loop is not None:
+                    asyncio.run_coroutine_threadsafe(self.on_error(str(error)), self._event_loop)
+                else:
+                    logger.error(f"No event loop available for error callback")
             else:
                 self.on_error(str(error))
 
@@ -236,6 +237,12 @@ class STTService:
             # Get current kiosk STT settings
             kiosk_settings = get_kiosk_stt_settings_service().get_settings()
 
+            # IMPORTANT: The Deepgram listener runs in a background thread,
+            # which has no asyncio event loop. We must capture the main loop
+            # here (in async context) and pass it to DeepgramSession for
+            # thread-safe callback scheduling via run_coroutine_threadsafe().
+            loop = asyncio.get_running_loop()
+
             # Create new session with configurable settings
             session = DeepgramSession(
                 api_key=self.api_key,
@@ -246,10 +253,10 @@ class STTService:
                 eot_timeout_ms=kiosk_settings.eot_timeout_ms,
                 eager_eot_threshold=kiosk_settings.eager_eot_threshold,
                 keyterms=kiosk_settings.keyterms,
+                event_loop=loop,  # Pass event loop for thread-safe callback scheduling
             )
 
             # Connect in thread pool to not block asyncio
-            loop = asyncio.get_running_loop()
             success = await loop.run_in_executor(None, session.connect)
 
             if success:

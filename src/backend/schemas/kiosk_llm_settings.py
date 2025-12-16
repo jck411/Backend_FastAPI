@@ -13,11 +13,7 @@ class KioskLlmSettings(BaseModel):
         description="OpenRouter model identifier",
     )
     system_prompt: Optional[str] = Field(
-        default=(
-            "You are a friendly and helpful voice assistant. "
-            "Keep your responses concise and conversational since they will be spoken aloud. "
-            "Avoid using markdown, bullet points, or other formatting that doesn't work well in speech."
-        ),
+        default="You are a helpful assistant who replies succinctly.",
         description="System prompt for the assistant",
     )
     temperature: float = Field(
@@ -32,6 +28,16 @@ class KioskLlmSettings(BaseModel):
         le=4096,
         description="Maximum tokens in response (keep low for voice)",
     )
+    conversation_mode: bool = Field(
+        default=False,
+        description="Enable continuous conversation mode (mic re-opens after reply)",
+    )
+    conversation_timeout_seconds: float = Field(
+        default=10.0,
+        ge=1.0,
+        le=60.0,
+        description="Timeout to close session in conversation mode if no speech detected",
+    )
 
 
 class KioskLlmSettingsUpdate(BaseModel):
@@ -41,6 +47,8 @@ class KioskLlmSettingsUpdate(BaseModel):
     system_prompt: Optional[str] = None
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=1, le=4096)
+    conversation_mode: Optional[bool] = None
+    conversation_timeout_seconds: Optional[float] = Field(default=None, ge=1.0, le=60.0)
 
 
 __all__ = ["KioskLlmSettings", "KioskLlmSettingsUpdate"]

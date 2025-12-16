@@ -12,11 +12,12 @@ export default function App() {
     // WebSocket Connection - connects to backend
     const wsUrl = `ws://${window.location.hostname}:8000/api/voice/connect?client_id=frontend_gui`;
 
-    const [transcript, setTranscript] = useState("");
-    const [assistantResponse, setAssistantResponse] = useState("");
+    const [messages, setMessages] = useState([]);
+    const [liveTranscript, setLiveTranscript] = useState("");
     const [agentState, setAgentState] = useState("IDLE");
     const [idleReturnDelay, setIdleReturnDelay] = useState(10000); // Default 10s
     const audioRef = useRef(null);
+    const messagesEndRef = useRef(null);
 
     // Fetch UI settings on mount
     useEffect(() => {
@@ -102,15 +103,28 @@ export default function App() {
         }
     };
 
+    const scrollToBottom = () => {
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    };
+
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages, liveTranscript]);
+
     useEffect(() => {
         if (lastMessage !== null) {
             try {
                 const data = JSON.parse(lastMessage.data);
                 if (data.type === 'transcript') {
-                    setTranscript(data.text);
+                    if (data.is_final) {
+                        setMessages(prev => [...prev, { role: 'user', text: data.text }]);
+                        setLiveTranscript("");
+                    } else {
+                        setLiveTranscript(data.text);
+                    }
                 } else if (data.type === 'assistant_response') {
                     console.log('Received assistant_response:', data.text);
-                    setAssistantResponse(data.text);
+                    setMessages(prev => [...prev, { role: 'assistant', text: data.text }]);
                 } else if (data.type === 'tts_audio') {
                     console.log('Received TTS audio, length:', data.data?.length);
                     playAudio(data.data);
@@ -118,11 +132,13 @@ export default function App() {
                     setAgentState(data.state);
                     if (data.state === 'LISTENING' || data.state === 'THINKING') {
                         setCurrentScreen(2); // Auto-jump to transcription screen
-                        setAssistantResponse(""); // Clear previous response
+                        // Do NOT clear messages
                     }
                     if (data.state === 'IDLE') {
-                        // Return to clock after configurable delay
-                        setTimeout(() => setCurrentScreen(0), idleReturnDelay);
+                        setTimeout(() => {
+                            setCurrentScreen(0);
+                            setMessages([]); // Optional: clear on idle return
+                        }, idleReturnDelay);
                     }
                 }
             } catch (e) {
@@ -144,10 +160,11 @@ export default function App() {
         <PhotoFrame key="photos" />,
         <TranscriptionScreen
             key="transcription"
-            transcript={transcript}
-            assistantResponse={assistantResponse}
+            messages={messages}
+            liveTranscript={liveTranscript}
             isListening={agentState === 'LISTENING'}
             agentState={agentState}
+            messagesEndRef={messagesEndRef}
         />
     ];
 

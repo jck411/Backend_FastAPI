@@ -9,6 +9,7 @@ from backend.services.voice_session import VoiceConnectionManager
 from backend.services.stt_service import STTService
 from backend.services.tts_service import TTSService
 from backend.services.kiosk_chat_service import KioskChatService
+from backend.services.kiosk_llm_settings import get_kiosk_llm_settings_service
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 logger = logging.getLogger(__name__)
@@ -44,15 +45,17 @@ async def handle_connection(
 
                 # Generate LLM response
                 try:
-                    response_text = await kiosk_chat_service.generate_response(text)
+                    response_text = await kiosk_chat_service.generate_response(text, client_id=client_id)
                 except Exception as e:
-                    logger.error(f"LLM generation failed for {client_id}: {e}")
+                    logger.error(f"LLM generation failed for {client_id}: {e}", exc_info=True)
                     response_text = "Sorry, I couldn't process that request."
 
                 if response_text:
                     await manager.update_state(client_id, "SPEAKING")
                     # Send response text to frontend for display
                     await manager.broadcast({"type": "assistant_response", "text": response_text})
+
+                    audio_played = False
                     # Use TTS
                     try:
                         audio_data = await tts_service.synthesize(response_text)
@@ -64,9 +67,20 @@ async def handle_connection(
                                 "data": base64.b64encode(audio_data).decode('utf-8')
                             })
                             logger.info(f"Sent TTS audio for {client_id}")
+                            audio_played = True
                     except Exception as e:
                         logger.error(f"TTS generation failed: {e}")
-                    finally:
+
+                    try:
+                        # Check conversation mode
+                        llm_settings = get_kiosk_llm_settings_service().get_settings()
+                        if llm_settings.conversation_mode:
+                            logger.info(f"Conversation mode active for {client_id}, listening for reply")
+                            await manager.update_state(client_id, "LISTENING")
+                        else:
+                            await manager.update_state(client_id, "IDLE")
+                    except Exception as e:
+                        logger.error(f"Error transitioning state after speaking: {e}")
                         await manager.update_state(client_id, "IDLE")
 
         async def on_stt_error(error: str):
@@ -90,9 +104,15 @@ async def handle_connection(
                 logger.info(f"Client {client_id} ready.")
 
             elif event_type == "wakeword_detected":
-                logger.info(f"Wake word detected for {client_id}")
+                confidence = data.get("confidence", 0.0)
+                logger.info(f"Wake word detected for {client_id} (confidence: {confidence})")
+
+                # New conversation starts with wake word -> Clear history
+                kiosk_chat_service.clear_history(client_id)
+
                 await manager.update_state(client_id, "LISTENING")
-                # Start STT session
+
+                # Start STT processing
                 await start_stt_session()
 
             elif event_type == "wakeword_barge_in":

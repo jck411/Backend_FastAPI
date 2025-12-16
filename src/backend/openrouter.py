@@ -56,12 +56,17 @@ class OpenRouterClient:
     async def _get_http_client(self) -> httpx.AsyncClient:
         key = self._client_key()
         client = self.__class__._client_pool.get(key)
-        if client is not None:
+        if client is not None and not client.is_closed:
+            logger.debug(f"Reusing existing open client for key {key}")
             return client
+
+        if client is not None and client.is_closed:
+             logger.warning(f"Found closed client in pool for key {key}, discarding.")
 
         async with self.__class__._client_lock:
             client = self.__class__._client_pool.get(key)
-            if client is None:
+            if client is None or client.is_closed:
+                logger.debug(f"Creating new http client for key {key}")
                 timeout = httpx.Timeout(self._settings.request_timeout, connect=10.0)
                 limits = httpx.Limits(
                     max_connections=50,
@@ -112,8 +117,10 @@ class OpenRouterClient:
         """Low-level streaming helper accepting a prebuilt payload."""
 
         url = f"{self._base_url}/chat/completions"
+        logger.debug(f"Initiating stream_chat_raw to {url}")
 
         client = await self._get_http_client()
+        logger.debug(f"Got http client: {id(client)} (closed={client.is_closed})")
         try:
             async with client.stream(
                 "POST",

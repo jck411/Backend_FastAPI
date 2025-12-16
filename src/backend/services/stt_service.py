@@ -55,9 +55,15 @@ class DeepgramSession:
         """Handle transcript messages from Deepgram."""
         try:
             # For v2 (Flux): transcript is at top level with event type
+            event = getattr(result, "event", None)
+
+            if event == "StartOfTurn":
+                logger.info(f"--- StartOfTurn for {self.session_id} ---")
+                # We could broadcast this to frontend if needed
+                return
+
             transcript = getattr(result, "transcript", None)
             if transcript:
-                event = getattr(result, "event", None)
                 is_end_of_turn = event == "EndOfTurn"
                 logger.info(f"Transcript for {self.session_id}: '{transcript}' (eot={is_end_of_turn})")
 

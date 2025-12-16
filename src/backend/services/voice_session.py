@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from fastapi import WebSocket
 import logging
@@ -73,11 +73,10 @@ class VoiceConnectionManager:
         for client_id in clients:
             await self.send_message(client_id, message)
 
-    async def set_all_states(self, new_state: str):
+    async def set_all_states(self, new_state: str, extra_data: Optional[Dict[str, Any]] = None):
         """Update the state of ALL connected clients."""
         clients = list(self.active_connections.keys())
-        logger = logging.getLogger(__name__)  # local logger if needed or print
-        print(f"Setting ALL {len(clients)} clients to {new_state}")
+        logging.getLogger(__name__).debug(f"Setting ALL {len(clients)} clients to {new_state}")
 
         for client_id in clients:
             session = self.active_connections.get(client_id)
@@ -86,4 +85,7 @@ class VoiceConnectionManager:
                 session.update_activity()
 
         # Broadcast the state change to everyone so UIs update
-        await self.broadcast({"type": "state", "state": new_state})
+        msg = {"type": "state", "state": new_state}
+        if extra_data:
+            msg.update(extra_data)
+        await self.broadcast(msg)

@@ -142,6 +142,7 @@ export default function App() {
                     playAudio(data.data);
                 } else if (data.type === 'state') {
                     setAgentState(data.state);
+
                     if (data.state === 'LISTENING' || data.state === 'THINKING' || data.state === 'SPEAKING') {
                         setCurrentScreen(2); // Auto-jump to transcription screen
                         // Do NOT clear messages
@@ -154,18 +155,14 @@ export default function App() {
     }, [lastMessage]);
 
     // Idle Timeout Logic
+    // Idle Timeout Logic with Countdown
+    // Idle Timeout Logic - Instant Return
     useEffect(() => {
-        let timeoutId;
         if (agentState === 'IDLE') {
-            timeoutId = setTimeout(() => {
-                setCurrentScreen(0);
-                setMessages([]);
-            }, idleReturnDelay);
+            setCurrentScreen(0);
+            setMessages([]);
         }
-        return () => {
-            if (timeoutId) clearTimeout(timeoutId);
-        };
-    }, [agentState, idleReturnDelay]);
+    }, [agentState]);
 
     const handleSwipe = (direction) => {
         if (direction > 0) {

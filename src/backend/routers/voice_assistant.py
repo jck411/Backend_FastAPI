@@ -1,6 +1,7 @@
 import base64
 import json
 import logging
+from datetime import datetime
 from typing import Dict, Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request
@@ -10,6 +11,7 @@ from backend.services.stt_service import STTService
 from backend.services.tts_service import TTSService
 from backend.services.kiosk_chat_service import KioskChatService
 from backend.services.kiosk_llm_settings import get_kiosk_llm_settings_service
+from backend.services.kiosk_ui_settings import get_kiosk_ui_settings_service
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 logger = logging.getLogger(__name__)
@@ -38,6 +40,11 @@ async def handle_connection(
 
             # Broadcast transcript to frontend
             await manager.broadcast({"type": "transcript", "text": text, "is_final": is_final})
+
+            # User spoke, so update activity
+            session = manager.get_session(client_id)
+            if session:
+                session.update_activity()
 
             if is_final:
                 # Transition to PROCESSING
@@ -135,6 +142,19 @@ async def handle_connection(
                         chunk = base64.b64decode(audio_b64)
                         logger.debug(f"Received audio chunk for {client_id}: {len(chunk)} bytes")
                         await stt_service.stream_audio(client_id, chunk)
+
+                        # Check for Silence / Idle Timeout
+                        try:
+                            # If we are listening but haven't heard/done anything for X seconds, go to IDLE
+                            ui_settings = get_kiosk_ui_settings_service().get_settings()
+                            silence_duration_ms = (datetime.utcnow() - session.last_activity).total_seconds() * 1000
+
+                            if silence_duration_ms > ui_settings.idle_return_delay_ms:
+                                logger.info(f"Silence timeout reached ({silence_duration_ms:.0f}ms > {ui_settings.idle_return_delay_ms}ms) - Returning to IDLE")
+                                await manager.set_all_states("IDLE", extra_data={"reason": "timeout"})
+                        except Exception as e:
+                            logger.error(f"Error checking silence timeout: {e}")
+
                     else:
                         logger.warning(f"Received audio_chunk event without data for {client_id}")
                 else:

@@ -181,13 +181,6 @@ export default function App() {
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: -300, opacity: 0 }}
                     transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                    drag="x"
-                    dragConstraints={{ left: 0, right: 0 }}
-                    dragElastic={0.2}
-                    onDragEnd={(e, { offset }) => {
-                        if (offset.x < -100) handleSwipe(1);
-                        else if (offset.x > 100) handleSwipe(-1);
-                    }}
                 >
                     {screens[currentScreen]}
                 </motion.div>

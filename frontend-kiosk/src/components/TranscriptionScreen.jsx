@@ -1,86 +1,81 @@
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
+import { useEffect } from 'react';
 
 export default function TranscriptionScreen({ messages, liveTranscript, isListening, agentState, messagesEndRef }) {
+    // Auto-scroll effect
+    useEffect(() => {
+        if (messagesEndRef.current) {
+            messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+    }, [messages, liveTranscript]);
+
     return (
-        <div className="h-full w-full flex flex-col p-8 bg-black relative">
-            {/* Status Indicator */}
-            <div className="absolute top-8 left-8 flex items-center space-x-4 z-50">
-                {isListening ? (
-                    <div className="flex items-center space-x-2 text-red-500">
-                        <div className="w-3 h-3 bg-current rounded-full animate-pulse" />
-                        <span className="text-sm font-medium tracking-widest uppercase">Listening</span>
-                    </div>
-                ) : (
-                    <div className="flex items-center space-x-2 text-gray-600">
-                        <div className="w-3 h-3 bg-current rounded-full" />
-                        <span className="text-sm font-medium tracking-widest uppercase">{agentState}</span>
-                    </div>
-                )}
+        <div className="h-full w-full flex flex-col bg-black relative overflow-hidden font-sans">
+
+            {/* Status Indicator (Top Right) */}
+            <div className="absolute top-6 right-6 z-50">
+                <AnimatePresence mode="wait">
+                    {isListening ? (
+                        <div className="flex items-center space-x-3 bg-white/10 backdrop-blur-md px-4 py-2 rounded-full border border-white/10 text-red-400">
+                            <div className="w-2 h-2 bg-current rounded-full animate-pulse" />
+                            <span className="text-sm font-bold tracking-wide">LISTENING</span>
+                        </div>
+                    ) : agentState !== 'IDLE' ? (
+                        <div className="flex items-center space-x-3 bg-white/5 backdrop-blur-md px-4 py-2 rounded-full border border-white/5 text-cyan-400">
+                            <div className="w-2 h-2 bg-current rounded-full animate-pulse" />
+                            <span className="text-sm font-bold tracking-wide uppercase">{agentState}</span>
+                        </div>
+                    ) : null}
+                </AnimatePresence>
             </div>
 
-            {/* Chat History */}
-            <div className="flex-1 w-full max-w-5xl mx-auto overflow-y-auto space-y-6 pt-16 pb-32 no-scrollbar">
-                {messages.map((msg, idx) => (
-                    <motion.div
-                        key={idx}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}
-                    >
-                        <div className={`max-w-[80%] rounded-2xl p-6 ${msg.role === 'user'
-                                ? 'bg-white/10 text-white rounded-br-none'
-                                : 'bg-cyan-500/10 text-cyan-400 rounded-bl-none'
-                            }`}>
-                            <p className="text-2xl md:text-3xl font-light leading-relaxed">
-                                {msg.text}
-                            </p>
-                        </div>
-                    </motion.div>
-                ))}
+            {/* Content Area */}
+            <div
+                className="flex-1 w-full max-w-5xl mx-auto flex flex-col justify-end my-12 px-8 z-10 overflow-y-auto no-scrollbar"
+                style={{ maskImage: 'linear-gradient(to bottom, transparent, black 15%, black 100%)', WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 15%, black 100%)' }}
+            >
 
-                {/* Live Transcript (Pending User Input) */}
-                <AnimatePresence>
-                    {liveTranscript && (
-                        <motion.div
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0 }}
-                            className="flex flex-col items-end"
+                <div className="flex-1" /> {/* Spacer */}
+
+                <div className="space-y-6 flex flex-col min-h-0">
+                    {/* History Messages */}
+                    {messages.map((msg, idx) => (
+                        <div
+                            key={idx}
+                            className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} w-full`}
                         >
-                            <div className="max-w-[80%] bg-white/5 text-white/70 rounded-2xl p-6 rounded-br-none backdrop-blur-sm">
-                                <p className="text-2xl md:text-3xl font-light leading-relaxed italic">
-                                    {liveTranscript}...
+                            <div className={`max-w-[85%] ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
+                                <p className={`${msg.role === 'user'
+                                    ? 'text-xl text-white/70'
+                                    : 'text-3xl font-medium text-white leading-snug'
+                                    } break-words whitespace-pre-wrap`}>
+                                    {msg.text}
                                 </p>
                             </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
+                        </div>
+                    ))}
 
-                <div ref={messagesEndRef} />
+                    {/* Live Transcript (Active Input) */}
+                    {liveTranscript && (
+                        <div className="flex flex-col items-end w-full">
+                            <div className="max-w-[90%] text-right">
+                                <p className="text-2xl text-white italic opacity-80 break-words">
+                                    {liveTranscript}
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    <div ref={messagesEndRef} className="h-8 w-full" />
+                </div>
             </div>
 
-            {/* Empty State Prompt */}
+            {/* Empty State */}
             {messages.length === 0 && !liveTranscript && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="text-white/40"
-                    >
-                        <p className="text-3xl font-light tracking-wide">Say "Hey Jarvis"</p>
-                    </motion.div>
+                <div className="absolute inset-0 flex flex-col items-center justify-center z-0 pointer-events-none p-12 text-center opacity-40">
+                    <h1 className="text-6xl font-bold text-white mb-4">Hi there.</h1>
+                    <p className="text-2xl text-white font-light">Say "Hey Jarvis"</p>
                 </div>
-            )}
-
-            {/* Ambient glow when listening */}
-            {isListening && (
-                <motion.div
-                    className="absolute inset-0 pointer-events-none z-0"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                >
-                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-red-500/5 rounded-full blur-3xl animate-pulse" />
-                </motion.div>
             )}
         </div>
     );

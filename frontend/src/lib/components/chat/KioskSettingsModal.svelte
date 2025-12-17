@@ -608,6 +608,75 @@
                 </div>
               </div>
             </div>
+
+            <!-- Conversation Mode Toggle -->
+            <label
+              class="setting-boolean"
+              title="When enabled, the microphone re-opens after the assistant speaks, allowing continuous conversation without needing the wake word."
+              style="grid-column: 1 / -1; margin-top: 0.5rem;"
+            >
+              <input
+                type="checkbox"
+                checked={draft.conversation_mode}
+                disabled={saving}
+                on:change={(e) => {
+                  draft = {
+                    ...draft,
+                    conversation_mode: (e.target as HTMLInputElement).checked,
+                  };
+                  markDirty();
+                }}
+              />
+              <span>Continuous conversation mode</span>
+            </label>
+
+            {#if draft.conversation_mode}
+              <!-- Conversation Timeout -->
+              <div
+                class="reasoning-field"
+                style="grid-column: 1 / -1; margin-top: 0.25rem;"
+              >
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="How long (seconds) to wait for speech before ending the conversation session and returning to the clock."
+                      >Conversation Timeout</span
+                    >
+                    <span class="range-value"
+                      >{draft.conversation_timeout_seconds.toFixed(0)}s</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="1"
+                    max="60"
+                    step="1"
+                    value={draft.conversation_timeout_seconds}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.conversation_timeout_seconds,
+                      1,
+                      60,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        conversation_timeout_seconds: parseFloat(
+                          (e.target as HTMLInputElement).value,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>1s</span>
+                    <span>60s</span>
+                  </div>
+                </div>
+              </div>
+            {/if}
           </div>
         </div>
 

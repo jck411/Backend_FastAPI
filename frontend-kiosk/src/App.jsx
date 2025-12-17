@@ -19,6 +19,7 @@ export default function App() {
     const [idleReturnDelay, setIdleReturnDelay] = useState(10000); // Default 10s
     const audioRef = useRef(null);
     const messagesEndRef = useRef(null);
+    const ttsAudioChunksRef = useRef([]);  // Accumulate TTS audio chunks
 
     // Fetch UI settings on mount
     useEffect(() => {
@@ -116,6 +117,20 @@ export default function App() {
         }
     };
 
+    // Stop TTS audio immediately (for barge-in)
+    const stopAudio = () => {
+        if (audioRef.current) {
+            console.log("🛑 Stopping TTS audio (barge-in)");
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+            audioRef.current.src = '';
+            // Manually trigger playback end event since we're interrupting
+            sendMessage(JSON.stringify({ type: "tts_playback_end" }));
+        }
+        // Clear any pending audio chunks
+        ttsAudioChunksRef.current = [];
+    };
+
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
@@ -170,8 +185,57 @@ export default function App() {
                     // Legacy: full response at once (backward compatibility)
                     console.log('Received assistant_response:', data.text);
                     setMessages(prev => [...prev, { role: 'assistant', text: data.text }]);
+                } else if (data.type === 'interrupt_tts') {
+                    // Barge-in: stop TTS immediately
+                    console.log('🛑 Received interrupt_tts - stopping audio playback');
+                    stopAudio();
+                } else if (data.type === 'tts_audio_start') {
+                    // Start of chunked TTS audio - reset buffer
+                    console.log('TTS audio stream starting:', data.total_bytes, 'bytes in', data.total_chunks, 'chunks');
+                    ttsAudioChunksRef.current = [];
+                } else if (data.type === 'tts_audio_chunk') {
+                    // Accumulate audio chunk
+                    ttsAudioChunksRef.current.push(data.data);
+                    if (data.is_last) {
+                        console.log('Received last TTS chunk, assembling audio...');
+                    }
+                } else if (data.type === 'tts_audio_end') {
+                    // All chunks received - assemble and play
+                    console.log('TTS audio stream complete, playing', ttsAudioChunksRef.current.length, 'chunks');
+                    if (ttsAudioChunksRef.current.length > 0) {
+                        // Decode each base64 chunk to binary, then concatenate
+                        // (Can't just join base64 strings due to padding)
+                        const binaryChunks = ttsAudioChunksRef.current.map(b64 => {
+                            const binaryString = atob(b64);
+                            const bytes = new Uint8Array(binaryString.length);
+                            for (let i = 0; i < binaryString.length; i++) {
+                                bytes[i] = binaryString.charCodeAt(i);
+                            }
+                            return bytes;
+                        });
+
+                        // Calculate total length and concatenate
+                        const totalLength = binaryChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+                        const fullAudio = new Uint8Array(totalLength);
+                        let offset = 0;
+                        for (const chunk of binaryChunks) {
+                            fullAudio.set(chunk, offset);
+                            offset += chunk.length;
+                        }
+
+                        // Re-encode to base64 for playAudio function
+                        let binary = '';
+                        for (let i = 0; i < fullAudio.length; i++) {
+                            binary += String.fromCharCode(fullAudio[i]);
+                        }
+                        const fullBase64 = btoa(binary);
+
+                        playAudio(fullBase64);
+                        ttsAudioChunksRef.current = [];
+                    }
                 } else if (data.type === 'tts_audio') {
-                    console.log('Received TTS audio, length:', data.data?.length);
+                    // Legacy: single audio message (backward compatibility)
+                    console.log('Received TTS audio (legacy), length:', data.data?.length);
                     playAudio(data.data);
                 } else if (data.type === 'state') {
                     setAgentState(data.state);

@@ -28,6 +28,7 @@ class DeepgramSession:
         session_id: str,
         on_transcript: Callable[[str, bool], None],
         on_error: Optional[Callable[[str], None]] = None,
+        on_speech_start: Optional[Callable[[], None]] = None,  # Called when Deepgram detects speech start
         eot_threshold: float = 0.7,
         eot_timeout_ms: int = 5000,
         eager_eot_threshold: Optional[float] = None,
@@ -38,6 +39,7 @@ class DeepgramSession:
         self.session_id = session_id
         self.on_transcript = on_transcript
         self.on_error = on_error
+        self.on_speech_start = on_speech_start  # VAD callback
 
         # Configurable STT settings
         self.eot_threshold = eot_threshold
@@ -63,7 +65,16 @@ class DeepgramSession:
 
             if event == "StartOfTurn":
                 logger.info(f"--- StartOfTurn for {self.session_id} ---")
-                # We could broadcast this to frontend if needed
+                # Notify that speech has started (used for VAD gating after barge-in)
+                if self.on_speech_start:
+                    if asyncio.iscoroutinefunction(self.on_speech_start):
+                        if self._event_loop is not None:
+                            asyncio.run_coroutine_threadsafe(
+                                self.on_speech_start(),
+                                self._event_loop
+                            )
+                    else:
+                        self.on_speech_start()
                 return
 
             transcript = getattr(result, "transcript", None)
@@ -224,7 +235,8 @@ class STTService:
         self,
         session_id: str,
         on_transcript: Callable[[str, bool], None],
-        on_error: Optional[Callable[[str], None]] = None
+        on_error: Optional[Callable[[str], None]] = None,
+        on_speech_start: Optional[Callable[[], None]] = None,
     ):
         """
         Start a new live transcription session.
@@ -249,6 +261,7 @@ class STTService:
                 session_id=session_id,
                 on_transcript=on_transcript,
                 on_error=on_error,
+                on_speech_start=on_speech_start,
                 eot_threshold=kiosk_settings.eot_threshold,
                 eot_timeout_ms=kiosk_settings.eot_timeout_ms,
                 eager_eot_threshold=kiosk_settings.eager_eot_threshold,

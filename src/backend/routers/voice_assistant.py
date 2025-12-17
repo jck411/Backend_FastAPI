@@ -29,9 +29,6 @@ async def handle_connection(
     """
     await manager.connect(websocket, client_id)
 
-    # Session state for this specific connection
-    # (In addition to the global session object, we might need local vars)
-
     async def start_stt_session():
         """Helper to start the STT session with callbacks."""
 
@@ -89,11 +86,35 @@ async def handle_connection(
                         audio_data = await tts_service.synthesize(response_text)
 
                         if audio_data:
+                            # Stream TTS audio in chunks to avoid overwhelming WebSocket connections
+                            # 32KB chunks work well for most network conditions
+                            CHUNK_SIZE = 32 * 1024  # 32KB
+                            total_chunks = (len(audio_data) + CHUNK_SIZE - 1) // CHUNK_SIZE
+
+                            # Signal start of TTS audio stream
                             await manager.broadcast({
-                                "type": "tts_audio",
-                                "data": base64.b64encode(audio_data).decode('utf-8')
+                                "type": "tts_audio_start",
+                                "total_bytes": len(audio_data),
+                                "total_chunks": total_chunks
                             })
-                            logger.info(f"Sent TTS audio for {client_id}")
+
+                            # Send audio in chunks
+                            for i in range(0, len(audio_data), CHUNK_SIZE):
+                                chunk = audio_data[i:i + CHUNK_SIZE]
+                                chunk_index = i // CHUNK_SIZE
+                                await manager.broadcast({
+                                    "type": "tts_audio_chunk",
+                                    "data": base64.b64encode(chunk).decode('utf-8'),
+                                    "chunk_index": chunk_index,
+                                    "is_last": chunk_index == total_chunks - 1
+                                })
+
+                            # Signal end of TTS audio stream
+                            await manager.broadcast({
+                                "type": "tts_audio_end"
+                            })
+
+                            logger.info(f"Sent TTS audio for {client_id} ({len(audio_data)} bytes in {total_chunks} chunks)")
                     except Exception as e:
                         logger.error(f"TTS generation failed: {e}")
 
@@ -143,8 +164,9 @@ async def handle_connection(
 
             elif event_type == "wakeword_barge_in":
                 logger.info(f"Barge-in for {client_id}")
-                # Interrupt TTS
-                await manager.send_message(client_id, {"type": "interrupt_tts"})
+
+                # Interrupt TTS - broadcast to ALL clients (especially the frontend playing audio)
+                await manager.broadcast({"type": "interrupt_tts"})
                 await manager.update_state(client_id, "LISTENING")
 
                 # Reset STT

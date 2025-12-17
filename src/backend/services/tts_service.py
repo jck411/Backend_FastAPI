@@ -119,13 +119,25 @@ class TTSService:
         stream: AsyncIterator[bytes],
         target_size: int = 16 * 1024  # 16KB default
     ) -> AsyncIterator[bytes]:
-        """Buffer small chunks into larger ones for more efficient websocket transmission."""
+        """
+        Buffer small chunks into larger ones for more efficient websocket transmission.
+        IMPORTANT: Yields the first chunk immediately (any size) to start audio playback ASAP,
+        then buffers subsequent chunks to target_size for efficiency.
+        """
         buffer = bytearray()
+        first_chunk_sent = False
+
         async for chunk in stream:
-            buffer.extend(chunk)
-            while len(buffer) >= target_size:
-                yield bytes(buffer[:target_size])
-                buffer = buffer[target_size:]
+            if not first_chunk_sent:
+                # Yield first chunk immediately to minimize time-to-first-audio
+                yield chunk
+                first_chunk_sent = True
+            else:
+                buffer.extend(chunk)
+                while len(buffer) >= target_size:
+                    yield bytes(buffer[:target_size])
+                    buffer = buffer[target_size:]
+
         if buffer:
             yield bytes(buffer)
 

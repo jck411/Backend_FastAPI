@@ -134,8 +134,12 @@ async def handle_connection(
     async def stream_tts_segment(text: str, segment_label: str):
         nonlocal tts_cancel_event
         try:
+            import time
+            start_time = time.monotonic()
             logger.info(f"Starting TTS for segment '{segment_label}' ({len(text.split())} words)")
             sample_rate, audio_iter = await tts_service.stream_synthesize(text)
+            synth_time = time.monotonic() - start_time
+            logger.info(f"TTS synthesis setup took {synth_time*1000:.0f}ms for '{segment_label}'")
 
             if sample_rate == 0:
                 logger.warning(f"TTS not available for segment '{segment_label}'")
@@ -149,7 +153,12 @@ async def handle_connection(
                 "sample_rate": sample_rate
             })
 
+            first_chunk_time = None
             async for audio_chunk in audio_iter:
+                if chunk_index == 0:
+                    first_chunk_time = time.monotonic() - start_time
+                    logger.info(f"🎵 First audio chunk received in {first_chunk_time*1000:.0f}ms for '{segment_label}'")
+
                 if tts_cancel_event.is_set():
                     logger.info(f"TTS cancelled mid-stream for segment '{segment_label}'")
                     await manager.broadcast({"type": "tts_audio_cancelled"})

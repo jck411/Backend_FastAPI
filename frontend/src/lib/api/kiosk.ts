@@ -212,3 +212,66 @@ export async function updateServerKioskEnabled(
         throw new Error(`Failed to update kiosk_enabled for ${serverId}: ${response.statusText}`);
     }
 }
+
+// ============== LLM Settings ==============
+
+export interface KioskLlmSettings {
+    model: string;
+    system_prompt: string | null;
+    temperature: number;
+    max_tokens: number;
+    conversation_mode: boolean;
+    conversation_timeout_seconds: number;
+}
+
+export interface KioskLlmSettingsUpdate {
+    model?: string;
+    system_prompt?: string | null;
+    temperature?: number;
+    max_tokens?: number;
+    conversation_mode?: boolean;
+    conversation_timeout_seconds?: number;
+}
+
+/**
+ * Fetch current kiosk LLM settings from the backend.
+ */
+export async function fetchKioskLlmSettings(): Promise<KioskLlmSettings> {
+    const response = await fetch(`${API_BASE_URL}/api/kiosk/llm-settings`);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch kiosk LLM settings: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+/**
+ * Update kiosk LLM settings on the backend.
+ */
+export async function updateKioskLlmSettings(
+    update: KioskLlmSettingsUpdate
+): Promise<KioskLlmSettings> {
+    const response = await fetch(`${API_BASE_URL}/api/kiosk/llm-settings`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(update),
+    });
+    if (!response.ok) {
+        throw new Error(`Failed to update kiosk LLM settings: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+/**
+ * Reset kiosk LLM settings to defaults on the backend.
+ */
+export async function resetKioskLlmSettings(): Promise<KioskLlmSettings> {
+    const response = await fetch(`${API_BASE_URL}/api/kiosk/llm-settings/reset`, {
+        method: 'POST',
+    });
+    if (!response.ok) {
+        throw new Error(`Failed to reset kiosk LLM settings: ${response.statusText}`);
+    }
+    return response.json();
+}

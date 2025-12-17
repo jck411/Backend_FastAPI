@@ -6,8 +6,11 @@
     kioskSettingsStore,
     type KioskSettings,
   } from "../../stores/kioskSettings";
+  import { modelStore } from "../../stores/models";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
   import "./model-settings/model-settings-styles.css";
+
+  const { filtered } = modelStore;
 
   // Available TTS voices (loaded from API)
   let ttsVoices: string[] = [];
@@ -43,6 +46,7 @@
       const [settings, voices] = await Promise.all([
         kioskSettingsStore.load(),
         fetchTtsVoices(),
+        modelStore.loadModels(),
       ]);
       draft = { ...settings };
       ttsVoices = voices;
@@ -141,6 +145,158 @@
       <p class="status">Loading settings…</p>
     {:else}
       <div class="settings-stack" aria-live="polite">
+        <!-- LLM Settings Section -->
+        <div class="setting reasoning">
+          <div class="setting-header">
+            <span class="setting-label">Language Model</span>
+            <span class="setting-hint"
+              >Configure the AI model and behavior.</span
+            >
+          </div>
+
+          <div class="reasoning-controls">
+            <!-- Model Selection -->
+            <div class="reasoning-field">
+              <div class="setting-select">
+                <label
+                  class="setting-label"
+                  for="llm-model"
+                  title="Select the language model for generating responses."
+                  >Model</label
+                >
+                <select
+                  id="llm-model"
+                  class="select-input"
+                  value={draft.llm_model}
+                  disabled={saving}
+                  on:change={(e) => {
+                    draft = {
+                      ...draft,
+                      llm_model: (e.target as HTMLSelectElement).value,
+                    };
+                    markDirty();
+                  }}
+                >
+                  {#each $filtered as model (model.id)}
+                    <option value={model.id}>{model.name ?? model.id}</option>
+                  {/each}
+                </select>
+              </div>
+            </div>
+
+            <!-- System Prompt -->
+            <div class="reasoning-field">
+              <div class="setting-select">
+                <label
+                  class="setting-label"
+                  for="system-prompt"
+                  title="Instructions that define how the assistant behaves."
+                  >System Prompt</label
+                >
+                <textarea
+                  id="system-prompt"
+                  class="keyterms-input"
+                  rows="3"
+                  disabled={saving}
+                  placeholder="You are a helpful voice assistant..."
+                  on:input={(e) => {
+                    draft = {
+                      ...draft,
+                      system_prompt:
+                        (e.target as HTMLTextAreaElement).value || null,
+                    };
+                    markDirty();
+                  }}>{draft.system_prompt ?? ""}</textarea
+                >
+              </div>
+            </div>
+
+            <!-- Temperature -->
+            <div class="reasoning-field">
+              <div class="setting-range">
+                <div class="setting-range-header">
+                  <span
+                    class="setting-label"
+                    title="Controls randomness in responses. Lower = more focused, higher = more creative. Note: Some models don't support this parameter."
+                    >Temperature</span
+                  >
+                  <span class="range-value">{draft.temperature.toFixed(1)}</span
+                  >
+                </div>
+                <input
+                  type="range"
+                  class="range-input"
+                  min="0"
+                  max="2"
+                  step="0.1"
+                  value={draft.temperature}
+                  disabled={saving}
+                  style="--slider-fill: {getSliderFill(
+                    draft.temperature,
+                    0,
+                    2,
+                  )}"
+                  on:input={(e) => {
+                    draft = {
+                      ...draft,
+                      temperature: parseFloat(
+                        (e.target as HTMLInputElement).value,
+                      ),
+                    };
+                    markDirty();
+                  }}
+                />
+                <div class="range-extents">
+                  <span>0 (focused)</span>
+                  <span>2 (creative)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Max Tokens -->
+            <div class="reasoning-field">
+              <div class="setting-range">
+                <div class="setting-range-header">
+                  <span
+                    class="setting-label"
+                    title="Maximum length of responses in tokens. Keep low for voice interactions."
+                    >Max Tokens</span
+                  >
+                  <span class="range-value">{draft.max_tokens}</span>
+                </div>
+                <input
+                  type="range"
+                  class="range-input"
+                  min="50"
+                  max="2000"
+                  step="50"
+                  value={draft.max_tokens}
+                  disabled={saving}
+                  style="--slider-fill: {getSliderFill(
+                    draft.max_tokens,
+                    50,
+                    2000,
+                  )}"
+                  on:input={(e) => {
+                    draft = {
+                      ...draft,
+                      max_tokens: parseInt(
+                        (e.target as HTMLInputElement).value,
+                        10,
+                      ),
+                    };
+                    markDirty();
+                  }}
+                />
+                <div class="range-extents">
+                  <span>50 (short)</span>
+                  <span>2000 (long)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- STT Settings Section -->
         <div class="setting reasoning">
           <div class="setting-header">
@@ -402,12 +558,12 @@
                   <select
                     id="tts-voice"
                     class="select-input"
-                    value={draft.model}
+                    value={draft.tts_model}
                     disabled={saving}
                     on:change={(e) => {
                       draft = {
                         ...draft,
-                        model: (e.target as HTMLSelectElement).value,
+                        tts_model: (e.target as HTMLSelectElement).value,
                       };
                       markDirty();
                     }}

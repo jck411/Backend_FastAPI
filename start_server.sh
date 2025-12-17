@@ -58,10 +58,19 @@ echo "Backend:        http://localhost:8000"
 echo "Svelte Chat UI: http://localhost:5173"
 echo "Kiosk UI:       http://localhost:5174"
 echo ""
-echo "From other machines (use your IP):"
-echo "  Backend:        http://192.168.1.223:8000"
-echo "  Svelte Chat UI: http://192.168.1.223:5173"
-echo "  Kiosk UI:       http://192.168.1.223:5174"
+# Detect the primary IP address
+LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+if [ -z "$LOCAL_IP" ]; then
+    LOCAL_IP=$(ip route get 1 2>/dev/null | awk '{print $7}' | head -1)
+fi
+if [ -n "$LOCAL_IP" ]; then
+    echo "From other machines (use your IP):"
+    echo "  Backend:        http://${LOCAL_IP}:8000"
+    echo "  Svelte Chat UI: http://${LOCAL_IP}:5173"
+    echo "  Kiosk UI:       http://${LOCAL_IP}:5174"
+else
+    echo "From other machines, use your machine's IP address."
+fi
 echo "=============================================="
 echo "Press Ctrl+C to stop all servers"
 echo ""

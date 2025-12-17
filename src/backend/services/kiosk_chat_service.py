@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Callable, Optional, Awaitable
+from typing import Any, AsyncGenerator, Callable, Optional, Awaitable
 
 from backend.chat.orchestrator import ChatOrchestrator
 from backend.schemas.chat import ChatCompletionRequest, ChatMessage
@@ -131,6 +131,78 @@ class KioskChatService:
         logger.info(f"Kiosk LLM response: {result[:100]}..." if len(result) > 100 else f"Kiosk LLM response: {result}")
 
         return result if result else "Action completed."
+
+    async def generate_response_streaming(
+        self,
+        user_message: str,
+        client_id: str = "default",
+    ) -> AsyncGenerator[dict, None]:
+        """Generate LLM response with streaming, yielding events as they occur.
+
+        Yields:
+            {"type": "text_chunk", "content": "..."} for text content
+            {"type": "tool_status", "name": "...", "status": "started|finished|error"} for tools
+
+        The caller should accumulate text_chunk content for TTS after streaming completes.
+        """
+        settings = self._settings_service.get_settings()
+        session_id = f"kiosk_{client_id}"
+
+        logger.info(f"Kiosk streaming LLM request: session={session_id}, model={settings.model}")
+
+        # Build messages list
+        messages = [
+            ChatMessage(role="user", content=user_message)
+        ]
+
+        if settings.system_prompt:
+            messages.insert(0, ChatMessage(role="system", content=settings.system_prompt))
+
+        request = ChatCompletionRequest(
+            session_id=session_id,
+            messages=messages,
+            model=settings.model,
+            temperature=settings.temperature,
+            max_tokens=settings.max_tokens,
+        )
+
+        try:
+            async for event in self._orchestrator.process_stream(request):
+                event_type = event.get("event")
+                data = event.get("data")
+
+                if event_type == "message" and data and data != "[DONE]":
+                    try:
+                        chunk = json.loads(data)
+                        for choice in chunk.get("choices", []):
+                            delta = choice.get("delta", {})
+                            content = delta.get("content")
+                            if isinstance(content, str) and content:
+                                yield {"type": "text_chunk", "content": content}
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
+                elif event_type == "tool":
+                    try:
+                        tool_data = json.loads(data) if data else {}
+                        status = tool_data.get("status")
+                        name = tool_data.get("name")
+
+                        if status and name:
+                            if status == "started":
+                                logger.info(f"Tool started: {name}")
+                            elif status == "finished":
+                                logger.info(f"Tool finished: {name}")
+                            elif status == "error":
+                                logger.warning(f"Tool error: {name}")
+
+                            yield {"type": "tool_status", "name": name, "status": status}
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+        except Exception as e:
+            logger.error(f"Kiosk streaming LLM error: {e}", exc_info=True)
+            yield {"type": "error", "message": "I encountered an error processing your request."}
 
 
 __all__ = ["KioskChatService"]

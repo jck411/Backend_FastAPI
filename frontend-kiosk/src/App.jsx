@@ -135,7 +135,39 @@ export default function App() {
                     } else {
                         setLiveTranscript(data.text);
                     }
+                } else if (data.type === 'assistant_response_start') {
+                    // Start of streaming response - add pending message
+                    console.log('Streaming response starting');
+                    setMessages(prev => [...prev, { role: 'assistant', text: '', pending: true }]);
+                } else if (data.type === 'assistant_response_chunk') {
+                    // Streaming text chunk - append to last assistant message
+                    setMessages(prev => {
+                        const updated = [...prev];
+                        const lastIdx = updated.length - 1;
+                        if (lastIdx >= 0 && updated[lastIdx]?.role === 'assistant') {
+                            updated[lastIdx] = {
+                                ...updated[lastIdx],
+                                text: updated[lastIdx].text + data.text
+                            };
+                        }
+                        return updated;
+                    });
+                } else if (data.type === 'assistant_response_end') {
+                    // End of streaming - mark message as complete
+                    console.log('Streaming response complete');
+                    setMessages(prev => {
+                        const updated = [...prev];
+                        const lastIdx = updated.length - 1;
+                        if (lastIdx >= 0 && updated[lastIdx]?.role === 'assistant') {
+                            updated[lastIdx] = {
+                                ...updated[lastIdx],
+                                pending: false
+                            };
+                        }
+                        return updated;
+                    });
                 } else if (data.type === 'assistant_response') {
+                    // Legacy: full response at once (backward compatibility)
                     console.log('Received assistant_response:', data.text);
                     setMessages(prev => [...prev, { role: 'assistant', text: data.text }]);
                 } else if (data.type === 'tts_audio') {

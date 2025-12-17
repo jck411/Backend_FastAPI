@@ -50,35 +50,50 @@ async def handle_connection(
                 # Transition to PROCESSING
                 await manager.update_state(client_id, "PROCESSING")
 
-                # Generate LLM response
+                # Generate LLM response with streaming
+                full_response = ""
                 try:
-                    response_text = await kiosk_chat_service.generate_response(
-                        text,
-                        client_id=client_id,
-                        broadcast_callback=manager.broadcast,  # Send tool events to all clients
-                    )
+                    # Signal start of streaming response
+                    await manager.broadcast({"type": "assistant_response_start"})
+
+                    async for event in kiosk_chat_service.generate_response_streaming(text, client_id):
+                        if event["type"] == "text_chunk":
+                            chunk = event["content"]
+                            full_response += chunk
+                            await manager.broadcast({"type": "assistant_response_chunk", "text": chunk})
+                        elif event["type"] == "tool_status":
+                            await manager.broadcast({
+                                "type": "tool_status",
+                                "status": event["status"],
+                                "name": event["name"],
+                            })
+                        elif event["type"] == "error":
+                            full_response = event.get("message", "Sorry, I encountered an error.")
+                            break
+
+                    # Signal end of streaming (with full text for backward compatibility)
+                    await manager.broadcast({"type": "assistant_response_end", "text": full_response})
+
                 except Exception as e:
                     logger.error(f"LLM generation failed for {client_id}: {e}", exc_info=True)
-                    response_text = "Sorry, I couldn't process that request."
+                    full_response = "Sorry, I couldn't process that request."
+                    await manager.broadcast({"type": "assistant_response_end", "text": full_response})
+
+                response_text = full_response.strip() if full_response else "Action completed."
 
                 if response_text:
                     await manager.update_state(client_id, "SPEAKING")
-                    # Send response text to frontend for display
-                    await manager.broadcast({"type": "assistant_response", "text": response_text})
 
-                    audio_played = False
                     # Use TTS
                     try:
                         audio_data = await tts_service.synthesize(response_text)
 
                         if audio_data:
-                            # 4. Play Audio on Client - broadcast to all (browser + Pi)
                             await manager.broadcast({
                                 "type": "tts_audio",
                                 "data": base64.b64encode(audio_data).decode('utf-8')
                             })
                             logger.info(f"Sent TTS audio for {client_id}")
-                            audio_played = True
                     except Exception as e:
                         logger.error(f"TTS generation failed: {e}")
 

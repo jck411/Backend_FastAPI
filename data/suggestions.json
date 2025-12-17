@@ -1,3 +1,8 @@
 {
-  "suggestions": []
+  "suggestions": [
+    {
+      "label": "song hx",
+      "text": "tell me the last 10 songs I listened to"
+    }
+  ]
 }

@@ -83,7 +83,7 @@ async def handle_connection(
 
                     # Use TTS
                     try:
-                        audio_data = await tts_service.synthesize(response_text)
+                        audio_data, sample_rate = await tts_service.synthesize(response_text)
 
                         if audio_data:
                             # Stream TTS audio in chunks to avoid overwhelming WebSocket connections
@@ -95,7 +95,8 @@ async def handle_connection(
                             await manager.broadcast({
                                 "type": "tts_audio_start",
                                 "total_bytes": len(audio_data),
-                                "total_chunks": total_chunks
+                                "total_chunks": total_chunks,
+                                "sample_rate": sample_rate
                             })
 
                             # Send audio in chunks

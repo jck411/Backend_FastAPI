@@ -1,4 +1,5 @@
 import logging
+from typing import Tuple
 
 import httpx
 
@@ -58,10 +59,10 @@ class TTSService:
         else:
             logger.info(f"TTS providers available: {', '.join(providers)}")
 
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str) -> Tuple[bytes, int]:
         """
         Synthesize text to audio using the configured provider.
-        Returns raw PCM audio bytes, or empty bytes if TTS is disabled.
+        Returns (raw PCM audio bytes, sample_rate), or (empty bytes, 0) if TTS is disabled.
         """
         # Get current TTS settings
         tts_settings = get_kiosk_tts_settings_service().get_settings()
@@ -69,7 +70,7 @@ class TTSService:
         # Check if TTS is enabled
         if not tts_settings.enabled:
             logger.info("TTS is disabled, skipping synthesis")
-            return b""
+            return b"", 0
 
         provider = tts_settings.provider
 
@@ -83,11 +84,11 @@ class TTSService:
             # Default to Deepgram
             return await self._synthesize_deepgram(text, tts_settings)
 
-    async def _synthesize_deepgram(self, text: str, tts_settings) -> bytes:
+    async def _synthesize_deepgram(self, text: str, tts_settings) -> Tuple[bytes, int]:
         """Synthesize using Deepgram Aura."""
         if not self.deepgram_api_key:
             logger.error("Deepgram API key not configured")
-            return b""
+            return b"", 0
 
         try:
             params = {
@@ -115,17 +116,17 @@ class TTSService:
                 response.raise_for_status()
                 audio_data = response.content
                 logger.info(f"Deepgram TTS synthesized {len(audio_data)} bytes for text: {text[:50]}...")
-                return audio_data
+                return audio_data, int(tts_settings.sample_rate)
 
         except Exception as e:
             logger.error(f"Deepgram TTS Error: {e}")
-            return b""
+            return b"", 0
 
-    async def _synthesize_elevenlabs(self, text: str, tts_settings) -> bytes:
+    async def _synthesize_elevenlabs(self, text: str, tts_settings) -> Tuple[bytes, int]:
         """Synthesize using ElevenLabs."""
         if not self.elevenlabs_api_key:
             logger.error("ElevenLabs API key not configured")
-            return b""
+            return b"", 0
 
         try:
             voice_id = tts_settings.model  # For ElevenLabs, model stores the voice_id
@@ -171,17 +172,17 @@ class TTSService:
                 response.raise_for_status()
                 audio_data = response.content
                 logger.info(f"ElevenLabs TTS synthesized {len(audio_data)} bytes for text: {text[:50]}...")
-                return audio_data
+                return audio_data, int(sample_rate)
 
         except Exception as e:
             logger.error(f"ElevenLabs TTS Error: {e}")
-            return b""
+            return b"", 0
 
-    async def _synthesize_openai(self, text: str, tts_settings) -> bytes:
+    async def _synthesize_openai(self, text: str, tts_settings) -> Tuple[bytes, int]:
         """Synthesize using OpenAI TTS."""
         if not self.openai_api_key:
             logger.error("OpenAI API key not configured")
-            return b""
+            return b"", 0
 
         try:
             headers = {
@@ -207,17 +208,17 @@ class TTSService:
                 response.raise_for_status()
                 audio_data = response.content
                 logger.info(f"OpenAI TTS synthesized {len(audio_data)} bytes for text: {text[:50]}...")
-                return audio_data
+                return audio_data, 24000  # OpenAI PCM is fixed at 24kHz
 
         except Exception as e:
             logger.error(f"OpenAI TTS Error: {e}")
-            return b""
+            return b"", 0
 
-    async def _synthesize_unrealspeech(self, text: str, tts_settings) -> bytes:
+    async def _synthesize_unrealspeech(self, text: str, tts_settings) -> Tuple[bytes, int]:
         """Synthesize using Unreal Speech."""
         if not self.unrealspeech_api_key:
             logger.error("Unreal Speech API key not configured")
-            return b""
+            return b"", 0
 
         try:
             headers = {
@@ -232,6 +233,7 @@ class TTSService:
                 "Bitrate": "192k",
                 "Speed": 0,
                 "Pitch": 1.0,
+                "Codec": "pcm_s16le",
             }
 
             logger.info(f"Unreal Speech request: VoiceId={tts_settings.model}")
@@ -246,11 +248,11 @@ class TTSService:
                 response.raise_for_status()
                 audio_data = response.content
                 logger.info(f"Unreal Speech TTS synthesized {len(audio_data)} bytes for text: {text[:50]}...")
-                return audio_data
+                return audio_data, 22050  # Unreal Speech v8 stream is 22.05kHz
 
         except httpx.HTTPStatusError as e:
             logger.error(f"Unreal Speech TTS HTTP Error: {e.response.status_code} - {e.response.text}")
-            return b""
+            return b"", 0
         except Exception as e:
             logger.error(f"Unreal Speech TTS Error: {e}")
-            return b""
+            return b"", 0

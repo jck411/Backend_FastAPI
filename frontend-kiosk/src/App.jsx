@@ -20,6 +20,7 @@ export default function App() {
     const audioRef = useRef(null);
     const messagesEndRef = useRef(null);
     const ttsAudioChunksRef = useRef([]);  // Accumulate TTS audio chunks
+    const ttsSampleRateRef = useRef(16000); // Default to 16kHz
 
     // Fetch UI settings on mount
     useEffect(() => {
@@ -51,7 +52,7 @@ export default function App() {
     // Play TTS audio
     const playAudio = (base64Audio) => {
         try {
-            // Convert base64 to audio blob (PCM 16-bit, 16kHz mono)
+            // Convert base64 to audio blob (PCM 16-bit, mono)
             const binaryString = atob(base64Audio);
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
@@ -59,7 +60,7 @@ export default function App() {
             }
 
             // Create WAV header for PCM data
-            const sampleRate = 16000;
+            const sampleRate = ttsSampleRateRef.current;
             const numChannels = 1;
             const bitsPerSample = 16;
             const byteRate = sampleRate * numChannels * bitsPerSample / 8;
@@ -191,8 +192,9 @@ export default function App() {
                     stopAudio();
                 } else if (data.type === 'tts_audio_start') {
                     // Start of chunked TTS audio - reset buffer
-                    console.log('TTS audio stream starting:', data.total_bytes, 'bytes in', data.total_chunks, 'chunks');
+                    console.log('TTS audio stream starting:', data.total_bytes, 'bytes in', data.total_chunks, 'chunks', 'sample_rate:', data.sample_rate);
                     ttsAudioChunksRef.current = [];
+                    ttsSampleRateRef.current = data.sample_rate || 16000;
                 } else if (data.type === 'tts_audio_chunk') {
                     // Accumulate audio chunk
                     ttsAudioChunksRef.current.push(data.data);

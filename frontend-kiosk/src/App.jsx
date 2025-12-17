@@ -169,15 +169,18 @@ export default function App() {
         }
     }, [lastMessage]);
 
-    // Idle Timeout Logic
-    // Idle Timeout Logic with Countdown
-    // Idle Timeout Logic - Instant Return
+    // Idle Timeout Logic - Return to clock after delay
     useEffect(() => {
         if (agentState === 'IDLE') {
-            setCurrentScreen(0);
-            setMessages([]);
+            const timer = setTimeout(() => {
+                setCurrentScreen(0);
+                setMessages([]);
+            }, idleReturnDelay);
+
+            // Cleanup: cancel timer if state changes before delay completes
+            return () => clearTimeout(timer);
         }
-    }, [agentState]);
+    }, [agentState, idleReturnDelay]);
 
     const handleSwipe = (direction) => {
         if (direction > 0) {

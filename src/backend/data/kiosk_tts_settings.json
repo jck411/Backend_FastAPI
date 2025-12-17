@@ -1,6 +1,6 @@
 {
   "enabled": true,
   "provider": "deepgram",
-  "model": "aura-asteria-en",
+  "model": "aura-luna-en",
   "sample_rate": 16000
 }

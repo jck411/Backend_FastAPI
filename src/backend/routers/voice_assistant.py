@@ -173,15 +173,20 @@ async def handle_connection(
                 await manager.set_all_states("SPEAKING")
 
             elif event_type == "tts_playback_end":
-                logger.info(f"TTS playback ended for {client_id} - Resuming ALL clients (State -> LISTENING)")
-                # Only resume listening if we were speaking (avoid race conditions if we already moved on)
-                # Or just force it, as end of playback generally means ready to listen.
-                # Check if conversation mode is active or if we should go to IDLE?
-                # Actually, standard flow: User speaks -> STT -> LLM -> TTS -> Client plays -> Client finishes -> Listen again.
-                await manager.set_all_states("LISTENING")
-
-                # Re-initialize STT session if needed, or ensuring it's ready.
-                # Our STT service stays open, we just gate the chunks.
+                logger.info(f"TTS playback ended for {client_id}")
+                # Check if conversation mode is active
+                try:
+                    llm_settings = get_kiosk_llm_settings_service().get_settings()
+                    if llm_settings.conversation_mode:
+                        logger.info(f"Conversation mode ON - resuming listening")
+                        await manager.set_all_states("LISTENING")
+                        # Re-initialize STT session for follow-up
+                    else:
+                        logger.info(f"Conversation mode OFF - going to IDLE")
+                        await manager.set_all_states("IDLE")
+                except Exception as e:
+                    logger.error(f"Error checking conversation mode: {e}")
+                    await manager.set_all_states("IDLE")
 
             elif event_type == "stream_end":
                 logger.info(f"Stream end for {client_id}")

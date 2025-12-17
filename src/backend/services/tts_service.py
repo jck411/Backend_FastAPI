@@ -1,5 +1,5 @@
 import logging
-from typing import Tuple
+from typing import AsyncIterator, Tuple
 
 import httpx
 
@@ -83,6 +83,43 @@ class TTSService:
         else:
             # Default to Deepgram
             return await self._synthesize_deepgram(text, tts_settings)
+
+    async def stream_synthesize(self, text: str) -> Tuple[int, AsyncIterator[bytes]]:
+        """
+        Streaming-friendly TTS. Returns sample_rate and an async iterator of audio chunks.
+        Falls back to non-streaming synthesis if provider does not support streaming.
+        """
+        tts_settings = get_kiosk_tts_settings_service().get_settings()
+
+        async def _empty_iter():
+            if False:
+                yield b""
+
+        if not tts_settings.enabled:
+            logger.info("TTS is disabled, skipping streaming synthesis")
+            return 0, _empty_iter()
+
+        provider = tts_settings.provider
+
+        if provider == "openai":
+            return await self._stream_openai(text, tts_settings)
+        elif provider == "unrealspeech":
+            return await self._stream_unrealspeech(text, tts_settings)
+        elif provider == "elevenlabs":
+            return await self._stream_fallback(text, tts_settings, self._synthesize_elevenlabs)
+        else:
+            # Default to Deepgram
+            return await self._stream_fallback(text, tts_settings, self._synthesize_deepgram)
+
+    async def _stream_fallback(self, text: str, tts_settings, synthesize_fn) -> Tuple[int, AsyncIterator[bytes]]:
+        """Fallback streaming by chunking a full synthesis response."""
+        audio_data, sample_rate = await synthesize_fn(text, tts_settings)
+
+        async def _iter_from_bytes(data: bytes, chunk_size: int = 32 * 1024):
+            for i in range(0, len(data), chunk_size):
+                yield data[i:i + chunk_size]
+
+        return sample_rate, _iter_from_bytes(audio_data)
 
     async def _synthesize_deepgram(self, text: str, tts_settings) -> Tuple[bytes, int]:
         """Synthesize using Deepgram Aura."""
@@ -214,6 +251,45 @@ class TTSService:
             logger.error(f"OpenAI TTS Error: {e}")
             return b"", 0
 
+    async def _stream_openai(self, text: str, tts_settings) -> Tuple[int, AsyncIterator[bytes]]:
+        """Stream OpenAI TTS audio when available."""
+        if not self.openai_api_key:
+            logger.error("OpenAI API key not configured for streaming")
+            return 0, self._empty_iter()
+
+        headers = {
+            "Authorization": f"Bearer {self.openai_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "model": "tts-1",
+            "input": text,
+            "voice": tts_settings.model,
+            "response_format": "pcm",
+            "speed": 1.0,
+        }
+
+        async def _stream():
+            try:
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "POST",
+                        self.openai_base_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=30.0,
+                    ) as response:
+                        response.raise_for_status()
+                        async for chunk in response.aiter_bytes():
+                            if chunk:
+                                yield chunk
+            except Exception as exc:
+                logger.error(f"OpenAI streaming TTS error: {exc}")
+                return
+
+        return 24000, _stream()
+
     async def _synthesize_unrealspeech(self, text: str, tts_settings) -> Tuple[bytes, int]:
         """Synthesize using Unreal Speech."""
         if not self.unrealspeech_api_key:
@@ -256,3 +332,47 @@ class TTSService:
         except Exception as e:
             logger.error(f"Unreal Speech TTS Error: {e}")
             return b"", 0
+
+    async def _stream_unrealspeech(self, text: str, tts_settings) -> Tuple[int, AsyncIterator[bytes]]:
+        """Stream Unreal Speech audio."""
+        if not self.unrealspeech_api_key:
+            logger.error("Unreal Speech API key not configured for streaming")
+            return 0, self._empty_iter()
+
+        headers = {
+            "Authorization": f"Bearer {self.unrealspeech_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "Text": text,
+            "VoiceId": tts_settings.model,
+            "Bitrate": "192k",
+            "Speed": 0,
+            "Pitch": 1.0,
+            "Codec": "pcm_s16le",
+        }
+
+        async def _stream():
+            try:
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "POST",
+                        self.unrealspeech_base_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=30.0,
+                    ) as response:
+                        response.raise_for_status()
+                        async for chunk in response.aiter_bytes():
+                            if chunk:
+                                yield chunk
+            except Exception as exc:
+                logger.error(f"Unreal Speech streaming TTS error: {exc}")
+                return
+
+        return 22050, _stream()
+
+    async def _empty_iter(self) -> AsyncIterator[bytes]:
+        if False:
+            yield b""

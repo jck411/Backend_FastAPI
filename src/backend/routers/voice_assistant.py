@@ -1,8 +1,11 @@
+import asyncio
 import base64
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Any
+from typing import Any, Dict, Optional
+
+import re
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request
 
@@ -12,6 +15,86 @@ from backend.services.tts_service import TTSService
 from backend.services.kiosk_chat_service import KioskChatService
 from backend.services.kiosk_llm_settings import get_kiosk_llm_settings_service
 from backend.services.kiosk_ui_settings import get_kiosk_ui_settings_service
+
+
+class TwoSegmentSplitter:
+    """Stateful splitter that emits a head segment within word bounds and returns the remainder as tail."""
+
+    def __init__(self, min_head_words: int = 8, max_head_words: int = 20):
+        self.min_head_words = min_head_words
+        self.max_head_words = max_head_words
+        self._buffer = ""
+        self._tail_parts = []
+        self._head_text: Optional[str] = None
+        self._head_reason: Optional[str] = None
+        self._head_word_count: Optional[int] = None
+
+    @staticmethod
+    def _count_words_until(text: str, position: int) -> int:
+        words = list(re.finditer(r"\S+", text[:position]))
+        return len(words)
+
+    def consume(self, chunk: str) -> Optional[Dict[str, Any]]:
+        """Consume a chunk and return head info when the split is decided."""
+        if not chunk:
+            return None
+
+        if self._head_text is not None:
+            self._tail_parts.append(chunk)
+            return None
+
+        self._buffer += chunk
+
+        head_info = self._maybe_emit_head()
+        if head_info:
+            head_text, tail_remainder, reason, word_count = head_info
+            self._head_text = head_text
+            self._head_reason = reason
+            self._head_word_count = word_count
+            self._buffer = ""
+            if tail_remainder:
+                self._tail_parts.append(tail_remainder)
+            return {
+                "text": head_text,
+                "reason": reason,
+                "word_count": word_count,
+            }
+
+        return None
+
+    def _maybe_emit_head(self) -> Optional[tuple[str, str, str, int]]:
+        word_spans = list(re.finditer(r"\S+", self._buffer))
+        total_words = len(word_spans)
+
+        if total_words < self.min_head_words:
+            return None
+
+        # Prefer a delimiter within bounds
+        for match in re.finditer(r"[.!?\n]", self._buffer):
+            delimiter_end = match.end()
+            words_until = self._count_words_until(self._buffer, delimiter_end)
+            if self.min_head_words <= words_until <= self.max_head_words:
+                head_text = self._buffer[:delimiter_end]
+                tail_remainder = self._buffer[delimiter_end:]
+                return head_text, tail_remainder, "delimiter", words_until
+
+        # Force split at max words if needed
+        if total_words >= self.max_head_words:
+            split_at = word_spans[self.max_head_words - 1].end()
+            head_text = self._buffer[:split_at]
+            tail_remainder = self._buffer[split_at:]
+            return head_text, tail_remainder, "max_words", self.max_head_words
+
+        return None
+
+    def finalize(self) -> tuple[str, str, Optional[str], Optional[int]]:
+        """Finalize and return head, tail, reason, and word count."""
+        if self._head_text is None:
+            # No split happened; entire response is the head
+            return self._buffer, "", None, self._count_words_until(self._buffer, len(self._buffer))
+
+        tail_text = "".join(self._tail_parts)
+        return self._head_text, tail_text, self._head_reason, self._head_word_count
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 logger = logging.getLogger(__name__)
@@ -28,6 +111,58 @@ async def handle_connection(
     Main loop for handling a single client's WebSocket connection.
     """
     await manager.connect(websocket, client_id)
+
+    tts_cancel_event = asyncio.Event()
+    tts_task: Optional[asyncio.Task] = None
+
+    async def cancel_tts():
+        nonlocal tts_task, tts_cancel_event
+        tts_cancel_event.set()
+        if tts_task and not tts_task.done():
+            tts_task.cancel()
+            logger.info(f"Cancelled active TTS task for {client_id}")
+
+    async def stream_tts_segment(text: str, segment_label: str):
+        nonlocal tts_cancel_event
+        try:
+            logger.info(f"Starting TTS for segment '{segment_label}' ({len(text.split())} words)")
+            sample_rate, audio_iter = await tts_service.stream_synthesize(text)
+
+            if sample_rate == 0:
+                logger.warning(f"TTS not available for segment '{segment_label}'")
+                return
+
+            chunk_index = 0
+            await manager.broadcast({
+                "type": "tts_audio_start",
+                "total_bytes": None,
+                "total_chunks": None,
+                "sample_rate": sample_rate
+            })
+
+            async for audio_chunk in audio_iter:
+                if tts_cancel_event.is_set():
+                    logger.info(f"TTS cancelled mid-stream for segment '{segment_label}'")
+                    return
+
+                await manager.broadcast({
+                    "type": "tts_audio_chunk",
+                    "data": base64.b64encode(audio_chunk).decode('utf-8'),
+                    "chunk_index": chunk_index,
+                    "is_last": False
+                })
+                chunk_index += 1
+
+            if tts_cancel_event.is_set():
+                logger.info(f"TTS cancelled before completion for segment '{segment_label}'")
+                return
+
+            await manager.broadcast({"type": "tts_audio_end"})
+            logger.info(f"Completed TTS for segment '{segment_label}'")
+        except asyncio.CancelledError:
+            logger.info(f"TTS task cancelled for segment '{segment_label}'")
+        except Exception as exc:
+            logger.error(f"TTS streaming failed for segment '{segment_label}': {exc}", exc_info=True)
 
     async def start_stt_session():
         """Helper to start the STT session with callbacks."""
@@ -48,7 +183,11 @@ async def handle_connection(
                 await manager.update_state(client_id, "PROCESSING")
 
                 # Generate LLM response with streaming
+                nonlocal tts_cancel_event, tts_task
+                tts_cancel_event = asyncio.Event()
                 full_response = ""
+                splitter = TwoSegmentSplitter()
+                head_tts_task: Optional[asyncio.Task] = None
                 try:
                     # Signal start of streaming response
                     await manager.broadcast({"type": "assistant_response_start"})
@@ -58,6 +197,14 @@ async def handle_connection(
                             chunk = event["content"]
                             full_response += chunk
                             await manager.broadcast({"type": "assistant_response_chunk", "text": chunk})
+
+                            head_ready = splitter.consume(chunk)
+                            if head_ready and head_tts_task is None:
+                                logger.info(
+                                    f"Emitting head segment at {head_ready['word_count']} words (reason: {head_ready['reason']})"
+                                )
+                                head_tts_task = asyncio.create_task(stream_tts_segment(head_ready["text"], "head"))
+                                tts_task = head_tts_task
                         elif event["type"] == "tool_status":
                             await manager.broadcast({
                                 "type": "tool_status",
@@ -81,41 +228,32 @@ async def handle_connection(
                 if response_text:
                     await manager.update_state(client_id, "SPEAKING")
 
-                    # Use TTS
+                    # Use streaming TTS with two segments
                     try:
-                        audio_data, sample_rate = await tts_service.synthesize(response_text)
+                        head_text, tail_text, head_reason, head_word_count = splitter.finalize()
 
-                        if audio_data:
-                            # Stream TTS audio in chunks to avoid overwhelming WebSocket connections
-                            # 32KB chunks work well for most network conditions
-                            CHUNK_SIZE = 32 * 1024  # 32KB
-                            total_chunks = (len(audio_data) + CHUNK_SIZE - 1) // CHUNK_SIZE
+                        if head_tts_task is None and head_text:
+                            logger.info(
+                                f"Emitting head segment at {head_word_count} words (reason: {head_reason or 'end_of_stream'})"
+                            )
+                            head_tts_task = asyncio.create_task(stream_tts_segment(head_text, "head"))
+                            tts_task = head_tts_task
 
-                            # Signal start of TTS audio stream
-                            await manager.broadcast({
-                                "type": "tts_audio_start",
-                                "total_bytes": len(audio_data),
-                                "total_chunks": total_chunks,
-                                "sample_rate": sample_rate
-                            })
+                        if head_tts_task:
+                            try:
+                                await head_tts_task
+                            finally:
+                                tts_task = None
 
-                            # Send audio in chunks
-                            for i in range(0, len(audio_data), CHUNK_SIZE):
-                                chunk = audio_data[i:i + CHUNK_SIZE]
-                                chunk_index = i // CHUNK_SIZE
-                                await manager.broadcast({
-                                    "type": "tts_audio_chunk",
-                                    "data": base64.b64encode(chunk).decode('utf-8'),
-                                    "chunk_index": chunk_index,
-                                    "is_last": chunk_index == total_chunks - 1
-                                })
-
-                            # Signal end of TTS audio stream
-                            await manager.broadcast({
-                                "type": "tts_audio_end"
-                            })
-
-                            logger.info(f"Sent TTS audio for {client_id} ({len(audio_data)} bytes in {total_chunks} chunks)")
+                        if tail_text:
+                            logger.info("Starting tail segment TTS")
+                            tts_task = asyncio.create_task(stream_tts_segment(tail_text, "tail"))
+                            try:
+                                await tts_task
+                            finally:
+                                tts_task = None
+                        else:
+                            logger.info("No tail segment to play")
                     except Exception as e:
                         logger.error(f"TTS generation failed: {e}")
 
@@ -168,6 +306,7 @@ async def handle_connection(
 
                 # Interrupt TTS - broadcast to ALL clients (especially the frontend playing audio)
                 await manager.broadcast({"type": "interrupt_tts"})
+                await cancel_tts()
                 await manager.update_state(client_id, "LISTENING")
 
                 # Reset STT

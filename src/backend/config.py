@@ -213,6 +213,21 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ElevenLabs TTS (optional, alternative to Deepgram Aura)
+    elevenlabs_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("ELEVENLABS_API_KEY")
+    )
+
+    # OpenAI TTS (optional, another TTS alternative)
+    openai_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("OPENAI_API_KEY")
+    )
+
+    # Unreal Speech TTS (optional, cost-effective TTS)
+    unrealspeech_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("UNREAL_SPEECH_API_KEY")
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

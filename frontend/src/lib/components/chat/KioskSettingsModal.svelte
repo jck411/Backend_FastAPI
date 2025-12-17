@@ -7,6 +7,7 @@
     updateKioskPreset,
     type KioskPreset,
     type KioskPresets,
+    type TtsVoice,
   } from "../../api/kiosk";
   import {
     getDefaultKioskSttSettings,
@@ -20,8 +21,8 @@
 
   const { filtered } = modelStore;
 
-  // Available TTS voices (loaded from API)
-  let ttsVoices: string[] = [];
+  // Available TTS voices (loaded from API based on provider)
+  let ttsVoices: TtsVoice[] = [];
 
   // Kiosk presets
   let presets: KioskPresets | null = null;
@@ -55,19 +56,36 @@
   async function loadSettings(): Promise<void> {
     loading = true;
     try {
-      const [settings, voices, presetsData] = await Promise.all([
+      const [settings, presetsData] = await Promise.all([
         kioskSettingsStore.load(),
-        fetchTtsVoices(),
         fetchKioskPresets(),
         modelStore.loadModels(),
       ]);
       draft = { ...settings };
-      ttsVoices = voices;
+      ttsVoices = await fetchTtsVoices(settings.provider);
       presets = presetsData;
     } catch (error) {
       statusMessage = "Failed to load settings";
     } finally {
       loading = false;
+    }
+  }
+
+  async function handleProviderChange(newProvider: string): Promise<void> {
+    // Update draft and reload voices for the new provider
+    draft = { ...draft, provider: newProvider as "deepgram" | "elevenlabs" };
+    markDirty();
+    try {
+      ttsVoices = await fetchTtsVoices(newProvider);
+      // Reset to first voice of new provider if current voice isn't valid
+      if (
+        ttsVoices.length > 0 &&
+        !ttsVoices.find((v) => v.id === draft.tts_model)
+      ) {
+        draft = { ...draft, tts_model: ttsVoices[0].id };
+      }
+    } catch (error) {
+      console.error("Failed to load voices for provider:", error);
     }
   }
 
@@ -709,6 +727,32 @@
             </label>
 
             {#if draft.enabled}
+              <!-- Provider Selection -->
+              <div class="reasoning-field">
+                <div class="setting-select">
+                  <label
+                    class="setting-label"
+                    for="tts-provider"
+                    title="Select the TTS provider.">Provider</label
+                  >
+                  <select
+                    id="tts-provider"
+                    class="select-input"
+                    value={draft.provider}
+                    disabled={saving}
+                    on:change={(e) =>
+                      void handleProviderChange(
+                        (e.target as HTMLSelectElement).value,
+                      )}
+                  >
+                    <option value="deepgram">Deepgram Aura</option>
+                    <option value="elevenlabs">ElevenLabs</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="unrealspeech">Unreal Speech</option>
+                  </select>
+                </div>
+              </div>
+
               <!-- Voice Selection -->
               <div class="reasoning-field">
                 <div class="setting-select">
@@ -732,9 +776,7 @@
                     }}
                   >
                     {#each ttsVoices as voice}
-                      <option value={voice}
-                        >{voice.replace("aura-", "").replace("-en", "")}</option
-                      >
+                      <option value={voice.id}>{voice.name}</option>
                     {/each}
                   </select>
                 </div>

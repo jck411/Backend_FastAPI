@@ -123,10 +123,18 @@ export async function resetKioskTtsSettings(): Promise<KioskTtsSettings> {
 }
 
 /**
- * Fetch available TTS voice models.
+ * Voice object returned by the TTS voices endpoint.
  */
-export async function fetchTtsVoices(): Promise<string[]> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/tts-voices`);
+export interface TtsVoice {
+    id: string;
+    name: string;
+}
+
+/**
+ * Fetch available TTS voice models for the specified provider.
+ */
+export async function fetchTtsVoices(provider: string = 'deepgram'): Promise<TtsVoice[]> {
+    const response = await fetch(`${API_BASE_URL}/api/kiosk/tts-voices?provider=${encodeURIComponent(provider)}`);
     if (!response.ok) {
         throw new Error(`Failed to fetch TTS voices: ${response.statusText}`);
     }

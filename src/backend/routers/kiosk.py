@@ -6,7 +6,15 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from backend.schemas.kiosk_stt_settings import KioskSttSettings, KioskSttSettingsUpdate
-from backend.schemas.kiosk_tts_settings import KioskTtsSettings, KioskTtsSettingsUpdate, DEEPGRAM_VOICES
+from backend.schemas.kiosk_tts_settings import (
+    KioskTtsSettings,
+    KioskTtsSettingsUpdate,
+    DEEPGRAM_VOICES,
+    ELEVENLABS_VOICES,
+    ELEVENLABS_VOICE_NAMES,
+    OPENAI_VOICES,
+    UNREALSPEECH_VOICES,
+)
 from backend.schemas.kiosk_llm_settings import KioskLlmSettings, KioskLlmSettingsUpdate
 from backend.schemas.kiosk_presets import KioskPresets, KioskPreset, KioskPresetUpdate, KioskPresetActivate
 from backend.services.kiosk_stt_settings import get_kiosk_stt_settings_service
@@ -77,9 +85,34 @@ async def reset_tts_settings() -> KioskTtsSettings:
 
 
 @router.get("/tts-voices")
-async def get_tts_voices() -> list[str]:
-    """Get available TTS voice models."""
-    return DEEPGRAM_VOICES
+async def get_tts_voices(provider: str = "deepgram") -> list[dict[str, str]]:
+    """Get available TTS voice models for the specified provider.
+
+    Returns a list of dicts with 'id' and 'name' keys for each voice.
+    """
+    if provider == "elevenlabs":
+        return [
+            {"id": voice_id, "name": ELEVENLABS_VOICE_NAMES.get(voice_id, voice_id)}
+            for voice_id in ELEVENLABS_VOICES
+        ]
+    elif provider == "openai":
+        # OpenAI voices - capitalize for display
+        return [
+            {"id": voice, "name": voice.capitalize()}
+            for voice in OPENAI_VOICES
+        ]
+    elif provider == "unrealspeech":
+        # Unreal Speech voices - already properly cased
+        return [
+            {"id": voice, "name": voice}
+            for voice in UNREALSPEECH_VOICES
+        ]
+    else:
+        # Deepgram voices - id and name are the same, display without prefix/suffix
+        return [
+            {"id": voice, "name": voice.replace("aura-", "").replace("-en", "")}
+            for voice in DEEPGRAM_VOICES
+        ]
 
 
 # ============== LLM Settings ==============

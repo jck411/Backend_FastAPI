@@ -1,6 +1,6 @@
 {
   "enabled": true,
-  "provider": "deepgram",
-  "model": "aura-luna-en",
+  "provider": "openai",
+  "model": "alloy",
   "sample_rate": 16000
 }

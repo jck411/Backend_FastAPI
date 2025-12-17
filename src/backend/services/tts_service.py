@@ -87,7 +87,7 @@ class TTSService:
     async def stream_synthesize(self, text: str) -> Tuple[int, AsyncIterator[bytes]]:
         """
         Streaming-friendly TTS. Returns sample_rate and an async iterator of audio chunks.
-        Falls back to non-streaming synthesis if provider does not support streaming.
+        All providers use true streaming where supported, with chunk buffering for efficiency.
         """
         tts_settings = get_kiosk_tts_settings_service().get_settings()
 
@@ -102,14 +102,32 @@ class TTSService:
         provider = tts_settings.provider
 
         if provider == "openai":
-            return await self._stream_openai(text, tts_settings)
+            sample_rate, stream = await self._stream_openai(text, tts_settings)
         elif provider == "unrealspeech":
-            return await self._stream_unrealspeech(text, tts_settings)
+            sample_rate, stream = await self._stream_unrealspeech(text, tts_settings)
         elif provider == "elevenlabs":
-            return await self._stream_fallback(text, tts_settings, self._synthesize_elevenlabs)
+            sample_rate, stream = await self._stream_elevenlabs(text, tts_settings)
         else:
             # Default to Deepgram
-            return await self._stream_fallback(text, tts_settings, self._synthesize_deepgram)
+            sample_rate, stream = await self._stream_deepgram(text, tts_settings)
+
+        # Wrap all streams with buffering for more efficient websocket transmission
+        return sample_rate, self._buffered_stream(stream)
+
+    async def _buffered_stream(
+        self,
+        stream: AsyncIterator[bytes],
+        target_size: int = 16 * 1024  # 16KB default
+    ) -> AsyncIterator[bytes]:
+        """Buffer small chunks into larger ones for more efficient websocket transmission."""
+        buffer = bytearray()
+        async for chunk in stream:
+            buffer.extend(chunk)
+            while len(buffer) >= target_size:
+                yield bytes(buffer[:target_size])
+                buffer = buffer[target_size:]
+        if buffer:
+            yield bytes(buffer)
 
     async def _stream_fallback(self, text: str, tts_settings, synthesize_fn) -> Tuple[int, AsyncIterator[bytes]]:
         """Fallback streaming by chunking a full synthesis response."""
@@ -158,6 +176,44 @@ class TTSService:
         except Exception as e:
             logger.error(f"Deepgram TTS Error: {e}")
             return b"", 0
+
+    async def _stream_deepgram(self, text: str, tts_settings) -> Tuple[int, AsyncIterator[bytes]]:
+        """Stream Deepgram Aura TTS audio."""
+        if not self.deepgram_api_key:
+            logger.error("Deepgram API key not configured for streaming")
+            return 0, self._empty_iter()
+
+        params = {
+            "model": tts_settings.model,
+            "encoding": "linear16",
+            "sample_rate": str(tts_settings.sample_rate),
+            "container": "none",
+        }
+        headers = {
+            "Authorization": f"Token {self.deepgram_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {"text": text}
+
+        async def _stream():
+            try:
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "POST",
+                        self.deepgram_base_url,
+                        params=params,
+                        headers=headers,
+                        json=payload,
+                        timeout=30.0,
+                    ) as response:
+                        response.raise_for_status()
+                        async for chunk in response.aiter_bytes():
+                            if chunk:
+                                yield chunk
+            except Exception as exc:
+                logger.error(f"Deepgram streaming TTS error: {exc}")
+
+        return int(tts_settings.sample_rate), _stream()
 
     async def _synthesize_elevenlabs(self, text: str, tts_settings) -> Tuple[bytes, int]:
         """Synthesize using ElevenLabs."""
@@ -214,6 +270,68 @@ class TTSService:
         except Exception as e:
             logger.error(f"ElevenLabs TTS Error: {e}")
             return b"", 0
+
+    async def _stream_elevenlabs(self, text: str, tts_settings) -> Tuple[int, AsyncIterator[bytes]]:
+        """Stream ElevenLabs TTS audio."""
+        if not self.elevenlabs_api_key:
+            logger.error("ElevenLabs API key not configured for streaming")
+            return 0, self._empty_iter()
+
+        voice_id = tts_settings.model
+        # Use the streaming endpoint
+        url = f"{self.elevenlabs_base_url}/{voice_id}/stream"
+
+        # Map sample rate to ElevenLabs output format
+        sample_rate = tts_settings.sample_rate
+        if sample_rate <= 16000:
+            output_format = "pcm_16000"
+            actual_rate = 16000
+        elif sample_rate <= 22050:
+            output_format = "pcm_22050"
+            actual_rate = 22050
+        elif sample_rate <= 24000:
+            output_format = "pcm_24000"
+            actual_rate = 24000
+        else:
+            output_format = "pcm_44100"
+            actual_rate = 44100
+
+        headers = {
+            "xi-api-key": self.elevenlabs_api_key,
+            "Content-Type": "application/json",
+        }
+
+        payload = {
+            "text": text,
+            "model_id": "eleven_multilingual_v2",
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+                "style": 0.0,
+                "use_speaker_boost": True,
+            },
+            "speed": 0.9,
+        }
+
+        async def _stream():
+            try:
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "POST",
+                        url,
+                        params={"output_format": output_format},
+                        headers=headers,
+                        json=payload,
+                        timeout=30.0,
+                    ) as response:
+                        response.raise_for_status()
+                        async for chunk in response.aiter_bytes():
+                            if chunk:
+                                yield chunk
+            except Exception as exc:
+                logger.error(f"ElevenLabs streaming TTS error: {exc}")
+
+        return actual_rate, _stream()
 
     async def _synthesize_openai(self, text: str, tts_settings) -> Tuple[bytes, int]:
         """Synthesize using OpenAI TTS."""

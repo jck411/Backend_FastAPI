@@ -20,6 +20,15 @@ from backend.services.kiosk_ui_settings import get_kiosk_ui_settings_service
 class TwoSegmentSplitter:
     """Stateful splitter that emits a head segment within word bounds and returns the remainder as tail."""
 
+    # Sentence boundary pattern that avoids splitting inside decimals and abbreviations.
+    # Matches punctuation followed by whitespace or end-of-text, but NOT between digits.
+    # Also handles newlines as sentence boundaries.
+    SENTENCE_END_PATTERN = re.compile(
+        r'(?<!\d)[.!?](?=\s|$)|'  # Punctuation not preceded by digit, followed by space/end
+        r'(?<=\d)[.!?](?=\s+[A-Z])|'  # After digit but followed by space + capital (new sentence)
+        r'\n'  # Newlines always count as sentence boundaries
+    )
+
     def __init__(self, min_head_words: int = 8, max_head_words: int = 20):
         self.min_head_words = min_head_words
         self.max_head_words = max_head_words
@@ -69,8 +78,8 @@ class TwoSegmentSplitter:
         if total_words < self.min_head_words:
             return None
 
-        # Prefer a delimiter within bounds
-        for match in re.finditer(r"[.!?\n]", self._buffer):
+        # Prefer a sentence boundary within word bounds
+        for match in self.SENTENCE_END_PATTERN.finditer(self._buffer):
             delimiter_end = match.end()
             words_until = self._count_words_until(self._buffer, delimiter_end)
             if self.min_head_words <= words_until <= self.max_head_words:
@@ -143,6 +152,7 @@ async def handle_connection(
             async for audio_chunk in audio_iter:
                 if tts_cancel_event.is_set():
                     logger.info(f"TTS cancelled mid-stream for segment '{segment_label}'")
+                    await manager.broadcast({"type": "tts_audio_cancelled"})
                     return
 
                 await manager.broadcast({
@@ -155,14 +165,19 @@ async def handle_connection(
 
             if tts_cancel_event.is_set():
                 logger.info(f"TTS cancelled before completion for segment '{segment_label}'")
+                await manager.broadcast({"type": "tts_audio_cancelled"})
                 return
 
             await manager.broadcast({"type": "tts_audio_end"})
             logger.info(f"Completed TTS for segment '{segment_label}'")
         except asyncio.CancelledError:
             logger.info(f"TTS task cancelled for segment '{segment_label}'")
+            await manager.broadcast({"type": "tts_audio_cancelled"})
         except Exception as exc:
             logger.error(f"TTS streaming failed for segment '{segment_label}': {exc}", exc_info=True)
+            # Also send cancelled on error so frontend doesn't hang
+            await manager.broadcast({"type": "tts_audio_cancelled"})
+
 
     async def start_stt_session():
         """Helper to start the STT session with callbacks."""
@@ -212,6 +227,16 @@ async def handle_connection(
                                 "name": event["name"],
                             })
                         elif event["type"] == "error":
+                            # Cancel any head TTS in progress to avoid speaking partial text
+                            if head_tts_task and not head_tts_task.done():
+                                head_tts_task.cancel()
+                                try:
+                                    await head_tts_task
+                                except asyncio.CancelledError:
+                                    pass
+                                head_tts_task = None
+                            # Reset splitter - we won't use its output
+                            splitter = TwoSegmentSplitter()
                             full_response = event.get("message", "Sorry, I encountered an error.")
                             break
 
@@ -229,9 +254,11 @@ async def handle_connection(
                     await manager.update_state(client_id, "SPEAKING")
 
                     # Use streaming TTS with two segments
+                    # Key optimization: Start tail synthesis in parallel with head playback
                     try:
                         head_text, tail_text, head_reason, head_word_count = splitter.finalize()
 
+                        # If head wasn't started during streaming, start it now
                         if head_tts_task is None and head_text:
                             logger.info(
                                 f"Emitting head segment at {head_word_count} words (reason: {head_reason or 'end_of_stream'})"
@@ -239,19 +266,61 @@ async def handle_connection(
                             head_tts_task = asyncio.create_task(stream_tts_segment(head_text, "head"))
                             tts_task = head_tts_task
 
+                        # Pre-fetch tail audio while head is playing
+                        # This starts the TTS API call immediately so chunks are ready
+                        tail_audio_prefetch = None
+                        if tail_text:
+                            logger.info(f"Pre-fetching tail TTS ({len(tail_text.split())} words) while head plays")
+                            tail_audio_prefetch = asyncio.create_task(
+                                tts_service.stream_synthesize(tail_text)
+                            )
+
+                        # Wait for head to finish playing
                         if head_tts_task:
                             try:
                                 await head_tts_task
                             finally:
                                 tts_task = None
 
-                        if tail_text:
-                            logger.info("Starting tail segment TTS")
-                            tts_task = asyncio.create_task(stream_tts_segment(tail_text, "tail"))
+                        # Now stream the pre-fetched tail audio
+                        if tail_audio_prefetch:
                             try:
-                                await tts_task
-                            finally:
-                                tts_task = None
+                                sample_rate, audio_iter = await tail_audio_prefetch
+                                if sample_rate > 0:
+                                    logger.info("Streaming pre-fetched tail segment")
+                                    # Stream directly instead of creating a new synthesis task
+                                    chunk_index = 0
+                                    await manager.broadcast({
+                                        "type": "tts_audio_start",
+                                        "total_bytes": None,
+                                        "total_chunks": None,
+                                        "sample_rate": sample_rate
+                                    })
+
+                                    async for audio_chunk in audio_iter:
+                                        if tts_cancel_event.is_set():
+                                            logger.info("Tail TTS cancelled mid-stream")
+                                            await manager.broadcast({"type": "tts_audio_cancelled"})
+                                            break
+
+                                        await manager.broadcast({
+                                            "type": "tts_audio_chunk",
+                                            "data": base64.b64encode(audio_chunk).decode('utf-8'),
+                                            "chunk_index": chunk_index,
+                                            "is_last": False
+                                        })
+                                        chunk_index += 1
+                                    else:
+                                        # Only send end if we didn't break due to cancellation
+                                        if not tts_cancel_event.is_set():
+                                            await manager.broadcast({"type": "tts_audio_end"})
+                                            logger.info("Completed tail segment TTS")
+                            except asyncio.CancelledError:
+                                logger.info("Tail TTS prefetch cancelled")
+                                await manager.broadcast({"type": "tts_audio_cancelled"})
+                            except Exception as e:
+                                logger.error(f"Tail TTS streaming failed: {e}")
+                                await manager.broadcast({"type": "tts_audio_cancelled"})
                         else:
                             logger.info("No tail segment to play")
                     except Exception as e:

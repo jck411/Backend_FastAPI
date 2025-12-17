@@ -1,6 +1,6 @@
 {
   "enabled": true,
-  "provider": "unrealspeech",
-  "model": "Hannah",
+  "provider": "openai",
+  "model": "alloy",
   "sample_rate": 16000
 }

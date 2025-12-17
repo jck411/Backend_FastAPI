@@ -275,3 +275,89 @@ export async function resetKioskLlmSettings(): Promise<KioskLlmSettings> {
     }
     return response.json();
 }
+
+// ============== Presets ==============
+
+export interface KioskPreset {
+    name: string;
+    // LLM settings
+    model: string;
+    system_prompt: string;
+    temperature: number;
+    max_tokens: number;
+    // STT settings
+    eot_threshold: number;
+    eot_timeout_ms: number;
+    keyterms: string[];
+    // TTS settings
+    tts_enabled: boolean;
+    tts_model: string;
+    tts_sample_rate: number;
+}
+
+export interface KioskPresets {
+    presets: KioskPreset[];
+    active_index: number;
+}
+
+/**
+ * Fetch all kiosk presets from the backend.
+ */
+export async function fetchKioskPresets(): Promise<KioskPresets> {
+    const response = await fetch(`${API_BASE_URL}/api/kiosk/presets`);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch kiosk presets: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+/**
+ * Activate a preset by index. This also applies its settings.
+ */
+export async function activateKioskPreset(index: number): Promise<KioskPresets> {
+    const response = await fetch(`${API_BASE_URL}/api/kiosk/presets/activate`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ index }),
+    });
+    if (!response.ok) {
+        throw new Error(`Failed to activate kiosk preset: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+/**
+ * Update a single preset by index.
+ */
+export async function updateKioskPreset(
+    index: number,
+    preset: KioskPreset
+): Promise<KioskPresets> {
+    const response = await fetch(`${API_BASE_URL}/api/kiosk/presets`, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ index, preset }),
+    });
+    if (!response.ok) {
+        throw new Error(`Failed to update kiosk preset: ${response.statusText}`);
+    }
+    return response.json();
+}
+
+/**
+ * Reset all presets to defaults.
+ */
+export async function resetKioskPresets(): Promise<KioskPresets> {
+    const response = await fetch(`${API_BASE_URL}/api/kiosk/presets/reset`, {
+        method: 'POST',
+    });
+    if (!response.ok) {
+        throw new Error(`Failed to reset kiosk presets: ${response.statusText}`);
+    }
+    return response.json();
+}
+

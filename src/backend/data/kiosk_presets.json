@@ -1,0 +1,57 @@
+{
+  "presets": [
+    {
+      "name": "Concise",
+      "model": "openai/gpt-4o-mini",
+      "system_prompt": "You are a helpful assistant who replies succinctly.",
+      "temperature": 0.7,
+      "max_tokens": 500,
+      "eot_threshold": 0.7,
+      "eot_timeout_ms": 5000,
+      "keyterms": [],
+      "tts_enabled": false,
+      "tts_model": "aura-asteria-en",
+      "tts_sample_rate": 16000
+    },
+    {
+      "name": "Detailed",
+      "model": "openai/gpt-4o-mini",
+      "system_prompt": "You are a helpful voice assistant. Provide thorough, comprehensive answers.",
+      "temperature": 0.7,
+      "max_tokens": 800,
+      "eot_threshold": 0.7,
+      "eot_timeout_ms": 5000,
+      "keyterms": [],
+      "tts_enabled": true,
+      "tts_model": "aura-orpheus-en",
+      "tts_sample_rate": 16000
+    },
+    {
+      "name": "Creative",
+      "model": "openai/gpt-4o-mini",
+      "system_prompt": "You are a creative voice assistant. Be imaginative and engaging.",
+      "temperature": 1.2,
+      "max_tokens": 500,
+      "eot_threshold": 0.7,
+      "eot_timeout_ms": 5000,
+      "keyterms": [],
+      "tts_enabled": true,
+      "tts_model": "aura-asteria-en",
+      "tts_sample_rate": 16000
+    },
+    {
+      "name": "Technical",
+      "model": "openai/gpt-5.2",
+      "system_prompt": "You are a technical voice assistant. Be precise and accurate.",
+      "temperature": 0.3,
+      "max_tokens": 600,
+      "eot_threshold": 0.7,
+      "eot_timeout_ms": 5000,
+      "keyterms": [],
+      "tts_enabled": true,
+      "tts_model": "aura-asteria-en",
+      "tts_sample_rate": 16000
+    }
+  ],
+  "active_index": 0
+}

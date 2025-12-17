@@ -1,4 +1,4 @@
-"""Kiosk API router for STT, TTS, LLM, and MCP settings and related configuration."""
+"""Kiosk API router for STT, TTS, LLM, presets, and MCP settings and related configuration."""
 
 import logging
 from typing import Any
@@ -8,9 +8,11 @@ from fastapi import APIRouter, Request
 from backend.schemas.kiosk_stt_settings import KioskSttSettings, KioskSttSettingsUpdate
 from backend.schemas.kiosk_tts_settings import KioskTtsSettings, KioskTtsSettingsUpdate, DEEPGRAM_VOICES
 from backend.schemas.kiosk_llm_settings import KioskLlmSettings, KioskLlmSettingsUpdate
+from backend.schemas.kiosk_presets import KioskPresets, KioskPreset, KioskPresetUpdate, KioskPresetActivate
 from backend.services.kiosk_stt_settings import get_kiosk_stt_settings_service
 from backend.services.kiosk_tts_settings import get_kiosk_tts_settings_service
 from backend.services.kiosk_llm_settings import get_kiosk_llm_settings_service
+from backend.services.kiosk_presets import get_kiosk_presets_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/kiosk", tags=["Kiosk"])
@@ -107,6 +109,76 @@ async def reset_llm_settings() -> KioskLlmSettings:
     settings = service.reset_to_defaults()
     logger.info("Reset kiosk LLM settings to defaults")
     return settings
+
+
+# ============== Presets ==============
+
+@router.get("/presets", response_model=KioskPresets)
+async def get_presets() -> KioskPresets:
+    """Get all kiosk presets."""
+    service = get_kiosk_presets_service()
+    presets = service.get_presets()
+    logger.debug(f"Returning kiosk presets: {presets}")
+    return presets
+
+
+@router.put("/presets", response_model=KioskPresets)
+async def update_preset(update: KioskPresetUpdate) -> KioskPresets:
+    """Update a single preset by index."""
+    service = get_kiosk_presets_service()
+    presets = service.update_preset(update)
+    logger.info(f"Updated kiosk preset {update.index}: {update.preset.name}")
+    return presets
+
+
+@router.post("/presets/activate", response_model=KioskPresets)
+async def activate_preset(activate: KioskPresetActivate) -> KioskPresets:
+    """Activate a preset by index and apply all its settings (LLM, STT, TTS)."""
+    presets_service = get_kiosk_presets_service()
+    llm_service = get_kiosk_llm_settings_service()
+    stt_service = get_kiosk_stt_settings_service()
+    tts_service = get_kiosk_tts_settings_service()
+
+    # Activate the preset
+    presets = presets_service.activate_preset(activate.index)
+    active_preset = presets.presets[presets.active_index]
+
+    # Apply LLM settings
+    from backend.schemas.kiosk_llm_settings import KioskLlmSettingsUpdate
+    llm_service.update_settings(KioskLlmSettingsUpdate(
+        model=active_preset.model,
+        system_prompt=active_preset.system_prompt,
+        temperature=active_preset.temperature,
+        max_tokens=active_preset.max_tokens,
+    ))
+
+    # Apply STT settings
+    from backend.schemas.kiosk_stt_settings import KioskSttSettingsUpdate
+    stt_service.update_settings(KioskSttSettingsUpdate(
+        eot_threshold=active_preset.eot_threshold,
+        eot_timeout_ms=active_preset.eot_timeout_ms,
+        keyterms=active_preset.keyterms,
+    ))
+
+    # Apply TTS settings
+    from backend.schemas.kiosk_tts_settings import KioskTtsSettingsUpdate
+    tts_service.update_settings(KioskTtsSettingsUpdate(
+        enabled=active_preset.tts_enabled,
+        model=active_preset.tts_model,
+        sample_rate=active_preset.tts_sample_rate,
+    ))
+
+    logger.info(f"Activated kiosk preset: {active_preset.name}")
+    return presets
+
+
+@router.post("/presets/reset", response_model=KioskPresets)
+async def reset_presets() -> KioskPresets:
+    """Reset all presets to defaults."""
+    service = get_kiosk_presets_service()
+    presets = service.reset_to_defaults()
+    logger.info("Reset kiosk presets to defaults")
+    return presets
 
 
 # ============== MCP Server Settings ==============

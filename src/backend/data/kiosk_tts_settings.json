@@ -1,5 +1,5 @@
 {
-  "enabled": true,
+  "enabled": false,
   "provider": "deepgram",
   "model": "aura-asteria-en",
   "sample_rate": 16000

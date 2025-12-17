@@ -1,6 +1,13 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
-  import { fetchTtsVoices } from "../../api/kiosk";
+  import {
+    activateKioskPreset,
+    fetchKioskPresets,
+    fetchTtsVoices,
+    updateKioskPreset,
+    type KioskPreset,
+    type KioskPresets,
+  } from "../../api/kiosk";
   import {
     getDefaultKioskSttSettings,
     kioskSettingsStore,
@@ -9,11 +16,16 @@
   import { modelStore } from "../../stores/models";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
   import "./model-settings/model-settings-styles.css";
+  import "./system-settings.css";
 
   const { filtered } = modelStore;
 
   // Available TTS voices (loaded from API)
   let ttsVoices: string[] = [];
+
+  // Kiosk presets
+  let presets: KioskPresets | null = null;
+  let activatingPreset = false;
 
   export let open = false;
 
@@ -43,17 +55,69 @@
   async function loadSettings(): Promise<void> {
     loading = true;
     try {
-      const [settings, voices] = await Promise.all([
+      const [settings, voices, presetsData] = await Promise.all([
         kioskSettingsStore.load(),
         fetchTtsVoices(),
+        fetchKioskPresets(),
         modelStore.loadModels(),
       ]);
       draft = { ...settings };
       ttsVoices = voices;
+      presets = presetsData;
     } catch (error) {
       statusMessage = "Failed to load settings";
     } finally {
       loading = false;
+    }
+  }
+
+  async function handlePresetClick(index: number): Promise<void> {
+    if (activatingPreset) return;
+    activatingPreset = true;
+    try {
+      presets = await activateKioskPreset(index);
+      // Reload settings to get updated LLM values
+      const settings = await kioskSettingsStore.load();
+      draft = { ...settings };
+      dirty = false;
+    } catch (error) {
+      statusMessage = "Failed to activate preset";
+    } finally {
+      activatingPreset = false;
+    }
+  }
+
+  async function handleSavePreset(): Promise<void> {
+    if (!presets || activatingPreset) return;
+    activatingPreset = true;
+    try {
+      const activeIndex = presets.active_index;
+      const currentPreset = presets.presets[activeIndex];
+      const updatedPreset: KioskPreset = {
+        name: currentPreset.name,
+        // LLM settings
+        model: draft.llm_model,
+        system_prompt: draft.system_prompt ?? "",
+        temperature: draft.temperature,
+        max_tokens: draft.max_tokens,
+        // STT settings
+        eot_threshold: draft.eot_threshold,
+        eot_timeout_ms: draft.eot_timeout_ms,
+        keyterms: draft.keyterms,
+        // TTS settings
+        tts_enabled: draft.enabled,
+        tts_model: draft.tts_model,
+        tts_sample_rate: draft.sample_rate,
+      };
+      presets = await updateKioskPreset(activeIndex, updatedPreset);
+      statusMessage = `Saved to "${currentPreset.name}"`;
+      setTimeout(() => {
+        if (statusMessage?.startsWith("Saved")) statusMessage = null;
+      }, 2000);
+    } catch (error) {
+      statusMessage = "Failed to save preset";
+    } finally {
+      activatingPreset = false;
     }
   }
 
@@ -155,9 +219,10 @@
           </div>
 
           <div class="reasoning-controls">
-            <!-- Model Selection -->
-            <div class="reasoning-field">
-              <div class="setting-select">
+            <!-- Row 1: Model + Presets -->
+            <div class="model-presets-row">
+              <!-- Model Selection -->
+              <div class="setting-select model-select-compact">
                 <label
                   class="setting-label"
                   for="llm-model"
@@ -182,33 +247,64 @@
                   {/each}
                 </select>
               </div>
+
+              <!-- Presets -->
+              {#if presets}
+                <div class="presets-container">
+                  <label class="setting-label" for="preset-select">Preset</label
+                  >
+                  <div class="preset-select-row">
+                    <select
+                      id="preset-select"
+                      class="select-input"
+                      value={presets.active_index}
+                      disabled={saving || activatingPreset}
+                      on:change={(e) =>
+                        handlePresetClick(
+                          parseInt((e.target as HTMLSelectElement).value, 10),
+                        )}
+                    >
+                      {#each presets.presets as preset, index (index)}
+                        <option value={index}>{preset.name}</option>
+                      {/each}
+                    </select>
+                    <button
+                      type="button"
+                      class="btn btn-ghost btn-small"
+                      disabled={saving || activatingPreset}
+                      title="Save current settings to the selected preset"
+                      on:click={handleSavePreset}
+                    >
+                      💾 Save
+                    </button>
+                  </div>
+                </div>
+              {/if}
             </div>
 
-            <!-- System Prompt -->
-            <div class="reasoning-field">
-              <div class="setting-select">
-                <label
-                  class="setting-label"
-                  for="system-prompt"
-                  title="Instructions that define how the assistant behaves."
-                  >System Prompt</label
-                >
-                <textarea
-                  id="system-prompt"
-                  class="keyterms-input"
-                  rows="3"
-                  disabled={saving}
-                  placeholder="You are a helpful voice assistant..."
-                  on:input={(e) => {
-                    draft = {
-                      ...draft,
-                      system_prompt:
-                        (e.target as HTMLTextAreaElement).value || null,
-                    };
-                    markDirty();
-                  }}>{draft.system_prompt ?? ""}</textarea
-                >
-              </div>
+            <!-- Row 2: System Prompt (full width) -->
+            <div class="system-prompt-row">
+              <label
+                class="setting-label"
+                for="system-prompt"
+                title="Instructions that define how the assistant behaves."
+                >System Prompt</label
+              >
+              <textarea
+                id="system-prompt"
+                class="keyterms-input system-prompt"
+                rows="4"
+                disabled={saving}
+                placeholder="You are a helpful voice assistant..."
+                on:input={(e) => {
+                  draft = {
+                    ...draft,
+                    system_prompt:
+                      (e.target as HTMLTextAreaElement).value || null,
+                  };
+                  markDirty();
+                }}>{draft.system_prompt ?? ""}</textarea
+              >
             </div>
 
             <!-- Temperature -->
@@ -686,5 +782,48 @@
   .select-input:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  /* Model + Presets row layout */
+  .model-presets-row {
+    display: flex;
+    gap: 1.5rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    grid-column: 1 / -1; /* Span full width in parent grid */
+  }
+
+  .model-select-compact {
+    flex: 1;
+    min-width: 200px;
+    max-width: 280px;
+  }
+
+  .presets-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    flex: 1;
+    min-width: 180px;
+  }
+
+  .preset-select-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .preset-select-row .select-input {
+    flex: 1;
+    min-width: 120px;
+  }
+
+  .system-prompt-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    margin-top: 0.5rem;
+    grid-column: 1 / -1; /* Span full width in parent grid */
   }
 </style>

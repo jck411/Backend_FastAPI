@@ -1,5 +1,5 @@
 import logging
-from typing import AsyncIterator, Tuple
+from typing import AsyncIterator, Optional, Tuple
 
 import httpx
 
@@ -10,7 +10,20 @@ logger = logging.getLogger(__name__)
 
 
 class TTSService:
-    """Service for Text-to-Speech generation using Deepgram Aura, ElevenLabs, OpenAI, or Unreal Speech."""
+    """
+    Service for Text-to-Speech generation.
+
+    Supports multiple TTS providers: ElevenLabs, OpenAI, Unreal Speech, Deepgram.
+    Uses a singleton httpx.AsyncClient for connection pooling across requests.
+
+    The service is designed for streaming TTS:
+    - stream_synthesize() returns an async iterator of audio chunks
+    - Chunks are yielded as they arrive from the TTS provider
+    - First chunk is yielded immediately for minimal time-to-first-audio
+    """
+
+    # Singleton HTTP client for connection pooling
+    _http_client: Optional[httpx.AsyncClient] = None
 
     def __init__(self):
         settings = get_settings()
@@ -58,6 +71,22 @@ class TTSService:
             logger.warning("No TTS API keys configured. TTS will not be available.")
         else:
             logger.info(f"TTS providers available: {', '.join(providers)}")
+
+    @classmethod
+    def get_http_client(cls) -> httpx.AsyncClient:
+        """Get singleton HTTP client for connection pooling."""
+        if cls._http_client is None:
+            cls._http_client = httpx.AsyncClient(timeout=30.0)
+            logger.info("Created singleton httpx.AsyncClient for TTS")
+        return cls._http_client
+
+    @classmethod
+    async def close_http_client(cls) -> None:
+        """Close the singleton HTTP client. Call on app shutdown."""
+        if cls._http_client is not None:
+            await cls._http_client.aclose()
+            cls._http_client = None
+            logger.info("Closed TTS HTTP client")
 
     async def synthesize(self, text: str) -> Tuple[bytes, int]:
         """
@@ -121,25 +150,43 @@ class TTSService:
     ) -> AsyncIterator[bytes]:
         """
         Buffer small chunks into larger ones for more efficient websocket transmission.
-        IMPORTANT: Yields the first chunk immediately (any size) to start audio playback ASAP,
-        then buffers subsequent chunks to target_size for efficiency.
+        IMPORTANT: Yields the first chunk immediately (if > 0 bytes) to start audio playback ASAP.
+        ENSURES: All yielded chunks are multiples of 2 bytes for 16-bit PCM alignment.
         """
         buffer = bytearray()
         first_chunk_sent = False
 
         async for chunk in stream:
-            if not first_chunk_sent:
-                # Yield first chunk immediately to minimize time-to-first-audio
-                yield chunk
-                first_chunk_sent = True
-            else:
-                buffer.extend(chunk)
-                while len(buffer) >= target_size:
-                    yield bytes(buffer[:target_size])
-                    buffer = buffer[target_size:]
+            buffer.extend(chunk)
 
+            # If we haven't sent first chunk, try to send it ASAP
+            # But must be at least 2 bytes for 16-bit PCM and event length
+            if not first_chunk_sent and len(buffer) >= 2:
+                # Send whatever we have, but rounded down to even number
+                send_len = len(buffer) - (len(buffer) % 2)
+                if send_len > 0:
+                    yield bytes(buffer[:send_len])
+                    buffer = buffer[send_len:]
+                    first_chunk_sent = True
+
+            # Regular buffering
+            while len(buffer) >= target_size:
+                # target_size is even (16*1024), so this stays aligned
+                yield bytes(buffer[:target_size])
+                buffer = buffer[target_size:]
+
+        # yielding any remaining bytes
         if buffer:
-            yield bytes(buffer)
+            # Only yield if we have even number of bytes, or pad?
+            # Usually end of stream is fine, but for safety in frontend:
+            # If odd, we could pad with 0 or just drop the last byte.
+            # Dropping last byte of PCM stream is safer than misalignment.
+            if len(buffer) % 2 != 0:
+                logger.warning(f"Dropping 1 byte from end of TTS stream to maintain 16-bit alignment")
+                buffer = buffer[:-1]
+
+            if buffer:
+                yield bytes(buffer)
 
     async def _stream_fallback(self, text: str, tts_settings, synthesize_fn) -> Tuple[int, AsyncIterator[bytes]]:
         """Fallback streaming by chunking a full synthesis response."""
@@ -207,21 +254,22 @@ class TTSService:
         }
         payload = {"text": text}
 
+        client = self.get_http_client()
+
         async def _stream():
             try:
-                async with httpx.AsyncClient() as client:
-                    async with client.stream(
-                        "POST",
-                        self.deepgram_base_url,
-                        params=params,
-                        headers=headers,
-                        json=payload,
-                        timeout=30.0,
-                    ) as response:
-                        response.raise_for_status()
-                        async for chunk in response.aiter_bytes():
-                            if chunk:
-                                yield chunk
+                async with client.stream(
+                    "POST",
+                    self.deepgram_base_url,
+                    params=params,
+                    headers=headers,
+                    json=payload,
+                    timeout=30.0,
+                ) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_bytes():
+                        if chunk:
+                            yield chunk
             except Exception as exc:
                 logger.error(f"Deepgram streaming TTS error: {exc}")
 
@@ -325,21 +373,22 @@ class TTSService:
             "speed": 0.9,
         }
 
+        client = self.get_http_client()
+
         async def _stream():
             try:
-                async with httpx.AsyncClient() as client:
-                    async with client.stream(
-                        "POST",
-                        url,
-                        params={"output_format": output_format},
-                        headers=headers,
-                        json=payload,
-                        timeout=30.0,
-                    ) as response:
-                        response.raise_for_status()
-                        async for chunk in response.aiter_bytes():
-                            if chunk:
-                                yield chunk
+                async with client.stream(
+                    "POST",
+                    url,
+                    params={"output_format": output_format},
+                    headers=headers,
+                    json=payload,
+                    timeout=30.0,
+                ) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_bytes():
+                        if chunk:
+                            yield chunk
             except Exception as exc:
                 logger.error(f"ElevenLabs streaming TTS error: {exc}")
 
@@ -400,20 +449,21 @@ class TTSService:
             "speed": 1.0,
         }
 
+        client = self.get_http_client()
+
         async def _stream():
             try:
-                async with httpx.AsyncClient() as client:
-                    async with client.stream(
-                        "POST",
-                        self.openai_base_url,
-                        headers=headers,
-                        json=payload,
-                        timeout=30.0,
-                    ) as response:
-                        response.raise_for_status()
-                        async for chunk in response.aiter_bytes():
-                            if chunk:
-                                yield chunk
+                async with client.stream(
+                    "POST",
+                    self.openai_base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=30.0,
+                ) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_bytes():
+                        if chunk:
+                            yield chunk
             except Exception as exc:
                 logger.error(f"OpenAI streaming TTS error: {exc}")
                 return
@@ -483,20 +533,21 @@ class TTSService:
             "Codec": "pcm_s16le",
         }
 
+        client = self.get_http_client()
+
         async def _stream():
             try:
-                async with httpx.AsyncClient() as client:
-                    async with client.stream(
-                        "POST",
-                        self.unrealspeech_base_url,
-                        headers=headers,
-                        json=payload,
-                        timeout=30.0,
-                    ) as response:
-                        response.raise_for_status()
-                        async for chunk in response.aiter_bytes():
-                            if chunk:
-                                yield chunk
+                async with client.stream(
+                    "POST",
+                    self.unrealspeech_base_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=30.0,
+                ) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_bytes():
+                        if chunk:
+                            yield chunk
             except Exception as exc:
                 logger.error(f"Unreal Speech streaming TTS error: {exc}")
                 return

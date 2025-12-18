@@ -17,10 +17,16 @@ export default function App() {
     const [agentState, setAgentState] = useState("IDLE");
     const [toolStatus, setToolStatus] = useState(null);  // { name: string, status: 'started' | 'finished' | 'error' }
     const [idleReturnDelay, setIdleReturnDelay] = useState(10000); // Default 10s
-    const audioRef = useRef(null);
     const messagesEndRef = useRef(null);
-    const ttsAudioChunksRef = useRef([]);  // Accumulate TTS audio chunks
-    const ttsSampleRateRef = useRef(16000); // Default to 16kHz
+
+    // Web Audio API for streaming TTS playback
+    // Using refs to persist across re-renders without triggering updates
+    const audioContextRef = useRef(null);
+    const nextPlayTimeRef = useRef(0);
+    const ttsSampleRateRef = useRef(24000); // Default to 24kHz (OpenAI default)
+    const isPlayingRef = useRef(false);
+    const hasStartedRef = useRef(false);
+    const scheduledSourcesRef = useRef([]); // Track scheduled audio sources for cancellation
 
     // Fetch UI settings on mount
     useEffect(() => {
@@ -49,87 +55,110 @@ export default function App() {
         reconnectInterval: 3000,
     });
 
-    // Play TTS audio
-    const playAudio = (base64Audio) => {
+    /**
+     * Initialize or get the AudioContext.
+     * Must be called after user interaction (e.g., on first audio chunk).
+     */
+    const getAudioContext = () => {
+        if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+            audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({
+                sampleRate: ttsSampleRateRef.current
+            });
+            console.log(`Created AudioContext with sample rate: ${ttsSampleRateRef.current}`);
+        }
+        // Resume if suspended (required after user interaction in some browsers)
+        if (audioContextRef.current.state === 'suspended') {
+            audioContextRef.current.resume();
+        }
+        return audioContextRef.current;
+    };
+
+    /**
+     * Play a PCM audio chunk immediately using Web Audio API.
+     * Schedules the audio buffer for gapless playback.
+     */
+    const playAudioChunk = (base64Audio) => {
         try {
-            // Convert base64 to audio blob (PCM 16-bit, mono)
+            const ctx = getAudioContext();
+
+            // Decode base64 to binary
             const binaryString = atob(base64Audio);
             const bytes = new Uint8Array(binaryString.length);
             for (let i = 0; i < binaryString.length; i++) {
                 bytes[i] = binaryString.charCodeAt(i);
             }
 
-            // Create WAV header for PCM data
-            const sampleRate = ttsSampleRateRef.current;
-            const numChannels = 1;
-            const bitsPerSample = 16;
-            const byteRate = sampleRate * numChannels * bitsPerSample / 8;
-            const blockAlign = numChannels * bitsPerSample / 8;
-            const dataSize = bytes.length;
-            const fileSize = 44 + dataSize;
+            // Convert 16-bit PCM to Float32 for Web Audio API
+            const samples = new Int16Array(bytes.buffer);
+            const floatSamples = new Float32Array(samples.length);
+            for (let i = 0; i < samples.length; i++) {
+                floatSamples[i] = samples[i] / 32768.0; // Normalize to [-1, 1]
+            }
 
-            const wavBuffer = new ArrayBuffer(fileSize);
-            const view = new DataView(wavBuffer);
+            // Create audio buffer
+            const audioBuffer = ctx.createBuffer(1, floatSamples.length, ttsSampleRateRef.current);
+            audioBuffer.getChannelData(0).set(floatSamples);
 
-            // RIFF header
-            view.setUint32(0, 0x52494646, false); // "RIFF"
-            view.setUint32(4, fileSize - 8, true);
-            view.setUint32(8, 0x57415645, false); // "WAVE"
+            // Create source node
+            const source = ctx.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(ctx.destination);
 
-            // fmt chunk
-            view.setUint32(12, 0x666d7420, false); // "fmt "
-            view.setUint32(16, 16, true); // chunk size
-            view.setUint16(20, 1, true); // audio format (PCM)
-            view.setUint16(22, numChannels, true);
-            view.setUint32(24, sampleRate, true);
-            view.setUint32(28, byteRate, true);
-            view.setUint16(32, blockAlign, true);
-            view.setUint16(34, bitsPerSample, true);
+            // Calculate when to play this chunk (gapless scheduling)
+            const currentTime = ctx.currentTime;
+            const startTime = Math.max(nextPlayTimeRef.current, currentTime);
 
-            // data chunk
-            view.setUint32(36, 0x64617461, false); // "data"
-            view.setUint32(40, dataSize, true);
+            // Schedule playback
+            source.start(startTime);
+            scheduledSourcesRef.current.push(source);
 
-            // Copy PCM data
-            const wavBytes = new Uint8Array(wavBuffer);
-            wavBytes.set(bytes, 44);
+            // Update next play time for gapless playback
+            nextPlayTimeRef.current = startTime + audioBuffer.duration;
 
-            const blob = new Blob([wavBytes], { type: 'audio/wav' });
-            const url = URL.createObjectURL(blob);
-
-            if (audioRef.current) {
-                audioRef.current.src = url;
-
-                // Remove existing listeners to avoid duplicates if any
-                audioRef.current.onplay = () => {
-                    console.log("Audio started playing");
-                    sendMessage(JSON.stringify({ type: "tts_playback_start" }));
-                };
-
-                audioRef.current.onended = () => {
-                    console.log("Audio finished playing");
-                    sendMessage(JSON.stringify({ type: "tts_playback_end" }));
-                };
-
-                audioRef.current.play().catch(e => console.error("Audio play failed:", e));
+            // Send playback start event on first chunk
+            if (!hasStartedRef.current) {
+                hasStartedRef.current = true;
+                isPlayingRef.current = true;
+                console.log("🎵 Audio playback started (streaming)");
+                sendMessage(JSON.stringify({ type: "tts_playback_start" }));
             }
         } catch (e) {
-            console.error("Failed to play audio:", e);
+            console.error("Failed to play audio chunk:", e);
         }
     };
 
-    // Stop TTS audio immediately (for barge-in)
+    /**
+     * Stop all audio playback immediately (for barge-in).
+     * Stops all scheduled sources and resets state.
+     */
     const stopAudio = () => {
-        if (audioRef.current) {
-            console.log("🛑 Stopping TTS audio (barge-in)");
-            audioRef.current.pause();
-            audioRef.current.currentTime = 0;
-            audioRef.current.src = '';
-            // Manually trigger playback end event since we're interrupting
-            sendMessage(JSON.stringify({ type: "tts_playback_end" }));
+        console.log("🛑 Stopping TTS audio (barge-in)");
+
+        // Stop all scheduled audio sources
+        for (const source of scheduledSourcesRef.current) {
+            try {
+                source.stop();
+            } catch (e) {
+                // Source may have already finished
+            }
         }
-        // Clear any pending audio chunks
-        ttsAudioChunksRef.current = [];
+        scheduledSourcesRef.current = [];
+
+        // Close and recreate audio context for clean slate
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+            audioContextRef.current.close();
+            audioContextRef.current = null;
+        }
+
+        // Reset playback state
+        nextPlayTimeRef.current = 0;
+
+        // Only send end event if we were playing
+        if (isPlayingRef.current || hasStartedRef.current) {
+            sendMessage(JSON.stringify({ type: "tts_playback_end" }));
+            isPlayingRef.current = false;
+            hasStartedRef.current = false;
+        }
     };
 
     const scrollToBottom = () => {
@@ -191,54 +220,53 @@ export default function App() {
                     console.log('🛑 Received interrupt_tts - stopping audio playback');
                     stopAudio();
                 } else if (data.type === 'tts_audio_start') {
-                    // Start of chunked TTS audio - reset buffer
-                    console.log('TTS audio stream starting:', data.total_bytes, 'bytes in', data.total_chunks, 'chunks', 'sample_rate:', data.sample_rate);
-                    ttsAudioChunksRef.current = [];
-                    ttsSampleRateRef.current = data.sample_rate || 16000;
+                    // Start of TTS audio stream - reset state and store sample rate
+                    console.log('🎵 TTS stream starting, sample_rate:', data.sample_rate);
+
+                    // Reset state for new audio stream
+                    nextPlayTimeRef.current = 0;
+                    hasStartedRef.current = false;
+                    isPlayingRef.current = false;
+                    scheduledSourcesRef.current = [];
+
+                    // Store sample rate for AudioContext creation
+                    ttsSampleRateRef.current = data.sample_rate || 24000;
+
+                    // Close existing context if sample rate changed
+                    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+                        audioContextRef.current.close();
+                        audioContextRef.current = null;
+                    }
                 } else if (data.type === 'tts_audio_chunk') {
-                    // Accumulate audio chunk
-                    ttsAudioChunksRef.current.push(data.data);
-                    if (data.is_last) {
-                        console.log('Received last TTS chunk, assembling audio...');
-                    }
+                    // Play audio chunk IMMEDIATELY using Web Audio API
+                    playAudioChunk(data.data);
                 } else if (data.type === 'tts_audio_end') {
-                    // All chunks received - assemble and play
-                    console.log('TTS audio stream complete, playing', ttsAudioChunksRef.current.length, 'chunks');
-                    if (ttsAudioChunksRef.current.length > 0) {
-                        // Decode each base64 chunk to binary, then concatenate
-                        // (Can't just join base64 strings due to padding)
-                        const binaryChunks = ttsAudioChunksRef.current.map(b64 => {
-                            const binaryString = atob(b64);
-                            const bytes = new Uint8Array(binaryString.length);
-                            for (let i = 0; i < binaryString.length; i++) {
-                                bytes[i] = binaryString.charCodeAt(i);
-                            }
-                            return bytes;
-                        });
+                    // Audio stream complete - send playback end after all scheduled audio finishes
+                    console.log('TTS stream complete');
 
-                        // Calculate total length and concatenate
-                        const totalLength = binaryChunks.reduce((sum, chunk) => sum + chunk.length, 0);
-                        const fullAudio = new Uint8Array(totalLength);
-                        let offset = 0;
-                        for (const chunk of binaryChunks) {
-                            fullAudio.set(chunk, offset);
-                            offset += chunk.length;
-                        }
+                    // Calculate when all audio will finish
+                    if (audioContextRef.current && hasStartedRef.current) {
+                        const timeUntilDone = Math.max(0, nextPlayTimeRef.current - audioContextRef.current.currentTime);
+                        console.log(`All audio scheduled, will complete in ${(timeUntilDone * 1000).toFixed(0)}ms`);
 
-                        // Re-encode to base64 for playAudio function
-                        let binary = '';
-                        for (let i = 0; i < fullAudio.length; i++) {
-                            binary += String.fromCharCode(fullAudio[i]);
-                        }
-                        const fullBase64 = btoa(binary);
-
-                        playAudio(fullBase64);
-                        ttsAudioChunksRef.current = [];
+                        // Send playback end event after all audio finishes
+                        setTimeout(() => {
+                            console.log("Audio playback finished");
+                            sendMessage(JSON.stringify({ type: "tts_playback_end" }));
+                            isPlayingRef.current = false;
+                            hasStartedRef.current = false;
+                            scheduledSourcesRef.current = [];
+                        }, timeUntilDone * 1000 + 100); // +100ms buffer
                     }
+                } else if (data.type === 'tts_audio_cancelled') {
+                    // TTS was cancelled on backend - clean up
+                    console.log('TTS cancelled by backend');
+                    stopAudio();
                 } else if (data.type === 'tts_audio') {
                     // Legacy: single audio message (backward compatibility)
-                    console.log('Received TTS audio (legacy), length:', data.data?.length);
-                    playAudio(data.data);
+                    // Play it as a single chunk
+                    console.log('Received TTS audio (legacy), playing immediately');
+                    playAudioChunk(data.data);
                 } else if (data.type === 'state') {
                     setAgentState(data.state);
 
@@ -304,8 +332,7 @@ export default function App() {
 
     return (
         <div className="w-screen h-screen bg-black overflow-hidden relative font-sans text-white select-none">
-            {/* Hidden audio element for TTS playback */}
-            <audio ref={audioRef} />
+            {/* Web Audio API is used for TTS playback - no HTML audio element needed */}
 
             <AnimatePresence mode="popLayout" initial={false}>
                 <motion.div

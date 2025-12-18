@@ -55,7 +55,10 @@ class DeepgramSession:
         self._socket = None
         self._ready = threading.Event()
         self._running = False
+        self._ready = threading.Event()
+        self._running = False
         self._listening_thread = None
+        self._paused = False  # Track pause state
 
     def _handle_message(self, result):
         """Handle transcript messages from Deepgram."""
@@ -197,15 +200,29 @@ class DeepgramSession:
     def send_audio(self, data: bytes):
         """Send audio to Deepgram."""
         if self._socket and self._ready.is_set():
+            if self._paused:
+                return  # Drop audio when paused
+
             try:
                 self._socket.send_media(data)
             except Exception as e:
                 logger.error(f"Error sending audio for {self.session_id}: {e}")
 
+    def pause(self):
+        """Pause audio streaming (mute)."""
+        self._paused = True
+        logger.debug(f"Deepgram session {self.session_id} PAUSED")
+
+    def resume(self):
+        """Resume audio streaming (unmute)."""
+        self._paused = False
+        logger.debug(f"Deepgram session {self.session_id} RESUMED")
+
     def close(self):
         """Close connection."""
         self._running = False
         self._ready.clear()
+        self._paused = False
         if self._context_manager:
             try:
                 self._context_manager.__exit__(None, None, None)
@@ -306,3 +323,15 @@ class STTService:
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, session.close)
             logger.info(f"STT session closed for {session_id}")
+
+    def pause_session(self, session_id: str):
+        """Pause a specific STT session."""
+        session = self.sessions.get(session_id)
+        if session:
+            session.pause()
+
+    def resume_session(self, session_id: str):
+        """Resume a specific STT session."""
+        session = self.sessions.get(session_id)
+        if session:
+            session.resume()

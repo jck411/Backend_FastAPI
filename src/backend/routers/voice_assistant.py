@@ -1,13 +1,10 @@
 import asyncio
 import base64
-import json
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Optional
 
-import re
-
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.services.voice_session import VoiceConnectionManager
 from backend.services.stt_service import STTService
@@ -15,95 +12,7 @@ from backend.services.tts_service import TTSService
 from backend.services.kiosk_chat_service import KioskChatService
 from backend.services.kiosk_llm_settings import get_kiosk_llm_settings_service
 from backend.services.kiosk_ui_settings import get_kiosk_ui_settings_service
-
-
-class TwoSegmentSplitter:
-    """Stateful splitter that emits a head segment within word bounds and returns the remainder as tail."""
-
-    # Sentence boundary pattern that avoids splitting inside decimals and abbreviations.
-    # Matches punctuation followed by whitespace or end-of-text, but NOT between digits.
-    # Also handles newlines as sentence boundaries.
-    SENTENCE_END_PATTERN = re.compile(
-        r'(?<!\d)[.!?](?=\s|$)|'  # Punctuation not preceded by digit, followed by space/end
-        r'(?<=\d)[.!?](?=\s+[A-Z])|'  # After digit but followed by space + capital (new sentence)
-        r'\n'  # Newlines always count as sentence boundaries
-    )
-
-    def __init__(self, min_head_words: int = 8, max_head_words: int = 20):
-        self.min_head_words = min_head_words
-        self.max_head_words = max_head_words
-        self._buffer = ""
-        self._tail_parts = []
-        self._head_text: Optional[str] = None
-        self._head_reason: Optional[str] = None
-        self._head_word_count: Optional[int] = None
-
-    @staticmethod
-    def _count_words_until(text: str, position: int) -> int:
-        words = list(re.finditer(r"\S+", text[:position]))
-        return len(words)
-
-    def consume(self, chunk: str) -> Optional[Dict[str, Any]]:
-        """Consume a chunk and return head info when the split is decided."""
-        if not chunk:
-            return None
-
-        if self._head_text is not None:
-            self._tail_parts.append(chunk)
-            return None
-
-        self._buffer += chunk
-
-        head_info = self._maybe_emit_head()
-        if head_info:
-            head_text, tail_remainder, reason, word_count = head_info
-            self._head_text = head_text
-            self._head_reason = reason
-            self._head_word_count = word_count
-            self._buffer = ""
-            if tail_remainder:
-                self._tail_parts.append(tail_remainder)
-            return {
-                "text": head_text,
-                "reason": reason,
-                "word_count": word_count,
-            }
-
-        return None
-
-    def _maybe_emit_head(self) -> Optional[tuple[str, str, str, int]]:
-        word_spans = list(re.finditer(r"\S+", self._buffer))
-        total_words = len(word_spans)
-
-        if total_words < self.min_head_words:
-            return None
-
-        # Prefer a sentence boundary within word bounds
-        for match in self.SENTENCE_END_PATTERN.finditer(self._buffer):
-            delimiter_end = match.end()
-            words_until = self._count_words_until(self._buffer, delimiter_end)
-            if self.min_head_words <= words_until <= self.max_head_words:
-                head_text = self._buffer[:delimiter_end]
-                tail_remainder = self._buffer[delimiter_end:]
-                return head_text, tail_remainder, "delimiter", words_until
-
-        # Force split at max words if needed
-        if total_words >= self.max_head_words:
-            split_at = word_spans[self.max_head_words - 1].end()
-            head_text = self._buffer[:split_at]
-            tail_remainder = self._buffer[split_at:]
-            return head_text, tail_remainder, "max_words", self.max_head_words
-
-        return None
-
-    def finalize(self) -> tuple[str, str, Optional[str], Optional[int]]:
-        """Finalize and return head, tail, reason, and word count."""
-        if self._head_text is None:
-            # No split happened; entire response is the head
-            return self._buffer, "", None, self._count_words_until(self._buffer, len(self._buffer))
-
-        tail_text = "".join(self._tail_parts)
-        return self._head_text, tail_text, self._head_reason, self._head_word_count
+from backend.services.tts import TextSegmenter, TTSProcessor
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 logger = logging.getLogger(__name__)
@@ -118,6 +27,11 @@ async def handle_connection(
 ):
     """
     Main loop for handling a single client's WebSocket connection.
+
+    Uses queue-based TTS pipeline:
+    - TextSegmenter splits LLM chunks into phrases at delimiters (min 25 chars)
+    - TTSProcessor synthesizes phrases and broadcasts audio chunks via WebSocket
+    - Frontend plays audio immediately using Web Audio API
     """
     await manager.connect(websocket, client_id)
 
@@ -130,62 +44,6 @@ async def handle_connection(
         if tts_task and not tts_task.done():
             tts_task.cancel()
             logger.info(f"Cancelled active TTS task for {client_id}")
-
-    async def stream_tts_segment(text: str, segment_label: str):
-        nonlocal tts_cancel_event
-        try:
-            import time
-            start_time = time.monotonic()
-            logger.info(f"Starting TTS for segment '{segment_label}' ({len(text.split())} words)")
-            sample_rate, audio_iter = await tts_service.stream_synthesize(text)
-            synth_time = time.monotonic() - start_time
-            logger.info(f"TTS synthesis setup took {synth_time*1000:.0f}ms for '{segment_label}'")
-
-            if sample_rate == 0:
-                logger.warning(f"TTS not available for segment '{segment_label}'")
-                return
-
-            chunk_index = 0
-            await manager.broadcast({
-                "type": "tts_audio_start",
-                "total_bytes": None,
-                "total_chunks": None,
-                "sample_rate": sample_rate
-            })
-
-            first_chunk_time = None
-            async for audio_chunk in audio_iter:
-                if chunk_index == 0:
-                    first_chunk_time = time.monotonic() - start_time
-                    logger.info(f"🎵 First audio chunk received in {first_chunk_time*1000:.0f}ms for '{segment_label}'")
-
-                if tts_cancel_event.is_set():
-                    logger.info(f"TTS cancelled mid-stream for segment '{segment_label}'")
-                    await manager.broadcast({"type": "tts_audio_cancelled"})
-                    return
-
-                await manager.broadcast({
-                    "type": "tts_audio_chunk",
-                    "data": base64.b64encode(audio_chunk).decode('utf-8'),
-                    "chunk_index": chunk_index,
-                    "is_last": False
-                })
-                chunk_index += 1
-
-            if tts_cancel_event.is_set():
-                logger.info(f"TTS cancelled before completion for segment '{segment_label}'")
-                await manager.broadcast({"type": "tts_audio_cancelled"})
-                return
-
-            await manager.broadcast({"type": "tts_audio_end"})
-            logger.info(f"Completed TTS for segment '{segment_label}'")
-        except asyncio.CancelledError:
-            logger.info(f"TTS task cancelled for segment '{segment_label}'")
-            await manager.broadcast({"type": "tts_audio_cancelled"})
-        except Exception as exc:
-            logger.error(f"TTS streaming failed for segment '{segment_label}': {exc}", exc_info=True)
-            # Also send cancelled on error so frontend doesn't hang
-            await manager.broadcast({"type": "tts_audio_cancelled"})
 
 
     async def start_stt_session():
@@ -206,12 +64,26 @@ async def handle_connection(
                 # Transition to PROCESSING
                 await manager.update_state(client_id, "PROCESSING")
 
-                # Generate LLM response with streaming
+                # Generate LLM response with streaming + queue-based TTS
                 nonlocal tts_cancel_event, tts_task
                 tts_cancel_event = asyncio.Event()
                 full_response = ""
-                splitter = TwoSegmentSplitter()
-                head_tts_task: Optional[asyncio.Task] = None
+
+                # Create queues for the pipeline
+                phrase_queue: asyncio.Queue[str | None] = asyncio.Queue()
+
+                # Initialize segmenter with min 25 chars before first delimiter
+                segmenter = TextSegmenter(min_chars=25)
+
+                # Initialize processor (will broadcast audio chunks to WebSocket)
+                processor = TTSProcessor(tts_service, manager)
+
+                # Start TTS processor task BEFORE LLM streaming
+                # This ensures it's ready to process phrases immediately
+                tts_task = asyncio.create_task(
+                    processor.process(phrase_queue, tts_cancel_event, stt_service)
+                )
+
                 try:
                     # Signal start of streaming response
                     await manager.broadcast({"type": "assistant_response_start"})
@@ -222,13 +94,11 @@ async def handle_connection(
                             full_response += chunk
                             await manager.broadcast({"type": "assistant_response_chunk", "text": chunk})
 
-                            head_ready = splitter.consume(chunk)
-                            if head_ready and head_tts_task is None:
-                                logger.info(
-                                    f"Emitting head segment at {head_ready['word_count']} words (reason: {head_ready['reason']})"
-                                )
-                                head_tts_task = asyncio.create_task(stream_tts_segment(head_ready["text"], "head"))
-                                tts_task = head_tts_task
+                            # Feed chunks to segmenter, emit phrases to queue
+                            for phrase in segmenter.consume(chunk):
+                                logger.info(f"Emitting phrase ({len(phrase)} chars): {phrase[:40]}...")
+                                await phrase_queue.put(phrase)
+
                         elif event["type"] == "tool_status":
                             await manager.broadcast({
                                 "type": "tool_status",
@@ -236,116 +106,50 @@ async def handle_connection(
                                 "name": event["name"],
                             })
                         elif event["type"] == "error":
-                            # Cancel any head TTS in progress to avoid speaking partial text
-                            if head_tts_task and not head_tts_task.done():
-                                head_tts_task.cancel()
-                                try:
-                                    await head_tts_task
-                                except asyncio.CancelledError:
-                                    pass
-                                head_tts_task = None
-                            # Reset splitter - we won't use its output
-                            splitter = TwoSegmentSplitter()
                             full_response = event.get("message", "Sorry, I encountered an error.")
+                            # Put error message as single phrase
+                            await phrase_queue.put(full_response)
                             break
+
+                    # Flush any remaining text from segmenter
+                    final_phrase = segmenter.flush()
+                    if final_phrase:
+                        logger.info(f"Flushing final phrase ({len(final_phrase)} chars)")
+                        await phrase_queue.put(final_phrase)
+
+                    # Signal end to phrase queue
+                    await phrase_queue.put(None)
 
                     # Signal end of streaming (with full text for backward compatibility)
                     await manager.broadcast({"type": "assistant_response_end", "text": full_response})
 
                 except Exception as e:
                     logger.error(f"LLM generation failed for {client_id}: {e}", exc_info=True)
-                    full_response = "Sorry, I couldn't process that request."
-                    await manager.broadcast({"type": "assistant_response_end", "text": full_response})
+                    await phrase_queue.put("Sorry, I couldn't process that request.")
+                    await phrase_queue.put(None)
+                    await manager.broadcast({"type": "assistant_response_end", "text": "Sorry, I couldn't process that request."})
 
-                response_text = full_response.strip() if full_response else "Action completed."
-
-                if response_text:
+                # Wait for TTS processing to complete
+                if tts_task:
                     await manager.update_state(client_id, "SPEAKING")
-
-                    # Use streaming TTS with two segments
-                    # Key optimization: Start tail synthesis in parallel with head playback
                     try:
-                        head_text, tail_text, head_reason, head_word_count = splitter.finalize()
+                        await tts_task
+                    except asyncio.CancelledError:
+                        logger.info("TTS task was cancelled")
+                    finally:
+                        tts_task = None
 
-                        # If head wasn't started during streaming, start it now
-                        if head_tts_task is None and head_text:
-                            logger.info(
-                                f"Emitting head segment at {head_word_count} words (reason: {head_reason or 'end_of_stream'})"
-                            )
-                            head_tts_task = asyncio.create_task(stream_tts_segment(head_text, "head"))
-                            tts_task = head_tts_task
-
-                        # Pre-fetch tail audio while head is playing
-                        # This starts the TTS API call immediately so chunks are ready
-                        tail_audio_prefetch = None
-                        if tail_text:
-                            logger.info(f"Pre-fetching tail TTS ({len(tail_text.split())} words) while head plays")
-                            tail_audio_prefetch = asyncio.create_task(
-                                tts_service.stream_synthesize(tail_text)
-                            )
-
-                        # Wait for head to finish playing
-                        if head_tts_task:
-                            try:
-                                await head_tts_task
-                            finally:
-                                tts_task = None
-
-                        # Now stream the pre-fetched tail audio
-                        if tail_audio_prefetch:
-                            try:
-                                sample_rate, audio_iter = await tail_audio_prefetch
-                                if sample_rate > 0:
-                                    logger.info("Streaming pre-fetched tail segment")
-                                    # Stream directly instead of creating a new synthesis task
-                                    chunk_index = 0
-                                    await manager.broadcast({
-                                        "type": "tts_audio_start",
-                                        "total_bytes": None,
-                                        "total_chunks": None,
-                                        "sample_rate": sample_rate
-                                    })
-
-                                    async for audio_chunk in audio_iter:
-                                        if tts_cancel_event.is_set():
-                                            logger.info("Tail TTS cancelled mid-stream")
-                                            await manager.broadcast({"type": "tts_audio_cancelled"})
-                                            break
-
-                                        await manager.broadcast({
-                                            "type": "tts_audio_chunk",
-                                            "data": base64.b64encode(audio_chunk).decode('utf-8'),
-                                            "chunk_index": chunk_index,
-                                            "is_last": False
-                                        })
-                                        chunk_index += 1
-                                    else:
-                                        # Only send end if we didn't break due to cancellation
-                                        if not tts_cancel_event.is_set():
-                                            await manager.broadcast({"type": "tts_audio_end"})
-                                            logger.info("Completed tail segment TTS")
-                            except asyncio.CancelledError:
-                                logger.info("Tail TTS prefetch cancelled")
-                                await manager.broadcast({"type": "tts_audio_cancelled"})
-                            except Exception as e:
-                                logger.error(f"Tail TTS streaming failed: {e}")
-                                await manager.broadcast({"type": "tts_audio_cancelled"})
-                        else:
-                            logger.info("No tail segment to play")
-                    except Exception as e:
-                        logger.error(f"TTS generation failed: {e}")
-
-                    try:
-                        # Check conversation mode
-                        llm_settings = get_kiosk_llm_settings_service().get_settings()
-                        if llm_settings.conversation_mode:
-                            logger.info(f"Conversation mode active for {client_id}, listening for reply")
-                            await manager.update_state(client_id, "LISTENING")
-                        else:
-                            await manager.update_state(client_id, "IDLE")
-                    except Exception as e:
-                        logger.error(f"Error transitioning state after speaking: {e}")
+                # Transition back based on conversation mode
+                try:
+                    llm_settings = get_kiosk_llm_settings_service().get_settings()
+                    if llm_settings.conversation_mode:
+                        logger.info(f"Conversation mode active for {client_id}, listening for reply")
+                        await manager.update_state(client_id, "LISTENING")
+                    else:
                         await manager.update_state(client_id, "IDLE")
+                except Exception as e:
+                    logger.error(f"Error transitioning state after speaking: {e}")
+                    await manager.update_state(client_id, "IDLE")
 
         async def on_stt_error(error: str):
             logger.error(f"STT Error for {client_id}: {error}")
@@ -426,6 +230,9 @@ async def handle_connection(
             elif event_type == "tts_playback_start":
                 logger.info(f"TTS playback started for {client_id} - Muting ALL clients (State -> SPEAKING)")
                 await manager.set_all_states("SPEAKING")
+                # Redundant safety: Ensure all ears are closed
+                for cid in manager.active_connections:
+                    stt_service.pause_session(cid)
 
             elif event_type == "tts_playback_end":
                 logger.info(f"TTS playback ended for {client_id}")
@@ -434,13 +241,22 @@ async def handle_connection(
                     llm_settings = get_kiosk_llm_settings_service().get_settings()
                     if llm_settings.conversation_mode:
                         logger.info(f"Conversation mode ON - resuming listening")
+                        # Resume ALL clients
+                        for cid in manager.active_connections:
+                            stt_service.resume_session(cid)
                         await manager.set_all_states("LISTENING")
                         # Re-initialize STT session for follow-up
                     else:
                         logger.info(f"Conversation mode OFF - going to IDLE")
+                        # Resume ALL clients
+                        for cid in manager.active_connections:
+                            stt_service.resume_session(cid)
                         await manager.set_all_states("IDLE")
                 except Exception as e:
                     logger.error(f"Error checking conversation mode: {e}")
+                    # Safety: Resume all
+                    for cid in manager.active_connections:
+                        stt_service.resume_session(cid)
                     await manager.set_all_states("IDLE")
 
             elif event_type == "stream_end":

@@ -27,12 +27,13 @@ import {
 } from '../api/kiosk';
 
 // Combined settings type (note: TTS model and LLM model have different names to avoid conflicts)
-export interface KioskSettings extends KioskSttSettings, Omit<KioskTtsSettings, 'model'>, KioskUiSettings, Omit<KioskLlmSettings, 'model'> {
-    tts_model: string;  // TTS voice model (renamed from TTS settings)
+// Combined settings type - TTS 'voice' maps to tts_voice, LLM 'model' maps to llm_model
+export interface KioskSettings extends KioskSttSettings, Omit<KioskTtsSettings, 'voice'>, KioskUiSettings, Omit<KioskLlmSettings, 'model'> {
+    tts_voice: string;  // TTS voice (renamed from TTS settings 'voice')
     llm_model: string;  // LLM model (renamed from LLM settings)
 }
-export interface KioskSettingsUpdate extends KioskSttSettingsUpdate, Omit<KioskTtsSettingsUpdate, 'model'>, KioskUiSettingsUpdate, Omit<KioskLlmSettingsUpdate, 'model'> {
-    tts_model?: string;
+export interface KioskSettingsUpdate extends KioskSttSettingsUpdate, Omit<KioskTtsSettingsUpdate, 'voice'>, KioskUiSettingsUpdate, Omit<KioskLlmSettingsUpdate, 'model'> {
+    tts_voice?: string;
     llm_model?: string;
 }
 
@@ -45,9 +46,15 @@ export const DEFAULT_KIOSK_STT_SETTINGS: KioskSttSettings = {
 
 export const DEFAULT_KIOSK_TTS_SETTINGS: KioskTtsSettings = {
     enabled: true,
-    provider: 'deepgram',
-    model: 'aura-asteria-en',
-    sample_rate: 16000,
+    provider: 'openai',
+    voice: 'alloy',
+    model: 'tts-1',
+    speed: 1.0,
+    response_format: 'pcm',
+    use_segmentation: true,
+    delimiters: ['\n', '. ', '? ', '! ', '* '],
+    character_maximum: 50,
+    sample_rate: 24000,
 };
 
 export const DEFAULT_KIOSK_UI_SETTINGS: KioskUiSettings = {
@@ -65,7 +72,16 @@ export const DEFAULT_KIOSK_LLM_SETTINGS = {
 
 export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
     ...DEFAULT_KIOSK_STT_SETTINGS,
-    ...{ enabled: DEFAULT_KIOSK_TTS_SETTINGS.enabled, provider: DEFAULT_KIOSK_TTS_SETTINGS.provider, tts_model: DEFAULT_KIOSK_TTS_SETTINGS.model, sample_rate: DEFAULT_KIOSK_TTS_SETTINGS.sample_rate },
+    enabled: DEFAULT_KIOSK_TTS_SETTINGS.enabled,
+    provider: DEFAULT_KIOSK_TTS_SETTINGS.provider,
+    tts_voice: DEFAULT_KIOSK_TTS_SETTINGS.voice,
+    model: DEFAULT_KIOSK_TTS_SETTINGS.model,
+    speed: DEFAULT_KIOSK_TTS_SETTINGS.speed,
+    response_format: DEFAULT_KIOSK_TTS_SETTINGS.response_format,
+    use_segmentation: DEFAULT_KIOSK_TTS_SETTINGS.use_segmentation,
+    delimiters: DEFAULT_KIOSK_TTS_SETTINGS.delimiters,
+    character_maximum: DEFAULT_KIOSK_TTS_SETTINGS.character_maximum,
+    sample_rate: DEFAULT_KIOSK_TTS_SETTINGS.sample_rate,
     ...DEFAULT_KIOSK_UI_SETTINGS,
     ...DEFAULT_KIOSK_LLM_SETTINGS,
 };
@@ -101,7 +117,13 @@ function createKioskSettingsStore() {
                 ...sttSettings,
                 enabled: ttsSettings.enabled,
                 provider: ttsSettings.provider,
-                tts_model: ttsSettings.model,
+                tts_voice: ttsSettings.voice,
+                model: ttsSettings.model,
+                speed: ttsSettings.speed,
+                response_format: ttsSettings.response_format,
+                use_segmentation: ttsSettings.use_segmentation,
+                delimiters: ttsSettings.delimiters,
+                character_maximum: ttsSettings.character_maximum,
                 sample_rate: ttsSettings.sample_rate,
                 ...uiSettings,
                 llm_model: llmSettings.model,
@@ -138,7 +160,13 @@ function createKioskSettingsStore() {
             // TTS fields
             if (update.enabled !== undefined) ttsUpdate.enabled = update.enabled;
             if (update.provider !== undefined) ttsUpdate.provider = update.provider;
-            if (update.tts_model !== undefined) ttsUpdate.model = update.tts_model;
+            if (update.tts_voice !== undefined) ttsUpdate.voice = update.tts_voice;
+            if (update.model !== undefined) ttsUpdate.model = update.model;
+            if (update.speed !== undefined) ttsUpdate.speed = update.speed;
+            if (update.response_format !== undefined) ttsUpdate.response_format = update.response_format;
+            if (update.use_segmentation !== undefined) ttsUpdate.use_segmentation = update.use_segmentation;
+            if (update.delimiters !== undefined) ttsUpdate.delimiters = update.delimiters;
+            if (update.character_maximum !== undefined) ttsUpdate.character_maximum = update.character_maximum;
             if (update.sample_rate !== undefined) ttsUpdate.sample_rate = update.sample_rate;
 
             // UI fields
@@ -191,7 +219,13 @@ function createKioskSettingsStore() {
                 ...sttSettings,
                 enabled: ttsSettings.enabled,
                 provider: ttsSettings.provider,
-                tts_model: ttsSettings.model,
+                tts_voice: ttsSettings.voice,
+                model: ttsSettings.model,
+                speed: ttsSettings.speed,
+                response_format: ttsSettings.response_format,
+                use_segmentation: ttsSettings.use_segmentation,
+                delimiters: ttsSettings.delimiters,
+                character_maximum: ttsSettings.character_maximum,
                 sample_rate: ttsSettings.sample_rate,
                 idle_return_delay_ms: current.idle_return_delay_ms,
                 llm_model: llmSettings.model,

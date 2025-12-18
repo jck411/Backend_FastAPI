@@ -29,11 +29,14 @@ class KioskPreset(BaseModel):
 
     # TTS Settings
     tts_enabled: bool = Field(default=True, description="Whether TTS is enabled")
-    tts_model: str = Field(
-        default="aura-asteria-en", description="TTS voice model"
+    tts_voice: str = Field(
+        default="alloy", description="TTS voice (alloy, echo, fable, onyx, nova, shimmer)"
+    )
+    tts_speed: float = Field(
+        default=1.0, ge=0.25, le=4.0, description="Speech speed multiplier"
     )
     tts_sample_rate: int = Field(
-        default=16000, description="Audio sample rate in Hz"
+        default=24000, description="Audio sample rate in Hz"
     )
 
 

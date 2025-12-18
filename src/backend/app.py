@@ -267,7 +267,11 @@ def create_app() -> FastAPI:
     try:
         app.state.voice_manager = VoiceConnectionManager()
         app.state.stt_service = STTService()
-        app.state.tts_service = TTSService()
+        try:
+            app.state.tts_service = TTSService()
+        except Exception as tts_err:
+            logging.warning(f"TTS service not available: {tts_err}")
+            app.state.tts_service = None
         # Initialize KioskChatService with the orchestrator for tool support
         app.state.kiosk_chat_service = KioskChatService(orchestrator)
         app.include_router(voice_assistant.router)

@@ -68,14 +68,26 @@ export async function resetKioskSttSettings(): Promise<KioskSttSettings> {
 export interface KioskTtsSettings {
     enabled: boolean;
     provider: string;
+    voice: string;
     model: string;
+    speed: number;
+    response_format: string;
+    use_segmentation: boolean;
+    delimiters: string[];
+    character_maximum: number;
     sample_rate: number;
 }
 
 export interface KioskTtsSettingsUpdate {
     enabled?: boolean;
     provider?: string;
+    voice?: string;
     model?: string;
+    speed?: number;
+    response_format?: string;
+    use_segmentation?: boolean;
+    delimiters?: string[];
+    character_maximum?: number;
     sample_rate?: number;
 }
 
@@ -291,7 +303,8 @@ export interface KioskPreset {
     keyterms: string[];
     // TTS settings
     tts_enabled: boolean;
-    tts_model: string;
+    tts_voice: string;
+    tts_speed: number;
     tts_sample_rate: number;
 }
 

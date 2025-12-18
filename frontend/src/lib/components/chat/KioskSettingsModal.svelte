@@ -106,7 +106,8 @@
         keyterms: draft.keyterms,
         // TTS settings
         tts_enabled: draft.enabled,
-        tts_model: draft.tts_model,
+        tts_voice: draft.tts_voice,
+        tts_speed: draft.speed,
         tts_sample_rate: draft.sample_rate,
       };
       presets = await updateKioskPreset(activeIndex, updatedPreset);
@@ -683,7 +684,7 @@
           <div class="setting-header">
             <span class="setting-label">Text-to-Speech</span>
             <span class="setting-hint"
-              >Voice synthesis settings for assistant responses.</span
+              >OpenAI voice synthesis settings for assistant responses.</span
             >
           </div>
 
@@ -692,6 +693,7 @@
             <label
               class="setting-boolean"
               title="Enable or disable audio playback of assistant responses."
+              style="grid-column: 1 / -1;"
             >
               <input
                 type="checkbox"
@@ -715,30 +717,161 @@
                   <label
                     class="setting-label"
                     for="tts-voice"
-                    title="Select the voice for text-to-speech synthesis."
-                    >Voice</label
+                    title="Select the OpenAI voice for synthesis.">Voice</label
                   >
                   <select
                     id="tts-voice"
                     class="select-input"
-                    value={draft.tts_model}
+                    value={draft.tts_voice}
                     disabled={saving}
                     on:change={(e) => {
                       draft = {
                         ...draft,
-                        tts_model: (e.target as HTMLSelectElement).value,
+                        tts_voice: (e.target as HTMLSelectElement).value,
                       };
                       markDirty();
                     }}
                   >
                     {#each ttsVoices as voice}
-                      <option value={voice}
-                        >{voice.replace("aura-", "").replace("-en", "")}</option
-                      >
+                      <option value={voice}>{voice}</option>
                     {/each}
                   </select>
                 </div>
               </div>
+
+              <!-- Model Selection -->
+              <div class="reasoning-field">
+                <div class="setting-select">
+                  <label
+                    class="setting-label"
+                    for="tts-model"
+                    title="tts-1 is faster, tts-1-hd is higher quality."
+                    >Model</label
+                  >
+                  <select
+                    id="tts-model"
+                    class="select-input"
+                    value={draft.model}
+                    disabled={saving}
+                    on:change={(e) => {
+                      draft = {
+                        ...draft,
+                        model: (e.target as HTMLSelectElement).value,
+                      };
+                      markDirty();
+                    }}
+                  >
+                    <option value="tts-1">tts-1 (faster)</option>
+                    <option value="tts-1-hd">tts-1-hd (HD)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Speed Slider -->
+              <div class="reasoning-field" style="grid-column: 1 / -1;">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="Speech speed multiplier (0.25 to 4.0). 1.0 is normal speed."
+                      >Speed</span
+                    >
+                    <span class="range-value">{draft.speed.toFixed(2)}x</span>
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="0.25"
+                    max="4.0"
+                    step="0.25"
+                    value={draft.speed}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.speed,
+                      0.25,
+                      4.0,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        speed: parseFloat((e.target as HTMLInputElement).value),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>0.25x (slow)</span>
+                    <span>4.0x (fast)</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Segmentation Toggle -->
+              <label
+                class="setting-boolean"
+                title="When enabled, text is split at sentence boundaries for faster audio start."
+                style="grid-column: 1 / -1;"
+              >
+                <input
+                  type="checkbox"
+                  checked={draft.use_segmentation}
+                  disabled={saving}
+                  on:change={(e) => {
+                    draft = {
+                      ...draft,
+                      use_segmentation: (e.target as HTMLInputElement).checked,
+                    };
+                    markDirty();
+                  }}
+                />
+                <span>Enable streaming segmentation</span>
+              </label>
+
+              {#if draft.use_segmentation}
+                <!-- Character Maximum -->
+                <div class="reasoning-field" style="grid-column: 1 / -1;">
+                  <div class="setting-range">
+                    <div class="setting-range-header">
+                      <span
+                        class="setting-label"
+                        title="Max characters to segment before sending remaining text as one chunk. Lower = faster initial audio."
+                        >Segmentation Limit</span
+                      >
+                      <span class="range-value"
+                        >{draft.character_maximum} chars</span
+                      >
+                    </div>
+                    <input
+                      type="range"
+                      class="range-input"
+                      min="0"
+                      max="500"
+                      step="25"
+                      value={draft.character_maximum}
+                      disabled={saving}
+                      style="--slider-fill: {getSliderFill(
+                        draft.character_maximum,
+                        0,
+                        500,
+                      )}"
+                      on:input={(e) => {
+                        draft = {
+                          ...draft,
+                          character_maximum: parseInt(
+                            (e.target as HTMLInputElement).value,
+                            10,
+                          ),
+                        };
+                        markDirty();
+                      }}
+                    />
+                    <div class="range-extents">
+                      <span>0 (all at once)</span>
+                      <span>500 (more segments)</span>
+                    </div>
+                  </div>
+                </div>
+              {/if}
             {/if}
           </div>
         </div>

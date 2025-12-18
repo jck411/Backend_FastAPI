@@ -1,8 +1,9 @@
+import asyncio
 import base64
 import json
 import logging
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Request
 
@@ -21,7 +22,7 @@ async def handle_connection(
     client_id: str,
     manager: VoiceConnectionManager,
     stt_service: STTService,
-    tts_service: TTSService,
+    tts_service: Optional[TTSService],
     kiosk_chat_service: KioskChatService
 ):
     """
@@ -47,6 +48,60 @@ async def handle_connection(
                 # Transition to PROCESSING
                 await manager.update_state(client_id, "PROCESSING")
 
+                # Create TTS streaming pipeline (if TTS is available)
+                tts_stop_event = asyncio.Event()
+                chunk_queue = None
+                audio_queue = None
+                segmenter_task = None
+                tts_task = None
+                audio_sender_task = None
+
+                if tts_service is not None:
+                    try:
+                        chunk_queue, audio_queue, segmenter_task, tts_task = await tts_service.create_streaming_pipeline(tts_stop_event)
+
+                        # Get sample rate for audio playback
+                        sample_rate = tts_service.get_sample_rate()
+
+                        # Signal start of TTS audio stream
+                        await manager.broadcast({
+                            "type": "tts_audio_start",
+                            "sample_rate": sample_rate,
+                            "streaming": True
+                        })
+
+                        # Start audio sender task (streams audio chunks as they arrive)
+                        async def send_audio_chunks():
+                            chunk_index = 0
+                            try:
+                                while True:
+                                    audio_chunk = await audio_queue.get()
+                                    if audio_chunk is None:
+                                        break
+                                    await manager.broadcast({
+                                        "type": "tts_audio_chunk",
+                                        "data": base64.b64encode(audio_chunk).decode('utf-8'),
+                                        "chunk_index": chunk_index,
+                                        "is_last": False
+                                    })
+                                    chunk_index += 1
+                            except Exception as e:
+                                logger.error(f"Audio sender error: {e}")
+                            finally:
+                                await manager.broadcast({
+                                    "type": "tts_audio_chunk",
+                                    "data": "",
+                                    "chunk_index": chunk_index,
+                                    "is_last": True
+                                })
+
+                        audio_sender_task = asyncio.create_task(send_audio_chunks())
+                        await manager.update_state(client_id, "SPEAKING")
+
+                    except Exception as e:
+                        logger.error(f"Failed to create TTS pipeline: {e}")
+                        chunk_queue = None
+
                 # Generate LLM response with streaming
                 full_response = ""
                 try:
@@ -58,6 +113,11 @@ async def handle_connection(
                             chunk = event["content"]
                             full_response += chunk
                             await manager.broadcast({"type": "assistant_response_chunk", "text": chunk})
+
+                            # Feed chunk to TTS pipeline
+                            if chunk_queue is not None:
+                                await chunk_queue.put(chunk)
+
                         elif event["type"] == "tool_status":
                             await manager.broadcast({
                                 "type": "tool_status",
@@ -76,59 +136,34 @@ async def handle_connection(
                     full_response = "Sorry, I couldn't process that request."
                     await manager.broadcast({"type": "assistant_response_end", "text": full_response})
 
-                response_text = full_response.strip() if full_response else "Action completed."
+                # Signal end of text to TTS pipeline
+                if chunk_queue is not None:
+                    await chunk_queue.put(None)
 
-                if response_text:
-                    await manager.update_state(client_id, "SPEAKING")
+                # Wait for TTS tasks to complete
+                if segmenter_task is not None:
+                    await segmenter_task
+                if tts_task is not None:
+                    await tts_task
+                if audio_sender_task is not None:
+                    await audio_sender_task
 
-                    # Use TTS
-                    try:
-                        audio_data = await tts_service.synthesize(response_text)
+                # Signal end of TTS audio stream
+                if tts_service is not None and chunk_queue is not None:
+                    await manager.broadcast({"type": "tts_audio_end"})
+                    logger.info(f"Streaming TTS completed for {client_id}")
 
-                        if audio_data:
-                            # Stream TTS audio in chunks to avoid overwhelming WebSocket connections
-                            # 32KB chunks work well for most network conditions
-                            CHUNK_SIZE = 32 * 1024  # 32KB
-                            total_chunks = (len(audio_data) + CHUNK_SIZE - 1) // CHUNK_SIZE
-
-                            # Signal start of TTS audio stream
-                            await manager.broadcast({
-                                "type": "tts_audio_start",
-                                "total_bytes": len(audio_data),
-                                "total_chunks": total_chunks
-                            })
-
-                            # Send audio in chunks
-                            for i in range(0, len(audio_data), CHUNK_SIZE):
-                                chunk = audio_data[i:i + CHUNK_SIZE]
-                                chunk_index = i // CHUNK_SIZE
-                                await manager.broadcast({
-                                    "type": "tts_audio_chunk",
-                                    "data": base64.b64encode(chunk).decode('utf-8'),
-                                    "chunk_index": chunk_index,
-                                    "is_last": chunk_index == total_chunks - 1
-                                })
-
-                            # Signal end of TTS audio stream
-                            await manager.broadcast({
-                                "type": "tts_audio_end"
-                            })
-
-                            logger.info(f"Sent TTS audio for {client_id} ({len(audio_data)} bytes in {total_chunks} chunks)")
-                    except Exception as e:
-                        logger.error(f"TTS generation failed: {e}")
-
-                    try:
-                        # Check conversation mode
-                        llm_settings = get_kiosk_llm_settings_service().get_settings()
-                        if llm_settings.conversation_mode:
-                            logger.info(f"Conversation mode active for {client_id}, listening for reply")
-                            await manager.update_state(client_id, "LISTENING")
-                        else:
-                            await manager.update_state(client_id, "IDLE")
-                    except Exception as e:
-                        logger.error(f"Error transitioning state after speaking: {e}")
+                try:
+                    # Check conversation mode
+                    llm_settings = get_kiosk_llm_settings_service().get_settings()
+                    if llm_settings.conversation_mode:
+                        logger.info(f"Conversation mode active for {client_id}, listening for reply")
+                        await manager.update_state(client_id, "LISTENING")
+                    else:
                         await manager.update_state(client_id, "IDLE")
+                except Exception as e:
+                    logger.error(f"Error transitioning state after speaking: {e}")
+                    await manager.update_state(client_id, "IDLE")
 
         async def on_stt_error(error: str):
             logger.error(f"STT Error for {client_id}: {error}")

@@ -1,6 +1,18 @@
 {
   "enabled": true,
-  "provider": "deepgram",
-  "model": "aura-luna-en",
-  "sample_rate": 16000
+  "provider": "openai",
+  "voice": "alloy",
+  "model": "tts-1",
+  "speed": 1.0,
+  "response_format": "pcm",
+  "use_segmentation": true,
+  "delimiters": [
+    "\n",
+    ". ",
+    "? ",
+    "! ",
+    "* "
+  ],
+  "character_maximum": 50,
+  "sample_rate": 24000
 }

@@ -6,7 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Request
 
 from backend.schemas.kiosk_stt_settings import KioskSttSettings, KioskSttSettingsUpdate
-from backend.schemas.kiosk_tts_settings import KioskTtsSettings, KioskTtsSettingsUpdate, DEEPGRAM_VOICES
+from backend.schemas.kiosk_tts_settings import KioskTtsSettings, KioskTtsSettingsUpdate, TTS_VOICES
 from backend.schemas.kiosk_llm_settings import KioskLlmSettings, KioskLlmSettingsUpdate
 from backend.schemas.kiosk_presets import KioskPresets, KioskPreset, KioskPresetUpdate, KioskPresetActivate
 from backend.services.kiosk_stt_settings import get_kiosk_stt_settings_service
@@ -79,7 +79,7 @@ async def reset_tts_settings() -> KioskTtsSettings:
 @router.get("/tts-voices")
 async def get_tts_voices() -> list[str]:
     """Get available TTS voice models."""
-    return DEEPGRAM_VOICES
+    return TTS_VOICES
 
 
 # ============== LLM Settings ==============
@@ -164,7 +164,8 @@ async def activate_preset(activate: KioskPresetActivate) -> KioskPresets:
     from backend.schemas.kiosk_tts_settings import KioskTtsSettingsUpdate
     tts_service.update_settings(KioskTtsSettingsUpdate(
         enabled=active_preset.tts_enabled,
-        model=active_preset.tts_model,
+        voice=active_preset.tts_voice,
+        speed=active_preset.tts_speed,
         sample_rate=active_preset.tts_sample_rate,
     ))
 

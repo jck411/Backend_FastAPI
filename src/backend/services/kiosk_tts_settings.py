@@ -26,10 +26,10 @@ class KioskTtsSettingsService:
         self._path.parent.mkdir(parents=True, exist_ok=True)
 
     def get_settings(self) -> KioskTtsSettings:
-        """Load settings from file or return defaults."""
-        if self._cached is not None:
-            return self._cached
+        """Load settings from file or return defaults.
 
+        Note: Always reloads from file to pick up external changes.
+        """
         if self._path.exists():
             try:
                 data = json.loads(self._path.read_text())

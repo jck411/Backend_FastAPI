@@ -1,0 +1,44 @@
+{
+  "servers": [
+    {
+      "server_id": "shell-control",
+      "enabled": true
+    },
+    {
+      "server_id": "notes",
+      "enabled": true
+    },
+    {
+      "server_id": "monarch-money",
+      "enabled": true
+    },
+    {
+      "server_id": "custom-gmail",
+      "enabled": true
+    },
+    {
+      "server_id": "custom-gdrive",
+      "enabled": true
+    },
+    {
+      "server_id": "custom-pdf",
+      "enabled": true
+    },
+    {
+      "server_id": "custom-calendar",
+      "enabled": true
+    },
+    {
+      "server_id": "spotify",
+      "enabled": true
+    },
+    {
+      "server_id": "local-calculator",
+      "enabled": true
+    },
+    {
+      "server_id": "housekeeping",
+      "enabled": true
+    }
+  ]
+}

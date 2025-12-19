@@ -315,10 +315,16 @@ class ClientSettingsService:
             self._save_json("tts", preset.tts.model_dump())
             self._cache["tts"] = preset.tts
         if preset.mcp_servers:
-            self._save_json(
-                "mcp_servers", {"servers": [s.model_dump() for s in preset.mcp_servers]}
-            )
-            self._cache["mcp_servers"] = preset.mcp_servers
+            # Ensure all items are McpServerRef models, then serialize
+            validated_servers = [
+                s if isinstance(s, McpServerRef) else McpServerRef.model_validate(s)
+                for s in preset.mcp_servers
+            ]
+            self._save_json("mcp_servers", {"servers": [s.model_dump() for s in validated_servers]})
+            self._cache["mcp_servers"] = validated_servers
+
+
+
 
         return ClientSettings(
             llm=preset.llm,

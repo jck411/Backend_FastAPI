@@ -10,8 +10,7 @@ from backend.services.voice_session import VoiceConnectionManager
 from backend.services.stt_service import STTService
 from backend.services.tts_service import TTSService
 from backend.services.kiosk_chat_service import KioskChatService
-from backend.services.kiosk_llm_settings import get_kiosk_llm_settings_service
-from backend.services.kiosk_ui_settings import get_kiosk_ui_settings_service
+from backend.services.client_settings_service import get_client_settings_service
 from backend.services.tts import TextSegmenter, TTSProcessor
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
@@ -141,7 +140,7 @@ async def handle_connection(
 
                 # Transition back based on conversation mode
                 try:
-                    llm_settings = get_kiosk_llm_settings_service().get_settings()
+                    llm_settings = get_client_settings_service("kiosk").get_llm()
                     if llm_settings.conversation_mode:
                         logger.info(f"Conversation mode active for {client_id}, listening for reply")
                         await manager.update_state(client_id, "LISTENING")
@@ -209,7 +208,7 @@ async def handle_connection(
                         # Check for Silence / Idle Timeout
                         try:
                             # If we are listening but haven't heard/done anything for X seconds, go to IDLE
-                            ui_settings = get_kiosk_ui_settings_service().get_settings()
+                            ui_settings = get_client_settings_service("kiosk").get_ui()
                             silence_duration_ms = (datetime.utcnow() - session.last_activity).total_seconds() * 1000
 
                             if silence_duration_ms > ui_settings.idle_return_delay_ms:
@@ -238,7 +237,7 @@ async def handle_connection(
                 logger.info(f"TTS playback ended for {client_id}")
                 # Check if conversation mode is active
                 try:
-                    llm_settings = get_kiosk_llm_settings_service().get_settings()
+                    llm_settings = get_client_settings_service("kiosk").get_llm()
                     if llm_settings.conversation_mode:
                         logger.info(f"Conversation mode ON - resuming listening")
                         # Resume ALL clients

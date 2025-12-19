@@ -1,0 +1,9 @@
+{
+  "model": "openai/gpt-4o-mini",
+  "system_prompt": "You are a helpful voice assistant. Provide thorough, comprehensive answers.",
+  "temperature": 0.7,
+  "max_tokens": 800,
+  "supports_tools": null,
+  "conversation_mode": true,
+  "conversation_timeout_seconds": 10.0
+}

@@ -11,7 +11,7 @@ from deepgram import DeepgramClient
 from deepgram.core.events import EventType
 
 from backend.config import get_settings
-from backend.services.kiosk_stt_settings import get_kiosk_stt_settings_service
+from backend.services.client_settings_service import get_client_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -264,7 +264,7 @@ class STTService:
                 await self.close_session(session_id)
 
             # Get current kiosk STT settings
-            kiosk_settings = get_kiosk_stt_settings_service().get_settings()
+            stt_settings = get_client_settings_service("kiosk").get_stt()
 
             # IMPORTANT: The Deepgram listener runs in a background thread,
             # which has no asyncio event loop. We must capture the main loop
@@ -279,10 +279,9 @@ class STTService:
                 on_transcript=on_transcript,
                 on_error=on_error,
                 on_speech_start=on_speech_start,
-                eot_threshold=kiosk_settings.eot_threshold,
-                eot_timeout_ms=kiosk_settings.eot_timeout_ms,
-                eager_eot_threshold=kiosk_settings.eager_eot_threshold,
-                keyterms=kiosk_settings.keyterms,
+                eot_threshold=stt_settings.eot_threshold,
+                eot_timeout_ms=stt_settings.eot_timeout_ms,
+                keyterms=stt_settings.keyterms,
                 event_loop=loop,  # Pass event loop for thread-safe callback scheduling
             )
 

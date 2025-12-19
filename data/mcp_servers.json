@@ -95,9 +95,9 @@
       "disabled_tools": [],
       "enabled": true,
       "env": {},
-      "frontend_enabled": false,
+      "frontend_enabled": true,
       "id": "local-calculator",
-      "kiosk_enabled": true,
+      "kiosk_enabled": false,
       "module": "backend.mcp_servers.calculator_server",
       "tool_overrides": {}
     },
@@ -106,9 +106,9 @@
       "disabled_tools": [],
       "enabled": true,
       "env": {},
-      "frontend_enabled": false,
+      "frontend_enabled": true,
       "id": "housekeeping",
-      "kiosk_enabled": true,
+      "kiosk_enabled": false,
       "module": "backend.mcp_servers.housekeeping_server",
       "tool_overrides": {}
     }

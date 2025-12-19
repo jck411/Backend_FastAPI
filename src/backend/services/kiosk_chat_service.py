@@ -6,7 +6,7 @@ from typing import Any, AsyncGenerator, Callable, Optional, Awaitable
 
 from backend.chat.orchestrator import ChatOrchestrator
 from backend.schemas.chat import ChatCompletionRequest, ChatMessage
-from backend.services.kiosk_llm_settings import get_kiosk_llm_settings_service
+from backend.services.client_settings_service import get_client_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ class KioskChatService:
 
     def __init__(self, orchestrator: ChatOrchestrator):
         self._orchestrator = orchestrator
-        self._settings_service = get_kiosk_llm_settings_service()
+        self._settings_service = get_client_settings_service("kiosk")
 
     def clear_history(self, client_id: str):
         """Clear conversation history for a client by clearing session."""
@@ -47,7 +47,7 @@ class KioskChatService:
             client_id: Client identifier for session management
             broadcast_callback: Optional async callback to broadcast tool status events
         """
-        settings = self._settings_service.get_settings()
+        settings = self._settings_service.get_llm()
         session_id = f"kiosk_{client_id}"
 
         logger.info(f"Kiosk LLM request: session={session_id}, model={settings.model}, msg_len={len(user_message)}")
@@ -145,7 +145,7 @@ class KioskChatService:
 
         The caller should accumulate text_chunk content for TTS after streaming completes.
         """
-        settings = self._settings_service.get_settings()
+        settings = self._settings_service.get_llm()
         session_id = f"kiosk_{client_id}"
 
         logger.info(f"Kiosk streaming LLM request: session={session_id}, model={settings.model}")

@@ -4,7 +4,7 @@ from typing import AsyncIterator, Optional, Tuple
 import httpx
 
 from backend.config import get_settings
-from backend.services.kiosk_tts_settings import get_kiosk_tts_settings_service
+from backend.services.client_settings_service import get_client_settings_service
 
 logger = logging.getLogger(__name__)
 
@@ -94,20 +94,23 @@ class TTSService:
         Returns (raw PCM audio bytes, sample_rate), or (empty bytes, 0) if TTS is disabled.
         """
         # Get current TTS settings
-        tts_settings = get_kiosk_tts_settings_service().get_settings()
+        tts_settings = get_client_settings_service("kiosk").get_tts()
 
         # Check if TTS is enabled
         if not tts_settings.enabled:
             logger.info("TTS is disabled, skipping synthesis")
             return b"", 0
 
-        provider = tts_settings.provider
-
-        if provider == "elevenlabs":
+        # Determine provider from model name pattern
+        # Default to Deepgram for aura-* models
+        model = tts_settings.model
+        if model.startswith("aura-"):
+            return await self._synthesize_deepgram(text, tts_settings)
+        elif self.elevenlabs_api_key and model in ["Rachel", "Drew", "Clyde", "Paul", "Domi", "Dave", "Fin", "Sarah", "Antoni", "Thomas", "Charlie", "Emily"]:
             return await self._synthesize_elevenlabs(text, tts_settings)
-        elif provider == "openai":
+        elif self.openai_api_key and model in ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]:
             return await self._synthesize_openai(text, tts_settings)
-        elif provider == "unrealspeech":
+        elif self.unrealspeech_api_key and model in ["Autumn", "Sierra", "Noah"]:
             return await self._synthesize_unrealspeech(text, tts_settings)
         else:
             # Default to Deepgram
@@ -118,7 +121,7 @@ class TTSService:
         Streaming-friendly TTS. Returns sample_rate and an async iterator of audio chunks.
         All providers use true streaming where supported, with chunk buffering for efficiency.
         """
-        tts_settings = get_kiosk_tts_settings_service().get_settings()
+        tts_settings = get_client_settings_service("kiosk").get_tts()
 
         async def _empty_iter():
             if False:
@@ -128,14 +131,16 @@ class TTSService:
             logger.info("TTS is disabled, skipping streaming synthesis")
             return 0, _empty_iter()
 
-        provider = tts_settings.provider
-
-        if provider == "openai":
-            sample_rate, stream = await self._stream_openai(text, tts_settings)
-        elif provider == "unrealspeech":
-            sample_rate, stream = await self._stream_unrealspeech(text, tts_settings)
-        elif provider == "elevenlabs":
+        # Determine provider from model name pattern
+        model = tts_settings.model
+        if model.startswith("aura-"):
+            sample_rate, stream = await self._stream_deepgram(text, tts_settings)
+        elif self.elevenlabs_api_key and model in ["Rachel", "Drew", "Clyde", "Paul", "Domi", "Dave", "Fin", "Sarah", "Antoni", "Thomas", "Charlie", "Emily"]:
             sample_rate, stream = await self._stream_elevenlabs(text, tts_settings)
+        elif self.openai_api_key and model in ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]:
+            sample_rate, stream = await self._stream_openai(text, tts_settings)
+        elif self.unrealspeech_api_key and model in ["Autumn", "Sierra", "Noah"]:
+            sample_rate, stream = await self._stream_unrealspeech(text, tts_settings)
         else:
             # Default to Deepgram
             sample_rate, stream = await self._stream_deepgram(text, tts_settings)

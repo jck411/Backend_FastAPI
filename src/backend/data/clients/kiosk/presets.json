@@ -1,0 +1,51 @@
+{
+  "presets": [
+    {
+      "name": "Concise",
+      "llm": {
+        "model": "openai/gpt-4o-mini",
+        "system_prompt": "You are a helpful assistant who replies succinctly.",
+        "temperature": 0.7,
+        "max_tokens": 500,
+        "supports_tools": null,
+        "conversation_mode": true,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": {
+        "eot_threshold": 0.7,
+        "eot_timeout_ms": 5000,
+        "keyterms": []
+      },
+      "tts": {
+        "enabled": true,
+        "model": "aura-asteria-en",
+        "sample_rate": 16000
+      },
+      "mcp_servers": []
+    },
+    {
+      "name": "Detailed",
+      "llm": {
+        "model": "openai/gpt-4o-mini",
+        "system_prompt": "You are a helpful voice assistant. Provide thorough, comprehensive answers.",
+        "temperature": 0.7,
+        "max_tokens": 800,
+        "supports_tools": null,
+        "conversation_mode": true,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": {
+        "eot_threshold": 0.7,
+        "eot_timeout_ms": 5000,
+        "keyterms": []
+      },
+      "tts": {
+        "enabled": true,
+        "model": "aura-orpheus-en",
+        "sample_rate": 16000
+      },
+      "mcp_servers": []
+    }
+  ],
+  "active_index": 1
+}

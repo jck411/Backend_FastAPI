@@ -7,6 +7,96 @@
         {
           "contexts": [],
           "disabled_tools": [],
+          "enabled": false,
+          "env": {
+            "HOST_PROFILE_ID": "xps13",
+            "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"
+          },
+          "frontend_enabled": true,
+          "id": "shell-control",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.shell_control_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "notes",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.notes_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "monarch-money",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.monarch_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "custom-gmail",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.gmail_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "custom-gdrive",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.gdrive_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "custom-pdf",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.pdf_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "custom-calendar",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.calendar_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
+          "enabled": false,
+          "env": {},
+          "frontend_enabled": true,
+          "id": "spotify",
+          "kiosk_enabled": false,
+          "module": "backend.mcp_servers.spotify_server",
+          "tool_overrides": {}
+        },
+        {
+          "contexts": [],
+          "disabled_tools": [],
           "enabled": true,
           "env": {},
           "frontend_enabled": true,
@@ -27,10 +117,20 @@
           "tool_overrides": {}
         }
       ],
-      "model": "anthropic/claude-3-opus",
+      "model": "openai/gpt-5",
+      "model_filters": {
+        "series": {
+          "exclude": [],
+          "include": [
+            "gpt"
+          ]
+        },
+        "sort": "newness"
+      },
       "name": "new",
-      "system_prompt": "You are a helpful but funny assistant",
-      "updated_at": "2025-10-18T15:03:46.468919Z"
+      "supports_tools": true,
+      "system_prompt": "You are a helpful but funny assistant who rhymes",
+      "updated_at": "2025-12-19T06:19:39.665407Z"
     },
     {
       "created_at": "2025-10-10T13:55:19.113657Z",
@@ -1090,7 +1190,7 @@
     },
     {
       "created_at": "2025-12-16T19:17:39.998659Z",
-      "is_default": true,
+      "is_default": false,
       "mcp_servers": [
         {
           "contexts": [],

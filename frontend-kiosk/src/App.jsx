@@ -32,7 +32,7 @@ export default function App() {
     useEffect(() => {
         const fetchSettings = async () => {
             try {
-                const response = await fetch(`http://${window.location.hostname}:8000/api/kiosk/ui/settings`);
+                const response = await fetch(`http://${window.location.hostname}:8000/api/clients/kiosk/ui`);
                 if (response.ok) {
                     const data = await response.json();
                     setIdleReturnDelay(data.idle_return_delay_ms);

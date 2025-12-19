@@ -1,6 +1,5 @@
 {
   "enabled": true,
-  "provider": "openai",
-  "model": "alloy",
+  "model": "aura-orpheus-en",
   "sample_rate": 16000
 }

@@ -38,8 +38,11 @@ INFO_STYLE = Style(color="cyan")
 class ShellChat:
     """Terminal chat client for Backend_FastAPI."""
 
+    CLIENT_ID = "cli"  # Client identifier for settings isolation
+
     def __init__(self, server_url: str, preset: Optional[str] = None):
         self.server_url = server_url.rstrip("/")
+        self.client_api = f"{self.server_url}/api/clients/{self.CLIENT_ID}"
         self.preset = preset
         self.session_id: Optional[str] = None
         self.console = Console()
@@ -97,19 +100,37 @@ class ShellChat:
             )
         return False
 
-    async def _apply_preset(self, name: str) -> bool:
-        """Apply a preset configuration."""
+    async def _apply_preset(self, index_or_name: str) -> bool:
+        """Apply a preset configuration by index."""
         try:
+            # Try to parse as index first
+            try:
+                index = int(index_or_name)
+            except ValueError:
+                # If not an index, search by name
+                presets = await self._get_presets()
+                if presets is None:
+                    return False
+                index = next(
+                    (i for i, p in enumerate(presets) if p.get("name", "").lower() == index_or_name.lower()),
+                    -1,
+                )
+                if index < 0:
+                    self.console.print(
+                        f"[error]Preset '{index_or_name}' not found[/error]", style=ERROR_STYLE
+                    )
+                    return False
+
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.post(f"{self.server_url}/api/presets/{name}/apply")
+                resp = await client.post(f"{self.client_api}/presets/{index}/activate")
                 if resp.status_code == 200:
                     self.console.print(
-                        f"[info]Applied preset: {name}[/info]", style=INFO_STYLE
+                        f"[info]Applied preset: {index_or_name}[/info]", style=INFO_STYLE
                     )
                     return True
                 elif resp.status_code == 404:
                     self.console.print(
-                        f"[error]Preset '{name}' not found[/error]", style=ERROR_STYLE
+                        f"[error]Preset '{index_or_name}' not found[/error]", style=ERROR_STYLE
                     )
                 else:
                     self.console.print(
@@ -122,23 +143,37 @@ class ShellChat:
             )
         return False
 
+    async def _get_presets(self) -> Optional[list]:
+        """Get list of presets."""
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(f"{self.client_api}/presets")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data.get("presets", [])
+        except Exception:
+            pass
+        return None
+
     async def _list_presets(self) -> None:
         """List available presets."""
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{self.server_url}/api/presets/")
+                resp = await client.get(f"{self.client_api}/presets")
                 if resp.status_code == 200:
-                    presets = resp.json()
+                    data = resp.json()
+                    presets = data.get("presets", [])
+                    active_index = data.get("active_index")
                     if not presets:
                         self.console.print("[dim]No presets configured[/dim]")
                         return
                     self.console.print("\n[bold]Available Presets:[/bold]")
-                    for p in presets:
+                    for i, p in enumerate(presets):
                         name = p.get("name", "?")
-                        model = p.get("model", "?")
-                        is_default = p.get("is_default", False)
-                        marker = " [default]" if is_default else ""
-                        self.console.print(f"  • {name}{marker} - {model}")
+                        llm = p.get("llm", {})
+                        model = llm.get("model", "?")
+                        marker = " [active]" if i == active_index else ""
+                        self.console.print(f"  {i}. {name}{marker} - {model}")
                     self.console.print()
         except Exception as e:
             self.console.print(
@@ -149,7 +184,7 @@ class ShellChat:
         """Show current model."""
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{self.server_url}/api/settings/model")
+                resp = await client.get(f"{self.client_api}/llm")
                 if resp.status_code == 200:
                     data = resp.json()
                     model = data.get("model", "unknown")
@@ -166,8 +201,8 @@ class ShellChat:
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.put(
-                    f"{self.server_url}/api/settings/model",
-                    json={"model_id": model_id},
+                    f"{self.client_api}/llm",
+                    json={"model": model_id},
                 )
                 if resp.status_code == 200:
                     self.console.print(
@@ -243,12 +278,12 @@ class ShellChat:
         """Show current system prompt."""
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.get(f"{self.server_url}/api/settings/system-prompt")
+                resp = await client.get(f"{self.client_api}/llm")
                 if resp.status_code == 200:
                     data = resp.json()
-                    prompt = data.get("content", "")
+                    prompt = data.get("system_prompt", "")
                     self.console.print(
-                        Panel(prompt, title="System Prompt", border_style="dim")
+                        Panel(prompt or "(no system prompt set)", title="System Prompt", border_style="dim")
                     )
         except Exception as e:
             self.console.print(

@@ -1,5 +1,6 @@
 /**
  * Kiosk API client for STT and TTS settings.
+ * Uses the unified /api/clients/kiosk/* endpoints.
  */
 
 import { API_BASE_URL } from './config';
@@ -9,14 +10,12 @@ import { API_BASE_URL } from './config';
 export interface KioskSttSettings {
     eot_threshold: number;
     eot_timeout_ms: number;
-    eager_eot_threshold: number | null;
     keyterms: string[];
 }
 
 export interface KioskSttSettingsUpdate {
     eot_threshold?: number;
     eot_timeout_ms?: number;
-    eager_eot_threshold?: number | null;
     keyterms?: string[];
 }
 
@@ -24,7 +23,7 @@ export interface KioskSttSettingsUpdate {
  * Fetch current kiosk STT settings from the backend.
  */
 export async function fetchKioskSttSettings(): Promise<KioskSttSettings> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/stt-settings`);
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/stt`);
     if (!response.ok) {
         throw new Error(`Failed to fetch kiosk STT settings: ${response.statusText}`);
     }
@@ -37,8 +36,8 @@ export async function fetchKioskSttSettings(): Promise<KioskSttSettings> {
 export async function updateKioskSttSettings(
     update: KioskSttSettingsUpdate
 ): Promise<KioskSttSettings> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/stt-settings`, {
-        method: 'PUT',
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/stt`, {
+        method: 'PATCH',
         headers: {
             'Content-Type': 'application/json',
         },
@@ -54,7 +53,7 @@ export async function updateKioskSttSettings(
  * Reset kiosk STT settings to defaults on the backend.
  */
 export async function resetKioskSttSettings(): Promise<KioskSttSettings> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/stt-settings/reset`, {
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/stt/reset`, {
         method: 'POST',
     });
     if (!response.ok) {
@@ -69,21 +68,33 @@ export interface KioskTtsSettings {
     enabled: boolean;
     provider: string;
     model: string;
+    voice: string;
+    speed: number;
+    response_format: string;
     sample_rate: number;
+    use_segmentation: boolean;
+    delimiters: string[];
+    character_maximum: number;
 }
 
 export interface KioskTtsSettingsUpdate {
     enabled?: boolean;
     provider?: string;
     model?: string;
+    voice?: string;
+    speed?: number;
+    response_format?: string;
     sample_rate?: number;
+    use_segmentation?: boolean;
+    delimiters?: string[];
+    character_maximum?: number;
 }
 
 /**
  * Fetch current kiosk TTS settings from the backend.
  */
 export async function fetchKioskTtsSettings(): Promise<KioskTtsSettings> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/tts-settings`);
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/tts`);
     if (!response.ok) {
         throw new Error(`Failed to fetch kiosk TTS settings: ${response.statusText}`);
     }
@@ -96,8 +107,8 @@ export async function fetchKioskTtsSettings(): Promise<KioskTtsSettings> {
 export async function updateKioskTtsSettings(
     update: KioskTtsSettingsUpdate
 ): Promise<KioskTtsSettings> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/tts-settings`, {
-        method: 'PUT',
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/tts`, {
+        method: 'PATCH',
         headers: {
             'Content-Type': 'application/json',
         },
@@ -113,7 +124,7 @@ export async function updateKioskTtsSettings(
  * Reset kiosk TTS settings to defaults on the backend.
  */
 export async function resetKioskTtsSettings(): Promise<KioskTtsSettings> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/tts-settings/reset`, {
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/tts/reset`, {
         method: 'POST',
     });
     if (!response.ok) {
@@ -133,8 +144,8 @@ export interface TtsVoice {
 /**
  * Fetch available TTS voice models for the specified provider.
  */
-export async function fetchTtsVoices(provider: string = 'deepgram'): Promise<TtsVoice[]> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/tts-voices?provider=${encodeURIComponent(provider)}`);
+export async function fetchTtsVoices(provider: string = 'openai'): Promise<TtsVoice[]> {
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/tts/voices?provider=${encodeURIComponent(provider)}`);
     if (!response.ok) {
         throw new Error(`Failed to fetch TTS voices: ${response.statusText}`);
     }
@@ -155,7 +166,7 @@ export interface KioskUiSettingsUpdate {
  * Fetch current kiosk UI settings from the backend.
  */
 export async function fetchKioskUiSettings(): Promise<KioskUiSettings> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/ui/settings`);
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/ui`);
     if (!response.ok) {
         throw new Error(`Failed to fetch kiosk UI settings: ${response.statusText}`);
     }
@@ -168,7 +179,7 @@ export async function fetchKioskUiSettings(): Promise<KioskUiSettings> {
 export async function updateKioskUiSettings(
     update: KioskUiSettingsUpdate
 ): Promise<KioskUiSettings> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/ui/settings`, {
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/ui`, {
         method: 'PATCH',
         headers: {
             'Content-Type': 'application/json',
@@ -194,7 +205,7 @@ export interface KioskMcpServerInfo {
  * Fetch all available MCP servers with their kiosk enabled status.
  */
 export async function fetchKioskMcpServers(): Promise<KioskMcpServerInfo[]> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/mcp-servers`);
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/mcp-servers`);
     if (!response.ok) {
         throw new Error(`Failed to fetch kiosk MCP servers: ${response.statusText}`);
     }
@@ -245,7 +256,7 @@ export interface KioskLlmSettingsUpdate {
  * Fetch current kiosk LLM settings from the backend.
  */
 export async function fetchKioskLlmSettings(): Promise<KioskLlmSettings> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/llm-settings`);
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/llm`);
     if (!response.ok) {
         throw new Error(`Failed to fetch kiosk LLM settings: ${response.statusText}`);
     }
@@ -258,8 +269,8 @@ export async function fetchKioskLlmSettings(): Promise<KioskLlmSettings> {
 export async function updateKioskLlmSettings(
     update: KioskLlmSettingsUpdate
 ): Promise<KioskLlmSettings> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/llm-settings`, {
-        method: 'PUT',
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/llm`, {
+        method: 'PATCH',
         headers: {
             'Content-Type': 'application/json',
         },
@@ -275,7 +286,7 @@ export async function updateKioskLlmSettings(
  * Reset kiosk LLM settings to defaults on the backend.
  */
 export async function resetKioskLlmSettings(): Promise<KioskLlmSettings> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/llm-settings/reset`, {
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/llm/reset`, {
         method: 'POST',
     });
     if (!response.ok) {
@@ -299,6 +310,7 @@ export interface KioskPreset {
     keyterms: string[];
     // TTS settings
     tts_enabled: boolean;
+    tts_voice: string;
     tts_model: string;
     tts_sample_rate: number;
 }
@@ -312,7 +324,7 @@ export interface KioskPresets {
  * Fetch all kiosk presets from the backend.
  */
 export async function fetchKioskPresets(): Promise<KioskPresets> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/presets`);
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/presets`);
     if (!response.ok) {
         throw new Error(`Failed to fetch kiosk presets: ${response.statusText}`);
     }
@@ -323,12 +335,8 @@ export async function fetchKioskPresets(): Promise<KioskPresets> {
  * Activate a preset by index. This also applies its settings.
  */
 export async function activateKioskPreset(index: number): Promise<KioskPresets> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/presets/activate`, {
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/presets/${index}/activate`, {
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ index }),
     });
     if (!response.ok) {
         throw new Error(`Failed to activate kiosk preset: ${response.statusText}`);
@@ -341,14 +349,14 @@ export async function activateKioskPreset(index: number): Promise<KioskPresets> 
  */
 export async function updateKioskPreset(
     index: number,
-    preset: KioskPreset
+    preset: Partial<KioskPreset>
 ): Promise<KioskPresets> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/presets`, {
-        method: 'PUT',
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/presets/${index}`, {
+        method: 'PATCH',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ index, preset }),
+        body: JSON.stringify(preset),
     });
     if (!response.ok) {
         throw new Error(`Failed to update kiosk preset: ${response.statusText}`);
@@ -360,7 +368,7 @@ export async function updateKioskPreset(
  * Reset all presets to defaults.
  */
 export async function resetKioskPresets(): Promise<KioskPresets> {
-    const response = await fetch(`${API_BASE_URL}/api/kiosk/presets/reset`, {
+    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/presets/reset`, {
         method: 'POST',
     });
     if (!response.ok) {
@@ -368,4 +376,3 @@ export async function resetKioskPresets(): Promise<KioskPresets> {
     }
     return response.json();
 }
-

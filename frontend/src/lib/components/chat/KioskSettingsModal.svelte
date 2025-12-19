@@ -5,7 +5,6 @@
     fetchKioskPresets,
     fetchTtsVoices,
     updateKioskPreset,
-    type KioskPreset,
     type KioskPresets,
     type TtsVoice,
   } from "../../api/kiosk";
@@ -62,30 +61,13 @@
         modelStore.loadModels(),
       ]);
       draft = { ...settings };
-      ttsVoices = await fetchTtsVoices(settings.provider);
+      // Always load OpenAI voices
+      ttsVoices = await fetchTtsVoices('openai');
       presets = presetsData;
     } catch (error) {
       statusMessage = "Failed to load settings";
     } finally {
       loading = false;
-    }
-  }
-
-  async function handleProviderChange(newProvider: string): Promise<void> {
-    // Update draft and reload voices for the new provider
-    draft = { ...draft, provider: newProvider as "deepgram" | "elevenlabs" };
-    markDirty();
-    try {
-      ttsVoices = await fetchTtsVoices(newProvider);
-      // Reset to first voice of new provider if current voice isn't valid
-      if (
-        ttsVoices.length > 0 &&
-        !ttsVoices.find((v) => v.id === draft.tts_model)
-      ) {
-        draft = { ...draft, tts_model: ttsVoices[0].id };
-      }
-    } catch (error) {
-      console.error("Failed to load voices for provider:", error);
     }
   }
 
@@ -111,7 +93,7 @@
     try {
       const activeIndex = presets.active_index;
       const currentPreset = presets.presets[activeIndex];
-      const updatedPreset: KioskPreset = {
+      const updatedPreset = {
         name: currentPreset.name,
         // LLM settings
         model: draft.llm_model,
@@ -124,7 +106,8 @@
         keyterms: draft.keyterms,
         // TTS settings
         tts_enabled: draft.enabled,
-        tts_model: draft.tts_model,
+        tts_voice: draft.voice,
+        tts_model: draft.model,
         tts_sample_rate: draft.sample_rate,
       };
       presets = await updateKioskPreset(activeIndex, updatedPreset);
@@ -727,50 +710,24 @@
             </label>
 
             {#if draft.enabled}
-              <!-- Provider Selection -->
-              <div class="reasoning-field">
-                <div class="setting-select">
-                  <label
-                    class="setting-label"
-                    for="tts-provider"
-                    title="Select the TTS provider.">Provider</label
-                  >
-                  <select
-                    id="tts-provider"
-                    class="select-input"
-                    value={draft.provider}
-                    disabled={saving}
-                    on:change={(e) =>
-                      void handleProviderChange(
-                        (e.target as HTMLSelectElement).value,
-                      )}
-                  >
-                    <option value="deepgram">Deepgram Aura</option>
-                    <option value="elevenlabs">ElevenLabs</option>
-                    <option value="openai">OpenAI</option>
-                    <option value="unrealspeech">Unreal Speech</option>
-                  </select>
-                </div>
-              </div>
-
-              <!-- Voice Selection -->
+              <!-- Voice Selection (OpenAI) -->
               <div class="reasoning-field">
                 <div class="setting-select">
                   <label
                     class="setting-label"
                     for="tts-voice"
-                    title="Select the voice for text-to-speech synthesis."
+                    title="Select the OpenAI voice for text-to-speech synthesis."
                     >Voice</label
                   >
                   <select
                     id="tts-voice"
                     class="select-input"
-                    value={draft.tts_model}
+                    value={draft.voice}
                     disabled={saving}
                     on:change={(e) => {
                       draft = {
                         ...draft,
-                        tts_model: (e.target as HTMLSelectElement).value,
+                        voice: (e.target as HTMLSelectElement).value,
                       };
                       markDirty();
                     }}
@@ -779,6 +736,47 @@
                       <option value={voice.id}>{voice.name}</option>
                     {/each}
                   </select>
+                </div>
+              </div>
+
+              <!-- Speed Slider -->
+              <div class="reasoning-field">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="Speech speed multiplier. 1.0 is normal speed."
+                      >Speed</span
+                    >
+                    <span class="range-value">{draft.speed.toFixed(1)}x</span>
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="0.5"
+                    max="2.0"
+                    step="0.1"
+                    value={draft.speed}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.speed,
+                      0.5,
+                      2.0,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        speed: parseFloat(
+                          (e.target as HTMLInputElement).value,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>0.5x (slow)</span>
+                    <span>2x (fast)</span>
+                  </div>
                 </div>
               </div>
             {/if}

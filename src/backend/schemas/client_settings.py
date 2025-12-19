@@ -114,15 +114,48 @@ class TtsSettings(BaseModel):
         default=True,
         description="Whether TTS is enabled",
     )
+    provider: str = Field(
+        default="openai",
+        description="TTS provider: 'openai' is currently supported",
+    )
     model: str = Field(
-        default="aura-asteria-en",
-        description="TTS voice model identifier",
+        default="tts-1",
+        description="TTS model: 'tts-1' (faster) or 'tts-1-hd' (higher quality)",
+    )
+    voice: str = Field(
+        default="alloy",
+        description="OpenAI TTS voice: alloy, echo, fable, onyx, nova, shimmer",
+    )
+    speed: float = Field(
+        default=1.0,
+        ge=0.25,
+        le=4.0,
+        description="Speech speed multiplier (0.25 to 4.0)",
+    )
+    response_format: str = Field(
+        default="pcm",
+        description="Audio format: pcm, mp3, opus, aac, flac, wav",
     )
     sample_rate: int = Field(
-        default=16000,
+        default=24000,
         ge=8000,
         le=48000,
-        description="Audio sample rate in Hz",
+        description="Audio sample rate in Hz (24000 for OpenAI)",
+    )
+    # Segmentation pipeline options
+    use_segmentation: bool = Field(
+        default=True,
+        description="Whether to segment text at delimiters for faster initial audio",
+    )
+    delimiters: list[str] = Field(
+        default_factory=lambda: ["\n", ". ", "? ", "! ", "* ", ", ", ": "],
+        description="Delimiters to split text at for segmentation",
+    )
+    character_maximum: int = Field(
+        default=50,
+        ge=0,
+        le=500,
+        description="Max chars before disabling segmentation",
     )
 
 
@@ -130,8 +163,15 @@ class TtsSettingsUpdate(BaseModel):
     """Partial update for TTS settings."""
 
     enabled: Optional[bool] = None
+    provider: Optional[str] = None
     model: Optional[str] = None
+    voice: Optional[str] = None
+    speed: Optional[float] = Field(default=None, ge=0.25, le=4.0)
+    response_format: Optional[str] = None
     sample_rate: Optional[int] = Field(default=None, ge=8000, le=48000)
+    use_segmentation: Optional[bool] = None
+    delimiters: Optional[list[str]] = None
+    character_maximum: Optional[int] = Field(default=None, ge=0, le=500)
 
 
 # =============================================================================

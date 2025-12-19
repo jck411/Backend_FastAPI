@@ -156,11 +156,21 @@ async def reset_tts_settings(
 # TTS voice listing (shared across all clients)
 @router.get("/{client_id}/tts/voices")
 async def get_tts_voices(
-    provider: str = "deepgram",
+    provider: str = "openai",
 ) -> list[dict[str, str]]:
     """Get available TTS voice models for the specified provider."""
+    # OpenAI TTS voices
+    if provider == "openai":
+        return [
+            {"id": "alloy", "name": "Alloy (Neutral)"},
+            {"id": "echo", "name": "Echo (Male)"},
+            {"id": "fable", "name": "Fable (British)"},
+            {"id": "onyx", "name": "Onyx (Male, Deep)"},
+            {"id": "nova", "name": "Nova (Female)"},
+            {"id": "shimmer", "name": "Shimmer (Female)"},
+        ]
     # Deepgram Aura voices
-    if provider == "deepgram":
+    elif provider == "deepgram":
         return [
             {"id": "aura-asteria-en", "name": "Asteria (Female)"},
             {"id": "aura-luna-en", "name": "Luna (Female)"},

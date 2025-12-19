@@ -11,7 +11,6 @@ from backend.services.stt_service import STTService
 from backend.services.tts_service import TTSService
 from backend.services.kiosk_chat_service import KioskChatService
 from backend.services.client_settings_service import get_client_settings_service
-from backend.services.tts import TextSegmenter, TTSProcessor
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 logger = logging.getLogger(__name__)
@@ -68,20 +67,46 @@ async def handle_connection(
                 tts_cancel_event = asyncio.Event()
                 full_response = ""
 
-                # Create queues for the pipeline
-                phrase_queue: asyncio.Queue[str | None] = asyncio.Queue()
+                # Create TTS streaming pipeline
+                chunk_queue, audio_queue, segmenter_task, tts_processor_task = await tts_service.create_streaming_pipeline(tts_cancel_event)
 
-                # Initialize segmenter with min 25 chars before first delimiter
-                segmenter = TextSegmenter(min_chars=25)
+                # Get sample rate for audio playback
+                sample_rate = tts_service.get_sample_rate()
 
-                # Initialize processor (will broadcast audio chunks to WebSocket)
-                processor = TTSProcessor(tts_service, manager)
+                # Signal start of TTS audio stream
+                await manager.broadcast({
+                    "type": "tts_audio_start",
+                    "sample_rate": sample_rate,
+                    "streaming": True
+                })
 
-                # Start TTS processor task BEFORE LLM streaming
-                # This ensures it's ready to process phrases immediately
-                tts_task = asyncio.create_task(
-                    processor.process(phrase_queue, tts_cancel_event, stt_service)
-                )
+                # Start audio sender task (streams audio chunks as they arrive)
+                async def send_audio_chunks():
+                    chunk_index = 0
+                    try:
+                        while True:
+                            audio_chunk = await audio_queue.get()
+                            if audio_chunk is None:
+                                break
+                            await manager.broadcast({
+                                "type": "tts_audio_chunk",
+                                "data": base64.b64encode(audio_chunk).decode('utf-8'),
+                                "chunk_index": chunk_index,
+                                "is_last": False
+                            })
+                            chunk_index += 1
+                    except Exception as e:
+                        logger.error(f"Audio sender error: {e}")
+                    finally:
+                        await manager.broadcast({
+                            "type": "tts_audio_chunk",
+                            "data": "",
+                            "chunk_index": chunk_index,
+                            "is_last": True
+                        })
+
+                audio_sender_task = asyncio.create_task(send_audio_chunks())
+                await manager.update_state(client_id, "SPEAKING")
 
                 try:
                     # Signal start of streaming response
@@ -93,10 +118,8 @@ async def handle_connection(
                             full_response += chunk
                             await manager.broadcast({"type": "assistant_response_chunk", "text": chunk})
 
-                            # Feed chunks to segmenter, emit phrases to queue
-                            for phrase in segmenter.consume(chunk):
-                                logger.info(f"Emitting phrase ({len(phrase)} chars): {phrase[:40]}...")
-                                await phrase_queue.put(phrase)
+                            # Feed chunk directly to the TTS pipeline (segmentation happens internally)
+                            await chunk_queue.put(chunk)
 
                         elif event["type"] == "tool_status":
                             await manager.broadcast({
@@ -106,37 +129,28 @@ async def handle_connection(
                             })
                         elif event["type"] == "error":
                             full_response = event.get("message", "Sorry, I encountered an error.")
-                            # Put error message as single phrase
-                            await phrase_queue.put(full_response)
+                            await chunk_queue.put(full_response)
                             break
 
-                    # Flush any remaining text from segmenter
-                    final_phrase = segmenter.flush()
-                    if final_phrase:
-                        logger.info(f"Flushing final phrase ({len(final_phrase)} chars)")
-                        await phrase_queue.put(final_phrase)
-
-                    # Signal end to phrase queue
-                    await phrase_queue.put(None)
+                    # Signal end to chunk queue
+                    await chunk_queue.put(None)
 
                     # Signal end of streaming (with full text for backward compatibility)
                     await manager.broadcast({"type": "assistant_response_end", "text": full_response})
 
                 except Exception as e:
                     logger.error(f"LLM generation failed for {client_id}: {e}", exc_info=True)
-                    await phrase_queue.put("Sorry, I couldn't process that request.")
-                    await phrase_queue.put(None)
+                    await chunk_queue.put("Sorry, I couldn't process that request.")
+                    await chunk_queue.put(None)
                     await manager.broadcast({"type": "assistant_response_end", "text": "Sorry, I couldn't process that request."})
 
                 # Wait for TTS processing to complete
-                if tts_task:
-                    await manager.update_state(client_id, "SPEAKING")
-                    try:
-                        await tts_task
-                    except asyncio.CancelledError:
-                        logger.info("TTS task was cancelled")
-                    finally:
-                        tts_task = None
+                try:
+                    await segmenter_task
+                    await tts_processor_task
+                    await audio_sender_task
+                except asyncio.CancelledError:
+                    logger.info("TTS tasks were cancelled")
 
                 # Transition back based on conversation mode
                 try:

@@ -1,6 +1,7 @@
 /**
  * Kiosk settings store.
  * Fetches from and persists to the backend API (STT, TTS, UI, and LLM settings).
+ * Uses unified /api/clients/kiosk/* endpoints.
  */
 
 import { get, writable } from 'svelte/store';
@@ -26,48 +27,53 @@ import {
     updateKioskUiSettings,
 } from '../api/kiosk';
 
-// Combined settings type (note: TTS model and LLM model have different names to avoid conflicts)
-export interface KioskSettings extends KioskSttSettings, Omit<KioskTtsSettings, 'model'>, KioskUiSettings, Omit<KioskLlmSettings, 'model'> {
-    tts_model: string;  // TTS voice model (renamed from TTS settings)
-    llm_model: string;  // LLM model (renamed from LLM settings)
-}
-export interface KioskSettingsUpdate extends KioskSttSettingsUpdate, Omit<KioskTtsSettingsUpdate, 'model'>, KioskUiSettingsUpdate, Omit<KioskLlmSettingsUpdate, 'model'> {
-    tts_model?: string;
-    llm_model?: string;
+// Combined settings type for the UI
+export interface KioskSettings {
+    // STT settings
+    eot_threshold: number;
+    eot_timeout_ms: number;
+    keyterms: string[];
+    // TTS settings (OpenAI)
+    enabled: boolean;
+    provider: string;  // Always 'openai'
+    voice: string;     // OpenAI voice: alloy, echo, fable, onyx, nova, shimmer
+    model: string;     // tts-1 or tts-1-hd
+    speed: number;     // 0.25 to 4.0
+    sample_rate: number;
+    // UI settings
+    idle_return_delay_ms: number;
+    // LLM settings
+    llm_model: string;
+    system_prompt: string | null;
+    temperature: number;
+    max_tokens: number;
+    conversation_mode: boolean;
+    conversation_timeout_seconds: number;
 }
 
-export const DEFAULT_KIOSK_STT_SETTINGS: KioskSttSettings = {
+export interface KioskSettingsUpdate extends Partial<KioskSettings> { }
+
+export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
+    // STT
     eot_threshold: 0.7,
     eot_timeout_ms: 5000,
-    eager_eot_threshold: null,
     keyterms: [],
-};
-
-export const DEFAULT_KIOSK_TTS_SETTINGS: KioskTtsSettings = {
+    // TTS (OpenAI)
     enabled: true,
-    provider: 'deepgram',
-    model: 'aura-asteria-en',
-    sample_rate: 16000,
-};
-
-export const DEFAULT_KIOSK_UI_SETTINGS: KioskUiSettings = {
+    provider: 'openai',
+    voice: 'alloy',
+    model: 'tts-1',
+    speed: 1.0,
+    sample_rate: 24000,
+    // UI
     idle_return_delay_ms: 10000,
-};
-
-export const DEFAULT_KIOSK_LLM_SETTINGS = {
+    // LLM
     llm_model: 'openai/gpt-4o-mini',
     system_prompt: 'You are a helpful voice assistant who replies succinctly.',
     temperature: 0.7,
     max_tokens: 500,
     conversation_mode: false,
     conversation_timeout_seconds: 10.0,
-};
-
-export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
-    ...DEFAULT_KIOSK_STT_SETTINGS,
-    ...{ enabled: DEFAULT_KIOSK_TTS_SETTINGS.enabled, provider: DEFAULT_KIOSK_TTS_SETTINGS.provider, tts_model: DEFAULT_KIOSK_TTS_SETTINGS.model, sample_rate: DEFAULT_KIOSK_TTS_SETTINGS.sample_rate },
-    ...DEFAULT_KIOSK_UI_SETTINGS,
-    ...DEFAULT_KIOSK_LLM_SETTINGS,
 };
 
 function cloneSettings(value: KioskSettings): KioskSettings {
@@ -85,12 +91,10 @@ function createKioskSettingsStore() {
 
     async function load(): Promise<KioskSettings> {
         if (loading) {
-            // Return current value while loading
             return get(store);
         }
         loading = true;
         try {
-            // Load STT, TTS, UI, and LLM settings in parallel
             const [sttSettings, ttsSettings, uiSettings, llmSettings] = await Promise.all([
                 fetchKioskSttSettings(),
                 fetchKioskTtsSettings(),
@@ -98,12 +102,20 @@ function createKioskSettingsStore() {
                 fetchKioskLlmSettings(),
             ]);
             const combined: KioskSettings = {
-                ...sttSettings,
+                // STT
+                eot_threshold: sttSettings.eot_threshold,
+                eot_timeout_ms: sttSettings.eot_timeout_ms,
+                keyterms: sttSettings.keyterms,
+                // TTS
                 enabled: ttsSettings.enabled,
                 provider: ttsSettings.provider,
-                tts_model: ttsSettings.model,
+                voice: ttsSettings.voice,
+                model: ttsSettings.model,
+                speed: ttsSettings.speed,
                 sample_rate: ttsSettings.sample_rate,
-                ...uiSettings,
+                // UI
+                idle_return_delay_ms: uiSettings.idle_return_delay_ms,
+                // LLM
                 llm_model: llmSettings.model,
                 system_prompt: llmSettings.system_prompt,
                 temperature: llmSettings.temperature,
@@ -124,28 +136,28 @@ function createKioskSettingsStore() {
 
     async function save(update: KioskSettingsUpdate): Promise<KioskSettings> {
         try {
-            // Determine which APIs need to be called
             const sttUpdate: KioskSttSettingsUpdate = {};
             const ttsUpdate: KioskTtsSettingsUpdate = {};
             const uiUpdate: KioskUiSettingsUpdate = {};
+            const llmUpdate: KioskLlmSettingsUpdate = {};
 
             // STT fields
             if (update.eot_threshold !== undefined) sttUpdate.eot_threshold = update.eot_threshold;
             if (update.eot_timeout_ms !== undefined) sttUpdate.eot_timeout_ms = update.eot_timeout_ms;
-            if (update.eager_eot_threshold !== undefined) sttUpdate.eager_eot_threshold = update.eager_eot_threshold;
             if (update.keyterms !== undefined) sttUpdate.keyterms = update.keyterms;
 
             // TTS fields
             if (update.enabled !== undefined) ttsUpdate.enabled = update.enabled;
             if (update.provider !== undefined) ttsUpdate.provider = update.provider;
-            if (update.tts_model !== undefined) ttsUpdate.model = update.tts_model;
+            if (update.voice !== undefined) ttsUpdate.voice = update.voice;
+            if (update.model !== undefined) ttsUpdate.model = update.model;
+            if (update.speed !== undefined) ttsUpdate.speed = update.speed;
             if (update.sample_rate !== undefined) ttsUpdate.sample_rate = update.sample_rate;
 
             // UI fields
             if (update.idle_return_delay_ms !== undefined) uiUpdate.idle_return_delay_ms = update.idle_return_delay_ms;
 
             // LLM fields
-            const llmUpdate: KioskLlmSettingsUpdate = {};
             if (update.llm_model !== undefined) llmUpdate.model = update.llm_model;
             if (update.system_prompt !== undefined) llmUpdate.system_prompt = update.system_prompt;
             if (update.temperature !== undefined) llmUpdate.temperature = update.temperature;
@@ -169,8 +181,6 @@ function createKioskSettingsStore() {
             }
 
             await Promise.all(promises);
-
-            // Reload to get the combined state
             return await load();
         } catch (error) {
             console.error('Failed to save kiosk settings:', error);
@@ -180,7 +190,6 @@ function createKioskSettingsStore() {
 
     async function reset(): Promise<KioskSettings> {
         try {
-            // Reset STT, TTS, and LLM settings in parallel
             const [sttSettings, ttsSettings, llmSettings] = await Promise.all([
                 resetKioskSttSettings(),
                 resetKioskTtsSettings(),
@@ -188,12 +197,20 @@ function createKioskSettingsStore() {
             ]);
             const current = get(store);
             const combined: KioskSettings = {
-                ...sttSettings,
+                // STT
+                eot_threshold: sttSettings.eot_threshold,
+                eot_timeout_ms: sttSettings.eot_timeout_ms,
+                keyterms: sttSettings.keyterms,
+                // TTS
                 enabled: ttsSettings.enabled,
                 provider: ttsSettings.provider,
-                tts_model: ttsSettings.model,
+                voice: ttsSettings.voice,
+                model: ttsSettings.model,
+                speed: ttsSettings.speed,
                 sample_rate: ttsSettings.sample_rate,
+                // UI (keep current)
                 idle_return_delay_ms: current.idle_return_delay_ms,
+                // LLM
                 llm_model: llmSettings.model,
                 system_prompt: llmSettings.system_prompt,
                 temperature: llmSettings.temperature,
@@ -227,4 +244,3 @@ export const kioskSettingsStore = createKioskSettingsStore();
 
 // Re-export types for convenience
 export type { KioskLlmSettings, KioskLlmSettingsUpdate, KioskSttSettings, KioskSttSettingsUpdate, KioskTtsSettings, KioskTtsSettingsUpdate, KioskUiSettings, KioskUiSettingsUpdate };
-

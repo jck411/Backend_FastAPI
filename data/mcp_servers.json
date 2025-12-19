@@ -3,12 +3,12 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {
         "HOST_PROFILE_ID": "xps13",
         "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"
       },
-      "frontend_enabled": false,
+      "frontend_enabled": true,
       "id": "shell-control",
       "kiosk_enabled": true,
       "module": "backend.mcp_servers.shell_control_server",
@@ -17,11 +17,11 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
-      "frontend_enabled": true,
+      "frontend_enabled": false,
       "id": "notes",
-      "kiosk_enabled": false,
+      "kiosk_enabled": true,
       "module": "backend.mcp_servers.notes_server",
       "tool_overrides": {}
     },
@@ -49,7 +49,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "frontend_enabled": false,
       "id": "custom-gdrive",
@@ -60,7 +60,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "frontend_enabled": true,
       "id": "custom-pdf",
@@ -82,7 +82,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "frontend_enabled": true,
       "id": "spotify",
@@ -106,7 +106,7 @@
       "disabled_tools": [],
       "enabled": true,
       "env": {},
-      "frontend_enabled": false,
+      "frontend_enabled": true,
       "id": "housekeeping",
       "kiosk_enabled": false,
       "module": "backend.mcp_servers.housekeeping_server",

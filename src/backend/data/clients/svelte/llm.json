@@ -1,6 +1,6 @@
 {
-  "model": "mistralai/mistral-small-creative",
-  "system_prompt": "You are a helpful assistant. yea",
+  "model": "openai/gpt-4o-mini",
+  "system_prompt": "You are a helpful assistant.",
   "temperature": 0.7,
   "max_tokens": 4096,
   "supports_tools": true,

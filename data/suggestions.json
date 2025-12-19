@@ -1,12 +1,16 @@
 {
   "suggestions": [
     {
-      "label": "update profile",
-      "text": "lets update host profile"
+      "label": "Next.js advantages",
+      "text": "What are the advantages of using Next.js?"
     },
     {
-      "label": "bluetooth connect",
-      "text": "connect to my bluetooth headphones"
+      "label": "Dijkstra code",
+      "text": "Write code to demonstrate Dijkstra's algorithm"
+    },
+    {
+      "label": "Essay helper",
+      "text": "Help me write an essay about Silicon Valley"
     }
   ]
 }

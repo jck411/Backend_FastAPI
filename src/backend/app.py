@@ -19,8 +19,6 @@ from .routers.chat import router as chat_router
 from .routers.google_auth import router as google_auth_router
 from .routers.mcp_servers import router as mcp_router
 from .routers.monarch_auth import router as monarch_auth_router
-from .routers.presets import router as presets_router
-from .routers.settings import router as settings_router
 from .routers.spotify_auth import router as spotify_auth_router
 from .routers.stt import router as stt_router
 from .routers.clients import router as clients_router
@@ -31,8 +29,8 @@ from .services.attachments_cleanup import cleanup_expired_attachments
 from .mcp_servers import BUILTIN_MCP_SERVER_DEFINITIONS
 from .services.mcp_server_settings import MCPServerSettingsService
 from .services.model_settings import ModelSettingsService
-from .services.presets import PresetService
 from .services.suggestions import SuggestionsService
+
 
 
 def _configure_logging() -> None:
@@ -107,12 +105,11 @@ def create_app() -> FastAPI:
             raise ValueError(f"Configured path {resolved} escapes project root {base}")
         return resolved
 
-    model_settings_path = _resolve_under(project_root, settings.model_settings_path)
-
+    # Model settings service now reads from ClientSettingsService for 'svelte' client
     model_settings_service = ModelSettingsService(
-        model_settings_path,
-        settings.default_model,
+        default_model=settings.default_model,
         default_system_prompt=settings.openrouter_system_prompt,
+        client_id="svelte",
     )
 
     mcp_servers_path = _resolve_under(project_root, settings.mcp_servers_path)
@@ -141,16 +138,8 @@ def create_app() -> FastAPI:
 
     suggestions_service = SuggestionsService(suggestions_path)
 
-    presets_path = _resolve_under(project_root, settings.presets_path)
-
-    preset_service = PresetService(
-        presets_path,
-        model_settings_service,
-        mcp_settings_service,
-        suggestions_service,
-    )
-
     orchestrator = ChatOrchestrator(
+
         settings,
         model_settings_service,
         mcp_settings_service,
@@ -235,7 +224,6 @@ def create_app() -> FastAPI:
     app.state.model_settings_service = model_settings_service
     app.state.chat_orchestrator = orchestrator
     app.state.mcp_server_settings_service = mcp_settings_service
-    app.state.preset_service = preset_service
     app.state.attachment_service = attachment_service
     app.state.suggestions_service = suggestions_service
 
@@ -248,8 +236,6 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(chat_router)
-    app.include_router(settings_router)
-    app.include_router(presets_router)
     app.include_router(mcp_router)
     app.include_router(stt_router)
     app.include_router(clients_router)

@@ -1,4 +1,39 @@
 {
-    "presets": [],
-    "active_index": null
+  "presets": [
+    {
+      "name": "test",
+      "llm": {
+        "model": "openai/gpt-4o-mini",
+        "system_prompt": "You are a helpful assistant.",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "mcp_servers": [],
+      "created_at": "2025-12-19T10:56:16.306632+00:00",
+      "updated_at": "2025-12-19T10:56:16.306632+00:00"
+    },
+    {
+      "name": "shell",
+      "llm": {
+        "model": "openai/gpt-5.2",
+        "system_prompt": "You are a helpful assistant.",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "mcp_servers": [],
+      "created_at": "2025-12-19T10:57:12.163449+00:00",
+      "updated_at": "2025-12-19T10:57:12.163449+00:00"
+    }
+  ],
+  "active_index": null
 }

@@ -1,8 +1,9 @@
 {
-    "model": "openai/gpt-4o-mini",
-    "system_prompt": "You are a helpful assistant.",
-    "temperature": 0.7,
-    "max_tokens": 4096,
-    "supports_tools": true,
-    "conversation_mode": false
+  "model": "openai/gpt-5.2",
+  "system_prompt": "You are a helpful assistant.",
+  "temperature": 0.7,
+  "max_tokens": 4096,
+  "supports_tools": true,
+  "conversation_mode": false,
+  "conversation_timeout_seconds": 10.0
 }

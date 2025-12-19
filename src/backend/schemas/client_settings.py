@@ -205,6 +205,8 @@ class ClientPreset(BaseModel):
     stt: Optional[SttSettings] = None
     tts: Optional[TtsSettings] = None
     mcp_servers: list[McpServerRef] = Field(default_factory=list)
+    created_at: Optional[str] = Field(default=None, description="ISO timestamp when preset was created")
+    updated_at: Optional[str] = Field(default=None, description="ISO timestamp when preset was last modified")
 
 
 class ClientPresetUpdate(BaseModel):

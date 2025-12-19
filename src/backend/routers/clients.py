@@ -327,6 +327,51 @@ async def activate_preset(
 
 
 # =============================================================================
+# Name-based Preset Endpoints (for frontend compatibility)
+# =============================================================================
+
+
+@router.post("/{client_id}/presets/by-name/{name}/apply", response_model=ClientSettings)
+async def apply_preset_by_name(
+    name: str,
+    service: ClientSettingsService = Depends(get_service),
+) -> ClientSettings:
+    """Apply a preset by name."""
+    presets = service.get_presets()
+    for i, preset in enumerate(presets.presets):
+        if preset.name == name:
+            return service.activate_preset(i)
+    raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
+
+
+@router.delete("/{client_id}/presets/by-name/{name}", response_model=ClientPresets)
+async def delete_preset_by_name(
+    name: str,
+    service: ClientSettingsService = Depends(get_service),
+) -> ClientPresets:
+    """Delete a preset by name."""
+    presets = service.get_presets()
+    for i, preset in enumerate(presets.presets):
+        if preset.name == name:
+            return service.delete_preset(i)
+    raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
+
+
+@router.post("/{client_id}/presets/by-name/{name}/set-active", response_model=ClientPresets)
+async def set_active_preset_by_name(
+    name: str,
+    service: ClientSettingsService = Depends(get_service),
+) -> ClientPresets:
+    """Set a preset as the active one by name."""
+    presets = service.get_presets()
+    for i, preset in enumerate(presets.presets):
+        if preset.name == name:
+            service.activate_preset(i)
+            return service.get_presets()
+    raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
+
+
+# =============================================================================
 # Full Settings Bundle
 # =============================================================================
 

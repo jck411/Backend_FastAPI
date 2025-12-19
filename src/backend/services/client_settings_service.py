@@ -329,10 +329,25 @@ class ClientSettingsService:
 
     def add_preset(self, preset: ClientPreset) -> ClientPresets:
         """Add a new preset."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        # Set timestamps if not provided
+        if preset.created_at is None:
+            preset = ClientPreset(
+                name=preset.name,
+                llm=preset.llm,
+                stt=preset.stt,
+                tts=preset.tts,
+                mcp_servers=preset.mcp_servers,
+                created_at=now,
+                updated_at=now,
+            )
         presets = self.get_presets()
         presets.presets.append(preset)
         self._save_presets(presets)
         return presets
+
 
     def delete_preset(self, index: int) -> ClientPresets:
         """Delete a preset at the given index."""

@@ -1,16 +1,3 @@
 {
-  "suggestions": [
-    {
-      "label": "Next.js advantages",
-      "text": "What are the advantages of using Next.js?"
-    },
-    {
-      "label": "Dijkstra code",
-      "text": "Write code to demonstrate Dijkstra's algorithm"
-    },
-    {
-      "label": "Essay helper",
-      "text": "Help me write an essay about Silicon Valley"
-    }
-  ]
+  "suggestions": []
 }

@@ -10,7 +10,7 @@
       },
       "frontend_enabled": true,
       "id": "shell-control",
-      "kiosk_enabled": false,
+      "kiosk_enabled": true,
       "module": "backend.mcp_servers.shell_control_server",
       "tool_overrides": {}
     },
@@ -93,7 +93,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "frontend_enabled": true,
       "id": "local-calculator",

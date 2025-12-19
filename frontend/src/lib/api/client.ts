@@ -463,19 +463,21 @@ export async function createPreset(payload: PresetCreatePayload): Promise<Preset
   // Get current LLM settings (includes model and system_prompt)
   const currentLlm = await requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm'));
 
-  // Get current MCP server configuration
+  // Get current MCP server configuration from GLOBAL endpoint (not client-specific)
   interface McpServerConfig {
     id: string;
     enabled?: boolean;
+    frontend_enabled?: boolean;
     [key: string]: unknown;
   }
-  const mcpServers = await requestJson<McpServerConfig[]>(resolveApiPath('/api/clients/svelte/mcp-servers'));
+  const mcpResponse = await requestJson<{ servers: McpServerConfig[] }>(resolveApiPath('/api/mcp/servers/'));
+  const mcpServers = mcpResponse.servers || [];
 
   // Create preset via POST with full ClientPreset structure
   const presetPayload = {
     name: payload.name,
     llm: currentLlm,
-    mcp_servers: mcpServers.map(s => ({ id: s.id, enabled: s.enabled ?? true })),
+    mcp_servers: mcpServers.map(s => ({ server_id: s.id, enabled: s.frontend_enabled ?? s.enabled ?? false })),
   };
 
   const result = await requestJson<{ presets: PresetConfig[]; active_index: number | null }>(
@@ -509,13 +511,15 @@ export async function savePresetSnapshot(
   // Get current LLM settings (includes model and system_prompt)
   const currentLlm = await requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm'));
 
-  // Get current MCP server configuration
+  // Get current MCP server configuration from GLOBAL endpoint (not client-specific)
   interface McpServerConfig {
     id: string;
     enabled?: boolean;
+    frontend_enabled?: boolean;
     [key: string]: unknown;
   }
-  const mcpServers = await requestJson<McpServerConfig[]>(resolveApiPath('/api/clients/svelte/mcp-servers'));
+  const mcpResponse = await requestJson<{ servers: McpServerConfig[] }>(resolveApiPath('/api/mcp/servers/'));
+  const mcpServers = mcpResponse.servers || [];
 
   // Update preset at index with current settings
   const result = await requestJson<{ presets: PresetConfig[]; active_index: number | null }>(
@@ -524,7 +528,7 @@ export async function savePresetSnapshot(
       method: 'PUT',
       body: JSON.stringify({
         llm: currentLlm,
-        mcp_servers: mcpServers.map(s => ({ id: s.id, enabled: s.enabled ?? true })),
+        mcp_servers: mcpServers.map(s => ({ server_id: s.id, enabled: s.frontend_enabled ?? s.enabled ?? false })),
       }),
     }
   );
@@ -533,6 +537,7 @@ export async function savePresetSnapshot(
   if (!updatedPreset) throw new ApiError(500, 'Failed to save preset snapshot');
   return updatedPreset;
 }
+
 
 
 

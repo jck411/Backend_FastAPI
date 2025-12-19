@@ -69,8 +69,7 @@ async def _build_status_response(
                 name: MCPServerToolDefinition(contexts=override.contexts)
                 for name, override in config.tool_overrides.items()
             },
-            kiosk_enabled=config.kiosk_enabled,
-            frontend_enabled=config.frontend_enabled,
+            client_enabled=dict(config.client_enabled),
         )
         servers.append(status)
 
@@ -128,6 +127,35 @@ async def refresh_mcp_servers(
     orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
 ) -> MCPServerStatusResponse:
     await orchestrator.refresh_mcp_tools()
+    return await _build_status_response(service, orchestrator)
+
+
+@router.patch("/{server_id}/clients/{client_id}", response_model=MCPServerStatusResponse)
+async def set_server_client_enabled(
+    server_id: str,
+    client_id: str,
+    enabled: bool,
+    service: MCPServerSettingsService = Depends(get_mcp_settings_service),
+    orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
+) -> MCPServerStatusResponse:
+    """Enable or disable a server for a specific client."""
+    # Get current config
+    configs = await service.get_configs()
+    config = next((c for c in configs if c.id == server_id), None)
+    if config is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
+
+    # Update client_enabled map
+    new_client_enabled = dict(config.client_enabled)
+    new_client_enabled[client_id] = enabled
+
+    await service.patch_server(
+        server_id,
+        overrides={"client_enabled": new_client_enabled}
+    )
+    updated_configs = await service.get_configs()
+    await orchestrator.apply_mcp_configs(updated_configs)
     return await _build_status_response(service, orchestrator)
 
 

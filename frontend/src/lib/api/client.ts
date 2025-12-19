@@ -467,7 +467,7 @@ export async function createPreset(payload: PresetCreatePayload): Promise<Preset
   interface McpServerConfig {
     id: string;
     enabled?: boolean;
-    frontend_enabled?: boolean;
+    client_enabled?: Record<string, boolean>;
     [key: string]: unknown;
   }
   const mcpResponse = await requestJson<{ servers: McpServerConfig[] }>(resolveApiPath('/api/mcp/servers/'));
@@ -477,7 +477,7 @@ export async function createPreset(payload: PresetCreatePayload): Promise<Preset
   const presetPayload = {
     name: payload.name,
     llm: currentLlm,
-    mcp_servers: mcpServers.map(s => ({ server_id: s.id, enabled: s.frontend_enabled ?? s.enabled ?? false })),
+    mcp_servers: mcpServers.map(s => ({ server_id: s.id, enabled: s.client_enabled?.svelte ?? s.enabled ?? false })),
   };
 
   const result = await requestJson<{ presets: PresetConfig[]; active_index: number | null }>(
@@ -515,7 +515,7 @@ export async function savePresetSnapshot(
   interface McpServerConfig {
     id: string;
     enabled?: boolean;
-    frontend_enabled?: boolean;
+    client_enabled?: Record<string, boolean>;
     [key: string]: unknown;
   }
   const mcpResponse = await requestJson<{ servers: McpServerConfig[] }>(resolveApiPath('/api/mcp/servers/'));
@@ -528,7 +528,7 @@ export async function savePresetSnapshot(
       method: 'PUT',
       body: JSON.stringify({
         llm: currentLlm,
-        mcp_servers: mcpServers.map(s => ({ server_id: s.id, enabled: s.frontend_enabled ?? s.enabled ?? false })),
+        mcp_servers: mcpServers.map(s => ({ server_id: s.id, enabled: s.client_enabled?.svelte ?? s.enabled ?? false })),
       }),
     }
   );

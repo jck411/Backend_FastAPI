@@ -271,14 +271,16 @@ class ChatOrchestrator:
         # Filter tools based on session type and server config
         configs = await self._mcp_settings.get_configs()
 
+        # Determine client_id from session_id prefix
         if session_id.startswith("kiosk_"):
-            # Kiosk sessions: filter by kiosk_enabled
-            allowed_servers = {cfg.id for cfg in configs if cfg.kiosk_enabled}
-            session_type = "kiosk"
+            client_id = "kiosk"
+        elif session_id.startswith("cli_"):
+            client_id = "cli"
         else:
-            # Main frontend sessions: filter by frontend_enabled
-            allowed_servers = {cfg.id for cfg in configs if cfg.frontend_enabled}
-            session_type = "frontend"
+            client_id = "svelte"
+
+        # Filter by client-specific enabled state
+        allowed_servers = {cfg.id for cfg in configs if cfg.is_enabled_for_client(client_id)}
 
         filtered_tools = []
         for tool in tools_payload:
@@ -291,7 +293,7 @@ class ChatOrchestrator:
 
         logger.info(
             "%s session %s: filtered tools from %d to %d (allowed servers: %s)",
-            session_type, session_id, len(tools_payload), len(filtered_tools), list(allowed_servers)
+            client_id, session_id, len(tools_payload), len(filtered_tools), list(allowed_servers)
         )
         tools_payload = filtered_tools
 

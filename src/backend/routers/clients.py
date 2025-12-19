@@ -9,7 +9,7 @@ This router handles settings for all clients using the pattern:
 """
 
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 
@@ -33,6 +33,8 @@ from backend.services.client_settings_service import (
     ClientSettingsService,
     get_client_settings_service,
 )
+from backend.services.mcp_server_settings import MCPServerSettingsService
+from backend.chat.orchestrator import ChatOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,16 @@ def get_service(
 ) -> ClientSettingsService:
     """Get the settings service for a client."""
     return get_client_settings_service(client_id)
+
+
+def get_mcp_settings_service(request: Request) -> Optional[MCPServerSettingsService]:
+    """Get MCP server settings service from request state (if available)."""
+    return getattr(request.app.state, "mcp_server_settings_service", None)
+
+
+def get_chat_orchestrator(request: Request) -> Optional[ChatOrchestrator]:
+    """Get chat orchestrator from request state (if available)."""
+    return getattr(request.app.state, "chat_orchestrator", None)
 
 
 # =============================================================================
@@ -334,14 +346,70 @@ async def activate_preset(
 @router.post("/{client_id}/presets/by-name/{name}/apply", response_model=ClientSettings)
 async def apply_preset_by_name(
     name: str,
+    request: Request,
+    client_id: str = Depends(validate_client_id),
     service: ClientSettingsService = Depends(get_service),
 ) -> ClientSettings:
-    """Apply a preset by name."""
+    """Apply a preset by name.
+
+    This also syncs the preset's MCP server settings to the global registry
+    so the chat orchestrator uses the correct MCP servers for this client.
+    """
     presets = service.get_presets()
-    for i, preset in enumerate(presets.presets):
-        if preset.name == name:
-            return service.activate_preset(i)
-    raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
+    preset_index = None
+    preset = None
+    for i, p in enumerate(presets.presets):
+        if p.name == name:
+            preset_index = i
+            preset = p
+            break
+
+    if preset_index is None or preset is None:
+        raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
+
+    # Activate the preset (saves to client-specific storage)
+    result = service.activate_preset(preset_index)
+
+    # Also sync MCP server settings to the global registry
+    # This ensures the chat orchestrator uses the correct MCP servers
+    mcp_service = get_mcp_settings_service(request)
+    orchestrator = get_chat_orchestrator(request)
+
+    if mcp_service is not None and preset.mcp_servers:
+        # Build a map of preset MCP server enabled states
+        preset_mcp_map = {
+            s.server_id if isinstance(s, McpServerRef) else s.get("server_id"):
+            s.enabled if isinstance(s, McpServerRef) else s.get("enabled", True)
+            for s in preset.mcp_servers
+        }
+
+        # Patch each server's client_enabled map in the global registry
+        try:
+            configs = await mcp_service.get_configs()
+            for config in configs:
+                if config.id in preset_mcp_map:
+                    new_enabled = preset_mcp_map[config.id]
+                    current_enabled = config.client_enabled.get(client_id, False)
+                    if current_enabled != new_enabled:
+                        # Update the client_enabled map for this client
+                        updated_client_enabled = dict(config.client_enabled)
+                        updated_client_enabled[client_id] = new_enabled
+                        await mcp_service.patch_server(
+                            config.id,
+                            overrides={"client_enabled": updated_client_enabled}
+                        )
+
+            # Refresh orchestrator with updated configs
+            if orchestrator is not None:
+                updated_configs = await mcp_service.get_configs()
+                await orchestrator.apply_mcp_configs(updated_configs)
+
+            logger.info(f"Synced MCP server settings for preset '{name}' (client: {client_id})")
+        except Exception as e:
+            # Log but don't fail - the preset was still applied to client storage
+            logger.warning(f"Failed to sync MCP settings to global registry: {e}")
+
+    return result
 
 
 @router.delete("/{client_id}/presets/by-name/{name}", response_model=ClientPresets)

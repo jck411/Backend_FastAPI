@@ -66,7 +66,7 @@ class MCPServerToolConfig(BaseModel):
 class MCPServerConfig(BaseModel):
     """Declarative description of how to launch an MCP server."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")  # Allow legacy fields during migration
 
     id: Annotated[
         str,
@@ -111,14 +111,36 @@ class MCPServerConfig(BaseModel):
         default_factory=dict,
         description="Optional per-tool override settings keyed by tool name",
     )
-    kiosk_enabled: bool = Field(
-        default=False,
-        description="Whether this server's tools are available to the kiosk assistant",
+    client_enabled: dict[str, bool] = Field(
+        default_factory=lambda: {"svelte": True, "kiosk": False, "cli": True},
+        description="Per-client enabled state: {client_id: True/False}",
     )
-    frontend_enabled: bool = Field(
-        default=True,
-        description="Whether this server's tools are available to the main web frontend",
-    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_enabled_flags(cls, data: Any) -> Any:
+        """Migrate legacy kiosk_enabled/frontend_enabled to client_enabled dict."""
+        if not isinstance(data, dict):
+            return data
+
+        # If client_enabled already exists, use it
+        if "client_enabled" in data:
+            return data
+
+        # Migrate legacy fields
+        frontend_enabled = data.pop("frontend_enabled", True)
+        kiosk_enabled = data.pop("kiosk_enabled", False)
+
+        data["client_enabled"] = {
+            "svelte": frontend_enabled,
+            "kiosk": kiosk_enabled,
+            "cli": frontend_enabled,  # CLI follows frontend by default
+        }
+        return data
+
+    def is_enabled_for_client(self, client_id: str) -> bool:
+        """Check if this server is enabled for a specific client."""
+        return self.client_enabled.get(client_id, False)
 
     @field_validator("command", mode="before")
     @classmethod

@@ -31,8 +31,9 @@ class MCPServerDefinition(BaseModel):
     disabled_tools: set[str] | None = Field(default=None)
     contexts: list[str] = Field(default_factory=list)
     tool_overrides: dict[str, MCPServerToolDefinition] = Field(default_factory=dict)
-    kiosk_enabled: bool = Field(default=False)
-    frontend_enabled: bool = Field(default=True)
+    client_enabled: dict[str, bool] = Field(
+        default_factory=lambda: {"svelte": True, "kiosk": False, "cli": True}
+    )
 
 
 class MCPServerCollectionPayload(BaseModel):
@@ -55,8 +56,7 @@ class MCPServerUpdatePayload(BaseModel):
     tool_prefix: str | None = None
     contexts: list[str] | None = None
     tool_overrides: dict[str, MCPServerToolDefinition] | None = None
-    kiosk_enabled: bool | None = None
-    frontend_enabled: bool | None = None
+    client_enabled: dict[str, bool] | None = None
 
 
 class MCPServerToolStatus(BaseModel):
@@ -81,8 +81,9 @@ class MCPServerStatus(BaseModel):
     tools: list[MCPServerToolStatus] = Field(default_factory=list)
     contexts: list[str] = Field(default_factory=list)
     tool_overrides: dict[str, MCPServerToolDefinition] = Field(default_factory=dict)
-    kiosk_enabled: bool = Field(default=False)
-    frontend_enabled: bool = Field(default=True)
+    client_enabled: dict[str, bool] = Field(
+        default_factory=lambda: {"svelte": True, "kiosk": False, "cli": True}
+    )
 
 
 class MCPServerStatusResponse(BaseModel):

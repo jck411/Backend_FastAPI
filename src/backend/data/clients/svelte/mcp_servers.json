@@ -1,44 +1,94 @@
 {
   "servers": [
     {
-      "server_id": "shell-control",
-      "enabled": true
+      "client_enabled": {
+        "cli": true,
+        "kiosk": false,
+        "svelte": true
+      },
+      "enabled": true,
+      "server_id": "shell-control"
     },
     {
-      "server_id": "notes",
-      "enabled": true
+      "client_enabled": {
+        "cli": true,
+        "kiosk": false,
+        "svelte": true
+      },
+      "enabled": false,
+      "server_id": "notes"
     },
     {
-      "server_id": "monarch-money",
-      "enabled": true
+      "client_enabled": {
+        "cli": true,
+        "kiosk": false,
+        "svelte": true
+      },
+      "enabled": true,
+      "server_id": "monarch-money"
     },
     {
-      "server_id": "custom-gmail",
-      "enabled": true
+      "client_enabled": {
+        "cli": true,
+        "kiosk": false,
+        "svelte": true
+      },
+      "enabled": true,
+      "server_id": "custom-gmail"
     },
     {
-      "server_id": "custom-gdrive",
-      "enabled": false
+      "client_enabled": {
+        "cli": true,
+        "kiosk": false,
+        "svelte": true
+      },
+      "enabled": false,
+      "server_id": "custom-gdrive"
     },
     {
-      "server_id": "custom-pdf",
-      "enabled": true
+      "client_enabled": {
+        "cli": true,
+        "kiosk": false,
+        "svelte": true
+      },
+      "enabled": true,
+      "server_id": "custom-pdf"
     },
     {
-      "server_id": "custom-calendar",
-      "enabled": true
+      "client_enabled": {
+        "cli": true,
+        "kiosk": false,
+        "svelte": true
+      },
+      "enabled": true,
+      "server_id": "custom-calendar"
     },
     {
-      "server_id": "spotify",
-      "enabled": true
+      "client_enabled": {
+        "cli": true,
+        "kiosk": false,
+        "svelte": true
+      },
+      "enabled": true,
+      "server_id": "spotify"
     },
     {
-      "server_id": "local-calculator",
-      "enabled": true
+      "client_enabled": {
+        "cli": true,
+        "kiosk": false,
+        "svelte": true
+      },
+      "enabled": false,
+      "server_id": "local-calculator"
     },
     {
-      "server_id": "housekeeping",
-      "enabled": true
+      "client_enabled": {
+        "cli": true,
+        "kiosk": false,
+        "svelte": true
+      },
+      "enabled": true,
+      "server_id": "housekeeping"
     }
   ]
 }

@@ -3,7 +3,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {
         "HOST_PROFILE_ID": "xps13",
         "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"
@@ -82,7 +82,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "frontend_enabled": true,
       "id": "spotify",
@@ -93,7 +93,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "frontend_enabled": true,
       "id": "local-calculator",
@@ -104,7 +104,7 @@
     {
       "contexts": [],
       "disabled_tools": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "frontend_enabled": true,
       "id": "housekeeping",

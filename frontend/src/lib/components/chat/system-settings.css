@@ -2,7 +2,8 @@
   z-index: 150;
 }
 
-.system-settings-modal {
+.system-settings-modal,
+.mcp-settings-modal {
   width: min(720px, 100%);
 }
 

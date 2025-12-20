@@ -17,10 +17,9 @@
     modelChange: { id: string };
     openModelSettings: void;
     openSystemSettings: void;
-    openSpeechSettings: void;
     openKioskSettings: void;
     openCliSettings: void;
-    openPresets: void;
+    openMcpServers: void;
   }>();
 
   export let selectableModels: SelectableModel[] = [];
@@ -84,10 +83,6 @@
     dispatch("openSystemSettings");
   }
 
-  function forwardOpenSpeechSettings(): void {
-    dispatch("openSpeechSettings");
-  }
-
   function forwardOpenKioskSettings(): void {
     dispatch("openKioskSettings");
   }
@@ -96,8 +91,8 @@
     dispatch("openCliSettings");
   }
 
-  function forwardOpenPresets(): void {
-    dispatch("openPresets");
+  function forwardOpenMcpServers(): void {
+    dispatch("openMcpServers");
   }
 </script>
 
@@ -188,23 +183,13 @@
         </svg>
       </button>
 
-      <button
-        class="btn btn-ghost btn-small"
-        type="button"
-        on:click={forwardOpenPresets}
-        aria-label="Presets"
-        title="Presets"
-      >
-        <span>Presets</span>
-      </button>
-
       {#if $presetsStore.applying}
         <button
           class="preset-badge applying"
           type="button"
-          on:click={forwardOpenPresets}
+          on:click={forwardOpenSystemSettings}
           aria-live="polite"
-          title={`Applying ${$presetsStore.applying}… (click to manage presets)`}
+          title={`Applying ${$presetsStore.applying}… (open system settings to manage presets)`}
         >
           <span class="spinner" aria-hidden="true"></span>
           <span class="label">Preset</span>
@@ -216,9 +201,9 @@
         <button
           class="preset-badge"
           type="button"
-          on:click={forwardOpenPresets}
+          on:click={forwardOpenSystemSettings}
           aria-live="polite"
-          title={`Active preset: ${$presetsStore.lastApplied} (click to manage)`}
+          title={`Active preset: ${$presetsStore.lastApplied} (open system settings to manage)`}
         >
           <span class="dot" aria-hidden="true"></span>
           <span class="label">Preset</span>
@@ -229,13 +214,12 @@
       {/if}
 
       <button
-        class="btn btn-ghost btn-small system-settings"
+        class="btn btn-ghost btn-small settings-icon system-settings"
         type="button"
         on:click={forwardOpenSystemSettings}
         aria-label="System settings"
         title="System settings"
       >
-        <span>System</span>
         <svg
           width="18"
           height="18"
@@ -245,30 +229,45 @@
           aria-hidden="true"
         >
           <path
-            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.89 3.31.876 2.42 2.42a1.724 1.724 0 0 0 1.066 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.572c.89 1.543-.876 3.31-2.42 2.42a1.724 1.724 0 0 0-2.572 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.89-3.31-.876-2.42-2.42a1.724 1.724 0 0 0-1.066-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.572c-.89-1.543.876-3.31 2.42-2.42.965.557 2.185.21 2.573-1.066Z"
+            d="M4 6h16M4 12h16M4 18h16"
             stroke="currentColor"
             stroke-width="1.5"
             stroke-linecap="round"
-            stroke-linejoin="round"
           />
-          <path
-            d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+          <circle
+            cx="9"
+            cy="6"
+            r="2"
             stroke="currentColor"
             stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+            fill="none"
+          />
+          <circle
+            cx="15"
+            cy="12"
+            r="2"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
+          />
+          <circle
+            cx="7"
+            cy="18"
+            r="2"
+            stroke="currentColor"
+            stroke-width="1.5"
+            fill="none"
           />
         </svg>
       </button>
 
       <button
-        class="btn btn-ghost btn-small"
+        class="btn btn-ghost btn-small settings-icon mcp-btn"
         type="button"
-        on:click={forwardOpenSpeechSettings}
-        aria-label="Speech settings"
-        title="Speech settings"
+        on:click={forwardOpenMcpServers}
+        aria-label="MCP servers"
+        title="MCP servers"
       >
-        <span>Speech</span>
         <svg
           width="18"
           height="18"
@@ -277,25 +276,38 @@
           xmlns="http://www.w3.org/2000/svg"
           aria-hidden="true"
         >
-          <path
-            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.89 3.31.876 2.42 2.42a1.724 1.724 0 0 0 1.066 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.572c.89 1.543-.876 3.31-2.42 2.42a1.724 1.724 0 0 0-2.572 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.89-3.31-.876-2.42-2.42a1.724 1.724 0 0 0-1.066-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.572c-.89-1.543.876-3.31 2.42-2.42.965.557 2.185.21 2.573-1.066Z"
+          <rect
+            x="3"
+            y="4"
+            width="18"
+            height="4"
+            rx="1.5"
             stroke="currentColor"
             stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
           />
-          <path
-            d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+          <rect
+            x="3"
+            y="10"
+            width="18"
+            height="4"
+            rx="1.5"
             stroke="currentColor"
             stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
+          />
+          <rect
+            x="3"
+            y="16"
+            width="18"
+            height="4"
+            rx="1.5"
+            stroke="currentColor"
+            stroke-width="1.5"
           />
         </svg>
       </button>
 
       <button
-        class="btn btn-ghost btn-small kiosk-btn"
+        class="btn btn-ghost btn-small settings-icon kiosk-btn"
         type="button"
         on:click={forwardOpenKioskSettings}
         aria-label="Kiosk settings"
@@ -330,7 +342,7 @@
       </button>
 
       <button
-        class="btn btn-ghost btn-small cli-btn"
+        class="btn btn-ghost btn-small settings-icon cli-btn"
         type="button"
         on:click={forwardOpenCliSettings}
         aria-label="CLI settings"
@@ -500,7 +512,7 @@
   :global(.chat-header .controls .btn) {
     white-space: nowrap;
   }
-  :global(.chat-header .controls .btn.system-settings svg) {
+  :global(.chat-header .controls .btn.settings-icon svg) {
     width: 1.05rem;
     height: 1.05rem;
   }
@@ -600,7 +612,7 @@
     :global(.chat-header .controls select) {
       padding: 0.55rem 0.9rem;
     }
-    :global(.chat-header .controls .btn.system-settings svg) {
+    :global(.chat-header .controls .btn.settings-icon svg) {
       width: 1rem;
       height: 1rem;
     }

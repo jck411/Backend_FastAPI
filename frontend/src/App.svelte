@@ -14,13 +14,12 @@
   import MessageEditor from "./lib/components/chat/MessageEditor.svelte";
   import MessageList from "./lib/components/chat/MessageList.svelte";
   import ModelSettingsModal from "./lib/components/chat/ModelSettingsModal.svelte";
-  import PresetsModal from "./lib/components/chat/PresetsModal.svelte";
   import QuickPrompts from "./lib/components/chat/QuickPrompts.svelte";
-  import SpeechSettingsModal from "./lib/components/chat/SpeechSettingsModal.svelte";
   import SystemSettingsModal from "./lib/components/chat/SystemSettingsModal.svelte";
 
   import KioskSettingsModal from "./lib/components/chat/KioskSettingsModal.svelte";
   import CliSettingsModal from "./lib/components/chat/CliSettingsModal.svelte";
+  import McpServersModal from "./lib/components/chat/McpServersModal.svelte";
   import ModelExplorer from "./lib/components/model-explorer/ModelExplorer.svelte";
   import {
     clearPendingSubmit,
@@ -60,11 +59,10 @@
   let generationModalOpen = false;
   let modelSettingsOpen = false;
   let systemSettingsOpen = false;
-  let speechSettingsOpen = false;
+  let mcpServersOpen = false;
 
   let kioskSettingsOpen = false;
   let cliSettingsOpen = false;
-  let presetsOpen = false;
   let lastSpeechPromptVersion = 0;
   let generationModalLoading = false;
   let generationModalError: string | null = null;
@@ -116,8 +114,7 @@
           generationModalOpen ||
           modelSettingsOpen ||
           systemSettingsOpen ||
-          speechSettingsOpen ||
-
+          mcpServersOpen ||
           kioskSettingsOpen ||
           cliSettingsOpen,
       );
@@ -316,10 +313,9 @@
     on:modelChange={(event) => handleModelChange(event.detail.id)}
     on:openModelSettings={() => (modelSettingsOpen = true)}
     on:openSystemSettings={() => (systemSettingsOpen = true)}
-    on:openSpeechSettings={() => (speechSettingsOpen = true)}
+    on:openMcpServers={() => (mcpServersOpen = true)}
     on:openKioskSettings={() => (kioskSettingsOpen = true)}
     on:openCliSettings={() => (cliSettingsOpen = true)}
-    on:openPresets={() => (presetsOpen = true)}
   />
 
   {#if !$chatStore.messages.length}
@@ -393,11 +389,10 @@
     on:close={() => (systemSettingsOpen = false)}
   />
 
-  <SpeechSettingsModal
-    open={speechSettingsOpen}
-    on:close={() => (speechSettingsOpen = false)}
+  <McpServersModal
+    open={mcpServersOpen}
+    on:close={() => (mcpServersOpen = false)}
   />
-
 
   <KioskSettingsModal
     open={kioskSettingsOpen}
@@ -408,8 +403,6 @@
     open={cliSettingsOpen}
     on:close={() => (cliSettingsOpen = false)}
   />
-
-  <PresetsModal open={presetsOpen} on:close={() => (presetsOpen = false)} />
 
   <ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />
 </main>

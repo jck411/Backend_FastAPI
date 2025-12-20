@@ -145,19 +145,23 @@
   color: #8094bb;
 }
 
-.model-settings-footer .status {
+.model-settings-footer .status,
+.speech-status .status {
   font-size: 0.78rem;
 }
 
-.model-settings-footer .status[data-variant='success'] {
+.model-settings-footer .status[data-variant='success'],
+.speech-status .status[data-variant='success'] {
   color: #34d399;
 }
 
-.model-settings-footer .status[data-variant='error'] {
+.model-settings-footer .status[data-variant='error'],
+.speech-status .status[data-variant='error'] {
   color: #f87171;
 }
 
-.model-settings-footer .status[data-variant='pending'] {
+.model-settings-footer .status[data-variant='pending'],
+.speech-status .status[data-variant='pending'] {
   color: #facc15;
 }
 

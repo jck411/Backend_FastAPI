@@ -129,6 +129,7 @@ class StreamingHandler:
         conversation: list[dict[str, Any]],
         tools_payload: list[dict[str, Any]],
         assistant_parent_message_id: str | None,
+        model_settings: ModelSettingsService | None = None,
     ) -> AsyncGenerator[SseEvent, None]:
         """Yield SSE events while maintaining state and executing tools."""
 
@@ -146,6 +147,7 @@ class StreamingHandler:
         requested_tool_choice = (
             tool_choice_value if isinstance(tool_choice_value, str) else None
         )
+        active_model_settings = model_settings or self._model_settings
         base_tools_disabled = requested_tool_choice == "none"
         has_structured_tool_choice = isinstance(tool_choice_value, dict)
         can_retry_without_tools = (
@@ -164,11 +166,11 @@ class StreamingHandler:
             overrides: dict[str, Any] = {}
             capability: ModelCapabilities | None = None
             model_supports_tools = True
-            if self._model_settings is not None:
+            if active_model_settings is not None:
                 (
                     model_override,
                     overrides,
-                ) = await self._model_settings.get_openrouter_overrides()
+                ) = await active_model_settings.get_openrouter_overrides()
                 if model_override:
                     active_model = model_override
                 overrides = dict(overrides) if overrides else {}
@@ -199,9 +201,9 @@ class StreamingHandler:
                         continue
                     payload.setdefault(key, value)
 
-            if self._model_settings is not None:
-                if hasattr(self._model_settings, "sanitize_payload_for_model"):
-                    capability = await self._model_settings.sanitize_payload_for_model(  # type: ignore[attr-defined]
+            if active_model_settings is not None:
+                if hasattr(active_model_settings, "sanitize_payload_for_model"):
+                    capability = await active_model_settings.sanitize_payload_for_model(  # type: ignore[attr-defined]
                         active_model,
                         payload,
                         client=self._client,
@@ -211,13 +213,13 @@ class StreamingHandler:
                 else:
                     try:
                         model_supports_tools = (
-                            await self._model_settings.model_supports_tools(  # type: ignore[misc]
+                            await active_model_settings.model_supports_tools(  # type: ignore[misc]
                                 client=self._client,  # type: ignore[arg-type]
                             )
                         )
                     except TypeError:
                         model_supports_tools = (
-                            await self._model_settings.model_supports_tools()
+                            await active_model_settings.model_supports_tools()
                         )  # type: ignore[misc]
 
             if not model_supports_tools and tools_available and not tools_disabled:

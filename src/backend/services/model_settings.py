@@ -151,6 +151,11 @@ class ModelSettingsService:
         """Get the client settings service for our client."""
         return get_client_settings_service(self._client_id)
 
+    @property
+    def client_id(self) -> str:
+        """Return the client identifier for these settings."""
+        return self._client_id
+
     def _get_llm(self) -> LlmSettings:
         """Get current LLM settings from client settings service."""
         return self._get_service().get_llm()

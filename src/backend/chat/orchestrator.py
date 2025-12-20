@@ -38,6 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 ToolPayload = list[dict[str, Any]]
+_KNOWN_CLIENT_IDS = {"cli", "kiosk", "svelte"}
 
 
 def _iter_attachment_ids(content: Any) -> Iterable[str]:
@@ -115,6 +116,9 @@ class ChatOrchestrator:
             min_level=logging_settings.conversations_level,
         )
         self._model_settings = model_settings
+        self._model_settings_by_client: dict[str, ModelSettingsService] = {
+            model_settings.client_id: model_settings
+        }
         self._mcp_settings = mcp_settings
         self._streaming = StreamingHandler(
             self._client,
@@ -181,6 +185,44 @@ class ChatOrchestrator:
 
         self._streaming.set_attachment_service(service)
 
+    def _resolve_client_id(
+        self,
+        session_id: str,
+        metadata: dict[str, Any] | None,
+    ) -> str:
+        """Resolve client id from request metadata or session id prefix."""
+
+        if isinstance(metadata, dict):
+            candidate = metadata.get("client_id")
+            if isinstance(candidate, str):
+                candidate = candidate.strip()
+                if candidate:
+                    if candidate in _KNOWN_CLIENT_IDS:
+                        return candidate
+                    logger.info(
+                        "Unknown client_id '%s' provided; defaulting to svelte",
+                        candidate,
+                    )
+
+        if session_id.startswith("kiosk_"):
+            return "kiosk"
+        if session_id.startswith("cli_"):
+            return "cli"
+        return "svelte"
+
+    def _get_model_settings_for_client(self, client_id: str) -> ModelSettingsService:
+        """Return cached model settings service for the requested client."""
+
+        service = self._model_settings_by_client.get(client_id)
+        if service is None:
+            service = ModelSettingsService(
+                default_model=self._settings.default_model,
+                default_system_prompt=self._settings.openrouter_system_prompt,
+                client_id=client_id,
+            )
+            self._model_settings_by_client[client_id] = service
+        return service
+
     async def process_stream(
         self,
         request: ChatCompletionRequest,
@@ -197,11 +239,16 @@ class ChatOrchestrator:
         existing = await self._repo.session_exists(session_id)
         await self._repo.ensure_session(session_id)
 
+        request_metadata = request.metadata if isinstance(request.metadata, dict) else None
+
         assistant_parent_message_id: str | None = None
-        if isinstance(request.metadata, dict):
-            parent_candidate = request.metadata.get("client_parent_message_id")
+        if request_metadata:
+            parent_candidate = request_metadata.get("client_parent_message_id")
             if isinstance(parent_candidate, str):
                 assistant_parent_message_id = parent_candidate
+
+        client_id = self._resolve_client_id(session_id, request_metadata)
+        model_settings = self._get_model_settings_for_client(client_id)
         stored_messages = await self._repo.get_messages(session_id)
         system_messages = [
             message for message in stored_messages if message.get("role") == "system"
@@ -209,7 +256,7 @@ class ChatOrchestrator:
         incoming_has_system = any(
             message.role == "system" for message in incoming_messages
         )
-        system_prompt_value = await self._model_settings.get_system_prompt()
+        system_prompt_value = await model_settings.get_system_prompt()
         system_prompt = _build_enhanced_system_prompt(system_prompt_value)
         has_system_message = bool(system_messages)
 
@@ -271,14 +318,6 @@ class ChatOrchestrator:
         # Filter tools based on session type and server config
         configs = await self._mcp_settings.get_configs()
 
-        # Determine client_id from session_id prefix
-        if session_id.startswith("kiosk_"):
-            client_id = "kiosk"
-        elif session_id.startswith("cli_"):
-            client_id = "cli"
-        else:
-            client_id = "svelte"
-
         # Filter by client-specific enabled state
         allowed_servers = {cfg.id for cfg in configs if cfg.is_enabled_for_client(client_id)}
 
@@ -309,6 +348,7 @@ class ChatOrchestrator:
             conversation,
             tools_payload,
             assistant_parent_message_id,
+            model_settings=model_settings,
         ):
             yield event
 

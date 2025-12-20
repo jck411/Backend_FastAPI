@@ -90,8 +90,14 @@ class ShellChat:
                 if resp.status_code == 200:
                     data = resp.json()
                     model = data.get("active_model", "unknown")
+                    try:
+                        llm_resp = await client.get(f"{self.client_api}/llm")
+                        if llm_resp.status_code == 200:
+                            model = llm_resp.json().get("model", model)
+                    except Exception:
+                        pass
                     self.console.print(
-                        f"[dim]Connected to backend. Model: {model}[/dim]"
+                        f"[dim]Connected to backend. CLI model: {model}[/dim]"
                     )
                     return True
         except Exception as e:
@@ -371,6 +377,7 @@ class ShellChat:
         """Send message and stream response via SSE."""
         payload: dict[str, Any] = {
             "messages": [{"role": "user", "content": message}],
+            "metadata": {"client_id": self.CLIENT_ID},
         }
         if self.session_id:
             payload["session_id"] = self.session_id

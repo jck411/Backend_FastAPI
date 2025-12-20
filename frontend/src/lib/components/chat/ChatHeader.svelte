@@ -213,161 +213,163 @@
         </button>
       {/if}
 
-      <button
-        class="btn btn-ghost btn-small settings-icon system-settings"
-        type="button"
-        on:click={forwardOpenSystemSettings}
-        aria-label="System settings"
-        title="System settings"
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
+      <div class="icon-row">
+        <button
+          class="btn btn-ghost btn-small settings-icon system-settings"
+          type="button"
+          on:click={forwardOpenSystemSettings}
+          aria-label="System settings"
+          title="System settings"
         >
-          <path
-            d="M4 6h16M4 12h16M4 18h16"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-          />
-          <circle
-            cx="9"
-            cy="6"
-            r="2"
-            stroke="currentColor"
-            stroke-width="1.5"
-            fill="none"
-          />
-          <circle
-            cx="15"
-            cy="12"
-            r="2"
-            stroke="currentColor"
-            stroke-width="1.5"
-            fill="none"
-          />
-          <circle
-            cx="7"
-            cy="18"
-            r="2"
-            stroke="currentColor"
-            stroke-width="1.5"
-            fill="none"
-          />
-        </svg>
-      </button>
-
-      <button
-        class="btn btn-ghost btn-small settings-icon mcp-btn"
-        type="button"
-        on:click={forwardOpenMcpServers}
-        aria-label="MCP servers"
-        title="MCP servers"
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
-        >
-          <rect
-            x="3"
-            y="4"
+          <svg
             width="18"
-            height="4"
-            rx="1.5"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-          <rect
-            x="3"
-            y="10"
-            width="18"
-            height="4"
-            rx="1.5"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-          <rect
-            x="3"
-            y="16"
-            width="18"
-            height="4"
-            rx="1.5"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-        </svg>
-      </button>
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M4 6h16M4 12h16M4 18h16"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+            <circle
+              cx="9"
+              cy="6"
+              r="2"
+              stroke="currentColor"
+              stroke-width="1.5"
+              fill="none"
+            />
+            <circle
+              cx="15"
+              cy="12"
+              r="2"
+              stroke="currentColor"
+              stroke-width="1.5"
+              fill="none"
+            />
+            <circle
+              cx="7"
+              cy="18"
+              r="2"
+              stroke="currentColor"
+              stroke-width="1.5"
+              fill="none"
+            />
+          </svg>
+        </button>
 
-      <button
-        class="btn btn-ghost btn-small settings-icon kiosk-btn"
-        type="button"
-        on:click={forwardOpenKioskSettings}
-        aria-label="Kiosk settings"
-        title="Kiosk settings"
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
+        <button
+          class="btn btn-ghost btn-small settings-icon mcp-btn"
+          type="button"
+          on:click={forwardOpenMcpServers}
+          aria-label="MCP servers"
+          title="MCP servers"
         >
-          <!-- Screen/display -->
-          <rect
-            x="4"
-            y="2"
-            width="16"
-            height="12"
-            rx="1.5"
-            stroke="currentColor"
-            stroke-width="1.5"
-          />
-          <!-- Stand -->
-          <path
-            d="M12 14v4M8 22h8M8 18h8"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-          />
-        </svg>
-      </button>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <rect
+              x="3"
+              y="4"
+              width="18"
+              height="4"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+            <rect
+              x="3"
+              y="10"
+              width="18"
+              height="4"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+            <rect
+              x="3"
+              y="16"
+              width="18"
+              height="4"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+          </svg>
+        </button>
 
-      <button
-        class="btn btn-ghost btn-small settings-icon cli-btn"
-        type="button"
-        on:click={forwardOpenCliSettings}
-        aria-label="CLI settings"
-        title="CLI settings"
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
+        <button
+          class="btn btn-ghost btn-small settings-icon kiosk-btn"
+          type="button"
+          on:click={forwardOpenKioskSettings}
+          aria-label="Kiosk settings"
+          title="Kiosk settings"
         >
-            <path d="M4 17l6-6-6-6M12 19h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <!-- Screen/display -->
+            <rect
+              x="4"
+              y="2"
+              width="16"
+              height="12"
+              rx="1.5"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+            <!-- Stand -->
+            <path
+              d="M12 14v4M8 22h8M8 18h8"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
 
-      <button
-        class="btn btn-ghost btn-small"
-        type="button"
-        on:click={handleClear}
-        disabled={!hasMessages}
-      >
-        Clear
-      </button>
+        <button
+          class="btn btn-ghost btn-small settings-icon cli-btn"
+          type="button"
+          on:click={forwardOpenCliSettings}
+          aria-label="CLI settings"
+          title="CLI settings"
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+              <path d="M4 17l6-6-6-6M12 19h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+
+        <button
+          class="btn btn-ghost btn-small"
+          type="button"
+          on:click={handleClear}
+          disabled={!hasMessages}
+        >
+          Clear
+        </button>
+      </div>
     </div>
   </div>
 </header>
@@ -398,6 +400,11 @@
   }
   .controls > * {
     flex: 0 0 auto;
+  }
+  .icon-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
   }
   :global(.chat-header .controls .model-picker) {
     display: flex;
@@ -571,6 +578,14 @@
     .preset-badge {
       justify-content: center;
     }
+    .icon-row {
+      grid-column: 1 / -1;
+      justify-content: center;
+      flex-wrap: nowrap;
+    }
+    .icon-row :global(.btn) {
+      width: auto;
+    }
     :global(.chat-header .controls select) {
       min-width: 0;
       text-align: left;
@@ -615,6 +630,9 @@
     :global(.chat-header .controls .btn.settings-icon svg) {
       width: 1rem;
       height: 1rem;
+    }
+    .icon-row {
+      gap: 0.5rem;
     }
   }
   @media (max-width: 480px) {

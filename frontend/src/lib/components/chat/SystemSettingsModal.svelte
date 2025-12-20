@@ -3,9 +3,7 @@
   import { get } from "svelte/store";
   import type { PresetListItem } from "../../api/types";
   import { chatStore } from "../../stores/chat";
-  import { createGoogleAuthStore } from "../../stores/googleAuth";
   import { modelSettingsStore } from "../../stores/modelSettings";
-  import { createMonarchAuthStore } from "../../stores/monarchAuth";
   import { presetsStore } from "../../stores/presets";
   import {
     DEEPGRAM_MODEL_OPTIONS,
@@ -15,7 +13,6 @@
     getDefaultSpeechSettings,
     speechSettingsStore,
   } from "../../stores/speechSettings";
-  import { createSpotifyAuthStore } from "../../stores/spotifyAuth";
   import { createSystemPromptStore } from "../../stores/systemPrompt";
   import { suggestionsStore } from "../../stores/suggestions";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
@@ -27,9 +24,6 @@
 
   const dispatch = createEventDispatcher<{ close: void }>();
   const systemPrompt = createSystemPromptStore();
-  const googleAuth = createGoogleAuthStore();
-  const monarchAuth = createMonarchAuthStore();
-  const spotifyAuth = createSpotifyAuthStore();
 
   let hasInitialized = false;
   let closing = false;
@@ -43,8 +37,6 @@
     } else if (!open && hasInitialized) {
       hasInitialized = false;
       systemPrompt.reset();
-      googleAuth.reset();
-      spotifyAuth.reset();
       resetSpeechState();
       resetPresetDraft();
     }
@@ -53,9 +45,6 @@
   async function initialize(): Promise<void> {
     await Promise.all([
       systemPrompt.load(),
-      googleAuth.load(),
-      monarchAuth.load(),
-      spotifyAuth.load(),
       presetsStore.load(),
     ]);
   }
@@ -71,7 +60,7 @@
   }
 
   async function closeModal(): Promise<void> {
-    if (closing || $systemPrompt.saving || speechSaving || $googleAuth.authorizing) {
+    if (closing || $systemPrompt.saving || speechSaving) {
       return;
     }
 
@@ -89,27 +78,12 @@
     closing = false;
   }
 
-  let monarchEmail = "";
-  let monarchPassword = "";
-  let monarchMfaSecret = "";
-  let showMonarchPassword = false;
   let creatingName = "";
   let confirmingDelete: string | null = null;
   let speechDraft: SpeechSettings = initializeSpeechDraft();
   let speechDirty = false;
   let speechSaving = false;
-  let speechStatusMessage: string | null = null;
-  let speechStatusVariant: "success" | "error" | "pending" | "info" | null =
-    null;
-
-  function saveMonarch(): void {
-    if (!monarchEmail || !monarchPassword) return;
-    monarchAuth.save({
-      email: monarchEmail,
-      password: monarchPassword,
-      mfa_secret: monarchMfaSecret || null,
-    });
-  }
+  let speechSaveError: string | null = null;
 
   function handlePromptInput(event: Event): void {
     const target = event.target as HTMLTextAreaElement | null;
@@ -178,17 +152,7 @@
     speechDraft = initializeSpeechDraft();
     speechDirty = false;
     speechSaving = false;
-    speechStatusMessage = "Changes save when you close system settings.";
-    speechStatusVariant = "info" as const;
-  }
-
-  function markSpeechDirty(
-    message: string | null = null,
-    variant: "success" | "error" | "pending" | null = "pending",
-  ): void {
-    speechDirty = true;
-    speechStatusMessage = message;
-    speechStatusVariant = variant ?? "pending";
+    speechSaveError = null;
   }
 
   function updateSpeechStt<K extends keyof SpeechSettings["stt"]>(
@@ -202,7 +166,8 @@
         [key]: value,
       },
     };
-    markSpeechDirty();
+    speechDirty = true;
+    speechSaveError = null;
   }
 
   function handleSpeechNumberInput(
@@ -231,10 +196,8 @@
         autoSubmitDelayMs: preset.stt.autoSubmitDelayMs,
       },
     };
-    markSpeechDirty(
-      `${preset.label} preset applied; closing system settings will save.`,
-      "pending",
-    );
+    speechDirty = true;
+    speechSaveError = null;
   }
 
   async function flushSpeechSettings(): Promise<boolean> {
@@ -243,9 +206,6 @@
     }
 
     speechSaving = true;
-    speechStatusMessage = "Saving changes…";
-    speechStatusVariant = "pending";
-
     try {
       const saved = speechSettingsStore.save(speechDraft);
       speechDraft = {
@@ -253,16 +213,14 @@
         stt: { ...saved.stt },
       };
       speechDirty = false;
-      speechStatusMessage = "Saved";
-      speechStatusVariant = "success";
+      speechSaveError = null;
       return true;
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : "Failed to save speech settings.";
-      speechStatusMessage = message;
-      speechStatusVariant = "error";
+      speechSaveError = message;
       return false;
     } finally {
       speechSaving = false;
@@ -272,57 +230,7 @@
   function handleSpeechReset(): void {
     speechDraft = getDefaultSpeechSettings();
     speechDirty = true;
-    speechStatusMessage = "Defaults restored; closing system settings will save.";
-    speechStatusVariant = "pending";
-  }
-
-  function refreshGoogleAuth(): void {
-    if ($googleAuth.loading || $googleAuth.authorizing) {
-      return;
-    }
-    void googleAuth.load();
-  }
-
-  async function startGoogleAuthorization(): Promise<void> {
-    if ($googleAuth.authorizing) {
-      return;
-    }
-    await googleAuth.authorize();
-  }
-
-  function refreshSpotifyAuth(): void {
-    if ($spotifyAuth.loading || $spotifyAuth.authorizing) {
-      return;
-    }
-    void spotifyAuth.load();
-  }
-
-  async function startSpotifyAuthorization(): Promise<void> {
-    if ($spotifyAuth.authorizing) {
-      return;
-    }
-    await spotifyAuth.authorize();
-  }
-
-  function formatUpdatedAt(timestamp: string | null): string | null {
-    if (!timestamp) return null;
-    try {
-      const date = new Date(timestamp);
-      if (Number.isNaN(date.getTime())) {
-        return timestamp;
-      }
-      return new Intl.DateTimeFormat(undefined, {
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        year: "numeric",
-        month: "short",
-        day: "2-digit",
-      }).format(date);
-    } catch (error) {
-      console.warn("Failed to format timestamp", error);
-      return timestamp;
-    }
+    speechSaveError = null;
   }
 
 </script>
@@ -336,8 +244,7 @@
     layerClass="system-settings-layer"
     closeLabel="Close system settings"
     closeDisabled={$systemPrompt.saving ||
-      speechSaving ||
-      $googleAuth.authorizing}
+      speechSaving}
     on:close={() => void closeModal()}
   >
     <svelte:fragment slot="heading">
@@ -384,273 +291,11 @@
           ></textarea>
           {#if $systemPrompt.saveError}
             <p class="status error">{$systemPrompt.saveError}</p>
-          {:else if $systemPrompt.dirty}
-            <p class="status">Pending changes; closing this modal will save.</p>
-          {:else}
-            <p class="status muted">Changes save when you close this modal.</p>
           {/if}
         {/if}
       </div>
     </article>
 
-    <article class="system-card">
-      <header class="system-card-header">
-        <div>
-          <h3>Google services</h3>
-          <p class="system-card-caption">
-            Connect Calendar, Tasks, Gmail, and Drive with a single consent.
-          </p>
-        </div>
-        <div class="system-card-actions">
-          <button
-            type="button"
-            class="btn btn-primary btn-small"
-            on:click={() => void startGoogleAuthorization()}
-            disabled={$googleAuth.loading || $googleAuth.authorizing}
-          >
-            {$googleAuth.authorizing
-              ? "Authorizing…"
-              : $googleAuth.authorized
-                ? "Reconnect Google Services"
-                : "Connect Google Services"}
-          </button>
-        </div>
-      </header>
-
-      <div class="system-card-body google-auth-body">
-        {#if $googleAuth.loading}
-          <p class="status">Checking Google authorization…</p>
-        {:else if $googleAuth.error}
-          <p class="status error">{$googleAuth.error}</p>
-          <div class="google-auth-actions">
-            <button
-              type="button"
-              class="btn btn-ghost btn-small"
-              on:click={refreshGoogleAuth}
-              disabled={$googleAuth.loading || $googleAuth.authorizing}
-            >
-              Try again
-            </button>
-          </div>
-        {:else if $googleAuth.authorized}
-          <p class="status success">
-            Connected as <span class="google-auth-email"
-              >{$googleAuth.userEmail}</span
-            >.
-          </p>
-          {#if $googleAuth.expiresAt}
-            <p class="status muted">
-              Current token expires {formatUpdatedAt($googleAuth.expiresAt) ??
-                "soon"}.
-            </p>
-          {:else}
-            <p class="status muted">Access will refresh automatically.</p>
-          {/if}
-        {:else}
-          <p class="status">Google services are not connected.</p>
-        {/if}
-
-        <ul class="google-services-list">
-          {#each $googleAuth.services as service}
-            <li>{service}</li>
-          {/each}
-        </ul>
-
-        <p class="status muted">
-          Click "Connect Google Services" to authorize these integrations for
-          the assistant.
-        </p>
-      </div>
-    </article>
-
-    <article class="system-card">
-      <header class="system-card-header">
-        <div>
-          <h3>Spotify</h3>
-          <p class="system-card-caption">
-            Connect Spotify for music control and playback.
-          </p>
-        </div>
-        <div class="system-card-actions">
-          <button
-            type="button"
-            class="btn btn-primary btn-small"
-            on:click={() => void startSpotifyAuthorization()}
-            disabled={$spotifyAuth.loading || $spotifyAuth.authorizing}
-          >
-            {$spotifyAuth.authorizing
-              ? "Authorizing…"
-              : $spotifyAuth.authorized
-                ? "Reconnect Spotify"
-                : "Connect Spotify"}
-          </button>
-        </div>
-      </header>
-
-      <div class="system-card-body google-auth-body">
-        {#if $spotifyAuth.loading}
-          <p class="status">Checking Spotify authorization…</p>
-        {:else if $spotifyAuth.error}
-          <p class="status error">{$spotifyAuth.error}</p>
-          <div class="google-auth-actions">
-            <button
-              type="button"
-              class="btn btn-ghost btn-small"
-              on:click={refreshSpotifyAuth}
-              disabled={$spotifyAuth.loading || $spotifyAuth.authorizing}
-            >
-              Try again
-            </button>
-          </div>
-        {:else if $spotifyAuth.authorized}
-          <p class="status success">
-            Connected as <span class="google-auth-email"
-              >{$spotifyAuth.userEmail}</span
-            >.
-          </p>
-          <p class="status muted">Access will refresh automatically.</p>
-        {:else}
-          <p class="status">Spotify is not connected.</p>
-        {/if}
-
-        <p class="status muted">
-          Click "Connect Spotify" to authorize music control and playback
-          features.
-        </p>
-      </div>
-    </article>
-
-    <article class="system-card">
-      <header class="system-card-header">
-        <div>
-          <h3>Monarch Money</h3>
-          <p class="system-card-caption">Connect your Monarch Money account.</p>
-        </div>
-        <div class="system-card-actions">
-          {#if $monarchAuth.configured}
-            <button
-              type="button"
-              class="btn btn-ghost btn-small"
-              on:click={() => monarchAuth.remove()}
-              disabled={$monarchAuth.saving}
-            >
-              Disconnect
-            </button>
-          {:else}
-            <button
-              type="button"
-              class="btn btn-primary btn-small"
-              on:click={saveMonarch}
-              disabled={$monarchAuth.saving ||
-                !monarchEmail ||
-                !monarchPassword}
-            >
-              {$monarchAuth.saving ? "Saving..." : "Connect"}
-            </button>
-          {/if}
-        </div>
-      </header>
-
-      <div class="system-card-body">
-        {#if $monarchAuth.loading}
-          <p class="status">Checking Monarch status…</p>
-        {:else if $monarchAuth.configured}
-          <p class="status success">
-            Connected as <span class="google-auth-email"
-              >{$monarchAuth.email}</span
-            >.
-          </p>
-        {:else}
-          <div class="monarch-form">
-            <label>
-              Email
-              <input
-                type="email"
-                class="input-control"
-                bind:value={monarchEmail}
-                placeholder="email@example.com"
-              />
-            </label>
-            <label>
-              Password
-              <div class="password-input-wrapper">
-                <input
-                  class="input-control"
-                  type={showMonarchPassword ? "text" : "password"}
-                  bind:value={monarchPassword}
-                  placeholder="Password"
-                />
-                <button
-                  type="button"
-                  class="btn btn-ghost btn-icon btn-small"
-                  on:click={() => (showMonarchPassword = !showMonarchPassword)}
-                  title={showMonarchPassword
-                    ? "Hide password"
-                    : "Show password"}
-                >
-                  {#if showMonarchPassword}
-                    <!-- Eye Off Icon -->
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path
-                        d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
-                      ></path>
-                      <line x1="1" y1="1" x2="23" y2="23"></line>
-                    </svg>
-                  {:else}
-                    <!-- Eye Icon -->
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2"
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                    >
-                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"
-                      ></path>
-                      <circle cx="12" cy="12" r="3"></circle>
-                    </svg>
-                  {/if}
-                </button>
-              </div>
-            </label>
-            <label>
-              MFA Secret (Optional)
-              <input
-                type="text"
-                class="input-control"
-                bind:value={monarchMfaSecret}
-                placeholder="MFA Secret"
-              />
-            </label>
-            <p
-              class="status muted"
-              style="margin-top: -0.5rem; margin-bottom: 1rem; font-size: 0.8em;"
-            >
-              If you already use an app, you must <strong>reset MFA</strong> in Monarch
-              Settings to see the secret key again. Enter the new key here AND in
-              your app.
-            </p>
-            {#if $monarchAuth.error}
-              <p class="status error">{$monarchAuth.error}</p>
-            {/if}
-          </div>
-        {/if}
-      </div>
-    </article>
 
     <article class="system-card">
       <header class="system-card-header">
@@ -1061,37 +706,14 @@
           </div>
         </div>
 
-        <div class="speech-status">
-          {#if speechStatusVariant === "error"}
-            <p class="status" data-variant="error" aria-live="assertive">
-              {speechStatusMessage}
-            </p>
-          {:else if speechSaving}
-            <p class="status" data-variant="pending" aria-live="polite">
-              Saving changes…
-            </p>
-          {:else if speechDirty}
-            <p class="status" data-variant="pending" aria-live="polite">
-              {speechStatusMessage ??
-                "Pending changes; closing system settings will save."}
-            </p>
-          {:else}
-            <p
-              class="status"
-              data-variant={speechStatusVariant ?? "info"}
-              aria-live="polite"
-            >
-              {speechStatusMessage ??
-                "Changes save when you close system settings."}
-            </p>
-          {/if}
-        </div>
       </div>
     </article>
 
     <footer slot="footer" class="model-settings-footer system-settings-footer">
-      {#if $systemPrompt.saveError || speechStatusVariant === "error"}
+      {#if $systemPrompt.saveError}
         <p class="status error">Resolve the errors above before closing.</p>
+      {:else if speechSaveError}
+        <p class="status error">{speechSaveError}</p>
       {:else if $systemPrompt.saving || speechSaving}
         <p class="status">Saving changes…</p>
       {:else if $systemPrompt.dirty || speechDirty}

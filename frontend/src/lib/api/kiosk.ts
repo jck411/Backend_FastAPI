@@ -10,12 +10,14 @@ import { API_BASE_URL } from './config';
 export interface KioskSttSettings {
     eot_threshold: number;
     eot_timeout_ms: number;
+    eager_eot_threshold?: number | null;
     keyterms: string[];
 }
 
 export interface KioskSttSettingsUpdate {
     eot_threshold?: number;
     eot_timeout_ms?: number;
+    eager_eot_threshold?: number | null;
     keyterms?: string[];
 }
 

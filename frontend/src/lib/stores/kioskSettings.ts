@@ -32,6 +32,7 @@ export interface KioskSettings {
     // STT settings
     eot_threshold: number;
     eot_timeout_ms: number;
+    eager_eot_threshold: number | null;
     keyterms: string[];
     // TTS settings (OpenAI)
     enabled: boolean;
@@ -57,6 +58,7 @@ export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
     // STT
     eot_threshold: 0.7,
     eot_timeout_ms: 5000,
+    eager_eot_threshold: null,
     keyterms: [],
     // TTS (OpenAI)
     enabled: true,
@@ -105,6 +107,7 @@ function createKioskSettingsStore() {
                 // STT
                 eot_threshold: sttSettings.eot_threshold,
                 eot_timeout_ms: sttSettings.eot_timeout_ms,
+                eager_eot_threshold: sttSettings.eager_eot_threshold ?? null,
                 keyterms: sttSettings.keyterms,
                 // TTS
                 enabled: ttsSettings.enabled,
@@ -144,6 +147,7 @@ function createKioskSettingsStore() {
             // STT fields
             if (update.eot_threshold !== undefined) sttUpdate.eot_threshold = update.eot_threshold;
             if (update.eot_timeout_ms !== undefined) sttUpdate.eot_timeout_ms = update.eot_timeout_ms;
+            if (update.eager_eot_threshold !== undefined) sttUpdate.eager_eot_threshold = update.eager_eot_threshold;
             if (update.keyterms !== undefined) sttUpdate.keyterms = update.keyterms;
 
             // TTS fields
@@ -200,6 +204,7 @@ function createKioskSettingsStore() {
                 // STT
                 eot_threshold: sttSettings.eot_threshold,
                 eot_timeout_ms: sttSettings.eot_timeout_ms,
+                eager_eot_threshold: sttSettings.eager_eot_threshold ?? null,
                 keyterms: sttSettings.keyterms,
                 // TTS
                 enabled: ttsSettings.enabled,

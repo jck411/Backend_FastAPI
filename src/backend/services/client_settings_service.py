@@ -16,8 +16,6 @@ from backend.schemas.client_settings import (
     ClientSettings,
     LlmSettings,
     LlmSettingsUpdate,
-    McpServerRef,
-    McpServersUpdate,
     SttSettings,
     SttSettingsUpdate,
     TtsSettings,
@@ -166,50 +164,6 @@ class ClientSettingsService:
         return merged
 
     # =========================================================================
-    # MCP Servers
-    # =========================================================================
-
-    def get_mcp_servers(self) -> list[McpServerRef]:
-        """Get MCP server references for this client."""
-        if "mcp_servers" in self._cache:
-            return self._cache["mcp_servers"]  # type: ignore
-
-        data = self._load_json("mcp_servers")
-        if data and isinstance(data, dict) and "servers" in data:
-            try:
-                servers = [McpServerRef.model_validate(s) for s in data["servers"]]
-            except Exception as e:
-                logger.warning(f"Invalid MCP servers for {self.client_id}: {e}")
-                servers = []
-        else:
-            servers = []
-
-        self._cache["mcp_servers"] = servers
-        return servers
-
-    def update_mcp_servers(self, update: McpServersUpdate) -> list[McpServerRef]:
-        """Replace MCP server references."""
-        servers = update.servers
-        self._save_json("mcp_servers", {"servers": [s.model_dump() for s in servers]})
-        self._cache["mcp_servers"] = servers
-        return servers
-
-    def set_mcp_server_enabled(self, server_id: str, enabled: bool) -> list[McpServerRef]:
-        """Enable or disable a specific MCP server."""
-        current = self.get_mcp_servers()
-        found = False
-        for server in current:
-            if server.server_id == server_id:
-                server.enabled = enabled
-                found = True
-                break
-        if not found:
-            current.append(McpServerRef(server_id=server_id, enabled=enabled))
-        self._save_json("mcp_servers", {"servers": [s.model_dump() for s in current]})
-        self._cache["mcp_servers"] = current
-        return current
-
-    # =========================================================================
     # UI Settings
     # =========================================================================
 
@@ -297,7 +251,7 @@ class ClientSettingsService:
         return presets
 
     def activate_preset(self, index: int) -> ClientSettings:
-        """Activate a preset and apply its settings."""
+        """Activate a preset and apply its settings (LLM only - MCP is separate)."""
         presets = self.get_presets()
         if index < 0 or index >= len(presets.presets):
             raise ValueError(f"Preset index {index} out of range")
@@ -306,7 +260,7 @@ class ClientSettingsService:
         presets.active_index = index
         self._save_presets(presets)
 
-        # Apply preset settings
+        # Apply preset settings (LLM, STT, TTS only)
         self.replace_llm(preset.llm)
         if preset.stt:
             self._save_json("stt", preset.stt.model_dump())
@@ -314,23 +268,11 @@ class ClientSettingsService:
         if preset.tts:
             self._save_json("tts", preset.tts.model_dump())
             self._cache["tts"] = preset.tts
-        if preset.mcp_servers:
-            # Ensure all items are McpServerRef models, then serialize
-            validated_servers = [
-                s if isinstance(s, McpServerRef) else McpServerRef.model_validate(s)
-                for s in preset.mcp_servers
-            ]
-            self._save_json("mcp_servers", {"servers": [s.model_dump() for s in validated_servers]})
-            self._cache["mcp_servers"] = validated_servers
-
-
-
 
         return ClientSettings(
             llm=preset.llm,
             stt=preset.stt,
             tts=preset.tts,
-            mcp_servers=preset.mcp_servers,
         )
 
     def add_preset(self, preset: ClientPreset) -> ClientPresets:
@@ -345,7 +287,6 @@ class ClientSettingsService:
                 llm=preset.llm,
                 stt=preset.stt,
                 tts=preset.tts,
-                mcp_servers=preset.mcp_servers,
                 created_at=now,
                 updated_at=now,
             )
@@ -380,19 +321,18 @@ class ClientSettingsService:
     # =========================================================================
 
     def get_all(self) -> ClientSettings:
-        """Get complete settings bundle."""
+        """Get complete settings bundle (excludes MCP - that's global)."""
         return ClientSettings(
             llm=self.get_llm(),
             stt=self.get_stt(),
             tts=self.get_tts(),
             ui=self.get_ui(),
-            mcp_servers=self.get_mcp_servers(),
         )
 
     def reset_all(self) -> ClientSettings:
         """Reset all settings to defaults."""
         self._cache.clear()
-        for name in ["llm", "stt", "tts", "ui", "mcp_servers", "presets"]:
+        for name in ["llm", "stt", "tts", "ui", "presets"]:
             path = self._file_path(name)
             if path.exists():
                 path.unlink()

@@ -174,6 +174,17 @@ export async function refreshMcpServers(): Promise<McpServersResponse> {
   });
 }
 
+export async function setMcpServerClientEnabled(
+  serverId: string,
+  clientId: string,
+  enabled: boolean,
+): Promise<McpServersResponse> {
+  const path = `/api/mcp/servers/${encodeURIComponent(serverId)}/clients/${encodeURIComponent(clientId)}?enabled=${enabled}`;
+  return requestJson<McpServersResponse>(resolveApiPath(path), {
+    method: 'PATCH',
+  });
+}
+
 export async function fetchGoogleAuthStatus(): Promise<GoogleAuthStatusResponse> {
   return requestJson<GoogleAuthStatusResponse>(resolveApiPath('/api/google-auth/status'));
 }
@@ -434,7 +445,6 @@ export async function fetchPreset(name: string): Promise<PresetConfig> {
       system_prompt?: string | null;
       [key: string]: unknown
     };
-    mcp_servers?: Array<Record<string, unknown>>;
     created_at?: string | null;
     updated_at?: string | null;
     [key: string]: unknown;
@@ -451,7 +461,6 @@ export async function fetchPreset(name: string): Promise<PresetConfig> {
     name: preset.name,
     model: preset.llm?.model ?? 'unknown',
     system_prompt: preset.llm?.system_prompt ?? null,
-    mcp_servers: preset.mcp_servers as PresetConfig['mcp_servers'] ?? null,
     is_default: index === response.active_index,
     created_at: preset.created_at ?? new Date().toISOString(),
     updated_at: preset.updated_at ?? new Date().toISOString(),
@@ -463,21 +472,10 @@ export async function createPreset(payload: PresetCreatePayload): Promise<Preset
   // Get current LLM settings (includes model and system_prompt)
   const currentLlm = await requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm'));
 
-  // Get current MCP server configuration from GLOBAL endpoint (not client-specific)
-  interface McpServerConfig {
-    id: string;
-    enabled?: boolean;
-    client_enabled?: Record<string, boolean>;
-    [key: string]: unknown;
-  }
-  const mcpResponse = await requestJson<{ servers: McpServerConfig[] }>(resolveApiPath('/api/mcp/servers/'));
-  const mcpServers = mcpResponse.servers || [];
-
-  // Create preset via POST with full ClientPreset structure
+  // Create preset via POST with LLM settings only (MCP is separate)
   const presetPayload = {
     name: payload.name,
     llm: currentLlm,
-    mcp_servers: mcpServers.map(s => ({ server_id: s.id, enabled: s.client_enabled?.svelte ?? s.enabled ?? false })),
   };
 
   const result = await requestJson<{ presets: PresetConfig[]; active_index: number | null }>(
@@ -511,24 +509,13 @@ export async function savePresetSnapshot(
   // Get current LLM settings (includes model and system_prompt)
   const currentLlm = await requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm'));
 
-  // Get current MCP server configuration from GLOBAL endpoint (not client-specific)
-  interface McpServerConfig {
-    id: string;
-    enabled?: boolean;
-    client_enabled?: Record<string, boolean>;
-    [key: string]: unknown;
-  }
-  const mcpResponse = await requestJson<{ servers: McpServerConfig[] }>(resolveApiPath('/api/mcp/servers/'));
-  const mcpServers = mcpResponse.servers || [];
-
-  // Update preset at index with current settings
+  // Update preset at index with current LLM settings only (MCP is separate)
   const result = await requestJson<{ presets: PresetConfig[]; active_index: number | null }>(
     resolveApiPath(`/api/clients/svelte/presets/${index}`),
     {
       method: 'PUT',
       body: JSON.stringify({
         llm: currentLlm,
-        mcp_servers: mcpServers.map(s => ({ server_id: s.id, enabled: s.client_enabled?.svelte ?? s.enabled ?? false })),
       }),
     }
   );

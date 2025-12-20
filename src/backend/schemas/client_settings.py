@@ -179,32 +179,18 @@ class TtsSettingsUpdate(BaseModel):
 # =============================================================================
 
 
-class McpServerRef(BaseModel):
-    """Reference to an MCP server with client-specific enabled state."""
-
-    server_id: str = Field(description="MCP server identifier")
-    enabled: bool = Field(default=True, description="Whether enabled for this client")
-
-
-class McpServersUpdate(BaseModel):
-    """Update for MCP server references."""
-
-    servers: list[McpServerRef] = Field(default_factory=list)
-
-
 # =============================================================================
 # Client Presets
 # =============================================================================
 
 
 class ClientPreset(BaseModel):
-    """A preset configuration bundle."""
+    """A preset configuration bundle (LLM settings only - MCP servers are separate)."""
 
     name: str = Field(description="Display name for the preset")
     llm: LlmSettings = Field(default_factory=LlmSettings)
     stt: Optional[SttSettings] = None
     tts: Optional[TtsSettings] = None
-    mcp_servers: list[McpServerRef] = Field(default_factory=list)
     created_at: Optional[str] = Field(default=None, description="ISO timestamp when preset was created")
     updated_at: Optional[str] = Field(default=None, description="ISO timestamp when preset was last modified")
 
@@ -216,7 +202,6 @@ class ClientPresetUpdate(BaseModel):
     llm: Optional[LlmSettingsUpdate] = None
     stt: Optional[SttSettingsUpdate] = None
     tts: Optional[TtsSettingsUpdate] = None
-    mcp_servers: Optional[list[McpServerRef]] = None
 
 
 class ClientPresets(BaseModel):
@@ -257,13 +242,12 @@ class UiSettingsUpdate(BaseModel):
 
 
 class ClientSettings(BaseModel):
-    """Complete settings bundle for a client."""
+    """Complete settings bundle for a client (excludes MCP servers - they're global)."""
 
     llm: LlmSettings = Field(default_factory=LlmSettings)
     stt: Optional[SttSettings] = None
     tts: Optional[TtsSettings] = None
     ui: Optional[UiSettings] = None
-    mcp_servers: list[McpServerRef] = Field(default_factory=list)
 
 
 __all__ = [
@@ -275,8 +259,6 @@ __all__ = [
     "TtsSettingsUpdate",
     "UiSettings",
     "UiSettingsUpdate",
-    "McpServerRef",
-    "McpServersUpdate",
     "ClientPreset",
     "ClientPresetUpdate",
     "ClientPresets",

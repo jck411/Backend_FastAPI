@@ -37,7 +37,7 @@ export async function updateKioskSttSettings(
     update: KioskSttSettingsUpdate
 ): Promise<KioskSttSettings> {
     const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/stt`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
             'Content-Type': 'application/json',
         },
@@ -108,7 +108,7 @@ export async function updateKioskTtsSettings(
     update: KioskTtsSettingsUpdate
 ): Promise<KioskTtsSettings> {
     const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/tts`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
             'Content-Type': 'application/json',
         },
@@ -180,7 +180,7 @@ export async function updateKioskUiSettings(
     update: KioskUiSettingsUpdate
 ): Promise<KioskUiSettings> {
     const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/ui`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
             'Content-Type': 'application/json',
         },
@@ -220,12 +220,11 @@ export async function updateServerKioskEnabled(
     serverId: string,
     kioskEnabled: boolean
 ): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/api/mcp/servers/${serverId}`, {
+    const response = await fetch(`${API_BASE_URL}/api/mcp/servers/${serverId}/clients/kiosk?enabled=${kioskEnabled}`, {
         method: 'PATCH',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ kiosk_enabled: kioskEnabled }),
     });
     if (!response.ok) {
         throw new Error(`Failed to update kiosk_enabled for ${serverId}: ${response.statusText}`);
@@ -270,7 +269,7 @@ export async function updateKioskLlmSettings(
     update: KioskLlmSettingsUpdate
 ): Promise<KioskLlmSettings> {
     const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/llm`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
             'Content-Type': 'application/json',
         },
@@ -352,7 +351,7 @@ export async function updateKioskPreset(
     preset: Partial<KioskPreset>
 ): Promise<KioskPresets> {
     const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/presets/${index}`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
             'Content-Type': 'application/json',
         },

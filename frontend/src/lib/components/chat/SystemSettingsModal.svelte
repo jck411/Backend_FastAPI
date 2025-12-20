@@ -142,6 +142,13 @@
     mcpServers.setFrontendEnabled(serverId, enabled);
   }
 
+  function toggleCli(serverId: string, enabled: boolean): void {
+    if ($mcpServers.saving) {
+      return;
+    }
+    mcpServers.setCliEnabled(serverId, enabled);
+  }
+
   function toggleTool(serverId: string, tool: string, enabled: boolean): void {
     if ($mcpServers.saving) {
       return;
@@ -649,7 +656,7 @@
                       >
                         <input
                           type="checkbox"
-                          checked={server.frontend_enabled ?? true}
+                          checked={server.client_enabled?.svelte ?? true}
                           disabled={!server.enabled ||
                             $mcpServers.pending[server.id] ||
                             $mcpServers.saving}
@@ -670,7 +677,7 @@
                       >
                         <input
                           type="checkbox"
-                          checked={server.kiosk_enabled ?? false}
+                          checked={server.client_enabled?.kiosk ?? false}
                           disabled={!server.enabled ||
                             $mcpServers.pending[server.id] ||
                             $mcpServers.saving}
@@ -681,6 +688,27 @@
                             )}
                         />
                         <span>Kiosk</span>
+                      </label>
+                      <label
+                        class="toggle cli-toggle"
+                        class:toggle-disabled={!server.enabled}
+                        title={server.enabled
+                          ? "Enable for CLI client"
+                          : "Server must be running"}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={server.client_enabled?.cli ?? false}
+                          disabled={!server.enabled ||
+                            $mcpServers.pending[server.id] ||
+                            $mcpServers.saving}
+                          on:change={(event) =>
+                            toggleCli(
+                              server.id,
+                              (event.target as HTMLInputElement).checked,
+                            )}
+                        />
+                        <span>CLI</span>
                       </label>
                     </div>
                   </div>

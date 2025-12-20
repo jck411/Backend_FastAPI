@@ -3,6 +3,7 @@ import {
   fetchMcpServers,
   patchMcpServer,
   refreshMcpServers,
+  setMcpServerClientEnabled,
 } from '../api/client';
 import type {
   McpServerStatus,
@@ -91,48 +92,62 @@ export function createMcpServersStore() {
     });
   }
 
-  function setKioskEnabled(serverId: string, kioskEnabled: boolean): void {
+  async function setClientEnabled(serverId: string, clientId: string, enabled: boolean): Promise<void> {
+    // Update local state immediately for responsive UI
     store.update((state) => {
-      const servers = state.servers.map((server) =>
-        server.id === serverId ? { ...server, kiosk_enabled: kioskEnabled } : server,
-      );
-      const pendingChanges = {
-        ...state.pendingChanges,
-        [serverId]: {
-          ...(state.pendingChanges[serverId] ?? {}),
-          kiosk_enabled: kioskEnabled,
-        },
-      };
+      const servers = state.servers.map((server) => {
+        if (server.id !== serverId) return server;
+        // Update the client_enabled map if it exists
+        const clientEnabled = { ...(server.client_enabled ?? {}) };
+        clientEnabled[clientId] = enabled;
+        return { ...server, client_enabled: clientEnabled };
+      });
       return {
         ...state,
         servers,
-        dirty: true,
+        pending: { ...state.pending, [serverId]: true },
         saveError: null,
-        pendingChanges,
       };
     });
+
+    try {
+      // Call the backend to persist the change
+      const response = await setMcpServerClientEnabled(serverId, clientId, enabled);
+      store.update((state) => {
+        const nextPending = { ...state.pending };
+        delete nextPending[serverId];
+        return {
+          ...state,
+          servers: response.servers ?? state.servers,
+          updatedAt: response.updated_at ?? state.updatedAt,
+          pending: nextPending,
+        };
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update MCP server client enabled.';
+      store.update((state) => {
+        const nextPending = { ...state.pending };
+        delete nextPending[serverId];
+        return {
+          ...state,
+          pending: nextPending,
+          saveError: message,
+        };
+      });
+    }
+  }
+
+  // Legacy wrappers for backwards compatibility with existing UI components
+  function setKioskEnabled(serverId: string, kioskEnabled: boolean): void {
+    setClientEnabled(serverId, 'kiosk', kioskEnabled);
   }
 
   function setFrontendEnabled(serverId: string, frontendEnabled: boolean): void {
-    store.update((state) => {
-      const servers = state.servers.map((server) =>
-        server.id === serverId ? { ...server, frontend_enabled: frontendEnabled } : server,
-      );
-      const pendingChanges = {
-        ...state.pendingChanges,
-        [serverId]: {
-          ...(state.pendingChanges[serverId] ?? {}),
-          frontend_enabled: frontendEnabled,
-        },
-      };
-      return {
-        ...state,
-        servers,
-        dirty: true,
-        saveError: null,
-        pendingChanges,
-      };
-    });
+    setClientEnabled(serverId, 'svelte', frontendEnabled);
+  }
+
+  function setCliEnabled(serverId: string, cliEnabled: boolean): void {
+    setClientEnabled(serverId, 'cli', cliEnabled);
   }
 
   function setToolEnabled(serverId: string, tool: string, enabled: boolean): void {
@@ -333,8 +348,10 @@ export function createMcpServersStore() {
     load,
     refresh,
     setServerEnabled,
+    setClientEnabled,
     setKioskEnabled,
     setFrontendEnabled,
+    setCliEnabled,
     setToolEnabled,
     setServerEnv,
     getServer,

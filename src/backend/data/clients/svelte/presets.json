@@ -13,55 +13,13 @@
       },
       "stt": null,
       "tts": null,
-      "mcp_servers": [
-        {
-          "server_id": "shell-control",
-          "enabled": true
-        },
-        {
-          "server_id": "notes",
-          "enabled": false
-        },
-        {
-          "server_id": "monarch-money",
-          "enabled": true
-        },
-        {
-          "server_id": "custom-gmail",
-          "enabled": true
-        },
-        {
-          "server_id": "custom-gdrive",
-          "enabled": false
-        },
-        {
-          "server_id": "custom-pdf",
-          "enabled": true
-        },
-        {
-          "server_id": "custom-calendar",
-          "enabled": true
-        },
-        {
-          "server_id": "spotify",
-          "enabled": true
-        },
-        {
-          "server_id": "local-calculator",
-          "enabled": false
-        },
-        {
-          "server_id": "housekeeping",
-          "enabled": true
-        }
-      ],
       "created_at": "2025-12-19T10:56:16.306632+00:00",
       "updated_at": "2025-12-19T10:56:16.306632+00:00"
     },
     {
       "name": "shell",
       "llm": {
-        "model": "mistralai/mistral-small-creative",
+        "model": "openai/gpt-5.2",
         "system_prompt": "You are a helpful assistant. yea",
         "temperature": 0.7,
         "max_tokens": 4096,
@@ -71,48 +29,6 @@
       },
       "stt": null,
       "tts": null,
-      "mcp_servers": [
-        {
-          "server_id": "shell-control",
-          "enabled": true
-        },
-        {
-          "server_id": "notes",
-          "enabled": false
-        },
-        {
-          "server_id": "monarch-money",
-          "enabled": true
-        },
-        {
-          "server_id": "custom-gmail",
-          "enabled": true
-        },
-        {
-          "server_id": "custom-gdrive",
-          "enabled": false
-        },
-        {
-          "server_id": "custom-pdf",
-          "enabled": true
-        },
-        {
-          "server_id": "custom-calendar",
-          "enabled": true
-        },
-        {
-          "server_id": "spotify",
-          "enabled": true
-        },
-        {
-          "server_id": "local-calculator",
-          "enabled": false
-        },
-        {
-          "server_id": "housekeeping",
-          "enabled": true
-        }
-      ],
       "created_at": "2025-12-19T10:57:12.163449+00:00",
       "updated_at": "2025-12-19T10:57:12.163449+00:00"
     },
@@ -129,48 +45,6 @@
       },
       "stt": null,
       "tts": null,
-      "mcp_servers": [
-        {
-          "server_id": "shell-control",
-          "enabled": false
-        },
-        {
-          "server_id": "notes",
-          "enabled": true
-        },
-        {
-          "server_id": "monarch-money",
-          "enabled": true
-        },
-        {
-          "server_id": "custom-gmail",
-          "enabled": true
-        },
-        {
-          "server_id": "custom-gdrive",
-          "enabled": false
-        },
-        {
-          "server_id": "custom-pdf",
-          "enabled": true
-        },
-        {
-          "server_id": "custom-calendar",
-          "enabled": true
-        },
-        {
-          "server_id": "spotify",
-          "enabled": true
-        },
-        {
-          "server_id": "local-calculator",
-          "enabled": false
-        },
-        {
-          "server_id": "housekeeping",
-          "enabled": false
-        }
-      ],
       "created_at": "2025-12-19T11:20:27.054736+00:00",
       "updated_at": "2025-12-19T11:20:27.054736+00:00"
     }

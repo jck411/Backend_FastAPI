@@ -8,7 +8,7 @@
       },
       "contexts": [],
       "disabled_tools": [],
-      "enabled": false,
+      "enabled": true,
       "env": {
         "HOST_PROFILE_ID": "xps13",
         "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"
@@ -34,8 +34,8 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": false,
-        "svelte": true
+        "kiosk": true,
+        "svelte": false
       },
       "contexts": [],
       "enabled": false,
@@ -131,11 +131,14 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": false,
+        "kiosk": true,
         "svelte": true
       },
       "contexts": [],
-      "disabled_tools": [],
+      "disabled_tools": [
+        "chat_history",
+        "test_echo"
+      ],
       "enabled": true,
       "env": {},
       "id": "housekeeping",

@@ -344,8 +344,7 @@ export interface McpServerStatus {
   disabled_tools: string[];
   tool_count: number;
   tools: McpServerToolStatus[];
-  kiosk_enabled?: boolean;
-  frontend_enabled?: boolean;
+  client_enabled?: Record<string, boolean>;
 }
 
 export interface McpServersResponse {
@@ -376,8 +375,7 @@ export interface McpServerUpdatePayload {
   cwd?: string | null;
   env?: Record<string, string> | null;
   tool_prefix?: string | null;
-  kiosk_enabled?: boolean;
-  frontend_enabled?: boolean;
+  client_enabled?: Record<string, boolean>;
 }
 
 /* Suggestions */
@@ -427,7 +425,6 @@ export interface PresetConfig {
   parameters?: ModelHyperparameters | null;
   supports_tools?: boolean | null;
   system_prompt?: string | null;
-  mcp_servers?: McpServerDefinition[] | null;
   suggestions?: Suggestion[] | null;
   model_filters?: PresetModelFilters | null;
   is_default: boolean;
@@ -443,4 +440,20 @@ export interface PresetCreatePayload {
 export interface PresetSaveSnapshotPayload {
   note?: string | null;
   model_filters?: PresetModelFilters | null;
+}
+
+/* Client Settings */
+
+export interface LlmSettings {
+  model: string;
+  system_prompt: string | null;
+  temperature: number;
+  max_tokens: number;
+}
+
+export interface LlmSettingsUpdate extends Partial<LlmSettings> { }
+
+export interface ClientSettings {
+  llm: LlmSettings;
+  [key: string]: unknown;
 }

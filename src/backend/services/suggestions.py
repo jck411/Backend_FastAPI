@@ -56,21 +56,8 @@ class SuggestionsService:
         self._suggestions = loaded if loaded else self._get_defaults()
 
     def _get_defaults(self) -> List[Suggestion]:
-        """Get default suggestions."""
-        return [
-            Suggestion(
-                label="Next.js advantages",
-                text="What are the advantages of using Next.js?",
-            ),
-            Suggestion(
-                label="Dijkstra code",
-                text="Write code to demonstrate Dijkstra's algorithm",
-            ),
-            Suggestion(
-                label="Essay helper", text="Help me write an essay about Silicon Valley"
-            ),
-            Suggestion(label="Weather", text="What is the weather in Orlando?"),
-        ]
+        """Get default suggestions (empty - user must add their own)."""
+        return []
 
     def _save_to_disk(self) -> None:
         """Save suggestions to disk."""

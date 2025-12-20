@@ -8,6 +8,7 @@
   import { modelStore } from "../../stores/models";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
   import "./model-settings/model-settings-styles.css";
+  import { autoSize } from "./autoSize";
   import "./system-settings.css";
 
   const { filtered } = modelStore;
@@ -221,6 +222,7 @@
                 rows="6"
                 disabled={saving}
                 placeholder="You are a helpful CLI assistant..."
+                use:autoSize={draft.system_prompt}
                 on:input={(e) => {
                   draft = {
                     ...draft,
@@ -353,6 +355,11 @@
     resize: vertical;
     min-height: 70px;
     line-height: 1.4;
+  }
+
+  .keyterms-input.system-prompt {
+    resize: none;
+    overflow: hidden;
   }
 
   .keyterms-input:focus {

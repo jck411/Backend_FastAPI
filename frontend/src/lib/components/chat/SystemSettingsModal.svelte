@@ -5,6 +5,7 @@
   import { chatStore } from "../../stores/chat";
   import { modelSettingsStore } from "../../stores/modelSettings";
   import { presetsStore } from "../../stores/presets";
+  import { autoSize } from "./autoSize";
   import {
     DEEPGRAM_MODEL_OPTIONS,
     SPEECH_TIMING_PRESETS,
@@ -288,6 +289,7 @@
             on:input={handlePromptInput}
             placeholder="Provide guidance for the assistant to follow at the start of new conversations."
             disabled={$systemPrompt.saving}
+            use:autoSize={$systemPrompt.value}
           ></textarea>
           {#if $systemPrompt.saveError}
             <p class="status error">{$systemPrompt.saveError}</p>

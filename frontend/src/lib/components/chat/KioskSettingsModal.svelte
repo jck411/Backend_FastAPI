@@ -14,6 +14,7 @@
     type KioskSettings,
   } from "../../stores/kioskSettings";
   import { modelStore } from "../../stores/models";
+  import { autoSize } from "./autoSize";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
   import "./model-settings/model-settings-styles.css";
   import "./system-settings.css";
@@ -297,6 +298,7 @@
                 rows="4"
                 disabled={saving}
                 placeholder="You are a helpful voice assistant..."
+                use:autoSize={draft.system_prompt}
                 on:input={(e) => {
                   draft = {
                     ...draft,
@@ -844,6 +846,11 @@
     resize: vertical;
     min-height: 70px;
     line-height: 1.4;
+  }
+
+  .keyterms-input.system-prompt {
+    resize: none;
+    overflow: hidden;
   }
 
   .keyterms-input:focus {

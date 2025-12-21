@@ -1781,6 +1781,150 @@ async def host_detect_system() -> str:
     )
 
 
+# =============================================================================
+# System Maintenance Tools
+# =============================================================================
+
+# Paths to maintenance scripts (user's ~/.config/scripts/)
+_MAINTENANCE_SCRIPTS = {
+    "update_system": "~/.config/scripts/update-system.sh",
+    "cleanup_system": "~/.config/scripts/cleanup-system.sh",
+    "update_antigravity": "~/.config/scripts/update-antigravity.sh",
+}
+
+
+async def _run_maintenance_script(script_key: str, timeout_seconds: int = 300) -> dict:
+    """Run a maintenance script and return structured results."""
+    script_path = os.path.expanduser(_MAINTENANCE_SCRIPTS.get(script_key, ""))
+    
+    if not script_path or not os.path.isfile(script_path):
+        return {
+            "status": "error",
+            "script": script_key,
+            "message": f"Script not found: {script_path}",
+        }
+    
+    if not os.access(script_path, os.X_OK):
+        return {
+            "status": "error",
+            "script": script_key,
+            "message": f"Script not executable: {script_path}",
+        }
+    
+    shell_env = _build_shell_env()
+    start = time.perf_counter()
+    
+    try:
+        process = await asyncio.create_subprocess_shell(
+            f"bash {shlex.quote(script_path)}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=shell_env,
+        )
+        
+        stdout_bytes, _ = await asyncio.wait_for(
+            process.communicate(),
+            timeout=float(timeout_seconds),
+        )
+        
+        exit_code = process.returncode if process.returncode is not None else -1
+        duration_ms = (time.perf_counter() - start) * 1000
+        output = stdout_bytes.decode("utf-8", errors="replace")
+        
+        # Smart truncate for LLM consumption
+        truncated_output, was_truncated = _smart_truncate(output, success=(exit_code == 0))
+        
+        return {
+            "status": "ok" if exit_code == 0 else "error",
+            "script": script_key,
+            "exit_code": exit_code,
+            "duration_ms": duration_ms,
+            "output": truncated_output,
+            "truncated": was_truncated,
+        }
+        
+    except asyncio.TimeoutError:
+        duration_ms = (time.perf_counter() - start) * 1000
+        return {
+            "status": "timeout",
+            "script": script_key,
+            "message": f"Script timed out after {timeout_seconds} seconds",
+            "duration_ms": duration_ms,
+        }
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - start) * 1000
+        return {
+            "status": "error",
+            "script": script_key,
+            "message": str(exc),
+            "duration_ms": duration_ms,
+        }
+
+
+@mcp.tool("system_update")  # type: ignore
+async def system_update() -> str:
+    """Run full system update: packages (pacman + AUR), VS Code extensions, Antigravity, cleanup.
+    
+    This is fully automatic with no prompts. Runs ~/.config/scripts/update-system.sh.
+    
+    Typical runtime: 1-5 minutes depending on updates available.
+    
+    Returns:
+        JSON with status, exit_code, and output summary.
+    """
+    result = await _run_maintenance_script("update_system", timeout_seconds=600)
+    
+    # Trigger a software snapshot after successful update
+    if result.get("status") == "ok":
+        try:
+            snapshot = await _auto_snapshot_software({"packages", "services"})
+            if snapshot:
+                result["profile_updated"] = True
+        except Exception:
+            pass  # Non-critical, don't fail the update
+    
+    return json.dumps(result)
+
+
+@mcp.tool("system_cleanup")  # type: ignore
+async def system_cleanup() -> str:
+    """Clean up system: package cache, orphans, user cache, journal logs, trash.
+    
+    This is fully automatic with no prompts. Runs ~/.config/scripts/cleanup-system.sh.
+    
+    Typical runtime: 10-60 seconds.
+    
+    Returns:
+        JSON with status, exit_code, and space freed.
+    """
+    result = await _run_maintenance_script("cleanup_system", timeout_seconds=120)
+    return json.dumps(result)
+
+
+@mcp.tool("update_antigravity")  # type: ignore
+async def update_antigravity() -> str:
+    """Install Antigravity update from downloaded tarball.
+    
+    Checks ~/Downloads/Antigravity.tar.gz and installs if present.
+    Fully automatic - no prompts. Deletes tarball after successful install.
+    
+    If no tarball is present, returns success with a message indicating no update available.
+    
+    Returns:
+        JSON with status and installation details.
+    """
+    result = await _run_maintenance_script("update_antigravity", timeout_seconds=60)
+    
+    # Check if it was a "no tarball" case (script exits 0 but says "skipping")
+    output = result.get("output", "")
+    if "skipping" in output.lower() or "no antigravity tarball" in output.lower():
+        result["message"] = "No Antigravity update tarball found in ~/Downloads"
+    elif result.get("status") == "ok":
+        result["message"] = "Antigravity updated successfully"
+    
+    return json.dumps(result)
+
+
 def _shutdown_sessions() -> None:
     """Synchronously terminate all active shell sessions on shutdown.
 
@@ -1824,5 +1968,8 @@ __all__ = [
     "host_get_profile",
     "host_update_profile",
     "host_detect_system",
+    "system_update",
+    "system_cleanup",
+    "update_antigravity",
     "run",
 ]

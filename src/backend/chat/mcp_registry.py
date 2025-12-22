@@ -881,6 +881,19 @@ class MCPToolAggregator:
             )
         return details
 
+    async def _is_server_running(self, host: str, port: int) -> bool:
+        """Check if a server is already accepting connections on the given port."""
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=0.5,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (OSError, asyncio.TimeoutError):
+            return False
+
     async def _launch_server(self, config: MCPServerConfig) -> None:
         env = self._base_env.copy()
         env.update(config.env)
@@ -888,19 +901,46 @@ class MCPToolAggregator:
 
         try:
             if config.http_url is not None:
+                # Remote server - always connect_only
                 client = MCPToolClient(
                     http_url=config.http_url,
                     server_id=config.id,
+                    connect_only=True,
                 )
+            elif config.http_port is not None:
+                # Check if server is already running on this port
+                already_running = await self._is_server_running(
+                    "127.0.0.1", config.http_port
+                )
+
+                if already_running:
+                    logger.info(
+                        "MCP server '%s' already running on port %d, connecting...",
+                        config.id,
+                        config.http_port,
+                    )
+                    client = MCPToolClient(
+                        http_port=config.http_port,
+                        server_id=config.id,
+                        connect_only=True,
+                    )
+                else:
+                    # Launch the server ourselves
+                    client = MCPToolClient(
+                        server_module=config.module,
+                        command=config.command,
+                        http_port=config.http_port,
+                        server_id=config.id,
+                        cwd=cwd,
+                        env=env,
+                    )
             else:
-                client = MCPToolClient(
-                    server_module=config.module,
-                    command=config.command,
-                    http_port=config.http_port,
-                    server_id=config.id,
-                    cwd=cwd,
-                    env=env,
+                logger.warning(
+                    "MCP server '%s' has no http_url or http_port configured",
+                    config.id,
                 )
+                return
+
             await client.connect()
         except Exception:
             logger.exception("Failed to start MCP server '%s'", config.id)

@@ -27,9 +27,11 @@ from .routers.uploads import router as uploads_router
 from .services.attachments import AttachmentService
 from .services.attachments_cleanup import cleanup_expired_attachments
 from .mcp_servers import BUILTIN_MCP_SERVER_DEFINITIONS
+from .services.client_profiles import ClientProfileService
 from .services.mcp_server_settings import MCPServerSettingsService
 from .services.model_settings import ModelSettingsService
 from .services.suggestions import SuggestionsService
+from .routers.profiles import router as profiles_router
 
 
 
@@ -138,6 +140,9 @@ def create_app() -> FastAPI:
 
     suggestions_service = SuggestionsService(suggestions_path)
 
+    profiles_path = _resolve_under(project_root, Path("data/client_profiles"))
+    client_profile_service = ClientProfileService(profiles_path)
+
     orchestrator = ChatOrchestrator(
 
         settings,
@@ -151,6 +156,7 @@ def create_app() -> FastAPI:
         retention_days=settings.attachments_retention_days,
     )
     orchestrator.set_attachment_service(attachment_service)
+    orchestrator.set_profile_service(client_profile_service)
 
     cleanup_interval_hours = max(1, min(24, settings.attachments_retention_days or 1))
     cleanup_interval_seconds = cleanup_interval_hours * 3600
@@ -226,6 +232,7 @@ def create_app() -> FastAPI:
     app.state.mcp_server_settings_service = mcp_settings_service
     app.state.attachment_service = attachment_service
     app.state.suggestions_service = suggestions_service
+    app.state.client_profile_service = client_profile_service
 
     app.add_middleware(
         CORSMiddleware,
@@ -239,6 +246,7 @@ def create_app() -> FastAPI:
     app.include_router(mcp_router)
     app.include_router(stt_router)
     app.include_router(clients_router)
+    app.include_router(profiles_router)
 
     # helper for voice assistant imports to avoid circular deps if any,
     # though here it should be fine.

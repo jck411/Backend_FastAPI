@@ -40,10 +40,11 @@ class ShellChat:
 
     CLIENT_ID = "cli"  # Client identifier for settings isolation
 
-    def __init__(self, server_url: str, preset: Optional[str] = None):
+    def __init__(self, server_url: str, preset: Optional[str] = None, profile: Optional[str] = None):
         self.server_url = server_url.rstrip("/")
         self.client_api = f"{self.server_url}/api/clients/{self.CLIENT_ID}"
         self.preset = preset
+        self.profile = profile or os.environ.get("SHELL_CHAT_PROFILE", "cli-default")
         self.session_id: Optional[str] = None
         self.console = Console()
         self.running = True
@@ -377,7 +378,10 @@ class ShellChat:
         """Send message and stream response via SSE."""
         payload: dict[str, Any] = {
             "messages": [{"role": "user", "content": message}],
-            "metadata": {"client_id": self.CLIENT_ID},
+            "metadata": {
+                "client_id": self.CLIENT_ID,
+                "profile_id": self.profile,
+            },
         }
         if self.session_id:
             payload["session_id"] = self.session_id
@@ -553,6 +557,11 @@ Environment Variables:
         default=None,
         help="Apply a preset on startup",
     )
+    parser.add_argument(
+        "--profile",
+        default=os.environ.get("SHELL_CHAT_PROFILE"),
+        help="Client profile for MCP server filtering (default: cli-default or $SHELL_CHAT_PROFILE)",
+    )
 
     args = parser.parse_args()
 
@@ -565,7 +574,7 @@ Environment Variables:
     signal.signal(signal.SIGTERM, signal_handler)
 
     # Run the chat
-    chat = ShellChat(server_url=args.server, preset=args.preset)
+    chat = ShellChat(server_url=args.server, preset=args.preset, profile=args.profile)
     try:
         asyncio.run(chat.run())
     except KeyboardInterrupt:

@@ -33,6 +33,7 @@ from .streaming import SseEvent, StreamingHandler
 if TYPE_CHECKING:
     from ..config import Settings
     from ..services.attachments import AttachmentService
+    from ..services.client_profiles import ClientProfileService
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,11 @@ class ChatOrchestrator:
         self._settings = settings
         self._init_lock = asyncio.Lock()
         self._ready = asyncio.Event()
+        self._profile_service: ClientProfileService | None = None
+
+    def set_profile_service(self, service: "ClientProfileService | None") -> None:
+        """Inject the profile service after application startup wiring."""
+        self._profile_service = service
 
     async def initialize(self) -> None:
         """Initialize database and MCP client once."""
@@ -315,11 +321,35 @@ class ChatOrchestrator:
         )
         tools_payload = self._mcp_client.get_openai_tools()
 
-        # Filter tools based on session type and server config
-        configs = await self._mcp_settings.get_configs()
+        # Determine allowed servers based on profile or client_enabled
+        profile_id: str | None = None
+        if request_metadata:
+            profile_candidate = request_metadata.get("profile_id")
+            if isinstance(profile_candidate, str) and profile_candidate.strip():
+                profile_id = profile_candidate.strip()
 
-        # Filter by client-specific enabled state
-        allowed_servers = {cfg.id for cfg in configs if cfg.is_enabled_for_client(client_id)}
+        allowed_servers: set[str] = set()
+
+        if profile_id and self._profile_service:
+            # Use profile-based filtering
+            profile = await self._profile_service.get_profile(profile_id)
+            if profile is not None:
+                allowed_servers = set(profile.enabled_servers)
+                logger.info(
+                    "Using profile '%s' with %d enabled servers",
+                    profile_id,
+                    len(allowed_servers),
+                )
+            else:
+                logger.warning(
+                    "Profile '%s' not found, falling back to client_enabled",
+                    profile_id,
+                )
+
+        if not allowed_servers:
+            # Fallback to legacy client_enabled filtering
+            configs = await self._mcp_settings.get_configs()
+            allowed_servers = {cfg.id for cfg in configs if cfg.is_enabled_for_client(client_id)}
 
         filtered_tools = []
         for tool in tools_payload:
@@ -330,9 +360,11 @@ class ChatOrchestrator:
             if server_match:
                 filtered_tools.append(tool)
 
+        filter_source = f"profile:{profile_id}" if profile_id else f"client:{client_id}"
         logger.info(
-            "%s session %s: filtered tools from %d to %d (allowed servers: %s)",
-            client_id, session_id, len(tools_payload), len(filtered_tools), list(allowed_servers)
+            "%s session %s: filtered tools from %d to %d (source=%s, servers=%s)",
+            client_id, session_id, len(tools_payload), len(filtered_tools),
+            filter_source, list(allowed_servers)
         )
         tools_payload = filtered_tools
 

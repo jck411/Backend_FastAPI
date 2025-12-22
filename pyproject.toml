@@ -41,10 +41,12 @@ dependencies = [
 [project.scripts]
 backend = "backend.main:main"
 shell-chat = "frontend_cli.shell_chat:main"
+mcp-profile = "scripts.mcp_profile:main"
 
 [tool.setuptools]
-packages = ["backend", "frontend_cli"]
+packages = ["backend", "frontend_cli", "scripts"]
 
 [tool.setuptools.package-dir]
 "" = "src"
 frontend_cli = "frontend-cli"
+scripts = "scripts"

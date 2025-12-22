@@ -42,7 +42,21 @@ class MCPToolClient:
         server_id: str | None = None,
         cwd: Path | None = None,
         env: dict[str, str] | None = None,
+        connect_only: bool = False,
     ):
+        """Initialize an MCP tool client.
+
+        Args:
+            server_module: Python module to launch via `python -m`.
+            command: Explicit command to execute for the server.
+            http_url: Full HTTP URL for remote/already-running MCP server.
+            http_port: Local port (implies http://127.0.0.1:{port}/mcp).
+            server_id: Identifier for this server.
+            cwd: Working directory for launched process.
+            env: Environment variables for launched process.
+            connect_only: If True, don't launch a process - just connect to
+                an already-running server at http_url or http_port.
+        """
         if http_url is not None and http_port is not None:  # pragma: no cover - defensive
             raise ValueError("Provide only one of 'http_url' or 'http_port'")
 
@@ -66,8 +80,16 @@ class MCPToolClient:
 
         self._http_url = resolved_http_url
         self._http_port = http_port
-        self._server_module = server_module
-        self._launch_command = launch_command
+        self._connect_only = connect_only
+
+        # When connect_only, we don't need module/command - just the URL
+        if connect_only:
+            self._server_module = None
+            self._launch_command = None
+        else:
+            self._server_module = server_module
+            self._launch_command = launch_command
+
         self._server_id = server_id or (
             server_module
             or (launch_command[0] if launch_command else self._http_url)
@@ -102,6 +124,11 @@ class MCPToolClient:
     def http_url(self) -> str | None:
         """Return the HTTP URL if this is an HTTP server, None otherwise."""
         return self._http_url
+
+    @property
+    def connect_only(self) -> bool:
+        """Return True if this client connects to an already-running server."""
+        return self._connect_only
 
     def _record_process_log(self, label: str, line: str) -> None:
         entry = f"[{label}] {line}"
@@ -279,11 +306,18 @@ class MCPToolClient:
 
             from mcp.client.streamable_http import streamablehttp_client
 
-            logger.info(
-                "Connecting to HTTP MCP server at %s (id=%s)",
-                self._http_url,
-                self._server_id,
-            )
+            if self._connect_only:
+                logger.info(
+                    "Connecting to already-running MCP server at %s (id=%s, connect_only=True)",
+                    self._http_url,
+                    self._server_id,
+                )
+            else:
+                logger.info(
+                    "Connecting to HTTP MCP server at %s (id=%s)",
+                    self._http_url,
+                    self._server_id,
+                )
             if self._process is not None and self._http_port is not None:
                 await self._wait_for_port("127.0.0.1", self._http_port)
 

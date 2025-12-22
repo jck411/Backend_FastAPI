@@ -11,7 +11,6 @@ import pytest
 from mcp.types import CallToolResult, TextContent, Tool
 
 from backend.chat.mcp_client import (
-    HTTP_CONNECTION_TIMEOUT,
     HTTP_MAX_RECONNECT_ATTEMPTS,
     HTTP_RECONNECT_DELAY,
     MCPToolClient,
@@ -63,39 +62,42 @@ class TestHTTPTransportBasics:
         assert http_client.http_url == "http://example.com/mcp"
 
         module_client = MCPToolClient(
-            server_module="backend.mcp_servers.test_server", server_id="module-server"
+            server_module="backend.mcp_servers.test_server",
+            http_port=9000,
+            server_id="module-server",
         )
-        assert module_client.is_http_server is False
-        assert module_client.http_url is None
+        assert module_client.is_http_server is True
+        assert module_client.http_url == "http://127.0.0.1:9000/mcp"
 
         command_client = MCPToolClient(
-            command=["python", "-m", "some.module"], server_id="command-server"
+            command=["python", "-m", "some.module"],
+            http_port=9001,
+            server_id="command-server",
         )
-        assert command_client.is_http_server is False
-        assert command_client.http_url is None
+        assert command_client.is_http_server is True
+        assert command_client.http_url == "http://127.0.0.1:9001/mcp"
 
     async def test_http_connection_with_timeout(self, mock_session: MagicMock) -> None:
-        """Test that HTTP connections apply timeout correctly."""
+        """Test that HTTP connections establish a session."""
         client = MCPToolClient(
             http_url="http://example.com/mcp", server_id="test-server"
         )
 
         with (
-            patch("mcp.client.sse.sse_client") as mock_sse_client,
+            patch(
+                "mcp.client.streamable_http.streamablehttp_client"
+            ) as mock_http_client,
             patch("backend.chat.mcp_client.ClientSession", return_value=mock_session),
         ):
-            mock_streams = (MagicMock(), MagicMock())
+            mock_streams = (MagicMock(), MagicMock(), MagicMock())
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(return_value=mock_streams)
             mock_context.__aexit__ = AsyncMock()
-            mock_sse_client.return_value = mock_context
+            mock_http_client.return_value = mock_context
 
             await client.connect()
 
-            # Verify sse_client was called with timeout
-            mock_sse_client.assert_called_once_with(
-                "http://example.com/mcp", timeout=HTTP_CONNECTION_TIMEOUT
-            )
+            mock_http_client.assert_called_once_with("http://example.com/mcp")
 
         await client.close()
 
@@ -109,18 +111,19 @@ class TestHTTPErrorHandling:
             http_url="http://example.com/mcp", server_id="test-server"
         )
 
-        with patch("mcp.client.sse.sse_client") as mock_sse_client:
+        with patch(
+            "mcp.client.streamable_http.streamablehttp_client"
+        ) as mock_http_client:
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(
                 side_effect=asyncio.TimeoutError("Connection timed out")
             )
-            mock_sse_client.return_value = mock_context
+            mock_http_client.return_value = mock_context
 
             with pytest.raises(ConnectionError) as exc_info:
                 await client.connect()
 
             assert "timed out" in str(exc_info.value).lower()
-            assert str(HTTP_CONNECTION_TIMEOUT) in str(exc_info.value)
 
     async def test_dns_resolution_failure(self) -> None:
         """Test handling of DNS resolution failures."""
@@ -130,7 +133,7 @@ class TestHTTPErrorHandling:
 
         dns_error = httpx.ConnectError("Name or service not known", request=MagicMock())
 
-        with patch("mcp.client.sse.sse_client") as mock_sse_client:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client:
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(side_effect=dns_error)
             mock_sse_client.return_value = mock_context
@@ -152,7 +155,7 @@ class TestHTTPErrorHandling:
             "[Errno 111] Connection refused", request=MagicMock()
         )
 
-        with patch("mcp.client.sse.sse_client") as mock_sse_client:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client:
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(side_effect=refused_error)
             mock_sse_client.return_value = mock_context
@@ -172,7 +175,7 @@ class TestHTTPErrorHandling:
 
         network_error = httpx.NetworkError("Network unreachable", request=MagicMock())
 
-        with patch("mcp.client.sse.sse_client") as mock_sse_client:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client:
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(side_effect=network_error)
             mock_sse_client.return_value = mock_context
@@ -195,7 +198,7 @@ class TestHTTPErrorHandling:
             "Unauthorized", request=MagicMock(), response=mock_response
         )
 
-        with patch("mcp.client.sse.sse_client") as mock_sse_client:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client:
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(side_effect=auth_error)
             mock_sse_client.return_value = mock_context
@@ -219,7 +222,7 @@ class TestHTTPErrorHandling:
             "Forbidden", request=MagicMock(), response=mock_response
         )
 
-        with patch("mcp.client.sse.sse_client") as mock_sse_client:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client:
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(side_effect=forbidden_error)
             mock_sse_client.return_value = mock_context
@@ -243,7 +246,7 @@ class TestHTTPErrorHandling:
             "Not Found", request=MagicMock(), response=mock_response
         )
 
-        with patch("mcp.client.sse.sse_client") as mock_sse_client:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client:
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(side_effect=not_found_error)
             mock_sse_client.return_value = mock_context
@@ -267,7 +270,7 @@ class TestHTTPErrorHandling:
             "Internal Server Error", request=MagicMock(), response=mock_response
         )
 
-        with patch("mcp.client.sse.sse_client") as mock_sse_client:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client:
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(side_effect=server_error)
             mock_sse_client.return_value = mock_context
@@ -286,7 +289,7 @@ class TestHTTPErrorHandling:
 
         value_error = ValueError("Invalid SSE stream format: missing event type")
 
-        with patch("mcp.client.sse.sse_client") as mock_sse_client:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client:
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(side_effect=value_error)
             mock_sse_client.return_value = mock_context
@@ -308,11 +311,11 @@ class TestHTTPReconnectionLogic:
         )
 
         with (
-            patch("mcp.client.sse.sse_client") as mock_sse_client,
+            patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client,
             patch("backend.chat.mcp_client.ClientSession", return_value=mock_session),
             patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
         ):
-            mock_streams = (MagicMock(), MagicMock())
+            mock_streams = (MagicMock(), MagicMock(), MagicMock())
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(return_value=mock_streams)
             mock_context.__aexit__ = AsyncMock()
@@ -352,7 +355,7 @@ class TestHTTPReconnectionLogic:
         )
 
         with (
-            patch("mcp.client.sse.sse_client") as mock_sse_client,
+            patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client,
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
             mock_context = AsyncMock()
@@ -367,17 +370,6 @@ class TestHTTPReconnectionLogic:
             assert success is False
             assert client._reconnect_attempts == initial_attempts + 1
 
-    async def test_reconnect_not_http_server(self) -> None:
-        """Test that reconnect is ignored for non-HTTP servers."""
-        client = MCPToolClient(
-            server_module="backend.mcp_servers.test_server", server_id="module-server"
-        )
-
-        success = await client.reconnect()
-
-        assert success is False
-        assert client._reconnect_attempts == 0
-
     async def test_reconnect_resets_counter_on_success(
         self, mock_session: MagicMock
     ) -> None:
@@ -387,11 +379,11 @@ class TestHTTPReconnectionLogic:
         )
 
         with (
-            patch("mcp.client.sse.sse_client") as mock_sse_client,
+            patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client,
             patch("backend.chat.mcp_client.ClientSession", return_value=mock_session),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
-            mock_streams = (MagicMock(), MagicMock())
+            mock_streams = (MagicMock(), MagicMock(), MagicMock())
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(return_value=mock_streams)
             mock_context.__aexit__ = AsyncMock()
@@ -426,10 +418,10 @@ class TestHTTPReconnectionLogic:
             attempt_count += 1
             if attempt_count < 3:
                 raise httpx.ConnectError("Connection failed", request=MagicMock())
-            return (MagicMock(), MagicMock())
+            return (MagicMock(), MagicMock(), MagicMock())
 
         with (
-            patch("mcp.client.sse.sse_client") as mock_sse_client,
+            patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client,
             patch("backend.chat.mcp_client.ClientSession", return_value=mock_session),
             patch("asyncio.sleep", new_callable=AsyncMock),
         ):
@@ -465,10 +457,10 @@ class TestHTTPToolExecution:
         )
 
         with (
-            patch("mcp.client.sse.sse_client") as mock_sse_client,
+            patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client,
             patch("backend.chat.mcp_client.ClientSession", return_value=mock_session),
         ):
-            mock_streams = (MagicMock(), MagicMock())
+            mock_streams = (MagicMock(), MagicMock(), MagicMock())
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(return_value=mock_streams)
             mock_context.__aexit__ = AsyncMock()
@@ -492,10 +484,10 @@ class TestHTTPToolExecution:
         )
 
         with (
-            patch("mcp.client.sse.sse_client") as mock_sse_client,
+            patch("mcp.client.streamable_http.streamablehttp_client") as mock_sse_client,
             patch("backend.chat.mcp_client.ClientSession", return_value=mock_session),
         ):
-            mock_streams = (MagicMock(), MagicMock())
+            mock_streams = (MagicMock(), MagicMock(), MagicMock())
             mock_context = AsyncMock()
             mock_context.__aenter__ = AsyncMock(return_value=mock_streams)
             mock_context.__aexit__ = AsyncMock()

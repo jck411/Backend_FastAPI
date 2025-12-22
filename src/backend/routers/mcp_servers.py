@@ -56,6 +56,8 @@ async def _build_status_response(
             connected=bool(runtime_entry.get("connected", False)),
             module=config.module,
             command=config.command,
+            http_url=config.http_url,
+            http_port=config.http_port,
             cwd=config.cwd,
             env=config.env,
             tool_prefix=config.tool_prefix,

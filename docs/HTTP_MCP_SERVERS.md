@@ -1,14 +1,13 @@
 # HTTP MCP Servers Configuration Guide
 
-This document explains how to configure and use HTTP/SSE-based MCP servers in addition to the standard Python module-based servers.
+This document explains how to configure and use HTTP/SSE-based MCP servers, including local module launches and remote endpoints.
 
 ## Overview
 
-The MCP client supports three transport methods:
+The backend now uses **streamable HTTP** for all MCP servers. You can either:
 
-1. **Python Module** - Launch MCP server as a Python module (default)
-2. **Custom Command** - Launch MCP server with arbitrary command
-3. **HTTP/SSE** - Connect to remote HTTP MCP server via Server-Sent Events
+1. **Local module/command servers** - Launched by the backend with an assigned `http_port`
+2. **Remote HTTP/SSE servers** - Connected via `http_url`
 
 HTTP transport is ideal for:
 - Remote MCP servers running on different machines
@@ -19,9 +18,29 @@ HTTP transport is ideal for:
 
 ## Configuration
 
-### Basic HTTP Server Configuration
+### Local Module Server (HTTP)
 
-Add an HTTP server to your `data/mcp_servers.json`:
+Launch a bundled Python module over HTTP by supplying `http_port`:
+
+```json
+{
+  "servers": [
+    {
+      "id": "housekeeping",
+      "module": "backend.mcp_servers.housekeeping_server",
+      "http_port": 9002,
+      "enabled": true
+    }
+  ]
+}
+```
+
+The backend starts the module with:
+`python -m <module> --transport streamable-http --host 127.0.0.1 --port <http_port>`
+
+### Basic HTTP Server Configuration (Remote)
+
+Add a remote HTTP server to your `data/mcp_servers.json`:
 
 ```json
 {
@@ -113,7 +132,7 @@ If a connection takes longer than 30 seconds, it will fail with a timeout error.
 
 ### Reconnection Logic
 
-HTTP servers support automatic reconnection (unlike subprocess-based servers):
+HTTP servers support automatic reconnection:
 
 - **Max Attempts**: 3 reconnection attempts
 - **Delay**: 2 seconds between attempts

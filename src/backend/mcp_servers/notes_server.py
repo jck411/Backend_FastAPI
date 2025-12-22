@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 from backend.services.google_auth.auth import (
     DEFAULT_USER_EMAIL,
@@ -23,7 +23,7 @@ from backend.services.google_auth.auth import (
 # Default port for HTTP transport
 DEFAULT_HTTP_PORT = 9009
 
-mcp = FastMCP("notes", stateless_http=True, json_response=True)
+mcp = FastMCP("notes")
 
 # Default vault folder name in Google Drive
 DEFAULT_VAULT_FOLDER_NAME = "NOTES"
@@ -1486,11 +1486,16 @@ def run(
 ) -> None:  # pragma: no cover - integration entrypoint
     """Run the MCP server with the specified transport."""
     if transport == "streamable-http":
-        import uvicorn
-        app = mcp.streamable_http_app()
-        uvicorn.run(app, host=host, port=port)
+        mcp.run(
+            transport="streamable-http",
+            host=host,
+            port=port,
+            json_response=True,
+            stateless_http=True,
+            uvicorn_config={"access_log": False},
+        )
     else:
-        mcp.run()
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper

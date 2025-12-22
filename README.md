@@ -238,6 +238,7 @@ MCP servers are configured in `data/mcp_servers.json` and hot-reloaded via API. 
 - **PDF tools** — extract text and metadata
 - **Monarch Money** — personal finance data and transactions
 - **Calculator & utilities** — housekeeping helpers
+- Local servers run over streamable HTTP using `http_port`; remote servers use `http_url`.
 - The canonical list of bundled servers lives in `src/backend/mcp_servers/__init__.py`
   (`BUILTIN_MCP_SERVER_DEFINITIONS`). The FastAPI factory consumes that list to
   generate default entries with the same enable/disable defaults, so updating the

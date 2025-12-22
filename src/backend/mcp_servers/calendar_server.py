@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from typing import Any, List, Optional, TypedDict
 
 # Third party imports
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 # Local imports
 from backend.services.google_auth.auth import (
@@ -40,8 +40,7 @@ from backend.utils.datetime_utils import (
 # Default port for HTTP transport
 DEFAULT_HTTP_PORT = 9004
 
-# Create MCP server instance with stateless HTTP support
-mcp: FastMCP = FastMCP("custom-calendar", stateless_http=True, json_response=True)
+mcp: FastMCP = FastMCP("custom-calendar")
 
 
 def get_tasks_service(user_email: str):
@@ -1537,11 +1536,16 @@ def run(
 ) -> None:  # pragma: no cover - integration entrypoint
     """Run the MCP server with the specified transport."""
     if transport == "streamable-http":
-        import uvicorn
-        app = mcp.streamable_http_app()
-        uvicorn.run(app, host=host, port=port)
+        mcp.run(
+            transport="streamable-http",
+            host=host,
+            port=port,
+            json_response=True,
+            stateless_http=True,
+            uvicorn_config={"access_log": False},
+        )
     else:
-        mcp.run()
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper

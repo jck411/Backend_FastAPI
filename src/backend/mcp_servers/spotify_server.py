@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Optional
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 from backend.services.spotify_auth.auth import (
     DEFAULT_USER_EMAIL,
@@ -19,7 +19,7 @@ from backend.services.spotify_auth.identifiers import (
 # Default port for HTTP transport
 DEFAULT_HTTP_PORT = 9010
 
-mcp = FastMCP("spotify", stateless_http=True, json_response=True)
+mcp = FastMCP("spotify")
 
 
 def _format_track_info(track: dict[str, Any]) -> str:
@@ -1282,11 +1282,16 @@ def run(
 ) -> None:  # pragma: no cover - integration entrypoint
     """Run the Spotify MCP server with the specified transport."""
     if transport == "streamable-http":
-        import uvicorn
-        app = mcp.streamable_http_app()
-        uvicorn.run(app, host=host, port=port)
+        mcp.run(
+            transport="streamable-http",
+            host=host,
+            port=port,
+            json_response=True,
+            stateless_http=True,
+            uvicorn_config={"access_log": False},
+        )
     else:
-        mcp.run()
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper

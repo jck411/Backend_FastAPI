@@ -10,6 +10,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi[standard]>=0.115.0",
+    "fastmcp>=2.14.1",
     "httpx[http2]>=0.27.2",
     "aiosqlite>=0.20.0",
     "mcp>=1.25.0",

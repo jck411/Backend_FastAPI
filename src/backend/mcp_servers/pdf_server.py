@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from fastmcp import FastMCP
 import httpx
 import kreuzberg
 from kreuzberg import ExtractionConfig
@@ -36,13 +37,34 @@ except ImportError:
 from backend.config import get_settings
 from backend.repository import ChatRepository
 
-mcp = kreuzberg_server.mcp
+# Default port for HTTP transport
+DEFAULT_HTTP_PORT = 9007
+
+mcp = FastMCP.as_proxy(
+    backend=kreuzberg_server.mcp,
+    name="custom-pdf",
+    on_duplicate_tools="replace",
+)
 
 
-def run() -> None:  # pragma: no cover - integration entrypoint
-    """Execute the Kreuzberg MCP server when launched as a script."""
+def run(
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = DEFAULT_HTTP_PORT,
+) -> None:  # pragma: no cover - integration entrypoint
+    """Run the MCP server with the specified transport."""
 
-    kreuzberg_server.main()
+    if transport == "streamable-http":
+        mcp.run(
+            transport="streamable-http",
+            host=host,
+            port=port,
+            json_response=True,
+            stateless_http=True,
+            uvicorn_config={"access_log": False},
+        )
+    else:
+        mcp.run(transport="stdio")
 
 
 # Re-export the highest-level helpers for direct imports.
@@ -1069,6 +1091,31 @@ def _build_extraction_config(
     # (This depends on exact ExtractionConfig definition, assuming standard fields match)
 
     return config
+
+
+if __name__ == "__main__":  # pragma: no cover - CLI helper
+    import argparse
+
+    parser = argparse.ArgumentParser(description="PDF MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http"],
+        default="stdio",
+        help="Transport protocol to use",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind HTTP server to",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_HTTP_PORT,
+        help="Port for HTTP server",
+    )
+    args = parser.parse_args()
+    run(args.transport, args.host, args.port)
 
 
 __all__ = [

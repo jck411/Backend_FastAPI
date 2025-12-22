@@ -6,7 +6,7 @@
 
 ```python
 # In src/backend/mcp_servers/calendar_server.py
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 DEFAULT_USER_EMAIL = "jck411@gmail.com"
 mcp: FastMCP = FastMCP("custom-calendar")

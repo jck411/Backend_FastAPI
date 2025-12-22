@@ -22,6 +22,8 @@ from backend.services.mcp_server_settings import MCPServerSettingsService
 
 pytestmark = pytest.mark.anyio
 
+DEFAULT_TEST_HTTP_PORT = 9101
+
 
 @pytest.fixture
 def anyio_backend() -> str:
@@ -124,6 +126,7 @@ async def test_service_loads_fallback_and_persist(tmp_path: Path) -> None:
         {
             "id": "alpha",
             "module": "pkg.alpha",
+            "http_port": DEFAULT_TEST_HTTP_PORT,
             "contexts": ["calendar"],
             "tool_overrides": {"alpha_tool": {"contexts": ["calendar"]}},
         }
@@ -140,6 +143,7 @@ async def test_service_loads_fallback_and_persist(tmp_path: Path) -> None:
     new_config = MCPServerConfig(
         id="beta",
         module="pkg.beta",
+        http_port=DEFAULT_TEST_HTTP_PORT,
         enabled=False,
         contexts=["tasks"],
         tool_overrides={"beta_tool": MCPServerToolConfig(contexts=["tasks"])},
@@ -169,11 +173,16 @@ async def test_router_combines_status() -> None:
             MCPServerConfig(
                 id="alpha",
                 module="pkg.alpha",
+                http_port=DEFAULT_TEST_HTTP_PORT,
                 contexts=["calendar"],
                 tool_overrides={"ping": MCPServerToolConfig(contexts=["calendar"])},
             ),
             MCPServerConfig(
-                id="beta", module="pkg.beta", enabled=False, contexts=["tasks"]
+                id="beta",
+                module="pkg.beta",
+                http_port=DEFAULT_TEST_HTTP_PORT,
+                enabled=False,
+                contexts=["tasks"],
             ),
         ]
     )
@@ -204,7 +213,9 @@ async def test_router_combines_status() -> None:
 async def test_router_patch_updates_service_and_runtime() -> None:
     service = StubMCPServerSettingsService(
         [
-            MCPServerConfig(id="alpha", module="pkg.alpha"),
+            MCPServerConfig(
+                id="alpha", module="pkg.alpha", http_port=DEFAULT_TEST_HTTP_PORT
+            ),
         ]
     )
     orchestrator = StubChatOrchestrator()
@@ -240,7 +251,7 @@ async def test_router_patch_updates_service_and_runtime() -> None:
 
 async def test_router_refresh_calls_orchestrator() -> None:
     service = StubMCPServerSettingsService(
-        [MCPServerConfig(id="alpha", module="pkg.alpha")]
+        [MCPServerConfig(id="alpha", module="pkg.alpha", http_port=DEFAULT_TEST_HTTP_PORT)]
     )
     orchestrator = StubChatOrchestrator()
     await orchestrator.apply_mcp_configs(await service.get_configs())

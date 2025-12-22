@@ -338,6 +338,8 @@ export interface McpServerStatus {
   connected: boolean;
   module?: string | null;
   command?: string[] | null;
+  http_url?: string | null;
+  http_port?: number | null;
   cwd?: string | null;
   env?: Record<string, string>;
   tool_prefix?: string | null;
@@ -357,6 +359,8 @@ export interface McpServerDefinition {
   enabled?: boolean;
   module?: string | null;
   command?: string[] | null;
+  http_url?: string | null;
+  http_port?: number | null;
   cwd?: string | null;
   env?: Record<string, string>;
   tool_prefix?: string | null;
@@ -372,6 +376,8 @@ export interface McpServerUpdatePayload {
   disabled_tools?: string[];
   module?: string | null;
   command?: string[] | null;
+  http_url?: string | null;
+  http_port?: number | null;
   cwd?: string | null;
   env?: Record<string, string> | null;
   tool_prefix?: string | null;

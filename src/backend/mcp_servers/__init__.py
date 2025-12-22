@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from importlib import import_module
 from types import ModuleType
-from typing import Final
+from typing import Any, Final
 
 __all__ = [
     "calculator_server",
@@ -38,20 +38,49 @@ __all__ = [
 ]
 
 # Canonical list of bundled MCP servers used to seed configuration defaults.
-BUILTIN_MCP_SERVER_DEFINITIONS: Final[tuple[dict[str, str], ...]] = (
+BUILTIN_MCP_SERVER_DEFINITIONS: Final[tuple[dict[str, Any], ...]] = (
     {
         "id": "local-calculator",
         "module": "backend.mcp_servers.calculator_server",
+        "http_port": 9003,
     },
-    {"id": "housekeeping", "module": "backend.mcp_servers.housekeeping_server"},
-    {"id": "custom-calendar", "module": "backend.mcp_servers.calendar_server"},
-    {"id": "custom-gmail", "module": "backend.mcp_servers.gmail_server"},
-    {"id": "custom-gdrive", "module": "backend.mcp_servers.gdrive_server"},
-    {"id": "custom-pdf", "module": "backend.mcp_servers.pdf_server"},
-    {"id": "monarch-money", "module": "backend.mcp_servers.monarch_server"},
-    {"id": "notes", "module": "backend.mcp_servers.notes_server"},
-    {"id": "shell-control", "module": "backend.mcp_servers.shell_control_server"},
-    {"id": "spotify", "module": "backend.mcp_servers.spotify_server"},
+    {
+        "id": "housekeeping",
+        "module": "backend.mcp_servers.housekeeping_server",
+        "http_port": 9002,
+    },
+    {
+        "id": "custom-calendar",
+        "module": "backend.mcp_servers.calendar_server",
+        "http_port": 9004,
+    },
+    {
+        "id": "custom-gmail",
+        "module": "backend.mcp_servers.gmail_server",
+        "http_port": 9005,
+    },
+    {
+        "id": "custom-gdrive",
+        "module": "backend.mcp_servers.gdrive_server",
+        "http_port": 9006,
+    },
+    {"id": "custom-pdf", "module": "backend.mcp_servers.pdf_server", "http_port": 9007},
+    {
+        "id": "monarch-money",
+        "module": "backend.mcp_servers.monarch_server",
+        "http_port": 9008,
+    },
+    {"id": "notes", "module": "backend.mcp_servers.notes_server", "http_port": 9009},
+    {
+        "id": "shell-control",
+        "module": "backend.mcp_servers.shell_control_server",
+        "http_port": 9001,
+    },
+    {
+        "id": "spotify",
+        "module": "backend.mcp_servers.spotify_server",
+        "http_port": 9010,
+    },
 )
 
 _SUBMODULES: dict[str, str] = {name: f"{__name__}.{name}" for name in __all__}

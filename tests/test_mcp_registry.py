@@ -43,6 +43,15 @@ def build_tool_definition(name: str, description: str) -> tuple[Tool, dict[str, 
     return tool, spec
 
 
+DEFAULT_TEST_HTTP_PORT = 9100
+
+
+def make_config(**kwargs: Any) -> MCPServerConfig:
+    if "http_url" not in kwargs and "http_port" not in kwargs:
+        kwargs["http_port"] = DEFAULT_TEST_HTTP_PORT
+    return MCPServerConfig(**kwargs)
+
+
 def make_fake_client_factory(
     tool_map: dict[str, list[tuple[Tool, dict[str, Any]]]],
     created: dict[str, Any],
@@ -54,6 +63,7 @@ def make_fake_client_factory(
             *,
             command: list[str] | None = None,
             http_url: str | None = None,
+            http_port: int | None = None,
             server_id: str | None = None,
             cwd: Path | None = None,
             env: dict[str, str] | None = None,
@@ -120,6 +130,7 @@ def build_export(**overrides: Any) -> dict[str, Any]:
             "run",
             "backend.mcp_servers.gmail_server",
         ],
+        "http_port": DEFAULT_TEST_HTTP_PORT,
         "env": {"EXPORTED_TOKEN": "${EXPORTED_TOKEN}"},
         "tool_prefix": "external-server",
         "enabled": True,
@@ -130,7 +141,13 @@ def build_export(**overrides: Any) -> dict[str, Any]:
 
 def test_load_server_configs_uses_fallback(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"
-    fallback = [{"id": "local", "module": "backend.mcp_servers.calculator_server"}]
+    fallback = [
+        {
+            "id": "local",
+            "module": "backend.mcp_servers.calculator_server",
+            "http_port": DEFAULT_TEST_HTTP_PORT,
+        }
+    ]
 
     configs = load_server_configs(path, fallback=fallback)
 
@@ -148,6 +165,7 @@ def test_load_server_configs_overrides_fallback(tmp_path: Path) -> None:
                     {
                         "id": "local",
                         "module": "custom.server",
+                        "http_port": DEFAULT_TEST_HTTP_PORT,
                         "enabled": False,
                     }
                 ]
@@ -156,7 +174,13 @@ def test_load_server_configs_overrides_fallback(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    fallback = [{"id": "local", "module": "backend.mcp_servers.calculator_server"}]
+    fallback = [
+        {
+            "id": "local",
+            "module": "backend.mcp_servers.calculator_server",
+            "http_port": DEFAULT_TEST_HTTP_PORT,
+        }
+    ]
     configs = load_server_configs(path, fallback=fallback)
 
     assert len(configs) == 1
@@ -172,6 +196,7 @@ def test_load_server_configs_prefers_export(tmp_path: Path) -> None:
         {
             "id": "external-server",
             "module": "backend.mcp_servers.gmail_server",
+            "http_port": DEFAULT_TEST_HTTP_PORT,
         }
     ]
 
@@ -202,8 +227,8 @@ async def test_aggregator_preserves_unique_names(
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        MCPServerConfig(id="server_a", module="pkg.alpha"),
-        MCPServerConfig(id="server_b", module="pkg.beta"),
+        make_config(id="server_a", module="pkg.alpha"),
+        make_config(id="server_b", module="pkg.beta"),
     ]
 
     aggregator = MCPToolAggregator(configs)
@@ -234,8 +259,8 @@ async def test_aggregator_prefixes_duplicate_tool_names(
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        MCPServerConfig(id="server_a", module="pkg.alpha"),
-        MCPServerConfig(id="server_b", module="pkg.beta"),
+        make_config(id="server_a", module="pkg.alpha"),
+        make_config(id="server_b", module="pkg.beta"),
     ]
 
     aggregator = MCPToolAggregator(configs)
@@ -268,8 +293,8 @@ async def test_aggregator_filters_tools_by_contexts(
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        MCPServerConfig(id="server_a", module="pkg.alpha", contexts=["calendar"]),
-        MCPServerConfig(
+        make_config(id="server_a", module="pkg.alpha", contexts=["calendar"]),
+        make_config(
             id="server_b",
             module="pkg.beta",
             contexts=["tasks"],
@@ -323,7 +348,7 @@ async def test_aggregator_returns_tools_by_name(
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        MCPServerConfig(id="server_a", module="pkg.alpha", contexts=["calendar"]),
+        make_config(id="server_a", module="pkg.alpha", contexts=["calendar"]),
     ]
 
     aggregator = MCPToolAggregator(configs)
@@ -377,7 +402,7 @@ async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -
     )
     await repository.close()
 
-    config = MCPServerConfig(
+    config = make_config(
         id="housekeeping",
         module="backend.mcp_servers.housekeeping_server",
         env={
@@ -460,6 +485,7 @@ async def test_exported_manifest_tools_are_prefixed(
         {
             "id": "external-server",
             "module": "backend.mcp_servers.gmail_server",
+            "http_port": DEFAULT_TEST_HTTP_PORT,
         }
     ]
 
@@ -509,7 +535,7 @@ async def test_http_server_configuration(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        MCPServerConfig(
+        make_config(
             id="http-server",
             http_url="http://localhost:8080/mcp",
             enabled=True,
@@ -550,7 +576,7 @@ async def test_http_server_with_tool_prefix(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        MCPServerConfig(
+        make_config(
             id="http-api",
             http_url="http://api.example.com/mcp",
             tool_prefix="api",
@@ -589,12 +615,12 @@ async def test_mixed_http_and_module_servers(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        MCPServerConfig(
+        make_config(
             id="http-remote",
             http_url="http://remote.example.com/mcp",
             enabled=True,
         ),
-        MCPServerConfig(
+        make_config(
             id="local-module",
             module="backend.mcp_servers.local_server",
             enabled=True,
@@ -632,7 +658,7 @@ async def test_http_server_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        MCPServerConfig(
+        make_config(
             id="disabled-http",
             http_url="http://disabled.example.com/mcp",
             enabled=False,
@@ -675,7 +701,7 @@ async def test_http_server_connection_failure_handling(
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", FailingFakeClient)
 
     configs = [
-        MCPServerConfig(
+        make_config(
             id="failing-http",
             http_url="http://unreachable.example.com/mcp",
             enabled=True,
@@ -707,7 +733,7 @@ async def test_http_server_with_contexts(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        MCPServerConfig(
+        make_config(
             id="http-contextual",
             http_url="http://api.example.com/mcp",
             contexts=["email"],

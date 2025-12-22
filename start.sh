@@ -29,6 +29,26 @@ BOLD='\033[1m'
 # Pids to track
 declare -a PIDS=()
 
+# Wait for backend health endpoint to be available before launching frontends
+wait_for_backend() {
+    local health_url="http://127.0.0.1:8000/health"
+
+    if ! command -v curl >/dev/null 2>&1; then
+        echo -e "${YELLOW}curl not found; skipping backend readiness check.${NC}"
+        return
+    fi
+
+    echo -e "${BLUE}Waiting for backend readiness...${NC}"
+    for _ in {1..60}; do
+        if curl -fsS "$health_url" >/dev/null 2>&1; then
+            echo -e "${GREEN}Backend is ready.${NC}"
+            return
+        fi
+        sleep 0.5
+    done
+    echo -e "${YELLOW}Backend readiness check timed out; continuing anyway.${NC}"
+}
+
 # Function to cleanup background processes on exit
 cleanup() {
     echo ""
@@ -53,11 +73,10 @@ else
     echo -e "${BOLD}║     Backend_FastAPI Component Launcher     ║${NC}"
     echo -e "${BOLD}╚════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${CYAN}1${NC} - Backend        (FastAPI on :8000)"
+    echo -e "  ${CYAN}1${NC} - Backend        (FastAPI on :8000; MCP servers managed inside backend)"
     echo -e "  ${CYAN}2${NC} - Frontend       (Svelte chat UI on :5173)"
     echo -e "  ${CYAN}3${NC} - Frontend-Kiosk (Kiosk UI on :5174)"
     echo -e "  ${CYAN}4${NC} - Frontend-CLI   (Terminal chat client)"
-    echo -e "  ${CYAN}5${NC} - MCP HTTP       (MCP servers on :9001-9010)"
     echo ""
     echo -e "  ${CYAN}all${NC} - Start 1, 2, and 3 (web stack)"
     echo ""
@@ -67,7 +86,7 @@ fi
 
 # Handle 'all' shortcut
 if [[ "$selection" == "all" ]]; then
-    selection="1235"
+    selection="123"
 fi
 
 # Validate input
@@ -76,8 +95,8 @@ if [[ -z "$selection" ]]; then
     exit 1
 fi
 
-if [[ ! "$selection" =~ ^[1-5]+$ ]]; then
-    echo -e "${RED}Invalid selection. Use only numbers 1-5 or 'all'.${NC}"
+if [[ ! "$selection" =~ ^[1-4]+$ ]]; then
+    echo -e "${RED}Invalid selection. Use only numbers 1-4 or 'all'.${NC}"
     exit 1
 fi
 
@@ -88,27 +107,20 @@ START_BACKEND=false
 START_FRONTEND=false
 START_KIOSK=false
 START_CLI=false
-START_MCP_HTTP=false
 
 # Parse selection
 [[ "$selection" == *"1"* ]] && START_BACKEND=true
 [[ "$selection" == *"2"* ]] && START_FRONTEND=true
 [[ "$selection" == *"3"* ]] && START_KIOSK=true
 [[ "$selection" == *"4"* ]] && START_CLI=true
-[[ "$selection" == *"5"* ]] && START_MCP_HTTP=true
-
-# Start MCP HTTP servers (before backend if both selected)
-if $START_MCP_HTTP; then
-    echo -e "${GREEN}[0/5] Starting MCP HTTP Servers...${NC}"
-    uv run python -m backend.run_mcp_servers &
-    PIDS+=($!)
-    sleep 3  # Give MCP servers time to start
-fi
 
 # Start Backend
 if $START_BACKEND; then
-    echo -e "${GREEN}[1/5] Starting Backend...${NC}"
+    echo -e "${GREEN}[1/4] Starting Backend (includes MCP servers)...${NC}"
     uv run python scripts/kill_port.py 8000
+    for port in {9001..9010}; do
+        uv run python scripts/kill_port.py "$port"
+    done
     uv run uvicorn backend.app:create_app \
         --factory \
         --host 0.0.0.0 \
@@ -117,9 +129,14 @@ if $START_BACKEND; then
     sleep 2  # Give backend time to start
 fi
 
+# Avoid frontend proxy errors by waiting for backend to accept requests.
+if $START_BACKEND && ($START_FRONTEND || $START_KIOSK); then
+    wait_for_backend
+fi
+
 # Start Svelte Frontend
 if $START_FRONTEND; then
-    echo -e "${GREEN}[2/5] Starting Frontend (Svelte)...${NC}"
+    echo -e "${GREEN}[2/4] Starting Frontend (Svelte)...${NC}"
     uv run python scripts/kill_port.py 5173
     (cd "$SCRIPT_DIR/frontend" && npm run dev) &
     PIDS+=($!)
@@ -127,7 +144,7 @@ fi
 
 # Start Kiosk Frontend
 if $START_KIOSK; then
-    echo -e "${GREEN}[3/5] Starting Frontend-Kiosk...${NC}"
+    echo -e "${GREEN}[3/4] Starting Frontend-Kiosk...${NC}"
     uv run python scripts/kill_port.py 5174
     (cd "$SCRIPT_DIR/frontend-kiosk" && npm run dev) &
     PIDS+=($!)
@@ -136,9 +153,9 @@ fi
 # Handle CLI
 if $START_CLI; then
     # Check if other services are running
-    if $START_BACKEND || $START_FRONTEND || $START_KIOSK || $START_MCP_HTTP; then
+    if $START_BACKEND || $START_FRONTEND || $START_KIOSK; then
         # Other services are running in background, wait a moment then start CLI in foreground
-        echo -e "${GREEN}[4/5] Starting Frontend-CLI...${NC}"
+        echo -e "${GREEN}[4/4] Starting Frontend-CLI...${NC}"
         echo ""
         sleep 1
         source .venv/bin/activate && shell-chat

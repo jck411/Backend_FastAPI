@@ -6,13 +6,13 @@ import asyncio
 import json
 import logging
 import sys
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
+from collections import deque
 from pathlib import Path
-from typing import Any, AsyncContextManager, Sequence, cast
+from typing import Any, Sequence
 
 import httpx
 from mcp.client.session import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.types import CallToolResult, ListToolsResult, Tool
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,10 @@ HTTP_CONNECTION_TIMEOUT = 30.0
 HTTP_MAX_RECONNECT_ATTEMPTS = 3
 # Delay between reconnection attempts (seconds)
 HTTP_RECONNECT_DELAY = 2.0
+# Number of log lines to retain from spawned MCP servers
+PROCESS_LOG_MAX_LINES = 200
+# Poll interval while waiting for local MCP server ports to open
+PORT_READY_POLL_DELAY = 0.2
 
 
 class MCPToolClient:
@@ -34,37 +38,38 @@ class MCPToolClient:
         *,
         command: Sequence[str] | None = None,
         http_url: str | None = None,
+        http_port: int | None = None,
         server_id: str | None = None,
         cwd: Path | None = None,
         env: dict[str, str] | None = None,
     ):
-        launch_methods = [
-            server_module is not None,
-            command is not None,
-            http_url is not None,
-        ]
-        if sum(launch_methods) != 1:  # pragma: no cover - defensive
-            raise ValueError(
-                "Provide exactly one of 'server_module', 'command', or 'http_url'"
-            )
+        if http_url is not None and http_port is not None:  # pragma: no cover - defensive
+            raise ValueError("Provide only one of 'http_url' or 'http_port'")
 
         launch_command: list[str] | None = None
-        launch_module: str | None = None
-        if http_url is not None:
-            self._http_url = http_url
-        elif command is not None:
+        if command is not None:
             if not command:
                 raise ValueError("Command must contain at least one argument")
             launch_command = list(command)
-            self._http_url = None
-        else:
-            launch_module = server_module
-            self._http_url = None
 
-        self._server_module = launch_module
+        if server_module is not None and launch_command is not None:  # pragma: no cover
+            raise ValueError("Provide only one of 'server_module' or 'command'")
+
+        resolved_http_url = http_url
+        if resolved_http_url is None and http_port is not None:
+            resolved_http_url = f"http://127.0.0.1:{http_port}/mcp"
+
+        if resolved_http_url is None:
+            raise ValueError(
+                "HTTP transport is required; provide 'http_url' or 'http_port'"
+            )
+
+        self._http_url = resolved_http_url
+        self._http_port = http_port
+        self._server_module = server_module
         self._launch_command = launch_command
         self._server_id = server_id or (
-            launch_module
+            server_module
             or (launch_command[0] if launch_command else self._http_url)
             or "mcp-server"
         )
@@ -72,6 +77,7 @@ class MCPToolClient:
         self._env = env
         self._exit_stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
+        self._process: asyncio.subprocess.Process | None = None
         self._tools: list[Tool] = []
         self._lock = asyncio.Lock()
         self._reconnect_attempts = 0
@@ -79,6 +85,9 @@ class MCPToolClient:
         self._lifecycle_task: asyncio.Task | None = None
         self._close_event: asyncio.Event | None = None
         self._ready_event: asyncio.Event | None = None
+        self._stdout_task: asyncio.Task | None = None
+        self._stderr_task: asyncio.Task | None = None
+        self._process_log: deque[str] = deque(maxlen=PROCESS_LOG_MAX_LINES)
 
     @property
     def server_id(self) -> str:
@@ -94,58 +103,197 @@ class MCPToolClient:
         """Return the HTTP URL if this is an HTTP server, None otherwise."""
         return self._http_url
 
+    def _record_process_log(self, label: str, line: str) -> None:
+        entry = f"[{label}] {line}"
+        self._process_log.append(entry)
+        logger.info("MCP server '%s' %s: %s", self._server_id, label, line)
+
+    @staticmethod
+    def _format_exception_details(exc: BaseException) -> str:
+        if isinstance(exc, BaseExceptionGroup):
+            lines = [
+                f"({index}) {type(child).__name__}: {child}"
+                for index, child in enumerate(exc.exceptions, start=1)
+            ]
+            return "\n".join(lines)
+        return f"{type(exc).__name__}: {exc}"
+
+    def _format_process_log(self, max_lines: int = 80) -> str:
+        if not self._process_log:
+            return ""
+        return "\n".join(list(self._process_log)[-max_lines:])
+
+    def _log_startup_output(self) -> None:
+        output = self._format_process_log()
+        if output:
+            logger.error(
+                "MCP server '%s' startup output:\n%s",
+                self._server_id,
+                output,
+            )
+
+    async def _wait_for_port(self, host: str, port: int) -> None:
+        """Wait for a local TCP port to accept connections."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + HTTP_CONNECTION_TIMEOUT
+        while True:
+            if self._process is not None and self._process.returncode is not None:
+                output = self._format_process_log()
+                message = (
+                    f"MCP server process exited with code {self._process.returncode}."
+                )
+                if output:
+                    message += f" Recent output:\n{output}"
+                raise RuntimeError(message)
+
+            try:
+                reader, writer = await asyncio.open_connection(host, port)
+                writer.close()
+                with suppress(Exception):
+                    await writer.wait_closed()
+                return
+            except OSError as exc:
+                if loop.time() >= deadline:
+                    error_msg = (
+                        f"Timed out waiting for MCP server port {host}:{port} "
+                        f"after {HTTP_CONNECTION_TIMEOUT}s"
+                    )
+                    raise TimeoutError(error_msg) from exc
+                await asyncio.sleep(PORT_READY_POLL_DELAY)
+
     async def _run_lifecycle(self) -> None:
         """Own the MCP session lifetime in a single task to avoid cross-task closures."""
 
         exit_stack = AsyncExitStack()
         try:
-            if self._http_url is not None:
-                from mcp.client.streamable_http import streamablehttp_client
+            if self._launch_command is not None or self._server_module is not None:
+                if self._server_module is not None:
+                    if self._http_port is None:
+                        raise RuntimeError(
+                            "http_port must be set for module-launched MCP servers"
+                        )
+                    argv = [
+                        sys.executable,
+                        "-m",
+                        self._server_module,
+                        "--transport",
+                        "streamable-http",
+                        "--host",
+                        "127.0.0.1",
+                        "--port",
+                        str(self._http_port),
+                    ]
+                    log_target = f"module '{self._server_module}'"
+                else:
+                    argv = list(self._launch_command or [])
+                    log_target = "command %s" % " ".join(argv)
 
                 logger.info(
-                    "Connecting to HTTP MCP server at %s (id=%s)",
-                    self._http_url,
+                    "Starting MCP HTTP server %s (id=%s)",
+                    log_target,
                     self._server_id,
                 )
-                async with asyncio.timeout(HTTP_CONNECTION_TIMEOUT):
-                    http_manager = streamablehttp_client(self._http_url)
-                    (read_stream, write_stream, _) = await exit_stack.enter_async_context(
-                        http_manager
-                    )
-            elif self._launch_command is not None:
-                params = StdioServerParameters(
-                    command=self._launch_command[0],
-                    args=self._launch_command[1:],
-                    cwd=str(self._cwd) if self._cwd is not None else None,
-                    env=self._env,
-                )
-                log_target = "command %s" % " ".join(self._launch_command)
                 logger.info(
-                    "Starting MCP server %s (id=%s)", log_target, self._server_id
+                    "Launching MCP server '%s' argv=%s cwd=%s",
+                    self._server_id,
+                    argv,
+                    self._cwd or Path.cwd(),
                 )
-                stdio_manager = cast(AsyncContextManager[Any], stdio_client(params))
-                read_stream, write_stream = await exit_stack.enter_async_context(
-                    stdio_manager
-                )
-            else:
-                if self._server_module is None:  # pragma: no cover - defensive
-                    raise RuntimeError(
-                        "Server module must be set when command is not provided"
+                pythonpath = (self._env or {}).get("PYTHONPATH")
+                if pythonpath:
+                    logger.info(
+                        "MCP server '%s' PYTHONPATH=%s",
+                        self._server_id,
+                        pythonpath,
                     )
-                params = StdioServerParameters(
-                    command=sys.executable,
-                    args=["-m", self._server_module],
+                env = dict(self._env or {})
+                env.setdefault("PYTHONUNBUFFERED", "1")
+                env.setdefault("FASTMCP_SHOW_CLI_BANNER", "false")
+                process = await asyncio.create_subprocess_exec(
+                    *argv,
                     cwd=str(self._cwd) if self._cwd is not None else None,
-                    env=self._env,
+                    env=env,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
                 )
-                log_target = f"module '{self._server_module}'"
+                self._process = process
                 logger.info(
-                    "Starting MCP server %s (id=%s)", log_target, self._server_id
+                    "MCP server '%s' spawned with pid=%s",
+                    self._server_id,
+                    process.pid,
                 )
-                stdio_manager = cast(AsyncContextManager[Any], stdio_client(params))
-                read_stream, write_stream = await exit_stack.enter_async_context(
-                    stdio_manager
-                )
+
+                async def _drain_stream(
+                    stream: asyncio.StreamReader, label: str
+                ) -> None:
+                    while True:
+                        line = await stream.readline()
+                        if not line:
+                            break
+                        text = line.decode(errors="replace").rstrip()
+                        if not text:
+                            continue
+                        self._record_process_log(label, text)
+
+                stdout_task = None
+                stderr_task = None
+                if process.stdout is not None:
+                    stdout_task = asyncio.create_task(
+                        _drain_stream(process.stdout, "stdout")
+                    )
+                    self._stdout_task = stdout_task
+                if process.stderr is not None:
+                    stderr_task = asyncio.create_task(
+                        _drain_stream(process.stderr, "stderr")
+                    )
+                    self._stderr_task = stderr_task
+
+                async def _shutdown_logs() -> None:
+                    for task in (stdout_task, stderr_task):
+                        if task is None:
+                            continue
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as exc:  # noqa: BLE001
+                            logger.debug(
+                                "MCP log task error for server '%s': %s",
+                                self._server_id,
+                                exc,
+                            )
+
+                exit_stack.push_async_callback(_shutdown_logs)
+
+                async def _shutdown_process() -> None:
+                    if process.returncode is None:
+                        process.terminate()
+                        try:
+                            await asyncio.wait_for(process.wait(), timeout=3.0)
+                        except asyncio.TimeoutError:
+                            process.kill()
+                            await process.wait()
+
+                exit_stack.push_async_callback(_shutdown_process)
+
+            from mcp.client.streamable_http import streamablehttp_client
+
+            logger.info(
+                "Connecting to HTTP MCP server at %s (id=%s)",
+                self._http_url,
+                self._server_id,
+            )
+            if self._process is not None and self._http_port is not None:
+                await self._wait_for_port("127.0.0.1", self._http_port)
+
+            async with asyncio.timeout(HTTP_CONNECTION_TIMEOUT):
+                http_manager = streamablehttp_client(self._http_url)
+                (
+                    read_stream,
+                    write_stream,
+                    _,
+                ) = await exit_stack.enter_async_context(http_manager)
 
             session = ClientSession(read_stream, write_stream)
             await exit_stack.enter_async_context(session)
@@ -173,6 +321,8 @@ class MCPToolClient:
                     self._http_url,
                     HTTP_CONNECTION_TIMEOUT,
                 )
+            if self._process is not None:
+                self._log_startup_output()
             if self._ready_event is not None and not self._ready_event.is_set():
                 self._ready_event.set()
         except httpx.ConnectError as exc:
@@ -202,6 +352,8 @@ class MCPToolClient:
                         self._http_url,
                         exc,
                     )
+            if self._process is not None:
+                self._log_startup_output()
             if self._ready_event is not None and not self._ready_event.is_set():
                 self._ready_event.set()
         except httpx.NetworkError as exc:
@@ -213,6 +365,8 @@ class MCPToolClient:
                     self._http_url,
                     exc,
                 )
+            if self._process is not None:
+                self._log_startup_output()
             if self._ready_event is not None and not self._ready_event.is_set():
                 self._ready_event.set()
         except httpx.HTTPStatusError as exc:
@@ -249,6 +403,8 @@ class MCPToolClient:
                         status_code,
                         exc.response.reason_phrase,
                     )
+            if self._process is not None:
+                self._log_startup_output()
             if self._ready_event is not None and not self._ready_event.is_set():
                 self._ready_event.set()
         except ValueError as exc:
@@ -260,6 +416,8 @@ class MCPToolClient:
                     self._http_url,
                     exc,
                 )
+            if self._process is not None:
+                self._log_startup_output()
             if self._ready_event is not None and not self._ready_event.is_set():
                 self._ready_event.set()
         except Exception as exc:  # noqa: BLE001
@@ -270,6 +428,13 @@ class MCPToolClient:
                 self._http_url or self._server_id,
                 exc,
             )
+            logger.error(
+                "MCP server '%s' exception details:\n%s",
+                self._server_id,
+                self._format_exception_details(exc),
+            )
+            if self._process is not None:
+                self._log_startup_output()
             if self._ready_event is not None and not self._ready_event.is_set():
                 self._ready_event.set()
         finally:
@@ -288,13 +453,24 @@ class MCPToolClient:
                     self._server_id,
                     exc,
                 )
+                logger.warning(
+                    "MCP server '%s' close exception details:\n%s",
+                    self._server_id,
+                    self._format_exception_details(exc),
+                )
+                async with self._lock:
+                    if self._last_connection_error is None:
+                        self._last_connection_error = exc
             async with self._lock:
                 self._exit_stack = None
                 self._session = None
                 self._tools = []
+                self._process = None
                 self._close_event = None
                 self._ready_event = None
                 self._lifecycle_task = None
+                self._stdout_task = None
+                self._stderr_task = None
 
     async def connect(self) -> None:
         """Spawn the MCP server and initialize the client session."""
@@ -396,6 +572,7 @@ class MCPToolClient:
                 self._exit_stack = None
                 self._session = None
                 self._tools = []
+                self._process = None
             return
 
         logger.info("Closing MCP session for server '%s'", self._server_id)
@@ -421,6 +598,7 @@ class MCPToolClient:
             self._exit_stack = None
             self._session = None
             self._tools = []
+            self._process = None
             self._close_event = None
             self._ready_event = None
             self._lifecycle_task = None

@@ -7,8 +7,9 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
+      "http_port": 9003,
       "id": "local-calculator",
       "module": "backend.mcp_servers.calculator_server",
       "tool_overrides": {}
@@ -20,8 +21,9 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
+      "http_port": 9002,
       "id": "housekeeping",
       "module": "backend.mcp_servers.housekeeping_server",
       "tool_overrides": {}
@@ -33,8 +35,9 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
+      "http_port": 9004,
       "id": "custom-calendar",
       "module": "backend.mcp_servers.calendar_server",
       "tool_overrides": {}
@@ -48,6 +51,7 @@
       "contexts": [],
       "enabled": false,
       "env": {},
+      "http_port": 9005,
       "id": "custom-gmail",
       "module": "backend.mcp_servers.gmail_server",
       "tool_overrides": {}
@@ -61,6 +65,7 @@
       "contexts": [],
       "enabled": false,
       "env": {},
+      "http_port": 9006,
       "id": "custom-gdrive",
       "module": "backend.mcp_servers.gdrive_server",
       "tool_overrides": {}
@@ -74,6 +79,7 @@
       "contexts": [],
       "enabled": false,
       "env": {},
+      "http_port": 9007,
       "id": "custom-pdf",
       "module": "backend.mcp_servers.pdf_server",
       "tool_overrides": {}
@@ -87,6 +93,7 @@
       "contexts": [],
       "enabled": false,
       "env": {},
+      "http_port": 9008,
       "id": "monarch-money",
       "module": "backend.mcp_servers.monarch_server",
       "tool_overrides": {}
@@ -98,8 +105,9 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
+      "http_port": 9009,
       "id": "notes",
       "module": "backend.mcp_servers.notes_server",
       "tool_overrides": {}
@@ -116,6 +124,7 @@
         "HOST_PROFILE_ID": "xps13",
         "HOST_ROOT_PATH": "/home/jack/gdrive/host_profiles"
       },
+      "http_port": 9001,
       "id": "shell-control",
       "module": "backend.mcp_servers.shell_control_server",
       "tool_overrides": {}
@@ -127,8 +136,9 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
+      "http_port": 9010,
       "id": "spotify",
       "module": "backend.mcp_servers.spotify_server",
       "tool_overrides": {}

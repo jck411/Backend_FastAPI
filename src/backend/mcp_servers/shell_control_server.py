@@ -18,12 +18,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from asyncio.subprocess import Process
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 # Default port for HTTP transport
 DEFAULT_HTTP_PORT = 9001
 
-mcp: FastMCP = FastMCP("shell-control", stateless_http=True, json_response=True)  # type: ignore
+mcp: FastMCP = FastMCP("shell-control")  # type: ignore
 
 
 OUTPUT_TAIL_BYTES = 4 * 1024  # For success: last 4KB is usually enough
@@ -1945,11 +1945,16 @@ def run(
 ) -> None:  # pragma: no cover - integration entrypoint
     """Run the MCP server with the specified transport."""
     if transport == "streamable-http":
-        import uvicorn
-        app = mcp.streamable_http_app()
-        uvicorn.run(app, host=host, port=port)
+        mcp.run(
+            transport="streamable-http",
+            host=host,
+            port=port,
+            json_response=True,
+            stateless_http=True,
+            uvicorn_config={"access_log": False},
+        )
     else:
-        mcp.run()
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper
@@ -1990,4 +1995,3 @@ __all__ = [
     "system_backup",
     "run",
 ]
-

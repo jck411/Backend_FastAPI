@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 from monarchmoney import MonarchMoney, RequireMFAException
 
 from backend.config import get_settings
@@ -30,7 +30,7 @@ class MonarchAPIError(Exception):
 # Default port for HTTP transport
 DEFAULT_HTTP_PORT = 9008
 
-mcp = FastMCP("monarch", stateless_http=True, json_response=True)
+mcp = FastMCP("monarch")
 
 
 def _project_root() -> Path:
@@ -1859,11 +1859,16 @@ def run(
 ) -> None:  # pragma: no cover - integration entrypoint
     """Run the MCP server with the specified transport."""
     if transport == "streamable-http":
-        import uvicorn
-        app = mcp.streamable_http_app()
-        uvicorn.run(app, host=host, port=port)
+        mcp.run(
+            transport="streamable-http",
+            host=host,
+            port=port,
+            json_response=True,
+            stateless_http=True,
+            uvicorn_config={"access_log": False},
+        )
     else:
-        mcp.run()
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper

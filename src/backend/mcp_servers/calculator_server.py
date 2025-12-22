@@ -5,13 +5,12 @@ from __future__ import annotations
 import argparse
 from typing import Literal
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 # Default port for HTTP transport
 DEFAULT_HTTP_PORT = 9003
 
-# Create FastMCP instance with stateless HTTP support
-mcp = FastMCP("local-calculator", stateless_http=True, json_response=True)
+mcp = FastMCP("local-calculator")
 
 
 @mcp.tool("calculator_evaluate")
@@ -45,11 +44,16 @@ def run(
 ) -> None:  # pragma: no cover - integration entrypoint
     """Run the MCP server with the specified transport."""
     if transport == "streamable-http":
-        import uvicorn
-        app = mcp.streamable_http_app()
-        uvicorn.run(app, host=host, port=port)
+        mcp.run(
+            transport="streamable-http",
+            host=host,
+            port=port,
+            json_response=True,
+            stateless_http=True,
+            uvicorn_config={"access_log": False},
+        )
     else:
-        mcp.run()
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper

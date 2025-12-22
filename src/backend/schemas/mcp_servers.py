@@ -25,6 +25,8 @@ class MCPServerDefinition(BaseModel):
     enabled: bool = Field(default=True)
     module: str | None = None
     command: list[str] | None = None
+    http_url: str | None = None
+    http_port: int | None = None
     cwd: Path | None = None
     env: dict[str, str] = Field(default_factory=dict)
     tool_prefix: str | None = None
@@ -51,6 +53,8 @@ class MCPServerUpdatePayload(BaseModel):
     disabled_tools: list[str] | None = None
     module: str | None = None
     command: list[str] | None = None
+    http_url: str | None = None
+    http_port: int | None = None
     cwd: Path | None = None
     env: dict[str, str] | None = None
     tool_prefix: str | None = None
@@ -73,6 +77,8 @@ class MCPServerStatus(BaseModel):
     connected: bool
     module: str | None = None
     command: list[str] | None = None
+    http_url: str | None = None
+    http_port: int | None = None
     cwd: Path | None = None
     env: dict[str, str] = Field(default_factory=dict)
     tool_prefix: str | None = None

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 from backend.mcp_servers.pdf_server import extract_bytes as kb_extract_bytes
 from backend.services.attachments import AttachmentService
@@ -22,7 +22,7 @@ from backend.services.google_auth.auth import (
 # Default port for HTTP transport
 DEFAULT_HTTP_PORT = 9006
 
-mcp = FastMCP("custom-gdrive", stateless_http=True, json_response=True)
+mcp = FastMCP("custom-gdrive")
 DRIVE_FIELDS_MINIMAL = (
     "files(id, name, mimeType, size, modifiedTime, webViewLink, iconLink)"
 )
@@ -1430,11 +1430,16 @@ def run(
 ) -> None:  # pragma: no cover - integration entrypoint
     """Run the MCP server with the specified transport."""
     if transport == "streamable-http":
-        import uvicorn
-        app = mcp.streamable_http_app()
-        uvicorn.run(app, host=host, port=port)
+        mcp.run(
+            transport="streamable-http",
+            host=host,
+            port=port,
+            json_response=True,
+            stateless_http=True,
+            uvicorn_config={"access_log": False},
+        )
     else:
-        mcp.run()
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper

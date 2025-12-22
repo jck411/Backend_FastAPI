@@ -20,7 +20,10 @@ from backend.services.google_auth.auth import (
     get_drive_service,
 )
 
-mcp = FastMCP("notes")
+# Default port for HTTP transport
+DEFAULT_HTTP_PORT = 9009
+
+mcp = FastMCP("notes", stateless_http=True, json_response=True)
 
 # Default vault folder name in Google Drive
 DEFAULT_VAULT_FOLDER_NAME = "NOTES"
@@ -1476,12 +1479,42 @@ async def vault_info(
     return "\n".join(lines)
 
 
-def run() -> None:  # pragma: no cover - integration entrypoint
-    mcp.run()
+def run(
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = DEFAULT_HTTP_PORT,
+) -> None:  # pragma: no cover - integration entrypoint
+    """Run the MCP server with the specified transport."""
+    if transport == "streamable-http":
+        import uvicorn
+        app = mcp.streamable_http_app()
+        uvicorn.run(app, host=host, port=port)
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper
-    run()
+    import argparse
+    parser = argparse.ArgumentParser(description="Notes MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http"],
+        default="stdio",
+        help="Transport protocol to use",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind HTTP server to",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_HTTP_PORT,
+        help="Port for HTTP server",
+    )
+    args = parser.parse_args()
+    run(args.transport, args.host, args.port)
 
 
 __all__ = [

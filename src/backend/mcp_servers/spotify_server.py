@@ -16,7 +16,10 @@ from backend.services.spotify_auth.identifiers import (
     normalize_track_uri,
 )
 
-mcp = FastMCP("spotify")
+# Default port for HTTP transport
+DEFAULT_HTTP_PORT = 9010
+
+mcp = FastMCP("spotify", stateless_http=True, json_response=True)
 
 
 def _format_track_info(track: dict[str, Any]) -> str:
@@ -1272,13 +1275,42 @@ async def get_saved_tracks(
     }
 
 
-def run() -> None:  # pragma: no cover - integration entrypoint
-    """Run the Spotify MCP server."""
-    mcp.run()
+def run(
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = DEFAULT_HTTP_PORT,
+) -> None:  # pragma: no cover - integration entrypoint
+    """Run the Spotify MCP server with the specified transport."""
+    if transport == "streamable-http":
+        import uvicorn
+        app = mcp.streamable_http_app()
+        uvicorn.run(app, host=host, port=port)
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper
-    run()
+    import argparse
+    parser = argparse.ArgumentParser(description="Spotify MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http"],
+        default="stdio",
+        help="Transport protocol to use",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind HTTP server to",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_HTTP_PORT,
+        help="Port for HTTP server",
+    )
+    args = parser.parse_args()
+    run(args.transport, args.host, args.port)
 
 
 __all__ = [

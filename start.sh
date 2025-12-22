@@ -57,6 +57,7 @@ else
     echo -e "  ${CYAN}2${NC} - Frontend       (Svelte chat UI on :5173)"
     echo -e "  ${CYAN}3${NC} - Frontend-Kiosk (Kiosk UI on :5174)"
     echo -e "  ${CYAN}4${NC} - Frontend-CLI   (Terminal chat client)"
+    echo -e "  ${CYAN}5${NC} - MCP HTTP       (MCP servers on :9001-9010)"
     echo ""
     echo -e "  ${CYAN}all${NC} - Start 1, 2, and 3 (web stack)"
     echo ""
@@ -66,7 +67,7 @@ fi
 
 # Handle 'all' shortcut
 if [[ "$selection" == "all" ]]; then
-    selection="123"
+    selection="1235"
 fi
 
 # Validate input
@@ -75,8 +76,8 @@ if [[ -z "$selection" ]]; then
     exit 1
 fi
 
-if [[ ! "$selection" =~ ^[1-4]+$ ]]; then
-    echo -e "${RED}Invalid selection. Use only numbers 1-4 or 'all'.${NC}"
+if [[ ! "$selection" =~ ^[1-5]+$ ]]; then
+    echo -e "${RED}Invalid selection. Use only numbers 1-5 or 'all'.${NC}"
     exit 1
 fi
 
@@ -87,16 +88,26 @@ START_BACKEND=false
 START_FRONTEND=false
 START_KIOSK=false
 START_CLI=false
+START_MCP_HTTP=false
 
 # Parse selection
 [[ "$selection" == *"1"* ]] && START_BACKEND=true
 [[ "$selection" == *"2"* ]] && START_FRONTEND=true
 [[ "$selection" == *"3"* ]] && START_KIOSK=true
 [[ "$selection" == *"4"* ]] && START_CLI=true
+[[ "$selection" == *"5"* ]] && START_MCP_HTTP=true
+
+# Start MCP HTTP servers (before backend if both selected)
+if $START_MCP_HTTP; then
+    echo -e "${GREEN}[0/5] Starting MCP HTTP Servers...${NC}"
+    uv run python -m backend.run_mcp_servers &
+    PIDS+=($!)
+    sleep 3  # Give MCP servers time to start
+fi
 
 # Start Backend
 if $START_BACKEND; then
-    echo -e "${GREEN}[1/4] Starting Backend...${NC}"
+    echo -e "${GREEN}[1/5] Starting Backend...${NC}"
     uv run python scripts/kill_port.py 8000
     uv run uvicorn backend.app:create_app \
         --factory \
@@ -108,7 +119,7 @@ fi
 
 # Start Svelte Frontend
 if $START_FRONTEND; then
-    echo -e "${GREEN}[2/4] Starting Frontend (Svelte)...${NC}"
+    echo -e "${GREEN}[2/5] Starting Frontend (Svelte)...${NC}"
     uv run python scripts/kill_port.py 5173
     (cd "$SCRIPT_DIR/frontend" && npm run dev) &
     PIDS+=($!)
@@ -116,7 +127,7 @@ fi
 
 # Start Kiosk Frontend
 if $START_KIOSK; then
-    echo -e "${GREEN}[3/4] Starting Frontend-Kiosk...${NC}"
+    echo -e "${GREEN}[3/5] Starting Frontend-Kiosk...${NC}"
     uv run python scripts/kill_port.py 5174
     (cd "$SCRIPT_DIR/frontend-kiosk" && npm run dev) &
     PIDS+=($!)
@@ -125,9 +136,9 @@ fi
 # Handle CLI
 if $START_CLI; then
     # Check if other services are running
-    if $START_BACKEND || $START_FRONTEND || $START_KIOSK; then
+    if $START_BACKEND || $START_FRONTEND || $START_KIOSK || $START_MCP_HTTP; then
         # Other services are running in background, wait a moment then start CLI in foreground
-        echo -e "${GREEN}[4/4] Starting Frontend-CLI...${NC}"
+        echo -e "${GREEN}[4/5] Starting Frontend-CLI...${NC}"
         echo ""
         sleep 1
         source .venv/bin/activate && shell-chat

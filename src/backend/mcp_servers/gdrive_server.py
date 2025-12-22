@@ -19,7 +19,10 @@ from backend.services.google_auth.auth import (
     get_drive_service,
 )
 
-mcp = FastMCP("custom-gdrive")
+# Default port for HTTP transport
+DEFAULT_HTTP_PORT = 9006
+
+mcp = FastMCP("custom-gdrive", stateless_http=True, json_response=True)
 DRIVE_FIELDS_MINIMAL = (
     "files(id, name, mimeType, size, modifiedTime, webViewLink, iconLink)"
 )
@@ -1420,12 +1423,42 @@ async def check_drive_file_public_access(
     return "\n".join(lines)
 
 
-def run() -> None:  # pragma: no cover - integration entrypoint
-    mcp.run()
+def run(
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = DEFAULT_HTTP_PORT,
+) -> None:  # pragma: no cover - integration entrypoint
+    """Run the MCP server with the specified transport."""
+    if transport == "streamable-http":
+        import uvicorn
+        app = mcp.streamable_http_app()
+        uvicorn.run(app, host=host, port=port)
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper
-    run()
+    import argparse
+    parser = argparse.ArgumentParser(description="Google Drive MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http"],
+        default="stdio",
+        help="Transport protocol to use",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind HTTP server to",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_HTTP_PORT,
+        help="Port for HTTP server",
+    )
+    args = parser.parse_args()
+    run(args.transport, args.host, args.port)
 
 
 __all__ = [

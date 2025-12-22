@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import argparse
 from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("local-calculator")
+# Default port for HTTP transport
+DEFAULT_HTTP_PORT = 9003
+
+# Create FastMCP instance with stateless HTTP support
+mcp = FastMCP("local-calculator", stateless_http=True, json_response=True)
 
 
 @mcp.tool("calculator_evaluate")
@@ -33,12 +38,41 @@ async def evaluate(
     return str(result)
 
 
-def run() -> None:  # pragma: no cover - integration entrypoint
-    mcp.run()
+def run(
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = DEFAULT_HTTP_PORT,
+) -> None:  # pragma: no cover - integration entrypoint
+    """Run the MCP server with the specified transport."""
+    if transport == "streamable-http":
+        import uvicorn
+        app = mcp.streamable_http_app()
+        uvicorn.run(app, host=host, port=port)
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper
-    run()
+    parser = argparse.ArgumentParser(description="Calculator MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http"],
+        default="stdio",
+        help="Transport protocol to use",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind HTTP server to",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_HTTP_PORT,
+        help="Port for HTTP server",
+    )
+    args = parser.parse_args()
+    run(args.transport, args.host, args.port)
 
 
 __all__ = ["mcp", "run", "evaluate"]

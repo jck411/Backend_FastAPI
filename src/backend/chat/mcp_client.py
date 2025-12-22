@@ -100,7 +100,7 @@ class MCPToolClient:
         exit_stack = AsyncExitStack()
         try:
             if self._http_url is not None:
-                from mcp.client.sse import sse_client
+                from mcp.client.streamable_http import streamablehttp_client
 
                 logger.info(
                     "Connecting to HTTP MCP server at %s (id=%s)",
@@ -108,11 +108,9 @@ class MCPToolClient:
                     self._server_id,
                 )
                 async with asyncio.timeout(HTTP_CONNECTION_TIMEOUT):
-                    sse_manager = sse_client(
-                        self._http_url, timeout=HTTP_CONNECTION_TIMEOUT
-                    )
-                    (read_stream, write_stream) = await exit_stack.enter_async_context(
-                        sse_manager
+                    http_manager = streamablehttp_client(self._http_url)
+                    (read_stream, write_stream, _) = await exit_stack.enter_async_context(
+                        http_manager
                     )
             elif self._launch_command is not None:
                 params = StdioServerParameters(

@@ -87,6 +87,10 @@ class MCPServerConfig(BaseModel):
         default=None,
         description="HTTP/SSE endpoint URL for remote MCP server (e.g., http://example.com/mcp)",
     )
+    http_port: int | None = Field(
+        default=None,
+        description="Local HTTP port to connect to (implies http://127.0.0.1:{port}/mcp)",
+    )
     cwd: Path | None = Field(
         default=None,
         description="Working directory for the launched process",
@@ -200,6 +204,11 @@ class MCPServerConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_launch_method(self) -> "MCPServerConfig":
+        if self.http_port is not None:
+            # If http_port is set, we treat it as an HTTP connection, ignoring module/command for client purposes.
+            # We don't enforce exclusivity here because 'module' might be present for the runner script.
+            return self
+
         methods_specified = sum(
             [
                 self.module is not None,
@@ -208,7 +217,7 @@ class MCPServerConfig(BaseModel):
             ]
         )
         if methods_specified == 0:
-            message = "Define exactly one of 'module', 'command', or 'http_url' for MCP server '%s'"
+            message = "Define exactly one of 'module', 'command', 'http_url', or 'http_port' for MCP server '%s'"
             raise ValueError(message % self.id)
         if methods_specified > 1:
             message = "Cannot specify more than one of 'module', 'command', or 'http_url' for MCP server '%s'"
@@ -877,7 +886,14 @@ class MCPToolAggregator:
         cwd = config.resolved_cwd(self._default_cwd)
 
         try:
-            if config.http_url is not None:
+            if config.http_port is not None:
+                # Construct local URL from port (defaulting to /mcp path)
+                config_url = f"http://127.0.0.1:{config.http_port}/mcp"
+                client = MCPToolClient(
+                    http_url=config_url,
+                    server_id=config.id,
+                )
+            elif config.http_url is not None:
                 client = MCPToolClient(
                     http_url=config.http_url,
                     server_id=config.id,
@@ -910,7 +926,7 @@ class MCPToolAggregator:
         if old_cfg is None:
             return True
 
-        comparable_fields = ("module", "command", "http_url", "cwd", "env")
+        comparable_fields = ("module", "command", "http_url", "http_port", "cwd", "env")
         for attr in comparable_fields:
             if getattr(old_cfg, attr) != getattr(new_cfg, attr):
                 return True

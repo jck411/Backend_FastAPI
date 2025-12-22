@@ -22,7 +22,10 @@ from backend.services.time_context import (
     format_timezone_offset,
 )
 
-mcp = FastMCP("housekeeping")
+# Default port for HTTP transport
+DEFAULT_HTTP_PORT = 9002
+
+mcp = FastMCP("housekeeping", stateless_http=True, json_response=True)
 
 _MESSAGE_PREVIEW_LIMIT = 2000
 _MAX_HISTORY_LIMIT = 100
@@ -249,12 +252,42 @@ async def chat_history(
     }
 
 
-def run() -> None:  # pragma: no cover - integration entrypoint
-    mcp.run()
+def run(
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = DEFAULT_HTTP_PORT,
+) -> None:  # pragma: no cover - integration entrypoint
+    """Run the MCP server with the specified transport."""
+    if transport == "streamable-http":
+        import uvicorn
+        app = mcp.streamable_http_app()
+        uvicorn.run(app, host=host, port=port)
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":  # pragma: no cover - CLI helper
-    run()
+    import argparse
+    parser = argparse.ArgumentParser(description="Housekeeping MCP Server")
+    parser.add_argument(
+        "--transport",
+        choices=["stdio", "streamable-http"],
+        default="stdio",
+        help="Transport protocol to use",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind HTTP server to",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_HTTP_PORT,
+        help="Port for HTTP server",
+    )
+    args = parser.parse_args()
+    run(args.transport, args.host, args.port)
 
 
 __all__ = ["mcp", "run", "test_echo", "current_time", "chat_history"]

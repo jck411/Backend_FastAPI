@@ -3,7 +3,7 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": false,
+        "kiosk": true,
         "svelte": true
       },
       "contexts": [],
@@ -17,11 +17,11 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": false,
+        "kiosk": true,
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "http_port": 9002,
       "id": "housekeeping",
@@ -31,7 +31,7 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": false,
+        "kiosk": true,
         "svelte": true
       },
       "contexts": [],
@@ -45,11 +45,11 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": false,
+        "kiosk": true,
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "http_port": 9005,
       "id": "custom-gmail",
@@ -59,11 +59,11 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": false,
+        "kiosk": true,
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "http_port": 9006,
       "id": "custom-gdrive",
@@ -73,11 +73,11 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": false,
+        "kiosk": true,
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "http_port": 9007,
       "id": "custom-pdf",
@@ -87,11 +87,11 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": false,
+        "kiosk": true,
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "http_port": 9008,
       "id": "monarch-money",
@@ -101,7 +101,7 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": false,
+        "kiosk": true,
         "svelte": true
       },
       "contexts": [],
@@ -122,7 +122,7 @@
       "enabled": true,
       "env": {
         "HOST_PROFILE_ID": "xps13",
-        "HOST_ROOT_PATH": "/home/jack/gdrive/host_profiles"
+        "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"
       },
       "http_port": 9001,
       "id": "shell-control",
@@ -132,7 +132,7 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": false,
+        "kiosk": true,
         "svelte": true
       },
       "contexts": [],

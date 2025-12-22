@@ -29,12 +29,7 @@
     {
       id: "xps13",
       label: "Dell XPS 13",
-      path: "/home/jack/gdrive/host_profiles",
-    },
-    {
-      id: "ryzen-desktop",
-      label: "Ryzen Desktop",
-      path: "/home/human/gdrive/host_profiles",
+      path: "/home/human/GoogleDrive/host_profiles",
     },
   ] as const;
 

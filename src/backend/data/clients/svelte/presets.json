@@ -47,6 +47,22 @@
       "tts": null,
       "created_at": "2025-12-19T11:20:27.054736+00:00",
       "updated_at": "2025-12-19T11:20:27.054736+00:00"
+    },
+    {
+      "name": "all",
+      "llm": {
+        "model": "openai/gpt-5.2",
+        "system_prompt": "You are a helpful assistant. yea",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "created_at": "2025-12-22T07:07:25.314294+00:00",
+      "updated_at": "2025-12-22T07:07:25.314294+00:00"
     }
   ],
   "active_index": 1

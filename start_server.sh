@@ -10,6 +10,26 @@ cd "$SCRIPT_DIR"
 # Ensure logs directory exists
 mkdir -p logs
 
+# Kill any existing processes from a previous run
+kill_existing() {
+    echo "Killing any existing backend/frontend processes..."
+
+    # Kill uvicorn processes for this project
+    pkill -f "uvicorn backend.app:create_app" 2>/dev/null || true
+
+    # Kill node/npm processes for frontend and frontend-kiosk
+    pkill -f "node.*frontend" 2>/dev/null || true
+    pkill -f "npm.*frontend" 2>/dev/null || true
+    pkill -f "vite.*5173" 2>/dev/null || true
+    pkill -f "vite.*5174" 2>/dev/null || true
+
+    # Give processes time to exit
+    sleep 1
+}
+
+# Kill existing processes before starting
+kill_existing
+
 # Function to cleanup background processes on exit
 cleanup() {
     echo "Stopping servers..."

@@ -67,6 +67,7 @@ def make_fake_client_factory(
             server_id: str | None = None,
             cwd: Path | None = None,
             env: dict[str, str] | None = None,
+            connect_only: bool = False,
         ) -> None:
             if server_id is None:
                 raise AssertionError("server_id must be provided")

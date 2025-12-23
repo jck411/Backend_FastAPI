@@ -117,6 +117,13 @@
     mcpServers.setCliEnabled(serverId, enabled);
   }
 
+  function toggleBackend(serverId: string, enabled: boolean): void {
+    if ($mcpServers.saving) {
+      return;
+    }
+    mcpServers.setBackendEnabled(serverId, enabled);
+  }
+
   function toggleTool(serverId: string, tool: string, enabled: boolean): void {
     if ($mcpServers.saving) {
       return;
@@ -628,6 +635,27 @@
                             )}
                         />
                         <span>CLI</span>
+                      </label>
+                      <label
+                        class="toggle backend-toggle"
+                        class:toggle-disabled={!server.enabled}
+                        title={server.enabled
+                          ? "Enable backend connection (requires MCP servers running)"
+                          : "Server must be running"}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={server.client_enabled?.backend ?? true}
+                          disabled={!server.enabled ||
+                            $mcpServers.pending[server.id] ||
+                            $mcpServers.saving}
+                          on:change={(event) =>
+                            toggleBackend(
+                              server.id,
+                              (event.target as HTMLInputElement).checked,
+                            )}
+                        />
+                        <span>Backend</span>
                       </label>
                     </div>
                   </div>

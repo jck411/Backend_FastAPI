@@ -105,6 +105,7 @@ class ChatOrchestrator:
             [],
             base_env=env,
             default_cwd=project_root,
+            lazy_mode=True,  # Skip MCP connections at startup for faster boot
         )
         conversation_log_dir = settings.conversation_log_dir
         if not conversation_log_dir.is_absolute():
@@ -139,16 +140,15 @@ class ChatOrchestrator:
         self._profile_service = service
 
     async def initialize(self) -> None:
-        """Initialize database and MCP client once."""
+        """Initialize database only. MCP configs are loaded lazily on first discovery."""
 
         async with self._init_lock:
             if self._ready.is_set():
                 return
 
             await self._repo.initialize()
-            configs = await self._mcp_settings.get_configs()
-            await self._mcp_client.apply_configs(configs)
-            await self._mcp_client.connect()
+            # Skip MCP config loading at startup - will be loaded on first discovery
+            # This makes startup instant with 0 MCP overhead
             self._ready.set()
             logger.info(
                 "Chat orchestrator ready: %d tool(s) available",
@@ -319,6 +319,11 @@ class ChatOrchestrator:
             self._repo,
             ttl=self._settings.attachment_signed_url_ttl,
         )
+
+        # Auto-discover MCP servers if none connected yet
+        if not self._mcp_client.tools:
+            await self.discover_mcp()
+
         tools_payload = self._mcp_client.get_openai_tools()
 
         # Determine allowed servers based on profile or client_enabled
@@ -420,6 +425,24 @@ class ChatOrchestrator:
         """Trigger a manual refresh of tool catalogs."""
 
         await self._mcp_client.refresh()
+
+    async def discover_mcp(self) -> dict[str, bool]:
+        """Scan ports 9001-9010 for running MCP servers and connect to enabled ones.
+
+        Returns a dict mapping port -> is_running.
+        This loads configs on first call (lazy initialization).
+        """
+        # Load configs on first discovery (lazy)
+        if not self._mcp_client._configs:
+            configs = await self._mcp_settings.get_configs()
+            await self._mcp_client.apply_configs(configs)
+
+        discovered = await self._mcp_client.discover_and_connect()
+        logger.info(
+            "MCP discovery triggered: %d tool(s) now available",
+            len(self._mcp_client.tools),
+        )
+        return discovered
 
 
 __all__ = ["ChatOrchestrator"]

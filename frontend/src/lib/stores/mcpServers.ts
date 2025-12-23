@@ -150,6 +150,10 @@ export function createMcpServersStore() {
     setClientEnabled(serverId, 'cli', cliEnabled);
   }
 
+  function setBackendEnabled(serverId: string, backendEnabled: boolean): void {
+    setClientEnabled(serverId, 'backend', backendEnabled);
+  }
+
   function setToolEnabled(serverId: string, tool: string, enabled: boolean): void {
     store.update((state) => {
       const target = state.servers.find((item) => item.id === serverId);
@@ -352,6 +356,7 @@ export function createMcpServersStore() {
     setKioskEnabled,
     setFrontendEnabled,
     setCliEnabled,
+    setBackendEnabled,
     setToolEnabled,
     setServerEnv,
     getServer,

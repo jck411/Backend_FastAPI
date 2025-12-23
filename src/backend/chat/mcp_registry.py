@@ -116,7 +116,7 @@ class MCPServerConfig(BaseModel):
         description="Optional per-tool override settings keyed by tool name",
     )
     client_enabled: dict[str, bool] = Field(
-        default_factory=lambda: {"svelte": True, "kiosk": False, "cli": True},
+        default_factory=lambda: {"svelte": True, "kiosk": False, "cli": True, "backend": True},
         description="Per-client enabled state: {client_id: True/False}",
     )
 
@@ -139,6 +139,7 @@ class MCPServerConfig(BaseModel):
             "svelte": frontend_enabled,
             "kiosk": kiosk_enabled,
             "cli": frontend_enabled,  # CLI follows frontend by default
+            "backend": True,  # Backend connection enabled by default
         }
         return data
 
@@ -374,6 +375,10 @@ class _ToolDigestEntry:
         return payload
 
 
+# Port range for discovering running MCP servers
+MCP_DISCOVERY_PORTS = range(9001, 9011)  # 9001-9010 inclusive
+
+
 class MCPToolAggregator:
     """Aggregate tools from multiple MCP servers behind a single interface."""
 
@@ -383,6 +388,7 @@ class MCPToolAggregator:
         *,
         base_env: dict[str, str] | None = None,
         default_cwd: Path | None = None,
+        lazy_mode: bool = False,
     ) -> None:
         self._configs = [cfg for cfg in configs]
         self._config_map: dict[str, MCPServerConfig] = {
@@ -390,6 +396,7 @@ class MCPToolAggregator:
         }
         self._base_env = dict(base_env or {})
         self._default_cwd = default_cwd
+        self._lazy_mode = lazy_mode
         self._clients: dict[str, MCPToolClient] = {}
         self._bindings: dict[str, _ToolBinding] = {}
         self._binding_order: list[_ToolBinding] = []
@@ -408,10 +415,19 @@ class MCPToolAggregator:
         return [binding.tool for binding in self._binding_order]
 
     async def connect(self) -> None:
-        """Launch all enabled MCP servers and build the tool registry."""
+        """Launch all enabled MCP servers and build the tool registry.
+
+        In lazy_mode, this is a no-op. Use discover_and_connect() instead.
+        """
 
         async with self._lock:
             if self._connected:
+                return
+
+            # In lazy mode, skip all MCP connection at startup
+            if self._lazy_mode:
+                logger.debug("MCP aggregator in lazy mode, skipping startup connection")
+                self._connected = True
                 return
 
             logger.info(
@@ -422,6 +438,12 @@ class MCPToolAggregator:
             for config in self._configs:
                 if not config.enabled:
                     continue
+                if not config.is_enabled_for_client("backend"):
+                    logger.debug(
+                        "MCP server '%s' not enabled for backend client, skipping",
+                        config.id,
+                    )
+                    continue
                 await self._launch_server(config)
 
             if not self._clients:
@@ -431,6 +453,83 @@ class MCPToolAggregator:
 
             await self._refresh_locked()
             self._connected = True
+
+    async def discover_and_connect(self) -> dict[str, bool]:
+        """Scan MCP_DISCOVERY_PORTS for running servers and connect to enabled ones.
+
+        Returns a dict mapping port -> is_running for discovered servers.
+        This is the main entry point for lazy MCP discovery.
+        """
+        async with self._lock:
+            discovered: dict[str, bool] = {}
+
+            # Scan all ports in the discovery range
+            for port in MCP_DISCOVERY_PORTS:
+                is_running = await self._is_server_running("127.0.0.1", port)
+                discovered[str(port)] = is_running
+
+                if not is_running:
+                    continue
+
+                # Find config for this port
+                config = None
+                for cfg in self._configs:
+                    if cfg.http_port == port:
+                        config = cfg
+                        break
+
+                if config is None:
+                    logger.info(
+                        "Discovered MCP server on port %d but no config found, skipping",
+                        port,
+                    )
+                    continue
+
+                # Check if already connected
+                if config.id in self._clients:
+                    logger.debug(
+                        "MCP server '%s' on port %d already connected",
+                        config.id,
+                        port,
+                    )
+                    continue
+
+                # Check if enabled for backend
+                if not config.enabled:
+                    logger.debug(
+                        "MCP server '%s' on port %d disabled, skipping",
+                        config.id,
+                        port,
+                    )
+                    continue
+
+                if not config.is_enabled_for_client("backend"):
+                    logger.debug(
+                        "MCP server '%s' on port %d not enabled for backend, skipping",
+                        config.id,
+                        port,
+                    )
+                    continue
+
+                # Connect to the running server
+                logger.info(
+                    "Discovered MCP server '%s' running on port %d, connecting...",
+                    config.id,
+                    port,
+                )
+                await self._launch_server(config)
+
+            # Refresh tool registry after discovery
+            await self._refresh_locked()
+            self._connected = True
+
+            logger.info(
+                "MCP discovery complete: %d server(s) connected, %d tool(s) available",
+                len(self._clients),
+                len(self._binding_order),
+            )
+
+            return discovered
 
     async def apply_configs(self, configs: Sequence[MCPServerConfig]) -> None:
         """Apply a new configuration set, restarting servers as needed."""
@@ -908,24 +1007,33 @@ class MCPToolAggregator:
                     connect_only=True,
                 )
             elif config.http_port is not None:
-                # Check if server is already running on this port
-                already_running = await self._is_server_running(
-                    "127.0.0.1", config.http_port
-                )
+                if self._lazy_mode:
+                    # In lazy mode, only connect to already-running servers
+                    already_running = await self._is_server_running(
+                        "127.0.0.1", config.http_port
+                    )
 
-                if already_running:
-                    logger.info(
-                        "MCP server '%s' already running on port %d, connecting...",
-                        config.id,
-                        config.http_port,
-                    )
-                    client = MCPToolClient(
-                        http_port=config.http_port,
-                        server_id=config.id,
-                        connect_only=True,
-                    )
+                    if already_running:
+                        logger.info(
+                            "MCP server '%s' already running on port %d, connecting...",
+                            config.id,
+                            config.http_port,
+                        )
+                        client = MCPToolClient(
+                            http_port=config.http_port,
+                            server_id=config.id,
+                            connect_only=True,
+                        )
+                    else:
+                        # Skip servers that aren't running
+                        logger.info(
+                            "MCP server '%s' not running on port %d, skipping (start with option 2)",
+                            config.id,
+                            config.http_port,
+                        )
+                        return
                 else:
-                    # Launch the server ourselves
+                    # In normal mode (tests), spawn the server
                     client = MCPToolClient(
                         server_module=config.module,
                         command=config.command,

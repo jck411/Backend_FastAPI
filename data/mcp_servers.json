@@ -16,12 +16,13 @@
     },
     {
       "client_enabled": {
+        "backend": false,
         "cli": true,
-        "kiosk": true,
-        "svelte": true
+        "kiosk": false,
+        "svelte": false
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "http_port": 9002,
       "id": "housekeeping",
@@ -119,7 +120,7 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {
         "HOST_PROFILE_ID": "xps13",
         "HOST_ROOT_PATH": "/home/human/GoogleDrive/host_profiles"

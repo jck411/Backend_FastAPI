@@ -297,6 +297,46 @@ class ShellChat:
                 f"[error]Failed to get system prompt: {e}[/error]", style=ERROR_STYLE
             )
 
+    def _handle_mode(self, mode: str | None = None) -> None:
+        """Handle /mode command - switch quake terminal mode."""
+        mode_file = Path.home() / ".config" / "quake-terminal" / "mode"
+        valid_modes = ["terminal", "openrouter", "gemini"]
+        
+        # Get current mode
+        current = "terminal"
+        if mode_file.exists():
+            current = mode_file.read_text().strip()
+        
+        if not mode:
+            # Show current mode and options
+            self.console.print(f"\n[bold]Quake Terminal Mode:[/bold]")
+            for m in valid_modes:
+                marker = "[green]►[/green]" if m == current else " "
+                desc = {
+                    "terminal": "Plain shell",
+                    "openrouter": "shell-chat (OpenRouter via Backend)",
+                    "gemini": "gemini-chat (Gemini API)"
+                }.get(m, "")
+                self.console.print(f"  {marker} [cyan]{m}[/cyan] - {desc}")
+            self.console.print(f"\n[dim]Usage: /mode <terminal|openrouter|gemini>[/dim]")
+            return
+        
+        mode = mode.lower()
+        if mode not in valid_modes:
+            self.console.print(f"[error]Invalid mode: {mode}[/error]", style=ERROR_STYLE)
+            self.console.print(f"[dim]Use: terminal, openrouter, or gemini[/dim]")
+            return
+        
+        # Save new mode
+        mode_file.parent.mkdir(parents=True, exist_ok=True)
+        mode_file.write_text(mode)
+        self.console.print(f"[info]Mode set to: {mode}[/info]", style=INFO_STYLE)
+        
+        if mode != "openrouter":
+            # Exit and let quake terminal restart with new mode
+            self.console.print("[dim]Exiting to switch mode. Press quake hotkey to reopen.[/dim]")
+            self.running = False
+
     def _show_help(self) -> None:
         """Show available commands."""
         help_text = """
@@ -311,6 +351,7 @@ class ShellChat:
   /tools <name> on   Enable an MCP server
   /tools <name> off  Disable an MCP server
   /system            Show system prompt
+  /mode              Switch quake terminal mode
   /quit              Exit shell-chat
 
 [bold]Shortcuts:[/bold]
@@ -370,6 +411,9 @@ class ShellChat:
             return True
         elif command == "/system":
             await self._show_system_prompt()
+            return True
+        elif command == "/mode":
+            self._handle_mode(parts[1] if len(parts) > 1 else None)
             return True
 
         return False

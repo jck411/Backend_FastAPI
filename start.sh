@@ -4,7 +4,7 @@
 # Backend_FastAPI Component Launcher
 # ============================================================
 # Starts selected components of the stack:
-#   1 - Backend        (FastAPI on :8000, connects to MCP)
+#   1 - Backend        (FastAPI on :8000)
 #   2 - MCP Servers    (Standalone MCP pool on :9001-9010)
 #   3 - Frontend       (Svelte chat UI on :5173)
 #   4 - Frontend-Kiosk (Kiosk UI on :5174)
@@ -77,7 +77,7 @@ else
     echo -e "${BOLD}║     Backend_FastAPI Component Launcher     ║${NC}"
     echo -e "${BOLD}╚════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${CYAN}1${NC} - Backend        (FastAPI on :8000, connects to MCP)"
+    echo -e "  ${CYAN}1${NC} - Backend        (FastAPI on :8000)"
     echo -e "  ${CYAN}2${NC} - MCP Servers    (Standalone pool on :9001-9010)"
     echo -e "  ${CYAN}3${NC} - Frontend       (Svelte chat UI on :5173)"
     echo -e "  ${CYAN}4${NC} - Frontend-Kiosk (Kiosk UI on :5174)"

@@ -44,9 +44,12 @@ class MCPServerSettingsService:
         self._lock = asyncio.Lock()
         self._configs: list[MCPServerConfig] = []
         self._updated_at: datetime | None = None
-        self._load_from_disk()
+        self._loaded = False  # Lazy load flag
 
     def _load_from_disk(self) -> None:
+        if self._loaded:
+            return
+
         try:
             configs = load_server_configs(self._path, fallback=self._fallback)
         except ValueError as exc:
@@ -64,6 +67,8 @@ class MCPServerSettingsService:
         except FileNotFoundError:
             self._updated_at = None
 
+        self._loaded = True
+
     def _save_to_disk(self) -> None:
         payload = {"servers": [_config_to_payload(cfg) for cfg in self._configs]}
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,6 +78,7 @@ class MCPServerSettingsService:
 
     async def get_configs(self) -> list[MCPServerConfig]:
         async with self._lock:
+            self._load_from_disk()  # Lazy load on first access
             return [cfg.model_copy(deep=True) for cfg in self._configs]
 
     async def replace_configs(
@@ -111,6 +117,7 @@ class MCPServerSettingsService:
             raise ValueError("Server id cannot be changed")
 
         async with self._lock:
+            self._load_from_disk()  # Lazy load on first access
             for index, existing in enumerate(self._configs):
                 if existing.id != server_id:
                     continue
@@ -128,6 +135,7 @@ class MCPServerSettingsService:
         self, server_id: str, tool_name: str, *, enabled: bool
     ) -> MCPServerConfig:
         async with self._lock:
+            self._load_from_disk()  # Lazy load on first access
             for index, existing in enumerate(self._configs):
                 if existing.id != server_id:
                     continue

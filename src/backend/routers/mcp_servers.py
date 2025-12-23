@@ -84,6 +84,18 @@ async def read_mcp_servers(
     service: MCPServerSettingsService = Depends(get_mcp_settings_service),
     orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
 ) -> MCPServerStatusResponse:
+    # Trigger MCP discovery when settings are accessed
+    await orchestrator.discover_mcp()
+    return await _build_status_response(service, orchestrator)
+
+
+@router.post("/discover", response_model=MCPServerStatusResponse)
+async def discover_mcp_servers(
+    service: MCPServerSettingsService = Depends(get_mcp_settings_service),
+    orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
+) -> MCPServerStatusResponse:
+    """Scan ports 9001-9010 for running MCP servers and connect to enabled ones."""
+    await orchestrator.discover_mcp()
     return await _build_status_response(service, orchestrator)
 
 

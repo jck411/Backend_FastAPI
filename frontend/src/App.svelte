@@ -90,6 +90,14 @@
       // Reload suggestions after applying preset
       await suggestionsStore.load();
     }
+    
+    // Check for URL params to open modals directly
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("mcp") === "1") {
+      mcpServersOpen = true;
+      // Clean up URL
+      window.history.replaceState({}, "", window.location.pathname);
+    }
   });
 
   async function handleSuggestionAdd(): Promise<void> {

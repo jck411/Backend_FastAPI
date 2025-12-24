@@ -136,7 +136,7 @@
 
 .server-toggles {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, minmax(80px, 1fr));
   gap: 0.4rem 0.75rem;
   justify-items: start;
   width: 100%;
@@ -164,6 +164,14 @@
 
 .kiosk-toggle input {
   accent-color: #a78bfa;
+}
+
+.cli-toggle {
+  color: #f59e0b;
+}
+
+.cli-toggle input {
+  accent-color: #f59e0b;
 }
 
 .toggle-disabled {

@@ -2,6 +2,7 @@
   "servers": [
     {
       "client_enabled": {
+        "backend": false,
         "cli": true,
         "kiosk": true,
         "svelte": true
@@ -18,8 +19,8 @@
       "client_enabled": {
         "backend": false,
         "cli": true,
-        "kiosk": false,
-        "svelte": false
+        "kiosk": true,
+        "svelte": true
       },
       "contexts": [],
       "enabled": true,
@@ -33,7 +34,7 @@
       "client_enabled": {
         "cli": true,
         "kiosk": true,
-        "svelte": true
+        "svelte": false
       },
       "contexts": [],
       "enabled": false,
@@ -115,9 +116,10 @@
     },
     {
       "client_enabled": {
+        "backend": true,
         "cli": true,
-        "kiosk": true,
-        "svelte": true
+        "kiosk": false,
+        "svelte": false
       },
       "contexts": [],
       "enabled": true,

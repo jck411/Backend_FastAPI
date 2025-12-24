@@ -116,7 +116,7 @@ class MCPServerConfig(BaseModel):
         description="Optional per-tool override settings keyed by tool name",
     )
     client_enabled: dict[str, bool] = Field(
-        default_factory=lambda: {"svelte": True, "kiosk": False, "cli": True, "backend": True},
+        default_factory=lambda: {"svelte": True, "kiosk": False, "cli": True},
         description="Per-client enabled state: {client_id: True/False}",
     )
 
@@ -139,13 +139,20 @@ class MCPServerConfig(BaseModel):
             "svelte": frontend_enabled,
             "kiosk": kiosk_enabled,
             "cli": frontend_enabled,  # CLI follows frontend by default
-            "backend": True,  # Backend connection enabled by default
         }
         return data
 
     def is_enabled_for_client(self, client_id: str) -> bool:
         """Check if this server is enabled for a specific client."""
         return self.client_enabled.get(client_id, False)
+
+    def is_enabled_for_any_client(self) -> bool:
+        """Check if this server is enabled for any UI client (svelte, kiosk, cli)."""
+        return (
+            self.client_enabled.get("svelte", False)
+            or self.client_enabled.get("kiosk", False)
+            or self.client_enabled.get("cli", False)
+        )
 
     @field_validator("command", mode="before")
     @classmethod
@@ -438,9 +445,9 @@ class MCPToolAggregator:
             for config in self._configs:
                 if not config.enabled:
                     continue
-                if not config.is_enabled_for_client("backend"):
+                if not config.is_enabled_for_any_client():
                     logger.debug(
-                        "MCP server '%s' not enabled for backend client, skipping",
+                        "MCP server '%s' not enabled for any client, skipping",
                         config.id,
                     )
                     continue
@@ -503,9 +510,9 @@ class MCPToolAggregator:
                     )
                     continue
 
-                if not config.is_enabled_for_client("backend"):
+                if not config.is_enabled_for_any_client():
                     logger.debug(
-                        "MCP server '%s' on port %d not enabled for backend, skipping",
+                        "MCP server '%s' on port %d not enabled for any client, skipping",
                         config.id,
                         port,
                     )

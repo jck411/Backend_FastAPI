@@ -380,6 +380,37 @@ def _get_deltas_path(host_id: str | None = None) -> Path:
     return _get_host_dir(host_id) / "deltas.log"
 
 
+def _get_inventory_path(host_id: str | None = None) -> Path:
+    """Return the inventory.json path for the given or active host."""
+
+    return _get_host_dir(host_id) / "inventory.json"
+
+
+def _load_inventory() -> dict:
+    """Load the system inventory; return empty dict if missing."""
+
+    path = _get_inventory_path()
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError:
+        return {}
+
+    return payload if isinstance(payload, dict) else {}
+
+
+def _save_inventory(inventory: dict) -> None:
+    """Persist system inventory to disk atomically."""
+
+    path = _get_inventory_path()
+    tmp_path = path.with_suffix(".tmp")
+    tmp_path.write_text(
+        json.dumps(inventory, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    tmp_path.replace(path)
+
+
 def _load_profile() -> dict:
     """Load the current host profile; raise if it is missing or invalid."""
 
@@ -944,7 +975,9 @@ async def _detect_system_info() -> dict[str, object]:
 
 
 async def _auto_snapshot_software(triggers: set[str]) -> dict[str, object]:
-    """Run targeted snapshots based on what triggered, update profile.software automatically.
+    """Run targeted snapshots based on what triggered, update inventory.json.
+
+    Writes to inventory.json (NOT profile.json) to keep the LLM context lean.
 
     Triggers:
         - "packages": Snapshot installed apps in tracked categories
@@ -970,22 +1003,12 @@ async def _auto_snapshot_software(triggers: set[str]) -> dict[str, object]:
     if not snapshot:
         return {}
 
-    # Update profile.software section with snapshot
-    try:
-        current = _load_profile()
-    except (FileNotFoundError, ValueError):
-        current = {}
-
-    # Ensure software section exists
-    if "software" not in current:
-        current["software"] = {}
-
-    # Merge snapshot into software section
+    # Update inventory.json (not profile.json) with snapshot
+    current = _load_inventory()
     snapshot["snapshot_ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    current["software"] = _deep_merge(current.get("software", {}), snapshot)
-    current["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    _save_profile(current)
-    _append_delta("software_snapshot", snapshot, "Auto-snapshot after command")
+    merged = _deep_merge(current, snapshot)
+    _save_inventory(merged)
+    _append_delta("inventory_snapshot", snapshot, "Auto-snapshot after command")
 
     return snapshot
 
@@ -1631,19 +1654,14 @@ async def shell_get_full_output(
 
 @mcp.tool("host_get_profile")  # type: ignore
 async def host_get_profile() -> str:
-    """Get host profile with hardware, software, and notes.
+    """Get lean host profile for shell control context.
 
-    Profile structure:
-    - hardware: CPU, GPU, RAM, model, has_discrete_gpu
-    - software: OS, desktop, package_manager, aur_helper, plus:
-      - packages: Auto-tracked installed apps by category (browsers, editors, etc.)
-      - enabled_services: Auto-tracked systemd services
-      - defaults: Auto-tracked XDG default apps (browser, file_manager, etc.)
-    - notes: Binary quirks, limitations, user preferences
+    Contains only what the LLM needs to operate the system:
+    - host_id, os, desktop, display, sudo
+    - tools: screenshot, clipboard, windows, open_url, file_manager
+    - quirks: edge cases and workarounds
 
-    The software section is auto-updated after shell_execute runs
-    package/service/xdg commands. Check profile.software.packages
-    before suggesting installations.
+    Package lists, services, and defaults are in inventory.json (not returned).
     """
 
     try:
@@ -1662,124 +1680,127 @@ async def host_get_profile() -> str:
     )
 
 
-@mcp.tool("host_update_profile")  # type: ignore
-async def host_update_profile(updates: dict, reason: str | None = None) -> str:
-    """Update host profile (hardware, software, notes).
-
-    Profile sections:
-    - hardware: CPU, GPU, RAM, model (rarely changes)
-    - software: OS, desktop, package manager, plus auto-tracked packages/services/defaults
-    - notes: Binary quirks, limitations, user preferences
-
-    The software.packages, software.enabled_services, and software.defaults
-    are auto-updated by shell_execute after install/service/xdg commands.
-    Use this tool for manual corrections or non-auto-detected changes.
+@mcp.tool("host_update_context")  # type: ignore
+async def host_update_context(
+    action: str,
+    key: str,
+    value: str | None = None,
+    reason: str | None = None,
+) -> str:
+    """Update lean profile context. Use sparingly for significant discoveries.
 
     Args:
-        updates: Dict to deep-merge (set value to null to delete a key)
-        reason: Explanation logged to deltas.log for audit
+        action: "add" or "remove"
+        key: Dot-notation path (e.g., "tools.screenshot", "quirks.no_gpu")
+        value: Value to set (required for "add", ignored for "remove")
+        reason: Why this matters (logged for audit)
+
+    Examples:
+        action="add", key="tools.screenshot", value="grim - | wl-copy"
+        action="remove", key="quirks.old_browser"
     """
+    if action not in ("add", "remove"):
+        return json.dumps({"status": "error", "message": "action must be 'add' or 'remove'"})
+
+    if action == "add" and not value:
+        return json.dumps({"status": "error", "message": "value required for 'add'"})
 
     try:
         current = _load_profile()
     except FileNotFoundError:
-        # Allow creating profile if it doesn't exist
         current = {}
     except (ValueError, RuntimeError) as exc:
-        return json.dumps(
-            {
-                "status": "error",
-                "host_id": _get_host_id_safe(),
-                "message": str(exc),
-            }
-        )
+        return json.dumps({"status": "error", "message": str(exc)})
+
+    # Parse dot-notation key and build update dict
+    keys = key.split(".")
+    if action == "add":
+        update: dict = {}
+        ref = update
+        for k in keys[:-1]:
+            ref[k] = {}
+            ref = ref[k]
+        ref[keys[-1]] = value
+    else:  # remove
+        update = {}
+        ref = update
+        for k in keys[:-1]:
+            ref[k] = {}
+            ref = ref[k]
+        ref[keys[-1]] = None  # None triggers deletion in _deep_merge
 
     try:
-        merged = _deep_merge(current, updates)
+        merged = _deep_merge(current, update)
         merged["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         _save_profile(merged)
-        _append_delta("profile", updates, reason)
+        _append_delta("context_update", {"action": action, "key": key, "value": value}, reason)
     except RuntimeError as exc:
-        return json.dumps(
-            {
-                "status": "error",
-                "host_id": _get_host_id_safe(),
-                "message": str(exc),
-            }
-        )
+        return json.dumps({"status": "error", "message": str(exc)})
 
-    return json.dumps(
-        {
-            "status": "ok",
-            "host_id": _get_host_id_safe(),
-            "message": "Profile updated",
-            "applied": updates,
-        }
-    )
+    return json.dumps({"status": "ok", "action": action, "key": key})
 
 
 @mcp.tool("host_detect_system")  # type: ignore
 async def host_detect_system() -> str:
-    """Detect and update profile with current system information.
+    """Detect system info and update both profile (lean) and inventory (full).
 
-    Auto-detects: OS, kernel, desktop environment, display server (wayland/x11),
-    package manager, AUR helper, installed packages, enabled services, default apps.
+    Updates:
+    - inventory.json: Full snapshot (packages, services, defaults, system info)
+    - profile.json: Only lean context fields (os, desktop, display)
 
-    Run this to initialize a new profile or audit an existing one.
-    Safe to run anytime — merges detected info into profile without overwriting
-    manual notes or hardware info.
+    Run this to initialize or audit system state.
     """
 
     # Detect static system info
     system_info = await _detect_system_info()
 
-    # Also snapshot dynamic software state
+    # Snapshot dynamic software state
     packages = await _snapshot_tracked_packages()
     services = await _snapshot_enabled_services()
     defaults = await _snapshot_defaults()
 
-    # Build software section
-    software_update: dict[str, object] = {**system_info}
+    # Build full inventory snapshot
+    inventory_update: dict[str, object] = {
+        "system": system_info,
+        "snapshot_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
     if packages:
-        software_update["packages"] = packages
+        inventory_update["packages"] = packages
     if services:
-        software_update["enabled_services"] = services
+        inventory_update["enabled_services"] = services
     if defaults:
-        software_update["defaults"] = defaults
-    software_update["snapshot_ts"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        inventory_update["defaults"] = defaults
 
-    # Load current profile and merge
-    try:
-        current = _load_profile()
-    except (FileNotFoundError, ValueError, RuntimeError):
-        current = {}
+    # Save to inventory.json
+    current_inventory = _load_inventory()
+    merged_inventory = _deep_merge(current_inventory, inventory_update)
+    _save_inventory(merged_inventory)
+    _append_delta("system_detect", inventory_update, "Auto-detected system info")
 
-    # Merge into software section
-    if "software" not in current:
-        current["software"] = {}
-    current["software"] = _deep_merge(current.get("software", {}), software_update)
-    current["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # Update lean profile with only essential context
+    lean_update = {}
+    if "os" in system_info:
+        lean_update["os"] = system_info["os"]
+    if "desktop" in system_info:
+        lean_update["desktop"] = system_info["desktop"]
+    if "display_server" in system_info:
+        lean_update["display"] = system_info["display_server"]
 
-    try:
-        _save_profile(current)
-        _append_delta(
-            "system_detect", {"software": software_update}, "Auto-detected system info"
-        )
-    except RuntimeError as exc:
-        return json.dumps(
-            {
-                "status": "error",
-                "host_id": _get_host_id_safe(),
-                "message": str(exc),
-            }
-        )
+    if lean_update:
+        try:
+            current_profile = _load_profile()
+        except (FileNotFoundError, ValueError, RuntimeError):
+            current_profile = {}
+        merged_profile = _deep_merge(current_profile, lean_update)
+        merged_profile["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        _save_profile(merged_profile)
 
     return json.dumps(
         {
             "status": "ok",
             "host_id": _get_host_id_safe(),
-            "message": "System info detected and profile updated",
-            "detected": software_update,
+            "message": "System detected. Inventory updated, profile kept lean.",
+            "inventory_fields": list(inventory_update.keys()),
         }
     )
 
@@ -1989,7 +2010,7 @@ __all__ = [
     "shell_execute",
     "shell_get_full_output",
     "host_get_profile",
-    "host_update_profile",
+    "host_update_context",
     "host_detect_system",
     "system_update",
     "system_backup",

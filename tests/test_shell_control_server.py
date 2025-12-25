@@ -175,25 +175,30 @@ async def test_host_get_profile_missing_host_id(
     assert "HOST_PROFILE_ID" in result["message"]
 
 
-async def test_host_update_profile_adds_timestamp(
+async def test_host_update_context_adds_timestamp(
     host_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Test that host_update_profile adds updated_at timestamp."""
+    """Test that host_update_context adds updated_at timestamp."""
     monkeypatch.setenv("HOST_PROFILE_ID", "test-host")
 
     # Create initial profile
     profile_path = host_root / "test-host" / "profile.json"
     profile_path.parent.mkdir(parents=True, exist_ok=True)
-    profile_path.write_text('{"hostname": "test"}', encoding="utf-8")
+    profile_path.write_text('{"host_id": "test-host"}', encoding="utf-8")
 
-    # Update profile
+    # Update profile using new API
     result = json.loads(
-        await shell_control_server.host_update_profile(
-            {"notes": {"test": "value"}}, reason="test update"
+        await shell_control_server.host_update_context(
+            action="add",
+            key="quirks.test",
+            value="test value",
+            reason="test update",
         )
     )
 
     assert result["status"] == "ok"
+    assert result["action"] == "add"
+    assert result["key"] == "quirks.test"
 
     # Verify timestamp was added
     updated_profile = json.loads(profile_path.read_text(encoding="utf-8"))
@@ -201,3 +206,6 @@ async def test_host_update_profile_adds_timestamp(
     # Verify format is ISO 8601
     assert updated_profile["updated_at"].endswith("Z")
     assert "T" in updated_profile["updated_at"]
+    # Verify nested key was set
+    assert updated_profile.get("quirks", {}).get("test") == "test value"
+

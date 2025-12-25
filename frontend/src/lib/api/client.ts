@@ -21,6 +21,7 @@ import type {
   PresetCreatePayload,
   // Presets
   PresetListItem,
+  PresetModelFilters,
   PresetSaveSnapshotPayload,
   SpotifyAuthAuthorizeRequest,
   SpotifyAuthAuthorizeResponse,
@@ -413,61 +414,74 @@ export async function streamChat(
 
 /* Preset API - using per-client svelte presets */
 
-export async function fetchPresets(): Promise<PresetListItem[]> {
-  interface BackendPreset {
-    name: string;
-    llm?: { model?: string;[key: string]: unknown };
-    model_filters?: PresetModelFilters | null;
-    created_at?: string | null;
-    updated_at?: string | null;
-    [key: string]: unknown;
-  }
+interface BackendPresetLlm {
+  model?: string;
+  system_prompt?: string | null;
+  supports_tools?: boolean | null;
+  [key: string]: unknown;
+}
 
-  const response = await requestJson<{ presets: BackendPreset[]; active_index: number | null }>(
-    resolveApiPath('/api/clients/svelte/presets')
-  );
+interface BackendPreset {
+  name: string;
+  llm?: BackendPresetLlm | null;
+  model_filters?: PresetModelFilters | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  [key: string]: unknown;
+}
 
-  return response.presets.map((preset, index) => ({
+interface BackendPresetsResponse {
+  presets: BackendPreset[];
+  active_index: number | null;
+}
+
+function mapPresetConfig(preset: BackendPreset, isDefault: boolean): PresetConfig {
+  return {
     name: preset.name,
     model: preset.llm?.model ?? 'unknown',
-    is_default: index === response.active_index,
+    provider: null,
+    parameters: null,
+    supports_tools: preset.llm?.supports_tools ?? null,
+    system_prompt: preset.llm?.system_prompt ?? null,
+    suggestions: null,
+    model_filters: preset.model_filters ?? null,
+    is_default: isDefault,
+    created_at: preset.created_at ?? new Date().toISOString(),
+    updated_at: preset.updated_at ?? new Date().toISOString(),
+  };
+}
+
+function mapPresetListItem(preset: BackendPreset, isDefault: boolean): PresetListItem {
+  return {
+    name: preset.name,
+    model: preset.llm?.model ?? 'unknown',
+    is_default: isDefault,
     has_filters: Boolean(preset.model_filters),
     created_at: preset.created_at ?? new Date().toISOString(),
     updated_at: preset.updated_at ?? new Date().toISOString(),
-  }));
+  };
+}
+
+export async function fetchPresets(): Promise<PresetListItem[]> {
+  const response = await requestJson<BackendPresetsResponse>(
+    resolveApiPath('/api/clients/svelte/presets'),
+  );
+
+  return response.presets.map((preset, index) =>
+    mapPresetListItem(preset, index === response.active_index),
+  );
 }
 
 
 export async function fetchPreset(name: string): Promise<PresetConfig> {
-  interface BackendPreset {
-    name: string;
-    llm?: {
-      model?: string;
-      system_prompt?: string | null;
-      [key: string]: unknown
-    };
-    model_filters?: PresetModelFilters | null;
-    created_at?: string | null;
-    updated_at?: string | null;
-    [key: string]: unknown;
-  }
-
-  const response = await requestJson<{ presets: BackendPreset[]; active_index: number | null }>(
-    resolveApiPath('/api/clients/svelte/presets')
+  const response = await requestJson<BackendPresetsResponse>(
+    resolveApiPath('/api/clients/svelte/presets'),
   );
-  const preset = response.presets.find(p => p.name === name);
+  const preset = response.presets.find((entry) => entry.name === name);
   if (!preset) throw new ApiError(404, `Preset not found: ${name}`);
 
   const index = response.presets.indexOf(preset);
-  return {
-    name: preset.name,
-    model: preset.llm?.model ?? 'unknown',
-    system_prompt: preset.llm?.system_prompt ?? null,
-    model_filters: preset.model_filters ?? null,
-    is_default: index === response.active_index,
-    created_at: preset.created_at ?? new Date().toISOString(),
-    updated_at: preset.updated_at ?? new Date().toISOString(),
-  };
+  return mapPresetConfig(preset, index === response.active_index);
 }
 
 
@@ -482,7 +496,7 @@ export async function createPreset(payload: PresetCreatePayload): Promise<Preset
     model_filters: payload.model_filters,
   };
 
-  const result = await requestJson<{ presets: PresetConfig[]; active_index: number | null }>(
+  const result = await requestJson<BackendPresetsResponse>(
     resolveApiPath('/api/clients/svelte/presets'),
     {
       method: 'POST',
@@ -491,9 +505,10 @@ export async function createPreset(payload: PresetCreatePayload): Promise<Preset
   );
 
   // Return the newly created preset (last in list)
-  const newPreset = result.presets.find(p => p.name === payload.name);
+  const newPreset = result.presets.find((entry) => entry.name === payload.name);
   if (!newPreset) throw new ApiError(500, 'Failed to create preset');
-  return newPreset;
+  const index = result.presets.indexOf(newPreset);
+  return mapPresetConfig(newPreset, index === result.active_index);
 }
 
 
@@ -503,18 +518,18 @@ export async function savePresetSnapshot(
   _payload?: PresetSaveSnapshotPayload | null,
 ): Promise<PresetConfig> {
   // Get current presets to find the index
-  const presets = await requestJson<{ presets: PresetConfig[]; active_index: number | null }>(
+  const presets = await requestJson<BackendPresetsResponse>(
     resolveApiPath('/api/clients/svelte/presets')
   );
 
-  const index = presets.presets.findIndex(p => p.name === name);
+  const index = presets.presets.findIndex((entry) => entry.name === name);
   if (index === -1) throw new ApiError(404, `Preset not found: ${name}`);
 
   // Get current LLM settings (includes model and system_prompt)
   const currentLlm = await requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm'));
 
   // Update preset at index with current LLM settings only (MCP is separate)
-  const result = await requestJson<{ presets: PresetConfig[]; active_index: number | null }>(
+  const result = await requestJson<BackendPresetsResponse>(
     resolveApiPath(`/api/clients/svelte/presets/${index}`),
     {
       method: 'PUT',
@@ -527,7 +542,7 @@ export async function savePresetSnapshot(
 
   const updatedPreset = result.presets[index];
   if (!updatedPreset) throw new ApiError(500, 'Failed to save preset snapshot');
-  return updatedPreset;
+  return mapPresetConfig(updatedPreset, index === result.active_index);
 }
 
 
@@ -544,32 +559,35 @@ export async function deletePreset(name: string): Promise<{ deleted: boolean }> 
 export async function applyPreset(name: string): Promise<PresetConfig> {
   // Apply preset by name
   const path = `/api/clients/svelte/presets/by-name/${encodeURIComponent(name)}/apply`;
-  const result = await requestJson<{ llm: PresetConfig }>(resolveApiPath(path), {
+  await requestJson<{ llm: Record<string, unknown> }>(resolveApiPath(path), {
     method: 'POST',
     body: JSON.stringify({}),
   });
-  // The apply endpoint returns ClientSettings, extract LLM as the preset config
-  return result.llm as PresetConfig;
+  // Fetch the full preset to restore filters + prompt metadata on the client.
+  return fetchPreset(name);
 }
 
 export async function setDefaultPreset(name: string): Promise<PresetConfig> {
   // Set preset as active by name
   const path = `/api/clients/svelte/presets/by-name/${encodeURIComponent(name)}/set-active`;
-  const result = await requestJson<{ presets: PresetConfig[]; active_index: number | null }>(resolveApiPath(path), {
+  const result = await requestJson<BackendPresetsResponse>(resolveApiPath(path), {
     method: 'POST',
     body: JSON.stringify({}),
   });
   // Return the preset that was made active
-  const preset = result.presets.find(p => p.name === name);
+  const preset = result.presets.find((entry) => entry.name === name);
   if (!preset) throw new ApiError(404, `Preset not found: ${name}`);
-  return preset;
+  const index = result.presets.indexOf(preset);
+  return mapPresetConfig(preset, index === result.active_index);
 }
 
 
 export async function fetchDefaultPreset(): Promise<PresetConfig | null> {
-  const response = await requestJson<{ presets: PresetConfig[]; active_index: number | null }>(resolveApiPath('/api/clients/svelte/presets'));
+  const response = await requestJson<BackendPresetsResponse>(
+    resolveApiPath('/api/clients/svelte/presets'),
+  );
   if (response.active_index !== null && response.presets[response.active_index]) {
-    return response.presets[response.active_index];
+    return mapPresetConfig(response.presets[response.active_index], true);
   }
   return null;
 }

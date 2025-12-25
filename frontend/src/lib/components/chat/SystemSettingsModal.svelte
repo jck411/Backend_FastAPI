@@ -99,6 +99,10 @@
   async function handleCreatePreset(): Promise<void> {
     const name = creatingName.trim();
     if (!name) return;
+    const promptSaved = await flushSystemPrompt();
+    if (!promptSaved) {
+      return;
+    }
     await modelSettingsStore.load($chatStore.selectedModel);
     const result = await presetsStore.create(name);
     if (result) {
@@ -116,6 +120,10 @@
   }
 
   async function handleSaveSnapshot(item: PresetListItem): Promise<void> {
+    const promptSaved = await flushSystemPrompt();
+    if (!promptSaved) {
+      return;
+    }
     await modelSettingsStore.load($chatStore.selectedModel);
     await presetsStore.saveSnapshot(item.name);
   }

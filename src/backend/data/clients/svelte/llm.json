@@ -1,9 +1,9 @@
 {
   "model": "openai/gpt-4.1-nano",
-  "system_prompt": "You control the user's system via shell. Use the available toos to execture user commands.",
+  "system_prompt": null,
   "temperature": 0.7,
-  "max_tokens": 4096,
-  "supports_tools": true,
+  "max_tokens": 500,
+  "supports_tools": null,
   "conversation_mode": false,
   "conversation_timeout_seconds": 10.0
 }

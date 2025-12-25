@@ -218,6 +218,8 @@ class ClientSettingsService:
 
     def update_preset(self, index: int, update: ClientPresetUpdate) -> ClientPresets:
         """Update a preset at the given index."""
+        from datetime import datetime, timezone
+
         presets = self.get_presets()
         if index < 0 or index >= len(presets.presets):
             raise ValueError(f"Preset index {index} out of range")
@@ -225,10 +227,10 @@ class ClientSettingsService:
         preset = presets.presets[index]
         update_data = update.model_dump(exclude_none=True)
 
-        # Handle nested LLM update
+        # Handle nested LLM update - replace entirely instead of merging
         if "llm" in update_data and update_data["llm"]:
             llm_update = update_data.pop("llm")
-            preset.llm = preset.llm.model_copy(update=llm_update)
+            preset.llm = LlmSettings.model_validate(llm_update)
         # Handle nested STT update
         if "stt" in update_data and update_data["stt"]:
             stt_update = update_data.pop("stt")
@@ -246,6 +248,9 @@ class ClientSettingsService:
         # Handle remaining fields
         for key, value in update_data.items():
             setattr(preset, key, value)
+
+        # Update timestamp
+        preset.updated_at = datetime.now(timezone.utc).isoformat()
 
         self._save_presets(presets)
         return presets
@@ -275,6 +280,29 @@ class ClientSettingsService:
             tts=preset.tts,
         )
 
+    def load_preset_settings(self, index: int) -> ClientSettings:
+        """Load settings from a preset without setting it as active (default)."""
+        presets = self.get_presets()
+        if index < 0 or index >= len(presets.presets):
+            raise ValueError(f"Preset index {index} out of range")
+
+        preset = presets.presets[index]
+
+        # Apply preset settings (LLM, STT, TTS only) - persistent for current session
+        self.replace_llm(preset.llm)
+        if preset.stt:
+            self._save_json("stt", preset.stt.model_dump())
+            self._cache["stt"] = preset.stt
+        if preset.tts:
+            self._save_json("tts", preset.tts.model_dump())
+            self._cache["tts"] = preset.tts
+
+        return ClientSettings(
+            llm=preset.llm,
+            stt=preset.stt,
+            tts=preset.tts,
+        )
+
     def add_preset(self, preset: ClientPreset) -> ClientPresets:
         """Add a new preset."""
         from datetime import datetime, timezone
@@ -287,6 +315,7 @@ class ClientSettingsService:
                 llm=preset.llm,
                 stt=preset.stt,
                 tts=preset.tts,
+                model_filters=preset.model_filters,
                 created_at=now,
                 updated_at=now,
             )

@@ -112,6 +112,7 @@
       chatStore.setModel(result.model);
     }
     await suggestionsStore.load();
+    dispatch("close");
   }
 
   async function handleSaveSnapshot(item: PresetListItem): Promise<void> {

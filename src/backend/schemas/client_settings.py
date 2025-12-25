@@ -179,6 +179,34 @@ class TtsSettingsUpdate(BaseModel):
 # =============================================================================
 
 
+
+# =============================================================================
+# Preset Filters
+# =============================================================================
+
+
+class MultiSelectFilter(BaseModel):
+    """Filter with include/exclude lists."""
+
+    include: list[str] = Field(default_factory=list)
+    exclude: list[str] = Field(default_factory=list)
+
+
+class PresetModelFilters(BaseModel):
+    """Filters saved with a preset."""
+
+    inputModalities: Optional[MultiSelectFilter] = None
+    outputModalities: Optional[MultiSelectFilter] = None
+    minContext: Optional[int] = None
+    minPromptPrice: Optional[float] = None
+    maxPromptPrice: Optional[float] = None
+    sort: Optional[str] = None
+    series: Optional[MultiSelectFilter] = None
+    providers: Optional[MultiSelectFilter] = None
+    supportedParameters: Optional[MultiSelectFilter] = None
+    moderation: Optional[MultiSelectFilter] = None
+
+
 # =============================================================================
 # Client Presets
 # =============================================================================
@@ -191,8 +219,15 @@ class ClientPreset(BaseModel):
     llm: LlmSettings = Field(default_factory=LlmSettings)
     stt: Optional[SttSettings] = None
     tts: Optional[TtsSettings] = None
-    created_at: Optional[str] = Field(default=None, description="ISO timestamp when preset was created")
-    updated_at: Optional[str] = Field(default=None, description="ISO timestamp when preset was last modified")
+    model_filters: Optional[PresetModelFilters] = Field(
+        default=None, description="Saved model explorer filters"
+    )
+    created_at: Optional[str] = Field(
+        default=None, description="ISO timestamp when preset was created"
+    )
+    updated_at: Optional[str] = Field(
+        default=None, description="ISO timestamp when preset was last modified"
+    )
 
 
 class ClientPresetUpdate(BaseModel):
@@ -202,6 +237,7 @@ class ClientPresetUpdate(BaseModel):
     llm: Optional[LlmSettingsUpdate] = None
     stt: Optional[SttSettingsUpdate] = None
     tts: Optional[TtsSettingsUpdate] = None
+    model_filters: Optional[PresetModelFilters] = None
 
 
 class ClientPresets(BaseModel):
@@ -263,4 +299,6 @@ __all__ = [
     "ClientPresetUpdate",
     "ClientPresets",
     "ClientSettings",
+    "MultiSelectFilter",
+    "PresetModelFilters",
 ]

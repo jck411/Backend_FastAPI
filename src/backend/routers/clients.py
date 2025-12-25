@@ -320,7 +320,7 @@ async def apply_preset_by_name(
         raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
 
     # Activate the preset (applies LLM/STT/TTS settings)
-    return service.activate_preset(preset_index)
+    return service.load_preset_settings(preset_index)
 
 
 @router.delete("/{client_id}/presets/by-name/{name}", response_model=ClientPresets)

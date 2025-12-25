@@ -3,24 +3,27 @@
     {
       "name": "test",
       "llm": {
-        "model": "openai/gpt-4o-mini",
-        "system_prompt": "You are a helpful assistant.",
+        "model": "openai/gpt-4.1-nano",
+        "system_prompt": null,
         "temperature": 0.7,
-        "max_tokens": 4096,
-        "supports_tools": true,
+        "max_tokens": 500,
+        "supports_tools": null,
         "conversation_mode": false,
         "conversation_timeout_seconds": 10.0
       },
       "stt": null,
       "tts": null,
+      "model_filters": {
+        "sort": "newness"
+      },
       "created_at": "2025-12-19T10:56:16.306632+00:00",
-      "updated_at": "2025-12-19T10:56:16.306632+00:00"
+      "updated_at": "2025-12-25T10:31:45.744894+00:00"
     },
     {
       "name": "shell",
       "llm": {
         "model": "openai/gpt-4.1-nano",
-        "system_prompt": "You are a helpful assistant whith access to tools.",
+        "system_prompt": "You control the user's system via shell. Use the available toos to execture user commands.",
         "temperature": 0.7,
         "max_tokens": 4096,
         "supports_tools": true,
@@ -29,8 +32,11 @@
       },
       "stt": null,
       "tts": null,
+      "model_filters": {
+        "sort": "newness"
+      },
       "created_at": "2025-12-19T10:57:12.163449+00:00",
-      "updated_at": "2025-12-19T10:57:12.163449+00:00"
+      "updated_at": "2025-12-25T10:32:03.914502+00:00"
     },
     {
       "name": "newonekosk",
@@ -45,14 +51,26 @@
       },
       "stt": null,
       "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "newness",
+        "series": null,
+        "providers": null,
+        "supportedParameters": null,
+        "moderation": null
+      },
       "created_at": "2025-12-19T11:20:27.054736+00:00",
-      "updated_at": "2025-12-19T11:20:27.054736+00:00"
+      "updated_at": "2025-12-25T10:24:32.395335+00:00"
     },
     {
       "name": "all",
       "llm": {
-        "model": "openai/gpt-5.2",
-        "system_prompt": "You are a helpful assistant. yea",
+        "model": "microsoft/phi-3.5-mini-128k-instruct",
+        "system_prompt": "You are a helpful assistant.",
         "temperature": 0.7,
         "max_tokens": 4096,
         "supports_tools": true,
@@ -61,9 +79,49 @@
       },
       "stt": null,
       "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "newness",
+        "series": null,
+        "providers": null,
+        "supportedParameters": null,
+        "moderation": null
+      },
       "created_at": "2025-12-22T07:07:25.314294+00:00",
-      "updated_at": "2025-12-22T07:07:25.314294+00:00"
+      "updated_at": "2025-12-25T10:24:35.012490+00:00"
+    },
+    {
+      "name": "tst",
+      "llm": {
+        "model": "microsoft/phi-3.5-mini-128k-instruct",
+        "system_prompt": "You are a helpful assistant.",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "newness",
+        "series": null,
+        "providers": null,
+        "supportedParameters": null,
+        "moderation": null
+      },
+      "created_at": "2025-12-25T10:24:51.048296+00:00",
+      "updated_at": "2025-12-25T10:24:51.048296+00:00"
     }
   ],
-  "active_index": 1
+  "active_index": 0
 }

@@ -417,6 +417,7 @@ export async function fetchPresets(): Promise<PresetListItem[]> {
   interface BackendPreset {
     name: string;
     llm?: { model?: string;[key: string]: unknown };
+    model_filters?: PresetModelFilters | null;
     created_at?: string | null;
     updated_at?: string | null;
     [key: string]: unknown;
@@ -430,7 +431,7 @@ export async function fetchPresets(): Promise<PresetListItem[]> {
     name: preset.name,
     model: preset.llm?.model ?? 'unknown',
     is_default: index === response.active_index,
-    has_filters: false,
+    has_filters: Boolean(preset.model_filters),
     created_at: preset.created_at ?? new Date().toISOString(),
     updated_at: preset.updated_at ?? new Date().toISOString(),
   }));
@@ -445,6 +446,7 @@ export async function fetchPreset(name: string): Promise<PresetConfig> {
       system_prompt?: string | null;
       [key: string]: unknown
     };
+    model_filters?: PresetModelFilters | null;
     created_at?: string | null;
     updated_at?: string | null;
     [key: string]: unknown;
@@ -461,6 +463,7 @@ export async function fetchPreset(name: string): Promise<PresetConfig> {
     name: preset.name,
     model: preset.llm?.model ?? 'unknown',
     system_prompt: preset.llm?.system_prompt ?? null,
+    model_filters: preset.model_filters ?? null,
     is_default: index === response.active_index,
     created_at: preset.created_at ?? new Date().toISOString(),
     updated_at: preset.updated_at ?? new Date().toISOString(),
@@ -476,6 +479,7 @@ export async function createPreset(payload: PresetCreatePayload): Promise<Preset
   const presetPayload = {
     name: payload.name,
     llm: currentLlm,
+    model_filters: payload.model_filters,
   };
 
   const result = await requestJson<{ presets: PresetConfig[]; active_index: number | null }>(
@@ -516,6 +520,7 @@ export async function savePresetSnapshot(
       method: 'PUT',
       body: JSON.stringify({
         llm: currentLlm,
+        model_filters: _payload?.model_filters ?? null,
       }),
     }
   );

@@ -110,6 +110,7 @@ async def replace_mcp_servers(
     ]
     persisted = await service.replace_configs(configs)
     await orchestrator.apply_mcp_configs(persisted)
+    await orchestrator.discover_mcp()
     return await _build_status_response(service, orchestrator)
 
 
@@ -132,6 +133,7 @@ async def update_mcp_server(
     )
     configs = await service.get_configs()
     await orchestrator.apply_mcp_configs(configs)
+    await orchestrator.discover_mcp()
     return await _build_status_response(service, orchestrator)
 
 
@@ -170,6 +172,7 @@ async def set_server_client_enabled(
     )
     updated_configs = await service.get_configs()
     await orchestrator.apply_mcp_configs(updated_configs)
+    await orchestrator.discover_mcp()
     return await _build_status_response(service, orchestrator)
 
 

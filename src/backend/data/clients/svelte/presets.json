@@ -19,8 +19,8 @@
     {
       "name": "shell",
       "llm": {
-        "model": "openai/gpt-5.2",
-        "system_prompt": "You are a helpful assistant. yea",
+        "model": "openai/gpt-4.1-nano",
+        "system_prompt": "You are a helpful assistant whith access to tools.",
         "temperature": 0.7,
         "max_tokens": 4096,
         "supports_tools": true,

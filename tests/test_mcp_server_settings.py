@@ -119,6 +119,9 @@ class StubChatOrchestrator:
     async def refresh_mcp_tools(self) -> None:
         self.refreshed = True
 
+    async def discover_mcp(self) -> dict[str, bool]:
+        return {}
+
 
 async def test_service_loads_fallback_and_persist(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"

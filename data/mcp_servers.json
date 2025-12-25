@@ -119,7 +119,7 @@
         "backend": true,
         "cli": true,
         "kiosk": false,
-        "svelte": false
+        "svelte": true
       },
       "contexts": [],
       "enabled": true,

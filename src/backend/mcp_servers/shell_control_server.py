@@ -1652,6 +1652,26 @@ async def shell_get_full_output(
     return json.dumps(response)
 
 
+# =============================================================================
+# Host Profile Resource (MCP Resource for LLM context injection)
+# =============================================================================
+
+
+@mcp.resource(
+    uri="host://profile",
+    name="HostProfile",
+    description="Lean host profile with system context for shell control. "
+    "Contains: host_id, os, desktop, display, tools, apps, quirks.",
+    mime_type="application/json",
+)
+def host_profile_resource() -> dict:
+    """Return lean host profile as MCP Resource for LLM context."""
+    try:
+        return _load_profile()
+    except (FileNotFoundError, ValueError, RuntimeError):
+        return {"error": "Profile not found", "host_id": _get_host_id_safe()}
+
+
 @mcp.tool("host_get_profile")  # type: ignore
 async def host_get_profile() -> str:
     """Get lean host profile for shell control context.

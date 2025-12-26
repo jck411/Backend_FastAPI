@@ -2102,6 +2102,213 @@ async def ui_get_monitors() -> str:
         return json.dumps({"status": "error", "message": str(exc)})
 
 
+@mcp.tool("ui_batch")  # type: ignore
+async def ui_batch(actions: list[dict[str, object]]) -> str:
+    """Run multiple UI actions in order with a single tool call.
+
+    Each action must include "action" (or "type"). Supported actions:
+    - focus: match/window/title/class/app
+    - key: combo/keys
+    - type: text (optional delay_ms)
+    - click: x, y, button, clicks
+    - wait: seconds or ms (default 0.2s)
+    - paste: optional combo (default ctrl+v)
+
+    Example:
+        ui_batch([
+            {"action": "focus", "match": "brave-browser"},
+            {"action": "key", "combo": "ctrl+l"},
+            {"action": "type", "text": "https://example.com"},
+            {"action": "key", "combo": "enter"},
+        ])
+    """
+    if not actions:
+        return json.dumps({"status": "error", "message": "No actions provided"})
+
+    for idx, action in enumerate(actions):
+        if not isinstance(action, dict):
+            return json.dumps(
+                {"status": "error", "index": idx, "message": "Action must be an object"}
+            )
+
+        action_type = (
+            action.get("action") or action.get("type") or action.get("op") or ""
+        )
+        action_type = str(action_type).strip().lower().replace(" ", "_").replace("-", "_")
+
+        if action_type in ("focus", "focus_window", "window_focus"):
+            match = (
+                action.get("match")
+                or action.get("window")
+                or action.get("title")
+                or action.get("class")
+                or action.get("app")
+            )
+            if not match:
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "index": idx,
+                        "action": action_type,
+                        "message": "Focus action requires match",
+                    }
+                )
+            result = await ui_focus_window(str(match))
+
+        elif action_type in ("key", "keys", "combo", "key_combo", "keycombo"):
+            combo = action.get("combo") or action.get("keys") or action.get("key")
+            if not combo:
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "index": idx,
+                        "action": action_type,
+                        "message": "Key action requires combo",
+                    }
+                )
+            result = await ui_key(str(combo))
+
+        elif action_type in ("type", "text", "input"):
+            text = (
+                action.get("text")
+                if "text" in action
+                else action.get("value") or action.get("input")
+            )
+            if text is None:
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "index": idx,
+                        "action": action_type,
+                        "message": "Type action requires text",
+                    }
+                )
+            delay_ms = action.get("delay_ms") if "delay_ms" in action else None
+            if delay_ms is None:
+                delay_ms = action.get("delay") if "delay" in action else None
+            if delay_ms is None:
+                delay_ms = action.get("ms") if "ms" in action else None
+            if delay_ms is None:
+                delay_ms = 0
+            try:
+                delay_ms = int(delay_ms)
+            except (TypeError, ValueError):
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "index": idx,
+                        "action": action_type,
+                        "message": "delay_ms must be an integer",
+                    }
+                )
+            result = await ui_type(str(text), delay_ms=delay_ms)
+
+        elif action_type in ("click", "mouse", "mouse_click"):
+            x = action.get("x")
+            y = action.get("y")
+            if (x is None or y is None) and isinstance(action.get("position"), dict):
+                pos = action.get("position")
+                x = pos.get("x", x)
+                y = pos.get("y", y)
+            if (x is None) != (y is None):
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "index": idx,
+                        "action": action_type,
+                        "message": "Click action requires both x and y",
+                    }
+                )
+            button = action.get("button", "left")
+            clicks = action.get("clicks", 1)
+            try:
+                x = int(x) if x is not None else None
+                y = int(y) if y is not None else None
+                clicks = int(clicks)
+            except (TypeError, ValueError):
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "index": idx,
+                        "action": action_type,
+                        "message": "Click action has invalid coordinates or clicks",
+                    }
+                )
+            result = await ui_click(x=x, y=y, button=str(button), clicks=clicks)
+
+        elif action_type in ("wait", "sleep", "pause"):
+            seconds = action.get("seconds")
+            ms = action.get("ms") if "ms" in action else None
+            if ms is None:
+                ms = action.get("duration_ms") if "duration_ms" in action else None
+            if seconds is None and ms is None:
+                seconds = 0.2
+            try:
+                if ms is not None:
+                    seconds = float(ms) / 1000.0
+                else:
+                    seconds = float(seconds)
+            except (TypeError, ValueError):
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "index": idx,
+                        "action": action_type,
+                        "message": "Wait action requires numeric seconds or ms",
+                    }
+                )
+            if seconds < 0:
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "index": idx,
+                        "action": action_type,
+                        "message": "Wait duration must be non-negative",
+                    }
+                )
+            await asyncio.sleep(seconds)
+            result = json.dumps({"status": "ok", "waited_seconds": seconds})
+
+        elif action_type in ("paste", "paste_clipboard", "clipboard_paste"):
+            combo = action.get("combo") or action.get("keys") or "ctrl+v"
+            result = await ui_key(str(combo))
+
+        else:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "index": idx,
+                    "action": action_type,
+                    "message": f"Unknown action: {action_type}",
+                }
+            )
+
+        try:
+            parsed = json.loads(result)
+        except json.JSONDecodeError:
+            return json.dumps(
+                {
+                    "status": "error",
+                    "index": idx,
+                    "action": action_type,
+                    "message": "Invalid action result",
+                }
+            )
+
+        if parsed.get("status") != "ok":
+            message = parsed.get("message") or parsed.get("error") or "Action failed"
+            return json.dumps(
+                {
+                    "status": "error",
+                    "index": idx,
+                    "action": action_type,
+                    "message": message,
+                }
+            )
+
+    return json.dumps({"status": "ok", "performed": len(actions)})
+
+
 # =============================================================================
 # Host Profile Tools
 # =============================================================================

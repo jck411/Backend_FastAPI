@@ -13,7 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from asyncio.subprocess import Process
@@ -42,6 +42,9 @@ OUTPUT_HEAD_BYTES = 2 * 1024  # For failure: first 2KB (context)
 OUTPUT_FAIL_TAIL_BYTES = 4 * 1024  # For failure: last 4KB (error details)
 LOG_RETENTION_HOURS = 48
 DELTAS_RETENTION_DAYS = 30
+
+# Output mode type for controlling verbosity
+OutputMode = Literal["none", "short", "full"]
 DELTAS_MAX_ENTRIES = 100
 HOST_PROFILE_ENV = "HOST_PROFILE_ID"
 HOST_ROOT_ENV = "HOST_ROOT_PATH"
@@ -1181,6 +1184,27 @@ def _smart_truncate(text: str, *, success: bool) -> tuple[str, bool]:
         return combined.decode("utf-8", errors="replace"), True
 
 
+def _apply_output_mode(
+    text: str,
+    *,
+    output_mode: OutputMode,
+    success: bool,
+) -> tuple[str, bool]:
+    """Apply output mode to text, returning (processed_text, was_truncated).
+
+    Modes:
+    - none: Return empty string (caller shows only status/exit_code/log_id)
+    - short: Apply smart truncation (default, current behavior)
+    - full: Return complete output unchanged
+    """
+    if output_mode == "none":
+        return "", len(text) > 0
+    elif output_mode == "full":
+        return text, False
+    else:  # "short" - default
+        return _smart_truncate(text, success=success)
+
+
 def _build_shell_env() -> dict[str, str]:
     """Build environment for shell commands with complete system PATH."""
 
@@ -1318,8 +1342,16 @@ async def _execute_and_log(
     *,
     working_directory: str | None,
     timeout_seconds: int,
+    output_mode: OutputMode = "short",
 ) -> dict[str, object]:
-    """Execute a shell command and persist the full output to a log file."""
+    """Execute a shell command and persist the full output to a log file.
+
+    Args:
+        output_mode: Controls output verbosity:
+            - "none": Return only status + exit_code + log_id (no output text)
+            - "short": Smart truncation (default, current behavior)
+            - "full": Return complete output unchanged
+    """
 
     stdout, stderr, exit_code, duration_ms = await _run_command(
         command,
@@ -1328,9 +1360,9 @@ async def _execute_and_log(
     )
 
     success = exit_code == 0
-    truncated_stdout, truncated_stdout_flag = _smart_truncate(stdout, success=success)
-    truncated_stderr, truncated_stderr_flag = _smart_truncate(stderr, success=success)
-    truncated = truncated_stdout_flag or truncated_stderr_flag
+    processed_stdout, stdout_modified = _apply_output_mode(stdout, output_mode=output_mode, success=success)
+    processed_stderr, stderr_modified = _apply_output_mode(stderr, output_mode=output_mode, success=success)
+    truncated = stdout_modified or stderr_modified
 
     # Clean up old logs before writing new one
     _cleanup_old_logs()
@@ -1355,8 +1387,8 @@ async def _execute_and_log(
     )
 
     result: dict[str, object] = {
-        "stdout": truncated_stdout,
-        "stderr": truncated_stderr,
+        "stdout": processed_stdout,
+        "stderr": processed_stderr,
         "exit_code": exit_code,
         "duration_ms": duration_ms,
         "truncated": truncated,
@@ -1502,6 +1534,7 @@ async def shell_session(
     command: str,
     session_id: str | None = None,
     timeout_seconds: int = 30,
+    output_mode: OutputMode = "short",
 ) -> str:
     """Run a command in a persistent shell session.
 
@@ -1521,9 +1554,14 @@ async def shell_session(
         command: The command to run
         session_id: Reuse an existing session. Omit to create new session.
         timeout_seconds: Max time to wait for command (default 30s, max 600s)
+        output_mode: Controls output verbosity:
+            - "none": Only status + exit_code + log_id (no output text, saves tokens)
+            - "short": Smart truncation (default)
+            - "full": Complete output unchanged
 
-    Returns: JSON with output, exit_code, cwd, session_id.
+    Returns: JSON with output, exit_code, cwd, session_id, truncated, log_id.
     Always returns session_id - use it for follow-up commands.
+    If truncated=true, use shell_get_full_output(log_id) for full output.
 
     Sessions auto-expire after 5 min idle or 1 hour total.
     """
@@ -1537,17 +1575,58 @@ async def shell_session(
         output, exit_code, cwd = await _run_in_session(sess, command, timeout_seconds)
         duration_ms = (time.perf_counter() - start) * 1000
 
-        return json.dumps(
-            {
-                "status": "ok",
-                "output": output,
-                "exit_code": exit_code,
-                "cwd": cwd,
-                "session_id": sess.session_id,
-                "command_count": sess.command_count,
-                "duration_ms": duration_ms,
-            }
+        # Apply output mode (truncation/verbosity control)
+        success = exit_code == 0
+        processed_output, was_modified = _apply_output_mode(output, output_mode=output_mode, success=success)
+
+        # Clean up old logs before writing new one
+        _cleanup_old_logs()
+
+        # Persist full output for retrieval
+        log_id = uuid.uuid4().hex
+        log_payload = {
+            "log_id": log_id,
+            "command": command,
+            "session_id": sess.session_id,
+            "output": output,
+            "exit_code": exit_code,
+            "cwd": cwd,
+            "duration_ms": duration_ms,
+            "timestamp": time.time(),
+            "truncated": was_modified,
+        }
+        log_path = _get_log_dir() / f"{log_id}.json"
+        log_path.write_text(
+            json.dumps(log_payload, ensure_ascii=False, indent=2), encoding="utf-8"
         )
+
+        result: dict[str, object] = {
+            "status": "ok",
+            "output": processed_output,
+            "exit_code": exit_code,
+            "cwd": cwd,
+            "session_id": sess.session_id,
+            "command_count": sess.command_count,
+            "duration_ms": duration_ms,
+            "truncated": was_modified,
+            "log_id": log_id,
+        }
+
+        # Auto-snapshot if command succeeded and triggers snapshot
+        if exit_code == 0:
+            triggers = _detect_snapshot_triggers(command)
+            if triggers:
+                snapshot = await _auto_snapshot_software(triggers)
+                if snapshot:
+                    result["profile_updated"] = True
+                    result["software_snapshot"] = snapshot
+
+            # Auto-open settings panel for configuration commands
+            panel_opened = await _open_settings_panel(command)
+            if panel_opened:
+                result["settings_panel_opened"] = panel_opened
+
+        return json.dumps(result)
 
     except TimeoutError as e:
         duration_ms = (time.perf_counter() - start) * 1000
@@ -1627,6 +1706,7 @@ async def shell_execute(
     working_directory: str | None = None,
     timeout_seconds: int = 30,
     background: bool = False,
+    output_mode: OutputMode = "short",
 ) -> str:
     """Execute a shell command (one-shot, no session persistence).
 
@@ -1641,6 +1721,10 @@ async def shell_execute(
         background: Set True for GUI apps (wizards, dialogs, editors).
                     Returns immediately without waiting for app to close.
         timeout_seconds: Max time to wait (default 30s, max 600s)
+        output_mode: Controls output verbosity:
+            - "none": Only status + exit_code + log_id (no output text, saves tokens)
+            - "short": Smart truncation (default)
+            - "full": Complete output unchanged
 
     Returns: stdout, stderr, exit_code, duration_ms, log_id.
     If truncated=true, use shell_get_full_output(log_id).
@@ -1666,6 +1750,7 @@ async def shell_execute(
         command,
         working_directory=working_directory,
         timeout_seconds=timeout_seconds,
+        output_mode=output_mode,
     )
     return json.dumps(result)
 

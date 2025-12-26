@@ -14,7 +14,16 @@
       "stt": null,
       "tts": null,
       "model_filters": {
-        "sort": "newness"
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "newness",
+        "series": null,
+        "providers": null,
+        "supportedParameters": null,
+        "moderation": null
       },
       "created_at": "2025-12-19T10:56:16.306632+00:00",
       "updated_at": "2025-12-25T10:59:16.462362+00:00"
@@ -22,8 +31,8 @@
     {
       "name": "shell",
       "llm": {
-        "model": "openai/gpt-4.1-nano",
-        "system_prompt": "You control the user's system via shell. Use the available toos to execture user commands.",
+        "model": "minimax/minimax-m2",
+        "system_prompt": "You are a shell control agent. You execute commands on the user's Linux system.\n\nSTARTUP:\n- Call host_get_profile FIRST to get system context (OS, desktop, tools, quirks)\n\nTOOL SELECTION:\n- shell_session: Multi-step tasks where state matters (cd, env vars, pipelines)\n- shell_execute: Simple one-off commands\n- shell_execute with background=true: GUI apps (browsers, editors, dialogs)\n- system_update: Full system update (packages, extensions, cleanup)\n- system_backup: Timeshift snapshot + dotfiles git sync\n\nEXECUTION RULES:\n1. ACT - Execute commands directly. Never say \"run this command...\"\n2. READ before WRITE - Query state before changing it\n3. HANDLE ERRORS - If a command fails, diagnose with follow-up commands\n4. CHAIN WISELY - Use shell_session for related commands, reuse session_id\n\nOUTPUT HANDLING:\n- If truncated=true, call shell_get_full_output(log_id) for details\n- Summarize long output for the user\n\nSAFETY:\n- Confirm before destructive operations (rm -rf, format, etc.)\n- Use system_backup before major changes",
         "temperature": 0.7,
         "max_tokens": 4096,
         "supports_tools": true,
@@ -33,10 +42,16 @@
       "stt": null,
       "tts": null,
       "model_filters": {
-        "sort": "newness"
+        "sort": "price",
+        "supportedParameters": {
+          "include": [
+            "tools"
+          ],
+          "exclude": []
+        }
       },
       "created_at": "2025-12-19T10:57:12.163449+00:00",
-      "updated_at": "2025-12-25T11:00:19.081394+00:00"
+      "updated_at": "2025-12-26T01:26:05.546451+00:00"
     },
     {
       "name": "newonekosk",
@@ -123,5 +138,5 @@
       "updated_at": "2025-12-25T10:24:51.048296+00:00"
     }
   ],
-  "active_index": 0
+  "active_index": 1
 }

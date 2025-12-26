@@ -1552,8 +1552,6 @@ async def shell_execute(
     - Simple one-off commands
     - GUI app launches (with background=true)
 
-    Call host_get_profile first if unsure about OS/package manager.
-
     Args:
         background: Set True for GUI apps (wizards, dialogs, editors).
                     Returns immediately without waiting for app to close.
@@ -1562,18 +1560,11 @@ async def shell_execute(
     Returns: stdout, stderr, exit_code, duration_ms, log_id.
     If truncated=true, use shell_get_full_output(log_id).
     """
-    import logging as _logging
-    _logger = _logging.getLogger(__name__)
-    _logger.info("[SHELL-DEBUG] shell_execute ENTERED: command=%r, wd=%r, timeout=%d, bg=%s",
-                 command, working_directory, timeout_seconds, background)
-
     # Validate inputs
     timeout_seconds = _validate_timeout(timeout_seconds)
-    _logger.info("[SHELL-DEBUG] shell_execute after timeout validation")
     try:
         working_directory = _validate_working_directory(working_directory)
     except ValueError as e:
-        _logger.info("[SHELL-DEBUG] shell_execute working_directory invalid: %s", e)
         return json.dumps(
             {
                 "status": "error",
@@ -1582,21 +1573,15 @@ async def shell_execute(
             }
         )
 
-    _logger.info("[SHELL-DEBUG] shell_execute after working_directory validation")
-
     if background:
-        _logger.info("[SHELL-DEBUG] shell_execute launching GUI app in background")
         result = await _launch_gui_app(command, working_directory)
-        _logger.info("[SHELL-DEBUG] shell_execute GUI app launched, returning")
         return json.dumps(result)
 
-    _logger.info("[SHELL-DEBUG] shell_execute calling _execute_and_log")
     result = await _execute_and_log(
         command,
         working_directory=working_directory,
         timeout_seconds=timeout_seconds,
     )
-    _logger.info("[SHELL-DEBUG] shell_execute _execute_and_log returned, returning result")
     return json.dumps(result)
 
 
@@ -1653,23 +1638,8 @@ async def shell_get_full_output(
 
 
 # =============================================================================
-# Host Profile Resource (MCP Resource for LLM context injection)
+# Host Profile Tools
 # =============================================================================
-
-
-@mcp.resource(
-    uri="host://profile",
-    name="HostProfile",
-    description="Lean host profile with system context for shell control. "
-    "Contains: host_id, os, desktop, display, tools, apps, quirks.",
-    mime_type="application/json",
-)
-def host_profile_resource() -> dict:
-    """Return lean host profile as MCP Resource for LLM context."""
-    try:
-        return _load_profile()
-    except (FileNotFoundError, ValueError, RuntimeError):
-        return {"error": "Profile not found", "host_id": _get_host_id_safe()}
 
 
 @mcp.tool("host_get_profile")  # type: ignore
@@ -1700,77 +1670,12 @@ async def host_get_profile() -> str:
     )
 
 
-@mcp.tool("host_update_context")  # type: ignore
-async def host_update_context(
-    action: str,
-    key: str,
-    value: str | None = None,
-    reason: str | None = None,
-) -> str:
-    """Update lean profile context. Use sparingly for significant discoveries.
+async def _refresh_system_inventory() -> dict[str, object]:
+    """Internal: Refresh system inventory after updates.
 
-    Args:
-        action: "add" or "remove"
-        key: Dot-notation path (e.g., "tools.screenshot", "quirks.no_gpu")
-        value: Value to set (required for "add", ignored for "remove")
-        reason: Why this matters (logged for audit)
-
-    Examples:
-        action="add", key="tools.screenshot", value="grim - | wl-copy"
-        action="remove", key="quirks.old_browser"
+    Called by system_update after successful package updates.
+    Updates inventory.json with current packages, services, defaults.
     """
-    if action not in ("add", "remove"):
-        return json.dumps({"status": "error", "message": "action must be 'add' or 'remove'"})
-
-    if action == "add" and not value:
-        return json.dumps({"status": "error", "message": "value required for 'add'"})
-
-    try:
-        current = _load_profile()
-    except FileNotFoundError:
-        current = {}
-    except (ValueError, RuntimeError) as exc:
-        return json.dumps({"status": "error", "message": str(exc)})
-
-    # Parse dot-notation key and build update dict
-    keys = key.split(".")
-    if action == "add":
-        update: dict = {}
-        ref = update
-        for k in keys[:-1]:
-            ref[k] = {}
-            ref = ref[k]
-        ref[keys[-1]] = value
-    else:  # remove
-        update = {}
-        ref = update
-        for k in keys[:-1]:
-            ref[k] = {}
-            ref = ref[k]
-        ref[keys[-1]] = None  # None triggers deletion in _deep_merge
-
-    try:
-        merged = _deep_merge(current, update)
-        merged["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-        _save_profile(merged)
-        _append_delta("context_update", {"action": action, "key": key, "value": value}, reason)
-    except RuntimeError as exc:
-        return json.dumps({"status": "error", "message": str(exc)})
-
-    return json.dumps({"status": "ok", "action": action, "key": key})
-
-
-@mcp.tool("host_detect_system")  # type: ignore
-async def host_detect_system() -> str:
-    """Detect system info and update both profile (lean) and inventory (full).
-
-    Updates:
-    - inventory.json: Full snapshot (packages, services, defaults, system info)
-    - profile.json: Only lean context fields (os, desktop, display)
-
-    Run this to initialize or audit system state.
-    """
-
     # Detect static system info
     system_info = await _detect_system_info()
 
@@ -1815,14 +1720,7 @@ async def host_detect_system() -> str:
         merged_profile["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         _save_profile(merged_profile)
 
-    return json.dumps(
-        {
-            "status": "ok",
-            "host_id": _get_host_id_safe(),
-            "message": "System detected. Inventory updated, profile kept lean.",
-            "inventory_fields": list(inventory_update.keys()),
-        }
-    )
+    return inventory_update
 
 
 # =============================================================================
@@ -2030,8 +1928,6 @@ __all__ = [
     "shell_execute",
     "shell_get_full_output",
     "host_get_profile",
-    "host_update_context",
-    "host_detect_system",
     "system_update",
     "system_backup",
     "run",

@@ -476,6 +476,61 @@ def _resolve_locator(page: "Page", locator: str) -> Any:
     return page.locator(raw)
 
 
+_PLAYWRIGHT_KEY_ALIASES = {
+    "ctrl": "Control",
+    "control": "Control",
+    "alt": "Alt",
+    "shift": "Shift",
+    "super": "Meta",
+    "meta": "Meta",
+    "win": "Meta",
+}
+
+_PLAYWRIGHT_SPECIAL_KEYS = {
+    "esc": "Escape",
+    "escape": "Escape",
+    "enter": "Enter",
+    "return": "Enter",
+    "tab": "Tab",
+    "space": "Space",
+    "backspace": "Backspace",
+    "delete": "Delete",
+    "del": "Delete",
+    "home": "Home",
+    "end": "End",
+    "pageup": "PageUp",
+    "pagedown": "PageDown",
+    "up": "ArrowUp",
+    "down": "ArrowDown",
+    "left": "ArrowLeft",
+    "right": "ArrowRight",
+}
+
+
+def _normalize_playwright_key(key: str) -> str:
+    """Normalize common key names to Playwright's expected format."""
+    value = key.strip()
+    if not value:
+        return value
+    lowered = value.lower()
+    if lowered in _PLAYWRIGHT_KEY_ALIASES:
+        return _PLAYWRIGHT_KEY_ALIASES[lowered]
+    if lowered in _PLAYWRIGHT_SPECIAL_KEYS:
+        return _PLAYWRIGHT_SPECIAL_KEYS[lowered]
+    if len(value) == 1:
+        return value.upper()
+    return value
+
+
+def _to_playwright_key_combo(combo: str) -> str:
+    """Convert a key combo like 'ctrl+k' to Playwright format 'Control+K'."""
+    parts = [part for part in re.split(r"[+\s]+", combo.strip()) if part]
+    if not parts:
+        return ""
+    normalized = [_normalize_playwright_key(part) for part in parts]
+    return "+".join(normalized)
+
+
 async def _extract_from_page(page: "Page", what: str) -> dict[str, Any]:
     """Extract content from a page using the browser_extract behavior."""
     what = what.strip().lower()
@@ -3165,6 +3220,7 @@ async def browser_open(
         tab_index: Optional flattened tab index (from browser_tabs).
         context_index: Optional context index for exact targeting.
         page_index: Optional page index for exact targeting.
+        If new_tab and context_index is omitted, the last-used tab context is preferred.
 
     Returns:
         JSON with status, title, and url of the page after navigation.
@@ -3177,11 +3233,23 @@ async def browser_open(
             return json.dumps({"status": "error", "message": "No browser context"})
 
         if new_tab:
-            if context_index is not None and (context_index < 0 or context_index >= len(contexts)):
-                return json.dumps({"status": "error", "message": "context_index out of range"})
-            target_ctx = contexts[context_index] if context_index is not None else contexts[0]
+            if context_index is not None:
+                if context_index < 0 or context_index >= len(contexts):
+                    return json.dumps({"status": "error", "message": "context_index out of range"})
+                ctx_idx = context_index
+            elif tab_index is not None or page_index is not None:
+                _, ctx_idx, _, _ = await _get_page_by_target(
+                    tab_index=tab_index,
+                    context_index=context_index,
+                    page_index=page_index,
+                )
+            elif _last_used_tab is not None and _last_used_tab[0] < len(contexts):
+                ctx_idx = _last_used_tab[0]
+            else:
+                _, ctx_idx, _, _ = await _get_page_by_target()
+
+            target_ctx = contexts[ctx_idx]
             page = await target_ctx.new_page()
-            ctx_idx = context_index if context_index is not None else 0
             page_idx = target_ctx.pages.index(page)
             tab_idx = _compute_tab_index(contexts, ctx_idx, page_idx)
         else:
@@ -3388,6 +3456,74 @@ async def browser_wait(
             "found": False,
             "message": str(e),
         })
+
+
+@mcp.tool("browser_key")  # type: ignore
+async def browser_key(
+    combo: str,
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
+    """Send a key combination to the current page via Playwright."""
+    if not combo:
+        return json.dumps({"status": "error", "message": "combo is required"})
+
+    try:
+        page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+            tab_index=tab_index,
+            context_index=context_index,
+            page_index=page_index,
+        )
+        _set_last_used_tab(ctx_idx, page_idx)
+        resolved = _to_playwright_key_combo(combo)
+        if not resolved:
+            return json.dumps({"status": "error", "message": "combo is required"})
+        await page.keyboard.press(resolved)
+        return json.dumps({
+            "status": "ok",
+            "combo": combo,
+            "resolved": resolved,
+            "tab_index": tab_idx,
+            "context_index": ctx_idx,
+            "page_index": page_idx,
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool("browser_type_active")  # type: ignore
+async def browser_type_active(
+    text: str,
+    clear: bool = False,
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
+    """Type into the currently focused element on the page."""
+    if text is None:
+        return json.dumps({"status": "error", "message": "text is required"})
+
+    try:
+        page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+            tab_index=tab_index,
+            context_index=context_index,
+            page_index=page_index,
+        )
+        _set_last_used_tab(ctx_idx, page_idx)
+        if clear:
+            await page.keyboard.press("Control+A")
+            await page.keyboard.press("Backspace")
+        await page.keyboard.type(str(text))
+        return json.dumps({
+            "status": "ok",
+            "typed": len(str(text)),
+            "tab_index": tab_idx,
+            "context_index": ctx_idx,
+            "page_index": page_idx,
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
 
 
 @mcp.tool("browser_tabs")  # type: ignore
@@ -3612,7 +3748,7 @@ async def browser_batch(
 ) -> str:
     """Run multiple browser actions in a single call.
 
-    Actions support: open, click, type, wait, extract, back, forward, reload, activate_tab, close_tab.
+    Actions support: open, click, type, type_active, key, wait, extract, back, forward, reload, activate_tab, close_tab.
     To include per-step results, set return_details=true.
     """
     global _last_used_tab
@@ -3659,18 +3795,23 @@ async def browser_batch(
                     raise RuntimeError("No browser context")
 
                 if new_tab:
-                    if target_context_index is not None and (
-                        target_context_index < 0
-                        or target_context_index >= len(contexts)
-                    ):
-                        raise ValueError("context_index out of range")
-                    target_ctx = (
-                        contexts[target_context_index]
-                        if target_context_index is not None
-                        else contexts[0]
-                    )
+                    if target_context_index is not None:
+                        if target_context_index < 0 or target_context_index >= len(contexts):
+                            raise ValueError("context_index out of range")
+                        ctx_idx = target_context_index
+                    elif target_tab_index is not None or target_page_index is not None:
+                        _, ctx_idx, _, _ = await _get_page_by_target(
+                            tab_index=target_tab_index,
+                            context_index=target_context_index,
+                            page_index=target_page_index,
+                        )
+                    elif _last_used_tab is not None and _last_used_tab[0] < len(contexts):
+                        ctx_idx = _last_used_tab[0]
+                    else:
+                        _, ctx_idx, _, _ = await _get_page_by_target()
+
+                    target_ctx = contexts[ctx_idx]
                     page = await target_ctx.new_page()
-                    ctx_idx = target_context_index if target_context_index is not None else 0
                     page_idx = target_ctx.pages.index(page)
                     tab_idx = _compute_tab_index(contexts, ctx_idx, page_idx)
                 else:
@@ -3737,6 +3878,54 @@ async def browser_batch(
                     "status": "ok",
                     "action": action_type,
                     "selector": selector,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                }
+
+            elif action_type in ("type_active", "type_focused", "type_current"):
+                text = action.get("text")
+                if text is None:
+                    raise ValueError("Type action requires text")
+                clear = action.get("clear", False)
+                page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                    tab_index=target_tab_index,
+                    context_index=target_context_index,
+                    page_index=target_page_index,
+                )
+                _set_last_used_tab(ctx_idx, page_idx)
+                if clear:
+                    await page.keyboard.press("Control+A")
+                    await page.keyboard.press("Backspace")
+                await page.keyboard.type(str(text))
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "typed": len(str(text)),
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                }
+
+            elif action_type in ("key", "press", "keyboard"):
+                combo = action.get("combo") or action.get("key") or action.get("keys")
+                if not combo:
+                    raise ValueError("Key action requires combo")
+                page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                    tab_index=target_tab_index,
+                    context_index=target_context_index,
+                    page_index=target_page_index,
+                )
+                _set_last_used_tab(ctx_idx, page_idx)
+                resolved = _to_playwright_key_combo(str(combo))
+                if not resolved:
+                    raise ValueError("Key action requires combo")
+                await page.keyboard.press(resolved)
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "combo": combo,
+                    "resolved": resolved,
                     "tab_index": tab_idx,
                     "context_index": ctx_idx,
                     "page_index": page_idx,
@@ -4008,6 +4197,8 @@ __all__ = [
     "browser_open",
     "browser_click",
     "browser_type",
+    "browser_type_active",
+    "browser_key",
     "browser_extract",
     "browser_wait",
     "browser_tabs",

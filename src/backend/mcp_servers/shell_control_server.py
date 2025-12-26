@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -296,6 +297,7 @@ async def _close_session(session_id: str) -> bool:
 _browser: "Browser | None" = None
 _playwright_instance: Any = None
 CDP_URL = "http://localhost:9222"
+_last_used_tab: tuple[int, int] | None = None  # (context_index, page_index)
 
 
 async def _ensure_browser() -> "Browser":
@@ -330,29 +332,231 @@ async def _ensure_browser() -> "Browser":
         ) from e
 
 
-async def _get_active_page() -> "Page":
-    """Get the currently active browser page (most recently used)."""
+def _flatten_browser_pages(
+    contexts: list["BrowserContext"],
+) -> list[tuple[int, int, "Page"]]:
+    """Return a flat list of pages with (context_index, page_index, page)."""
+    pages: list[tuple[int, int, "Page"]] = []
+    for ctx_idx, ctx in enumerate(contexts):
+        for page_idx, page in enumerate(ctx.pages):
+            pages.append((ctx_idx, page_idx, page))
+    return pages
+
+
+def _compute_tab_index(
+    contexts: list["BrowserContext"],
+    context_index: int,
+    page_index: int,
+) -> int | None:
+    """Compute flattened tab index for a context/page pair."""
+    tab_index = 0
+    for ctx_idx, ctx in enumerate(contexts):
+        if ctx_idx == context_index:
+            if 0 <= page_index < len(ctx.pages):
+                return tab_index + page_index
+            return None
+        tab_index += len(ctx.pages)
+    return None
+
+
+def _set_last_used_tab(context_index: int, page_index: int) -> None:
+    """Record the most recently used tab for default targeting."""
+    global _last_used_tab
+    _last_used_tab = (context_index, page_index)
+
+
+async def _get_page_by_target(
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> tuple["Page", int, int, int]:
+    """Resolve a tab target into a page and its indices."""
     browser = await _ensure_browser()
     contexts = browser.contexts
 
     if not contexts:
         raise RuntimeError("No browser contexts found. Is Brave running?")
 
-    # Get pages from all contexts
-    all_pages: list["Page"] = []
-    for ctx in contexts:
-        all_pages.extend(ctx.pages)
+    if context_index is not None or page_index is not None:
+        if context_index is None or page_index is None:
+            raise ValueError("Both context_index and page_index are required")
+        if context_index < 0 or context_index >= len(contexts):
+            raise ValueError("context_index out of range")
+        pages = contexts[context_index].pages
+        if not pages:
+            raise RuntimeError("No browser pages/tabs found in context")
+        if page_index < 0 or page_index >= len(pages):
+            raise ValueError("page_index out of range")
+        page = pages[page_index]
+        flat_index = _compute_tab_index(contexts, context_index, page_index)
+        if flat_index is None:
+            raise RuntimeError("Failed to resolve tab index")
+        return page, context_index, page_index, flat_index
 
-    if not all_pages:
+    flat_pages = _flatten_browser_pages(contexts)
+    if not flat_pages:
         raise RuntimeError("No browser pages/tabs found.")
 
-    # Return the last page (usually the active one)
-    return all_pages[-1]
+    if tab_index is not None:
+        if tab_index < 0 or tab_index >= len(flat_pages):
+            raise ValueError("tab_index out of range")
+        ctx_idx, page_idx, page = flat_pages[tab_index]
+        return page, ctx_idx, page_idx, tab_index
+
+    if _last_used_tab is not None:
+        ctx_idx, page_idx = _last_used_tab
+        if 0 <= ctx_idx < len(contexts):
+            pages = contexts[ctx_idx].pages
+            if 0 <= page_idx < len(pages):
+                page = pages[page_idx]
+                flat_index = _compute_tab_index(contexts, ctx_idx, page_idx)
+                if flat_index is None:
+                    flat_index = len(flat_pages) - 1
+                return page, ctx_idx, page_idx, flat_index
+
+    ctx_idx, page_idx, page = flat_pages[-1]
+    return page, ctx_idx, page_idx, len(flat_pages) - 1
+
+
+async def _get_active_page() -> "Page":
+    """Get the currently active browser page (most recently used)."""
+    page, ctx_idx, page_idx, _ = await _get_page_by_target()
+    _set_last_used_tab(ctx_idx, page_idx)
+    return page
+
+
+def _strip_quotes(value: str) -> str:
+    """Remove matching single or double quotes around a string."""
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        return value[1:-1]
+    return value
+
+
+def _parse_role_locator(locator: str) -> tuple[str, str | None]:
+    """Parse role locator like role=button[name=\"Sign in\"]."""
+    role_spec = locator[len("role="):].strip()
+    role = role_spec
+    name: str | None = None
+
+    if "[" in role_spec and role_spec.endswith("]"):
+        role, rest = role_spec.split("[", 1)
+        role = role.strip()
+        rest = rest[:-1].strip()
+        match = re.search(r"name\s*=\s*(\"[^\"]*\"|'[^']*'|[^\]]+)", rest)
+        if match:
+            name = _strip_quotes(match.group(1))
+
+    return role, name
+
+
+def _resolve_locator(page: "Page", locator: str) -> Any:
+    """Resolve a locator string to a Playwright locator."""
+    if not locator:
+        raise ValueError("Locator is required")
+
+    raw = locator.strip()
+
+    if raw.startswith("css="):
+        return page.locator(raw[len("css="):])
+    if raw.startswith("xpath="):
+        return page.locator(f"xpath={raw[len('xpath='):]}")
+    if raw.startswith("//"):
+        return page.locator(f"xpath={raw}")
+    if raw.startswith("text="):
+        return page.get_by_text(_strip_quotes(raw[len("text="):]))
+    if raw.startswith("label="):
+        return page.get_by_label(_strip_quotes(raw[len("label="):]))
+    if raw.startswith("role="):
+        role, name = _parse_role_locator(raw)
+        if not role:
+            raise ValueError("role locator requires a role name")
+        return page.get_by_role(role, name=name) if name else page.get_by_role(role)
+
+    return page.locator(raw)
+
+
+async def _extract_from_page(page: "Page", what: str) -> dict[str, Any]:
+    """Extract content from a page using the browser_extract behavior."""
+    what = what.strip().lower()
+
+    if what == "title":
+        return {"status": "ok", "title": await page.title()}
+
+    if what == "url":
+        return {"status": "ok", "url": page.url}
+
+    if what == "text":
+        text = await page.inner_text("body")
+        text = " ".join(text.split())[:8000]
+        return {
+            "status": "ok",
+            "text": text,
+            "truncated": len(text) == 8000,
+        }
+
+    if what == "html":
+        html = await page.content()
+        return {
+            "status": "ok",
+            "html": html[:50000],
+            "truncated": len(html) > 50000,
+        }
+
+    if what == "links":
+        links = await page.eval_on_selector_all(
+            "a[href]",
+            """els => els.slice(0, 100).map(a => ({
+                text: a.innerText.trim().slice(0, 100),
+                href: a.href
+            }))""",
+        )
+        return {"status": "ok", "links": links, "count": len(links)}
+
+    return {
+        "status": "error",
+        "message": f"Unknown extract type: {what}. Use: text, title, url, html, links",
+    }
+
+
+def _resolve_bookmark_url(profile: dict, name: str) -> str | None:
+    """Resolve a bookmark name to a URL from the host profile."""
+    if not name:
+        return None
+
+    target = name.strip().lower()
+    bookmarks = profile.get("bookmarks")
+
+    if isinstance(bookmarks, dict):
+        for key, value in bookmarks.items():
+            if not isinstance(key, str):
+                continue
+            if key.strip().lower() != target:
+                continue
+            if isinstance(value, str):
+                return value
+            if isinstance(value, dict):
+                url = value.get("url") or value.get("href") or value.get("link")
+                if isinstance(url, str):
+                    return url
+
+    if isinstance(bookmarks, list):
+        for item in bookmarks:
+            if not isinstance(item, dict):
+                continue
+            item_name = item.get("name") or item.get("title") or item.get("label")
+            if isinstance(item_name, str) and item_name.strip().lower() == target:
+                url = item.get("url") or item.get("href") or item.get("link")
+                if isinstance(url, str):
+                    return url
+
+    return None
+
 
 
 async def _shutdown_browser() -> None:
     """Close Playwright connection on shutdown."""
-    global _browser, _playwright_instance
+    global _browser, _playwright_instance, _last_used_tab
     if _playwright_instance:
         try:
             await _playwright_instance.stop()
@@ -360,6 +564,7 @@ async def _shutdown_browser() -> None:
             pass
     _browser = None
     _playwright_instance = None
+    _last_used_tab = None
 
 
 def _get_repo_root() -> Path:
@@ -1194,14 +1399,14 @@ def _apply_output_mode(
 
     Modes:
     - none: Return empty string (caller shows only status/exit_code/log_id)
-    - short: Apply smart truncation (default, current behavior)
+    - short: Apply smart truncation
     - full: Return complete output unchanged
     """
     if output_mode == "none":
         return "", len(text) > 0
     elif output_mode == "full":
         return text, False
-    else:  # "short" - default
+    else:  # "short"
         return _smart_truncate(text, success=success)
 
 
@@ -1349,7 +1554,7 @@ async def _execute_and_log(
     Args:
         output_mode: Controls output verbosity:
             - "none": Return only status + exit_code + log_id (no output text)
-            - "short": Smart truncation (default, current behavior)
+            - "short": Smart truncation
             - "full": Return complete output unchanged
     """
 
@@ -1534,7 +1739,7 @@ async def shell_session(
     command: str,
     session_id: str | None = None,
     timeout_seconds: int = 30,
-    output_mode: OutputMode = "short",
+    output_mode: OutputMode = "none",
 ) -> str:
     """Run a command in a persistent shell session.
 
@@ -1556,7 +1761,7 @@ async def shell_session(
         timeout_seconds: Max time to wait for command (default 30s, max 600s)
         output_mode: Controls output verbosity:
             - "none": Only status + exit_code + log_id (no output text, saves tokens)
-            - "short": Smart truncation (default)
+            - "short": Smart truncation
             - "full": Complete output unchanged
 
     Returns: JSON with output, exit_code, cwd, session_id, truncated, log_id.
@@ -1706,7 +1911,7 @@ async def shell_execute(
     working_directory: str | None = None,
     timeout_seconds: int = 30,
     background: bool = False,
-    output_mode: OutputMode = "short",
+    output_mode: OutputMode = "none",
 ) -> str:
     """Execute a shell command (one-shot, no session persistence).
 
@@ -1723,7 +1928,7 @@ async def shell_execute(
         timeout_seconds: Max time to wait (default 30s, max 600s)
         output_mode: Controls output verbosity:
             - "none": Only status + exit_code + log_id (no output text, saves tokens)
-            - "short": Smart truncation (default)
+            - "short": Smart truncation
             - "full": Complete output unchanged
 
     Returns: stdout, stderr, exit_code, duration_ms, log_id.
@@ -1761,10 +1966,10 @@ async def shell_get_full_output(
     offset: int = 0,
     limit: int = 100000,
 ) -> str:
-    """Retrieve full command output when shell_execute returned truncated=true.
+    """Retrieve full command output when shell_execute or shell_session returned truncated=true.
 
     Args:
-        log_id: The log_id returned by shell_execute
+        log_id: The log_id returned by shell_execute or shell_session
         offset: Byte offset to start reading from (for chunked retrieval)
         limit: Maximum bytes to return (default 100KB)
 
@@ -1794,8 +1999,19 @@ async def shell_get_full_output(
 
     start = max(offset, 0)
     end = start + limit
-    stdout = payload.get("stdout", "")
-    stderr = payload.get("stderr", "")
+    stdout = payload.get("stdout")
+    stderr = payload.get("stderr")
+    output = payload.get("output")
+
+    if isinstance(stdout, str) or isinstance(stderr, str):
+        stdout = stdout if isinstance(stdout, str) else ""
+        stderr = stderr if isinstance(stderr, str) else ""
+    elif isinstance(output, str):
+        stdout = output
+        stderr = ""
+    else:
+        stdout = ""
+        stderr = ""
 
     response = {
         **payload,
@@ -2023,6 +2239,64 @@ async def _ui_focus_window_impl(match: str) -> dict[str, Any]:
         return {"status": "error", "message": str(exc)}
 
 
+async def _ui_focus_address_impl(address: str) -> dict[str, Any]:
+    """Internal: focus a window by Hyprland address."""
+    if not address:
+        return {"status": "error", "message": "No address provided"}
+
+    try:
+        process = await asyncio.create_subprocess_shell(
+            f"hyprctl dispatch focuswindow address:{shlex.quote(address)}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_build_shell_env(),
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+        output = stdout.decode("utf-8", errors="replace").strip()
+
+        if "ok" in output.lower() or process.returncode == 0:
+            return {"status": "ok", "focused": address, "by": "address"}
+
+        return {
+            "status": "error",
+            "message": stderr.decode("utf-8", errors="replace").strip() or output,
+        }
+
+    except asyncio.TimeoutError:
+        return {"status": "error", "message": "Timeout focusing window"}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+async def _ui_close_address_impl(address: str) -> dict[str, Any]:
+    """Internal: close a window by Hyprland address."""
+    if not address:
+        return {"status": "error", "message": "No address provided"}
+
+    try:
+        process = await asyncio.create_subprocess_shell(
+            f"hyprctl dispatch closewindow address:{shlex.quote(address)}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_build_shell_env(),
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+        output = stdout.decode("utf-8", errors="replace").strip()
+
+        if "ok" in output.lower() or process.returncode == 0:
+            return {"status": "ok", "closed": address, "by": "address"}
+
+        return {
+            "status": "error",
+            "message": stderr.decode("utf-8", errors="replace").strip() or output,
+        }
+
+    except asyncio.TimeoutError:
+        return {"status": "error", "message": "Timeout closing window"}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
 @mcp.tool("ui_type")  # type: ignore
 async def ui_type(text: str, delay_ms: int = 0) -> str:
     """Type text into the currently focused window.
@@ -2205,6 +2479,17 @@ async def ui_focus_window(match: str) -> str:
     return json.dumps(result)
 
 
+@mcp.tool("ui_focus_address")  # type: ignore
+async def ui_focus_address(address: str) -> str:
+    """Focus a window by Hyprland address.
+
+    Args:
+        address: Window address from ui_list_windows (e.g., "0x1a2b3c")
+    """
+    result = await _ui_focus_address_impl(address)
+    return json.dumps(result)
+
+
 @mcp.tool("ui_close_window")  # type: ignore
 async def ui_close_window(match: str | None = None) -> str:
     """Close a window by class name, or close the currently focused window.
@@ -2246,6 +2531,17 @@ async def ui_close_window(match: str | None = None) -> str:
         return json.dumps({"status": "error", "message": "Timeout closing window"})
     except Exception as exc:
         return json.dumps({"status": "error", "message": str(exc)})
+
+
+@mcp.tool("ui_close_address")  # type: ignore
+async def ui_close_address(address: str) -> str:
+    """Close a window by Hyprland address.
+
+    Args:
+        address: Window address from ui_list_windows (e.g., "0x1a2b3c")
+    """
+    result = await _ui_close_address_impl(address)
+    return json.dumps(result)
 
 
 @mcp.tool("ui_get_monitors")  # type: ignore
@@ -2294,17 +2590,83 @@ async def ui_get_monitors() -> str:
         return json.dumps({"status": "error", "message": str(exc)})
 
 
+@mcp.tool("ui_health")  # type: ignore
+async def ui_health() -> str:
+    """Check UI automation readiness (ydotool + hyprctl)."""
+    checks: dict[str, Any] = {}
+    issues: list[str] = []
+
+    ydotool_path = shutil.which("ydotool")
+    ydotoold_path = shutil.which("ydotoold")
+    socket_path = os.environ.get(
+        "YDOTOOL_SOCKET", f"/run/user/{os.getuid()}/ydotool_socket"
+    )
+    socket_exists = os.path.exists(socket_path)
+
+    checks["ydotool"] = {
+        "available": bool(ydotool_path),
+        "path": ydotool_path or "",
+    }
+    checks["ydotoold"] = {
+        "available": bool(ydotoold_path),
+        "path": ydotoold_path or "",
+        "socket": socket_path,
+        "socket_exists": socket_exists,
+    }
+
+    if not ydotool_path:
+        issues.append("ydotool not found")
+    if not socket_exists:
+        issues.append("ydotoold socket not found")
+
+    hyprctl_path = shutil.which("hyprctl")
+    if not hyprctl_path:
+        checks["hyprctl"] = {"available": False, "ok": False}
+        issues.append("hyprctl not found")
+    else:
+        try:
+            process = await asyncio.create_subprocess_shell(
+                "hyprctl monitors -j",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_build_shell_env(),
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+            ok = process.returncode == 0
+            checks["hyprctl"] = {
+                "available": True,
+                "ok": ok,
+                "message": stderr.decode("utf-8", errors="replace").strip()
+                if not ok
+                else "",
+            }
+            if not ok:
+                issues.append("hyprctl check failed")
+        except asyncio.TimeoutError:
+            checks["hyprctl"] = {"available": True, "ok": False, "message": "timeout"}
+            issues.append("hyprctl check timed out")
+        except Exception as exc:
+            checks["hyprctl"] = {"available": True, "ok": False, "message": str(exc)}
+            issues.append("hyprctl check failed")
+
+    status = "ok" if not issues else "error"
+    return json.dumps({"status": status, "checks": checks, "issues": issues})
+
+
 @mcp.tool("ui_batch")  # type: ignore
-async def ui_batch(actions: list[dict[str, Any]]) -> str:
+async def ui_batch(actions: list[dict[str, Any]], return_details: bool = False) -> str:
     """Run multiple UI actions in order with a single tool call.
 
     Each action must include "action" (or "type"). Supported actions:
-    - focus: match/window/title/class/app
+    - focus: match/window/title/class/app or address
     - key: combo/keys
     - type: text (optional delay_ms)
     - click: x, y, button, clicks
     - wait: seconds or ms (default 0.2s)
     - paste: optional combo (default ctrl+v)
+
+    Args:
+        return_details: If True, include per-step results in the response.
 
     Example:
         ui_batch([
@@ -2317,11 +2679,18 @@ async def ui_batch(actions: list[dict[str, Any]]) -> str:
     if not actions:
         return json.dumps({"status": "error", "message": "No actions provided"})
 
+    details: list[dict[str, Any]] = []
+
     for idx, action in enumerate(actions):
         if not isinstance(action, dict):
-            return json.dumps(
-                {"status": "error", "index": idx, "message": "Action must be an object"}
-            )
+            error_payload = {
+                "status": "error",
+                "index": idx,
+                "message": "Action must be an object",
+            }
+            if return_details:
+                error_payload["results"] = details
+            return json.dumps(error_payload)
 
         action_type = (
             action.get("action") or action.get("type") or action.get("op") or ""
@@ -2329,35 +2698,41 @@ async def ui_batch(actions: list[dict[str, Any]]) -> str:
         action_type = str(action_type).strip().lower().replace(" ", "_").replace("-", "_")
 
         if action_type in ("focus", "focus_window", "window_focus"):
-            match = (
-                action.get("match")
-                or action.get("window")
-                or action.get("title")
-                or action.get("class")
-                or action.get("app")
-            )
-            if not match:
-                return json.dumps(
-                    {
+            address = action.get("address")
+            if address:
+                result = await _ui_focus_address_impl(str(address))
+            else:
+                match = (
+                    action.get("match")
+                    or action.get("window")
+                    or action.get("title")
+                    or action.get("class")
+                    or action.get("app")
+                )
+                if not match:
+                    error_payload = {
                         "status": "error",
                         "index": idx,
                         "action": action_type,
-                        "message": "Focus action requires match",
+                        "message": "Focus action requires match or address",
                     }
-                )
-            result = await _ui_focus_window_impl(str(match))
+                    if return_details:
+                        error_payload["results"] = details
+                    return json.dumps(error_payload)
+                result = await _ui_focus_window_impl(str(match))
 
         elif action_type in ("key", "keys", "combo", "key_combo", "keycombo"):
             combo = action.get("combo") or action.get("keys") or action.get("key")
             if not combo:
-                return json.dumps(
-                    {
-                        "status": "error",
-                        "index": idx,
-                        "action": action_type,
-                        "message": "Key action requires combo",
-                    }
-                )
+                error_payload = {
+                    "status": "error",
+                    "index": idx,
+                    "action": action_type,
+                    "message": "Key action requires combo",
+                }
+                if return_details:
+                    error_payload["results"] = details
+                return json.dumps(error_payload)
             result = await _ui_key_impl(str(combo))
 
         elif action_type in ("type", "text", "input"):
@@ -2367,14 +2742,15 @@ async def ui_batch(actions: list[dict[str, Any]]) -> str:
                 else action.get("value") or action.get("input")
             )
             if text is None:
-                return json.dumps(
-                    {
-                        "status": "error",
-                        "index": idx,
-                        "action": action_type,
-                        "message": "Type action requires text",
-                    }
-                )
+                error_payload = {
+                    "status": "error",
+                    "index": idx,
+                    "action": action_type,
+                    "message": "Type action requires text",
+                }
+                if return_details:
+                    error_payload["results"] = details
+                return json.dumps(error_payload)
             delay_ms = action.get("delay_ms") if "delay_ms" in action else None
             if delay_ms is None:
                 delay_ms = action.get("delay") if "delay" in action else None
@@ -2385,14 +2761,15 @@ async def ui_batch(actions: list[dict[str, Any]]) -> str:
             try:
                 delay_ms = int(delay_ms)
             except (TypeError, ValueError):
-                return json.dumps(
-                    {
-                        "status": "error",
-                        "index": idx,
-                        "action": action_type,
-                        "message": "delay_ms must be an integer",
-                    }
-                )
+                error_payload = {
+                    "status": "error",
+                    "index": idx,
+                    "action": action_type,
+                    "message": "delay_ms must be an integer",
+                }
+                if return_details:
+                    error_payload["results"] = details
+                return json.dumps(error_payload)
             result = await _ui_type_impl(str(text), delay_ms=delay_ms)
 
         elif action_type in ("click", "mouse", "mouse_click"):
@@ -2403,14 +2780,15 @@ async def ui_batch(actions: list[dict[str, Any]]) -> str:
                 x = pos.get("x", x)
                 y = pos.get("y", y)
             if (x is None) != (y is None):
-                return json.dumps(
-                    {
-                        "status": "error",
-                        "index": idx,
-                        "action": action_type,
-                        "message": "Click action requires both x and y",
-                    }
-                )
+                error_payload = {
+                    "status": "error",
+                    "index": idx,
+                    "action": action_type,
+                    "message": "Click action requires both x and y",
+                }
+                if return_details:
+                    error_payload["results"] = details
+                return json.dumps(error_payload)
             button = action.get("button", "left")
             clicks = action.get("clicks", 1)
             try:
@@ -2418,14 +2796,15 @@ async def ui_batch(actions: list[dict[str, Any]]) -> str:
                 y = int(y) if y is not None else None
                 clicks = int(clicks)
             except (TypeError, ValueError):
-                return json.dumps(
-                    {
-                        "status": "error",
-                        "index": idx,
-                        "action": action_type,
-                        "message": "Click action has invalid coordinates or clicks",
-                    }
-                )
+                error_payload = {
+                    "status": "error",
+                    "index": idx,
+                    "action": action_type,
+                    "message": "Click action has invalid coordinates or clicks",
+                }
+                if return_details:
+                    error_payload["results"] = details
+                return json.dumps(error_payload)
             result = await _ui_click_impl(x=x, y=y, button=str(button), clicks=clicks)
 
         elif action_type in ("wait", "sleep", "pause"):
@@ -2441,23 +2820,25 @@ async def ui_batch(actions: list[dict[str, Any]]) -> str:
                 else:
                     seconds = float(seconds)
             except (TypeError, ValueError):
-                return json.dumps(
-                    {
-                        "status": "error",
-                        "index": idx,
-                        "action": action_type,
-                        "message": "Wait action requires numeric seconds or ms",
-                    }
-                )
+                error_payload = {
+                    "status": "error",
+                    "index": idx,
+                    "action": action_type,
+                    "message": "Wait action requires numeric seconds or ms",
+                }
+                if return_details:
+                    error_payload["results"] = details
+                return json.dumps(error_payload)
             if seconds < 0:
-                return json.dumps(
-                    {
-                        "status": "error",
-                        "index": idx,
-                        "action": action_type,
-                        "message": "Wait duration must be non-negative",
-                    }
-                )
+                error_payload = {
+                    "status": "error",
+                    "index": idx,
+                    "action": action_type,
+                    "message": "Wait duration must be non-negative",
+                }
+                if return_details:
+                    error_payload["results"] = details
+                return json.dumps(error_payload)
             await asyncio.sleep(seconds)
             result = {"status": "ok", "waited_seconds": seconds}
 
@@ -2466,27 +2847,86 @@ async def ui_batch(actions: list[dict[str, Any]]) -> str:
             result = await _ui_key_impl(str(combo))
 
         else:
-            return json.dumps(
-                {
-                    "status": "error",
-                    "index": idx,
-                    "action": action_type,
-                    "message": f"Unknown action: {action_type}",
-                }
-            )
+            error_payload = {
+                "status": "error",
+                "index": idx,
+                "action": action_type,
+                "message": f"Unknown action: {action_type}",
+            }
+            if return_details:
+                error_payload["results"] = details
+            return json.dumps(error_payload)
+
+        if return_details:
+            details.append({"index": idx, "action": action_type, **result})
 
         if result.get("status") != "ok":
             message = result.get("message") or result.get("error") or "Action failed"
-            return json.dumps(
-                {
-                    "status": "error",
-                    "index": idx,
-                    "action": action_type,
-                    "message": message,
-                }
-            )
+            error_payload = {
+                "status": "error",
+                "index": idx,
+                "action": action_type,
+                "message": message,
+            }
+            if return_details:
+                error_payload["results"] = details
+            return json.dumps(error_payload)
 
-    return json.dumps({"status": "ok", "performed": len(actions)})
+    response = {"status": "ok", "performed": len(actions)}
+    if return_details:
+        response["results"] = details
+    return json.dumps(response)
+
+
+@mcp.tool("clipboard_set")  # type: ignore
+async def clipboard_set(text: str) -> str:
+    """Set the system clipboard contents using wl-copy."""
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "wl-copy",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_build_shell_env(),
+        )
+        _, stderr = await asyncio.wait_for(
+            process.communicate(input=text.encode("utf-8")),
+            timeout=5.0,
+        )
+        if process.returncode != 0:
+            return json.dumps({
+                "status": "error",
+                "message": stderr.decode("utf-8", errors="replace").strip(),
+            })
+        return json.dumps({"status": "ok", "length": len(text)})
+    except asyncio.TimeoutError:
+        return json.dumps({"status": "error", "message": "Timeout setting clipboard"})
+    except Exception as exc:
+        return json.dumps({"status": "error", "message": str(exc)})
+
+
+@mcp.tool("clipboard_get")  # type: ignore
+async def clipboard_get() -> str:
+    """Get the system clipboard contents using wl-paste."""
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "wl-paste",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_build_shell_env(),
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+        if process.returncode != 0:
+            return json.dumps({
+                "status": "error",
+                "message": stderr.decode("utf-8", errors="replace").strip(),
+            })
+        text = stdout.decode("utf-8", errors="replace")
+        return json.dumps({"status": "ok", "text": text, "length": len(text)})
+    except asyncio.TimeoutError:
+        return json.dumps({"status": "error", "message": "Timeout reading clipboard"})
+    except Exception as exc:
+        return json.dumps({"status": "error", "message": str(exc)})
 
 
 # =============================================================================
@@ -2710,62 +3150,92 @@ async def system_backup() -> str:
 
 
 @mcp.tool("browser_open")  # type: ignore
-async def browser_open(url: str, new_tab: bool = False) -> str:
+async def browser_open(
+    url: str,
+    new_tab: bool = False,
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
     """Navigate to a URL in the browser.
 
     Args:
         url: The URL to navigate to (must include http:// or https://).
         new_tab: If True, open in a new tab. If False, navigate current tab.
+        tab_index: Optional flattened tab index (from browser_tabs).
+        context_index: Optional context index for exact targeting.
+        page_index: Optional page index for exact targeting.
 
     Returns:
         JSON with status, title, and url of the page after navigation.
     """
     try:
         browser = await _ensure_browser()
+        contexts = browser.contexts
+
+        if not contexts:
+            return json.dumps({"status": "error", "message": "No browser context"})
 
         if new_tab:
-            # Create new page in first context
-            contexts = browser.contexts
-            if not contexts:
-                return json.dumps({"status": "error", "message": "No browser context"})
-            page = await contexts[0].new_page()
+            if context_index is not None and (context_index < 0 or context_index >= len(contexts)):
+                return json.dumps({"status": "error", "message": "context_index out of range"})
+            target_ctx = contexts[context_index] if context_index is not None else contexts[0]
+            page = await target_ctx.new_page()
+            ctx_idx = context_index if context_index is not None else 0
+            page_idx = target_ctx.pages.index(page)
+            tab_idx = _compute_tab_index(contexts, ctx_idx, page_idx)
         else:
-            page = await _get_active_page()
+            page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                tab_index=tab_index,
+                context_index=context_index,
+                page_index=page_index,
+            )
 
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         title = await page.title()
+        _set_last_used_tab(ctx_idx, page_idx)
 
         return json.dumps({
             "status": "ok",
             "title": title,
             "url": page.url,
             "new_tab": new_tab,
+            "tab_index": tab_idx,
+            "context_index": ctx_idx,
+            "page_index": page_idx,
         })
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
 
 @mcp.tool("browser_click")  # type: ignore
-async def browser_click(selector: str) -> str:
+async def browser_click(
+    selector: str,
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
     """Click an element on the page.
 
     Args:
-        selector: CSS selector, XPath (starting with //), or text to match.
-                  Examples: "#submit", "//button[@type='submit']", "text=Sign In"
+        selector: Locator string (css=, xpath=, text=, role=, label=) or raw CSS/XPath.
+                  Examples: "css=#submit", "xpath=//button[@type='submit']", "text=Sign In",
+                  "role=button[name=\"Sign in\"]", "label=Email"
+        tab_index: Optional flattened tab index (from browser_tabs).
+        context_index: Optional context index for exact targeting.
+        page_index: Optional page index for exact targeting.
 
     Returns:
         JSON with status and element info.
     """
     try:
-        page = await _get_active_page()
-
-        # Determine selector type
-        if selector.startswith("//"):
-            locator = page.locator(f"xpath={selector}")
-        elif selector.startswith("text="):
-            locator = page.get_by_text(selector[5:])
-        else:
-            locator = page.locator(selector)
+        page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+            tab_index=tab_index,
+            context_index=context_index,
+            page_index=page_index,
+        )
+        _set_last_used_tab(ctx_idx, page_idx)
+        locator = _resolve_locator(page, selector)
 
         await locator.first.click(timeout=10000)
 
@@ -2773,26 +3243,44 @@ async def browser_click(selector: str) -> str:
             "status": "ok",
             "clicked": selector,
             "url": page.url,
+            "tab_index": tab_idx,
+            "context_index": ctx_idx,
+            "page_index": page_idx,
         })
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e), "selector": selector})
 
 
 @mcp.tool("browser_type")  # type: ignore
-async def browser_type(selector: str, text: str, clear: bool = True) -> str:
+async def browser_type(
+    selector: str,
+    text: str,
+    clear: bool = True,
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
     """Type text into an input field.
 
     Args:
-        selector: CSS selector for the input element.
+        selector: Locator string (css=, xpath=, text=, role=, label=) or raw CSS/XPath.
         text: Text to type.
         clear: If True, clear the field before typing.
+        tab_index: Optional flattened tab index (from browser_tabs).
+        context_index: Optional context index for exact targeting.
+        page_index: Optional page index for exact targeting.
 
     Returns:
         JSON with status.
     """
     try:
-        page = await _get_active_page()
-        locator = page.locator(selector).first
+        page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+            tab_index=tab_index,
+            context_index=context_index,
+            page_index=page_index,
+        )
+        _set_last_used_tab(ctx_idx, page_idx)
+        locator = _resolve_locator(page, selector).first
 
         if clear:
             await locator.clear()
@@ -2803,13 +3291,21 @@ async def browser_type(selector: str, text: str, clear: bool = True) -> str:
             "status": "ok",
             "selector": selector,
             "typed": text[:50] + "..." if len(text) > 50 else text,
+            "tab_index": tab_idx,
+            "context_index": ctx_idx,
+            "page_index": page_idx,
         })
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e), "selector": selector})
 
 
 @mcp.tool("browser_extract")  # type: ignore
-async def browser_extract(what: str = "text") -> str:
+async def browser_extract(
+    what: str = "text",
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
     """Extract content from the current page. NO SCREENSHOTS - text/DOM only.
 
     Args:
@@ -2819,65 +3315,48 @@ async def browser_extract(what: str = "text") -> str:
               - "url": Current URL
               - "html": Raw HTML (large, use sparingly)
               - "links": All links on page as {text, href} list
+        tab_index: Optional flattened tab index (from browser_tabs).
+        context_index: Optional context index for exact targeting.
+        page_index: Optional page index for exact targeting.
 
     Returns:
         JSON with the extracted content.
     """
     try:
-        page = await _get_active_page()
-
-        if what == "title":
-            return json.dumps({"status": "ok", "title": await page.title()})
-
-        elif what == "url":
-            return json.dumps({"status": "ok", "url": page.url})
-
-        elif what == "text":
-            # Get visible text, truncated to avoid token explosion
-            text = await page.inner_text("body")
-            # Clean up whitespace and truncate
-            text = " ".join(text.split())[:8000]
-            return json.dumps({
-                "status": "ok",
-                "text": text,
-                "truncated": len(text) == 8000,
-            })
-
-        elif what == "html":
-            html = await page.content()
-            return json.dumps({
-                "status": "ok",
-                "html": html[:50000],
-                "truncated": len(html) > 50000,
-            })
-
-        elif what == "links":
-            links = await page.eval_on_selector_all(
-                "a[href]",
-                """els => els.slice(0, 100).map(a => ({
-                    text: a.innerText.trim().slice(0, 100),
-                    href: a.href
-                }))"""
-            )
-            return json.dumps({"status": "ok", "links": links, "count": len(links)})
-
-        else:
-            return json.dumps({
-                "status": "error",
-                "message": f"Unknown extract type: {what}. Use: text, title, url, html, links"
-            })
+        page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+            tab_index=tab_index,
+            context_index=context_index,
+            page_index=page_index,
+        )
+        _set_last_used_tab(ctx_idx, page_idx)
+        result = await _extract_from_page(page, what)
+        result.update({
+            "tab_index": tab_idx,
+            "context_index": ctx_idx,
+            "page_index": page_idx,
+        })
+        return json.dumps(result)
 
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
 
 @mcp.tool("browser_wait")  # type: ignore
-async def browser_wait(selector: str, timeout_seconds: int = 5) -> str:
+async def browser_wait(
+    selector: str,
+    timeout_seconds: int = 5,
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
     """Wait for an element to appear on the page.
 
     Args:
-        selector: CSS selector to wait for.
+        selector: Locator string (css=, xpath=, text=, role=, label=) or raw CSS/XPath.
         timeout_seconds: Maximum time to wait (default 5, max 30).
+        tab_index: Optional flattened tab index (from browser_tabs).
+        context_index: Optional context index for exact targeting.
+        page_index: Optional page index for exact targeting.
 
     Returns:
         JSON with status and whether element was found.
@@ -2885,13 +3364,22 @@ async def browser_wait(selector: str, timeout_seconds: int = 5) -> str:
     timeout_seconds = min(max(timeout_seconds, 1), 30)
 
     try:
-        page = await _get_active_page()
-        await page.wait_for_selector(selector, timeout=timeout_seconds * 1000)
+        page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+            tab_index=tab_index,
+            context_index=context_index,
+            page_index=page_index,
+        )
+        _set_last_used_tab(ctx_idx, page_idx)
+        locator = _resolve_locator(page, selector)
+        await locator.first.wait_for(timeout=timeout_seconds * 1000)
 
         return json.dumps({
             "status": "ok",
             "selector": selector,
             "found": True,
+            "tab_index": tab_idx,
+            "context_index": ctx_idx,
+            "page_index": page_idx,
         })
     except Exception as e:
         return json.dumps({
@@ -2907,7 +3395,7 @@ async def browser_tabs() -> str:
     """List all open browser tabs/windows.
 
     Returns:
-        JSON with list of tabs, each with title, url, and index.
+        JSON with list of tabs, each with title, url, index, and active flag.
     """
     try:
         browser = await _ensure_browser()
@@ -2915,7 +3403,7 @@ async def browser_tabs() -> str:
         tab_index = 0
 
         for ctx_idx, ctx in enumerate(browser.contexts):
-            for page in ctx.pages:
+            for page_idx, page in enumerate(ctx.pages):
                 try:
                     title = await page.title()
                 except Exception:
@@ -2926,6 +3414,8 @@ async def browser_tabs() -> str:
                     "title": title,
                     "url": page.url,
                     "context": ctx_idx,
+                    "page_index": page_idx,
+                    "active": _last_used_tab == (ctx_idx, page_idx),
                 })
                 tab_index += 1
 
@@ -2933,6 +3423,494 @@ async def browser_tabs() -> str:
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
+
+@mcp.tool("browser_activate_tab")  # type: ignore
+async def browser_activate_tab(
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
+    """Activate a browser tab and set it as last-used."""
+    try:
+        page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+            tab_index=tab_index,
+            context_index=context_index,
+            page_index=page_index,
+        )
+        await page.bring_to_front()
+        _set_last_used_tab(ctx_idx, page_idx)
+        return json.dumps({
+            "status": "ok",
+            "tab_index": tab_idx,
+            "context_index": ctx_idx,
+            "page_index": page_idx,
+            "url": page.url,
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool("browser_close_tab")  # type: ignore
+async def browser_close_tab(
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
+    """Close a browser tab."""
+    global _last_used_tab
+    try:
+        browser = await _ensure_browser()
+        page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+            tab_index=tab_index,
+            context_index=context_index,
+            page_index=page_index,
+        )
+        await page.close()
+
+        if _last_used_tab == (ctx_idx, page_idx):
+            _last_used_tab = None
+
+        flat_pages = _flatten_browser_pages(browser.contexts)
+        if flat_pages:
+            new_ctx_idx, new_page_idx, _ = flat_pages[-1]
+            _set_last_used_tab(new_ctx_idx, new_page_idx)
+
+        return json.dumps({
+            "status": "ok",
+            "closed_tab_index": tab_idx,
+            "remaining_tabs": len(flat_pages),
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool("browser_back")  # type: ignore
+async def browser_back(
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
+    """Navigate back in history for a tab."""
+    try:
+        page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+            tab_index=tab_index,
+            context_index=context_index,
+            page_index=page_index,
+        )
+        _set_last_used_tab(ctx_idx, page_idx)
+        response = await page.go_back(timeout=30000)
+        return json.dumps({
+            "status": "ok",
+            "navigated": response is not None,
+            "url": page.url,
+            "tab_index": tab_idx,
+            "context_index": ctx_idx,
+            "page_index": page_idx,
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool("browser_forward")  # type: ignore
+async def browser_forward(
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
+    """Navigate forward in history for a tab."""
+    try:
+        page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+            tab_index=tab_index,
+            context_index=context_index,
+            page_index=page_index,
+        )
+        _set_last_used_tab(ctx_idx, page_idx)
+        response = await page.go_forward(timeout=30000)
+        return json.dumps({
+            "status": "ok",
+            "navigated": response is not None,
+            "url": page.url,
+            "tab_index": tab_idx,
+            "context_index": ctx_idx,
+            "page_index": page_idx,
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool("browser_reload")  # type: ignore
+async def browser_reload(
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
+    """Reload the current page for a tab."""
+    try:
+        page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+            tab_index=tab_index,
+            context_index=context_index,
+            page_index=page_index,
+        )
+        _set_last_used_tab(ctx_idx, page_idx)
+        await page.reload(timeout=30000)
+        return json.dumps({
+            "status": "ok",
+            "url": page.url,
+            "tab_index": tab_idx,
+            "context_index": ctx_idx,
+            "page_index": page_idx,
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool("browser_open_bookmark")  # type: ignore
+async def browser_open_bookmark(
+    name: str,
+    new_tab: bool = True,
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+) -> str:
+    """Open a bookmarked URL from the host profile."""
+    try:
+        profile = _load_profile()
+    except (FileNotFoundError, ValueError, RuntimeError) as exc:
+        return json.dumps({"status": "error", "message": str(exc)})
+
+    url = _resolve_bookmark_url(profile, name)
+    if not url:
+        return json.dumps({
+            "status": "error",
+            "message": f"Bookmark not found: {name}",
+        })
+
+    result = await browser_open(
+        url,
+        new_tab=new_tab,
+        tab_index=tab_index,
+        context_index=context_index,
+        page_index=page_index,
+    )
+    try:
+        payload = json.loads(result)
+    except json.JSONDecodeError:
+        return result
+    payload["bookmark"] = name
+    if "url" not in payload:
+        payload["url"] = url
+    return json.dumps(payload)
+
+
+@mcp.tool("browser_batch")  # type: ignore
+async def browser_batch(
+    actions: list[dict[str, Any]],
+    tab_index: int | None = None,
+    context_index: int | None = None,
+    page_index: int | None = None,
+    return_details: bool = False,
+) -> str:
+    """Run multiple browser actions in a single call.
+
+    Actions support: open, click, type, wait, extract, back, forward, reload, activate_tab, close_tab.
+    To include per-step results, set return_details=true.
+    """
+    global _last_used_tab
+
+    if not actions:
+        return json.dumps({"status": "error", "message": "No actions provided"})
+
+    details: list[dict[str, Any]] = []
+    extracted: list[dict[str, Any]] = []
+
+    for idx, action in enumerate(actions):
+        if not isinstance(action, dict):
+            error_payload = {
+                "status": "error",
+                "index": idx,
+                "message": "Action must be an object",
+            }
+            if return_details:
+                error_payload["results"] = details
+            if extracted:
+                error_payload["extracted"] = extracted
+            return json.dumps(error_payload)
+
+        action_type = (
+            action.get("action") or action.get("type") or action.get("op") or ""
+        )
+        action_type = str(action_type).strip().lower().replace(" ", "_").replace("-", "_")
+
+        target_tab_index = action.get("tab_index", tab_index)
+        target_context_index = action.get("context_index", context_index)
+        target_page_index = action.get("page_index", page_index)
+
+        try:
+            if action_type == "open":
+                url = action.get("url") or action.get("href")
+                if not url:
+                    raise ValueError("Open action requires url")
+                url = str(url)
+                new_tab = bool(action.get("new_tab", False))
+
+                browser = await _ensure_browser()
+                contexts = browser.contexts
+                if not contexts:
+                    raise RuntimeError("No browser context")
+
+                if new_tab:
+                    if target_context_index is not None and (
+                        target_context_index < 0
+                        or target_context_index >= len(contexts)
+                    ):
+                        raise ValueError("context_index out of range")
+                    target_ctx = (
+                        contexts[target_context_index]
+                        if target_context_index is not None
+                        else contexts[0]
+                    )
+                    page = await target_ctx.new_page()
+                    ctx_idx = target_context_index if target_context_index is not None else 0
+                    page_idx = target_ctx.pages.index(page)
+                    tab_idx = _compute_tab_index(contexts, ctx_idx, page_idx)
+                else:
+                    page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                        tab_index=target_tab_index,
+                        context_index=target_context_index,
+                        page_index=target_page_index,
+                    )
+
+                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                title = await page.title()
+                _set_last_used_tab(ctx_idx, page_idx)
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "url": page.url,
+                    "title": title,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                    "new_tab": new_tab,
+                }
+
+            elif action_type in ("click", "tap"):
+                selector = action.get("selector") or action.get("locator") or action.get("target")
+                if not selector:
+                    raise ValueError("Click action requires selector")
+                page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                    tab_index=target_tab_index,
+                    context_index=target_context_index,
+                    page_index=target_page_index,
+                )
+                _set_last_used_tab(ctx_idx, page_idx)
+                locator = _resolve_locator(page, str(selector))
+                await locator.first.click(timeout=10000)
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "selector": selector,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                }
+
+            elif action_type in ("type", "input", "fill"):
+                selector = action.get("selector") or action.get("locator") or action.get("target")
+                if not selector:
+                    raise ValueError("Type action requires selector")
+                text = action.get("text")
+                if text is None:
+                    raise ValueError("Type action requires text")
+                clear = action.get("clear", True)
+                page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                    tab_index=target_tab_index,
+                    context_index=target_context_index,
+                    page_index=target_page_index,
+                )
+                _set_last_used_tab(ctx_idx, page_idx)
+                locator = _resolve_locator(page, str(selector)).first
+                if clear:
+                    await locator.clear()
+                await locator.fill(str(text))
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "selector": selector,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                }
+
+            elif action_type == "wait":
+                selector = action.get("selector") or action.get("locator") or action.get("target")
+                if not selector:
+                    raise ValueError("Wait action requires selector")
+                timeout_seconds = action.get("timeout_seconds", 5)
+                try:
+                    timeout_seconds = float(timeout_seconds)
+                except (TypeError, ValueError):
+                    raise ValueError("timeout_seconds must be numeric") from None
+                timeout_seconds = min(max(timeout_seconds, 1), 30)
+                page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                    tab_index=target_tab_index,
+                    context_index=target_context_index,
+                    page_index=target_page_index,
+                )
+                _set_last_used_tab(ctx_idx, page_idx)
+                locator = _resolve_locator(page, str(selector))
+                await locator.first.wait_for(timeout=timeout_seconds * 1000)
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "selector": selector,
+                    "found": True,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                }
+
+            elif action_type == "extract":
+                what = str(action.get("what", "text"))
+                page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                    tab_index=target_tab_index,
+                    context_index=target_context_index,
+                    page_index=target_page_index,
+                )
+                _set_last_used_tab(ctx_idx, page_idx)
+                extract_result = await _extract_from_page(page, what)
+                if extract_result.get("status") != "ok":
+                    raise ValueError(extract_result.get("message", "Extract failed"))
+                extract_result.update({
+                    "index": idx,
+                    "what": what,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                })
+                extracted.append(extract_result)
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "what": what,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                }
+
+            elif action_type == "back":
+                page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                    tab_index=target_tab_index,
+                    context_index=target_context_index,
+                    page_index=target_page_index,
+                )
+                _set_last_used_tab(ctx_idx, page_idx)
+                response = await page.go_back(timeout=30000)
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "navigated": response is not None,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                }
+
+            elif action_type == "forward":
+                page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                    tab_index=target_tab_index,
+                    context_index=target_context_index,
+                    page_index=target_page_index,
+                )
+                _set_last_used_tab(ctx_idx, page_idx)
+                response = await page.go_forward(timeout=30000)
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "navigated": response is not None,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                }
+
+            elif action_type == "reload":
+                page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                    tab_index=target_tab_index,
+                    context_index=target_context_index,
+                    page_index=target_page_index,
+                )
+                _set_last_used_tab(ctx_idx, page_idx)
+                await page.reload(timeout=30000)
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                }
+
+            elif action_type == "activate_tab":
+                page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                    tab_index=target_tab_index,
+                    context_index=target_context_index,
+                    page_index=target_page_index,
+                )
+                await page.bring_to_front()
+                _set_last_used_tab(ctx_idx, page_idx)
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                }
+
+            elif action_type == "close_tab":
+                page, ctx_idx, page_idx, tab_idx = await _get_page_by_target(
+                    tab_index=target_tab_index,
+                    context_index=target_context_index,
+                    page_index=target_page_index,
+                )
+                await page.close()
+                if _last_used_tab == (ctx_idx, page_idx):
+                    _last_used_tab = None
+                browser = await _ensure_browser()
+                flat_pages = _flatten_browser_pages(browser.contexts)
+                if flat_pages:
+                    new_ctx_idx, new_page_idx, _ = flat_pages[-1]
+                    _set_last_used_tab(new_ctx_idx, new_page_idx)
+                result = {
+                    "status": "ok",
+                    "action": action_type,
+                    "tab_index": tab_idx,
+                    "context_index": ctx_idx,
+                    "page_index": page_idx,
+                }
+
+            else:
+                raise ValueError(f"Unknown action: {action_type}")
+
+            if return_details:
+                details.append(result)
+
+        except Exception as exc:
+            error_payload = {
+                "status": "error",
+                "index": idx,
+                "action": action_type,
+                "message": str(exc),
+            }
+            if return_details:
+                error_payload["results"] = details
+            if extracted:
+                error_payload["extracted"] = extracted
+            return json.dumps(error_payload)
+
+    response = {"status": "ok", "performed": len(actions)}
+    if extracted:
+        response["extracted"] = extracted
+    if return_details:
+        response["results"] = details
+    return json.dumps(response)
 
 def _shutdown_sessions() -> None:
     """Synchronously terminate all active shell sessions on shutdown.
@@ -3018,8 +3996,14 @@ __all__ = [
     "ui_scroll",
     "ui_list_windows",
     "ui_focus_window",
+    "ui_focus_address",
     "ui_close_window",
+    "ui_close_address",
     "ui_get_monitors",
+    "ui_health",
+    "ui_batch",
+    "clipboard_set",
+    "clipboard_get",
     # Browser Automation (Playwright CDP)
     "browser_open",
     "browser_click",
@@ -3027,5 +4011,12 @@ __all__ = [
     "browser_extract",
     "browser_wait",
     "browser_tabs",
+    "browser_activate_tab",
+    "browser_close_tab",
+    "browser_back",
+    "browser_forward",
+    "browser_reload",
+    "browser_open_bookmark",
+    "browser_batch",
     "run",
 ]

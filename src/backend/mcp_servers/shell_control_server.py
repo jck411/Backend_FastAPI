@@ -13,7 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from asyncio.subprocess import Process
@@ -1689,22 +1689,11 @@ def _parse_key_combo(combo: str) -> list[int]:
     return codes
 
 
-@mcp.tool("ui_type")  # type: ignore
-async def ui_type(text: str, delay_ms: int = 0) -> str:
-    """Type text into the currently focused window.
-
-    Uses ydotool to simulate keyboard input. Works in any window.
-
-    Args:
-        text: The text to type
-        delay_ms: Delay between keystrokes in milliseconds (0 = fastest)
-
-    Example: ui_type("Hello world")
-    """
+async def _ui_type_impl(text: str, delay_ms: int = 0) -> dict[str, Any]:
+    """Internal: type text into focused window using ydotool."""
     if not text:
-        return json.dumps({"status": "error", "message": "No text provided"})
+        return {"status": "error", "message": "No text provided"}
 
-    # Escape single quotes for shell
     escaped = text.replace("'", "'\\''")
     delay_arg = f"--key-delay {delay_ms}" if delay_ms > 0 else ""
 
@@ -1718,17 +1707,166 @@ async def ui_type(text: str, delay_ms: int = 0) -> str:
         _, stderr = await asyncio.wait_for(process.communicate(), timeout=10.0)
 
         if process.returncode != 0:
-            return json.dumps({
+            return {
                 "status": "error",
                 "message": stderr.decode("utf-8", errors="replace").strip(),
-            })
+            }
 
-        return json.dumps({"status": "ok", "typed": len(text)})
+        return {"status": "ok", "typed": len(text)}
 
     except asyncio.TimeoutError:
-        return json.dumps({"status": "error", "message": "Timeout typing text"})
+        return {"status": "error", "message": "Timeout typing text"}
     except Exception as exc:
-        return json.dumps({"status": "error", "message": str(exc)})
+        return {"status": "error", "message": str(exc)}
+
+
+async def _ui_key_impl(combo: str) -> dict[str, Any]:
+    """Internal: send a key combination using ydotool."""
+    if not combo:
+        return {"status": "error", "message": "No key combo provided"}
+
+    try:
+        codes = _parse_key_combo(combo)
+    except ValueError as exc:
+        return {"status": "error", "message": str(exc)}
+
+    key_args = " ".join(f"{code}:1" for code in codes)
+    key_args += " " + " ".join(f"{code}:0" for code in reversed(codes))
+
+    try:
+        process = await asyncio.create_subprocess_shell(
+            f"ydotool key {key_args}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_build_shell_env(),
+        )
+        _, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+
+        if process.returncode != 0:
+            return {
+                "status": "error",
+                "message": stderr.decode("utf-8", errors="replace").strip(),
+            }
+
+        return {"status": "ok", "combo": combo}
+
+    except asyncio.TimeoutError:
+        return {"status": "error", "message": "Timeout sending keys"}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+async def _ui_click_impl(
+    x: int | None = None,
+    y: int | None = None,
+    button: str = "left",
+    clicks: int = 1,
+) -> dict[str, Any]:
+    """Internal: click using ydotool."""
+    button_map = {"left": "0xC0", "right": "0xC1", "middle": "0xC2"}
+    if button.lower() not in button_map:
+        return {
+            "status": "error",
+            "message": f"Unknown button: {button}. Use 'left', 'right', or 'middle'",
+        }
+
+    button_code = button_map[button.lower()]
+    clicks = max(1, min(clicks, 5))
+
+    try:
+        if x is not None and y is not None:
+            move_proc = await asyncio.create_subprocess_shell(
+                f"ydotool mousemove --absolute {x} {y}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_build_shell_env(),
+            )
+            await asyncio.wait_for(move_proc.communicate(), timeout=5.0)
+
+        click_cmd = f"ydotool click {button_code}"
+        for _ in range(clicks):
+            process = await asyncio.create_subprocess_shell(
+                click_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_build_shell_env(),
+            )
+            _, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+
+            if process.returncode != 0:
+                return {
+                    "status": "error",
+                    "message": stderr.decode("utf-8", errors="replace").strip(),
+                }
+
+        return {
+            "status": "ok",
+            "button": button,
+            "clicks": clicks,
+            "position": {"x": x, "y": y} if x is not None else "current",
+        }
+
+    except asyncio.TimeoutError:
+        return {"status": "error", "message": "Timeout clicking"}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+async def _ui_focus_window_impl(match: str) -> dict[str, Any]:
+    """Internal: focus a window by class or title."""
+    if not match:
+        return {"status": "error", "message": "No match pattern provided"}
+
+    try:
+        process = await asyncio.create_subprocess_shell(
+            f"hyprctl dispatch focuswindow class:{shlex.quote(match)}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_build_shell_env(),
+        )
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
+        output = stdout.decode("utf-8", errors="replace").strip()
+
+        if "ok" in output.lower() or process.returncode == 0:
+            return {"status": "ok", "focused": match, "by": "class"}
+
+        process = await asyncio.create_subprocess_shell(
+            f"hyprctl dispatch focuswindow title:{shlex.quote(match)}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_build_shell_env(),
+        )
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=5.0)
+        output = stdout.decode("utf-8", errors="replace").strip()
+
+        if "ok" in output.lower() or process.returncode == 0:
+            return {"status": "ok", "focused": match, "by": "title"}
+
+        return {
+            "status": "error",
+            "message": f"No window matching '{match}' found",
+        }
+
+    except asyncio.TimeoutError:
+        return {"status": "error", "message": "Timeout focusing window"}
+    except Exception as exc:
+        return {"status": "error", "message": str(exc)}
+
+
+@mcp.tool("ui_type")  # type: ignore
+async def ui_type(text: str, delay_ms: int = 0) -> str:
+    """Type text into the currently focused window.
+
+    Uses ydotool to simulate keyboard input. Works in any window.
+
+    Args:
+        text: The text to type
+        delay_ms: Delay between keystrokes in milliseconds (0 = fastest)
+
+    Example: ui_type("Hello world")
+    """
+    result = await _ui_type_impl(text, delay_ms=delay_ms)
+    return json.dumps(result)
 
 
 @mcp.tool("ui_key")  # type: ignore
@@ -1747,40 +1885,8 @@ async def ui_key(combo: str) -> str:
         ui_key("enter")      - Press Enter
         ui_key("ctrl+shift+t") - Reopen closed tab
     """
-    if not combo:
-        return json.dumps({"status": "error", "message": "No key combo provided"})
-
-    try:
-        codes = _parse_key_combo(combo)
-    except ValueError as exc:
-        return json.dumps({"status": "error", "message": str(exc)})
-
-    # Build ydotool key command: press all keys down, then release in reverse
-    # Format: keycode:1 (press), keycode:0 (release)
-    key_args = " ".join(f"{code}:1" for code in codes)
-    key_args += " " + " ".join(f"{code}:0" for code in reversed(codes))
-
-    try:
-        process = await asyncio.create_subprocess_shell(
-            f"ydotool key {key_args}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_build_shell_env(),
-        )
-        _, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
-
-        if process.returncode != 0:
-            return json.dumps({
-                "status": "error",
-                "message": stderr.decode("utf-8", errors="replace").strip(),
-            })
-
-        return json.dumps({"status": "ok", "combo": combo})
-
-    except asyncio.TimeoutError:
-        return json.dumps({"status": "error", "message": "Timeout sending keys"})
-    except Exception as exc:
-        return json.dumps({"status": "error", "message": str(exc)})
+    result = await _ui_key_impl(combo)
+    return json.dumps(result)
 
 
 @mcp.tool("ui_click")  # type: ignore
@@ -1806,55 +1912,8 @@ async def ui_click(
         ui_click(button="right")      - Right click at current position
         ui_click(x=500, y=300, clicks=2) - Double-click at coordinates
     """
-    button_map = {"left": "0xC0", "right": "0xC1", "middle": "0xC2"}
-    if button.lower() not in button_map:
-        return json.dumps({
-            "status": "error",
-            "message": f"Unknown button: {button}. Use 'left', 'right', or 'middle'",
-        })
-
-    button_code = button_map[button.lower()]
-    clicks = max(1, min(clicks, 5))  # Clamp to 1-5
-
-    try:
-        # Move to position if coordinates provided
-        if x is not None and y is not None:
-            move_proc = await asyncio.create_subprocess_shell(
-                f"ydotool mousemove --absolute {x} {y}",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=_build_shell_env(),
-            )
-            await asyncio.wait_for(move_proc.communicate(), timeout=5.0)
-
-        # Perform click(s)
-        click_cmd = f"ydotool click {button_code}"
-        for _ in range(clicks):
-            process = await asyncio.create_subprocess_shell(
-                click_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=_build_shell_env(),
-            )
-            _, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
-
-            if process.returncode != 0:
-                return json.dumps({
-                    "status": "error",
-                    "message": stderr.decode("utf-8", errors="replace").strip(),
-                })
-
-        return json.dumps({
-            "status": "ok",
-            "button": button,
-            "clicks": clicks,
-            "position": {"x": x, "y": y} if x is not None else "current",
-        })
-
-    except asyncio.TimeoutError:
-        return json.dumps({"status": "error", "message": "Timeout clicking"})
-    except Exception as exc:
-        return json.dumps({"status": "error", "message": str(exc)})
+    result = await _ui_click_impl(x=x, y=y, button=button, clicks=clicks)
+    return json.dumps(result)
 
 
 @mcp.tool("ui_scroll")  # type: ignore
@@ -1972,45 +2031,8 @@ async def ui_focus_window(match: str) -> str:
         ui_focus_window("foot")
         ui_focus_window("code-insiders")
     """
-    if not match:
-        return json.dumps({"status": "error", "message": "No match pattern provided"})
-
-    # Try class match first (most reliable)
-    try:
-        process = await asyncio.create_subprocess_shell(
-            f"hyprctl dispatch focuswindow class:{shlex.quote(match)}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_build_shell_env(),
-        )
-        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=5.0)
-        output = stdout.decode("utf-8", errors="replace").strip()
-
-        if "ok" in output.lower() or process.returncode == 0:
-            return json.dumps({"status": "ok", "focused": match, "by": "class"})
-
-        # Try title match as fallback
-        process = await asyncio.create_subprocess_shell(
-            f"hyprctl dispatch focuswindow title:{shlex.quote(match)}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_build_shell_env(),
-        )
-        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=5.0)
-        output = stdout.decode("utf-8", errors="replace").strip()
-
-        if "ok" in output.lower() or process.returncode == 0:
-            return json.dumps({"status": "ok", "focused": match, "by": "title"})
-
-        return json.dumps({
-            "status": "error",
-            "message": f"No window matching '{match}' found",
-        })
-
-    except asyncio.TimeoutError:
-        return json.dumps({"status": "error", "message": "Timeout focusing window"})
-    except Exception as exc:
-        return json.dumps({"status": "error", "message": str(exc)})
+    result = await _ui_focus_window_impl(match)
+    return json.dumps(result)
 
 
 @mcp.tool("ui_close_window")  # type: ignore
@@ -2103,7 +2125,7 @@ async def ui_get_monitors() -> str:
 
 
 @mcp.tool("ui_batch")  # type: ignore
-async def ui_batch(actions: list[dict[str, object]]) -> str:
+async def ui_batch(actions: list[dict[str, Any]]) -> str:
     """Run multiple UI actions in order with a single tool call.
 
     Each action must include "action" (or "type"). Supported actions:
@@ -2153,7 +2175,7 @@ async def ui_batch(actions: list[dict[str, object]]) -> str:
                         "message": "Focus action requires match",
                     }
                 )
-            result = await ui_focus_window(str(match))
+            result = await _ui_focus_window_impl(str(match))
 
         elif action_type in ("key", "keys", "combo", "key_combo", "keycombo"):
             combo = action.get("combo") or action.get("keys") or action.get("key")
@@ -2166,7 +2188,7 @@ async def ui_batch(actions: list[dict[str, object]]) -> str:
                         "message": "Key action requires combo",
                     }
                 )
-            result = await ui_key(str(combo))
+            result = await _ui_key_impl(str(combo))
 
         elif action_type in ("type", "text", "input"):
             text = (
@@ -2201,7 +2223,7 @@ async def ui_batch(actions: list[dict[str, object]]) -> str:
                         "message": "delay_ms must be an integer",
                     }
                 )
-            result = await ui_type(str(text), delay_ms=delay_ms)
+            result = await _ui_type_impl(str(text), delay_ms=delay_ms)
 
         elif action_type in ("click", "mouse", "mouse_click"):
             x = action.get("x")
@@ -2234,7 +2256,7 @@ async def ui_batch(actions: list[dict[str, object]]) -> str:
                         "message": "Click action has invalid coordinates or clicks",
                     }
                 )
-            result = await ui_click(x=x, y=y, button=str(button), clicks=clicks)
+            result = await _ui_click_impl(x=x, y=y, button=str(button), clicks=clicks)
 
         elif action_type in ("wait", "sleep", "pause"):
             seconds = action.get("seconds")
@@ -2267,11 +2289,11 @@ async def ui_batch(actions: list[dict[str, object]]) -> str:
                     }
                 )
             await asyncio.sleep(seconds)
-            result = json.dumps({"status": "ok", "waited_seconds": seconds})
+            result = {"status": "ok", "waited_seconds": seconds}
 
         elif action_type in ("paste", "paste_clipboard", "clipboard_paste"):
             combo = action.get("combo") or action.get("keys") or "ctrl+v"
-            result = await ui_key(str(combo))
+            result = await _ui_key_impl(str(combo))
 
         else:
             return json.dumps(
@@ -2283,20 +2305,8 @@ async def ui_batch(actions: list[dict[str, object]]) -> str:
                 }
             )
 
-        try:
-            parsed = json.loads(result)
-        except json.JSONDecodeError:
-            return json.dumps(
-                {
-                    "status": "error",
-                    "index": idx,
-                    "action": action_type,
-                    "message": "Invalid action result",
-                }
-            )
-
-        if parsed.get("status") != "ok":
-            message = parsed.get("message") or parsed.get("error") or "Action failed"
+        if result.get("status") != "ok":
+            message = result.get("message") or result.get("error") or "Action failed"
             return json.dumps(
                 {
                     "status": "error",
@@ -2533,15 +2543,14 @@ def _shutdown_sessions() -> None:
         if sess.is_alive():
             try:
                 sess.process.terminate()
-                # Give it a moment to terminate
-                sess.process.wait()
             except Exception:
-                # Last resort: force kill
-                try:
-                    sess.process.kill()
-                    sess.process.wait()
-                except Exception:
-                    pass  # Nothing more we can do
+                pass
+            # Best-effort cleanup without relying on an event loop
+            time.sleep(0.05)
+            try:
+                sess.process.kill()
+            except Exception:
+                pass  # Nothing more we can do
     _sessions.clear()
 
 

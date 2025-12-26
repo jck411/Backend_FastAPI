@@ -20,6 +20,17 @@ if TYPE_CHECKING:
 
 from fastmcp import FastMCP
 
+# Playwright for browser automation via CDP
+try:
+    from playwright.async_api import async_playwright, Browser, Page, BrowserContext
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    Browser = None  # type: ignore
+    Page = None  # type: ignore
+    BrowserContext = None  # type: ignore
+
+
 # Default port for HTTP transport
 DEFAULT_HTTP_PORT = 9001
 
@@ -272,6 +283,80 @@ async def _close_session(session_id: str) -> bool:
             except asyncio.TimeoutError:
                 sess.process.kill()
         return True
+
+
+# =============================================================================
+# Browser Automation via Playwright CDP
+# =============================================================================
+
+# Browser connection state (lazy initialization)
+_browser: "Browser | None" = None
+_playwright_instance: Any = None
+CDP_URL = "http://localhost:9222"
+
+
+async def _ensure_browser() -> "Browser":
+    """Connect to Brave via CDP, reusing existing connection if available."""
+    global _browser, _playwright_instance
+
+    if not PLAYWRIGHT_AVAILABLE:
+        raise RuntimeError(
+            "Playwright not installed. Run: pip install playwright"
+        )
+
+    # Return existing connection if still valid
+    if _browser is not None:
+        try:
+            # Quick connectivity check - accessing contexts should work
+            _ = _browser.contexts
+            return _browser
+        except Exception:
+            # Connection dead, reconnect
+            _browser = None
+
+    # Connect to running Brave instance via CDP
+    try:
+        _playwright_instance = await async_playwright().start()
+        _browser = await _playwright_instance.chromium.connect_over_cdp(CDP_URL)
+        return _browser
+    except Exception as e:
+        raise RuntimeError(
+            f"Cannot connect to browser at {CDP_URL}. "
+            f"Start Brave with: brave --remote-debugging-port=9222\n"
+            f"Error: {e}"
+        ) from e
+
+
+async def _get_active_page() -> "Page":
+    """Get the currently active browser page (most recently used)."""
+    browser = await _ensure_browser()
+    contexts = browser.contexts
+
+    if not contexts:
+        raise RuntimeError("No browser contexts found. Is Brave running?")
+
+    # Get pages from all contexts
+    all_pages: list["Page"] = []
+    for ctx in contexts:
+        all_pages.extend(ctx.pages)
+
+    if not all_pages:
+        raise RuntimeError("No browser pages/tabs found.")
+
+    # Return the last page (usually the active one)
+    return all_pages[-1]
+
+
+async def _shutdown_browser() -> None:
+    """Close Playwright connection on shutdown."""
+    global _browser, _playwright_instance
+    if _playwright_instance:
+        try:
+            await _playwright_instance.stop()
+        except Exception:
+            pass
+    _browser = None
+    _playwright_instance = None
 
 
 def _get_repo_root() -> Path:
@@ -2534,6 +2619,236 @@ async def system_backup() -> str:
     return json.dumps(result)
 
 
+# =============================================================================
+# Browser Automation Tools (Playwright CDP)
+# =============================================================================
+
+
+@mcp.tool("browser_open")  # type: ignore
+async def browser_open(url: str, new_tab: bool = False) -> str:
+    """Navigate to a URL in the browser.
+
+    Args:
+        url: The URL to navigate to (must include http:// or https://).
+        new_tab: If True, open in a new tab. If False, navigate current tab.
+
+    Returns:
+        JSON with status, title, and url of the page after navigation.
+    """
+    try:
+        browser = await _ensure_browser()
+
+        if new_tab:
+            # Create new page in first context
+            contexts = browser.contexts
+            if not contexts:
+                return json.dumps({"status": "error", "message": "No browser context"})
+            page = await contexts[0].new_page()
+        else:
+            page = await _get_active_page()
+
+        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        title = await page.title()
+
+        return json.dumps({
+            "status": "ok",
+            "title": title,
+            "url": page.url,
+            "new_tab": new_tab,
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool("browser_click")  # type: ignore
+async def browser_click(selector: str) -> str:
+    """Click an element on the page.
+
+    Args:
+        selector: CSS selector, XPath (starting with //), or text to match.
+                  Examples: "#submit", "//button[@type='submit']", "text=Sign In"
+
+    Returns:
+        JSON with status and element info.
+    """
+    try:
+        page = await _get_active_page()
+
+        # Determine selector type
+        if selector.startswith("//"):
+            locator = page.locator(f"xpath={selector}")
+        elif selector.startswith("text="):
+            locator = page.get_by_text(selector[5:])
+        else:
+            locator = page.locator(selector)
+
+        await locator.first.click(timeout=10000)
+
+        return json.dumps({
+            "status": "ok",
+            "clicked": selector,
+            "url": page.url,
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e), "selector": selector})
+
+
+@mcp.tool("browser_type")  # type: ignore
+async def browser_type(selector: str, text: str, clear: bool = True) -> str:
+    """Type text into an input field.
+
+    Args:
+        selector: CSS selector for the input element.
+        text: Text to type.
+        clear: If True, clear the field before typing.
+
+    Returns:
+        JSON with status.
+    """
+    try:
+        page = await _get_active_page()
+        locator = page.locator(selector).first
+
+        if clear:
+            await locator.clear()
+
+        await locator.fill(text)
+
+        return json.dumps({
+            "status": "ok",
+            "selector": selector,
+            "typed": text[:50] + "..." if len(text) > 50 else text,
+        })
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e), "selector": selector})
+
+
+@mcp.tool("browser_extract")  # type: ignore
+async def browser_extract(what: str = "text") -> str:
+    """Extract content from the current page. NO SCREENSHOTS - text/DOM only.
+
+    Args:
+        what: What to extract. Options:
+              - "text": Visible text content (default, token-efficient)
+              - "title": Page title only
+              - "url": Current URL
+              - "html": Raw HTML (large, use sparingly)
+              - "links": All links on page as {text, href} list
+
+    Returns:
+        JSON with the extracted content.
+    """
+    try:
+        page = await _get_active_page()
+
+        if what == "title":
+            return json.dumps({"status": "ok", "title": await page.title()})
+
+        elif what == "url":
+            return json.dumps({"status": "ok", "url": page.url})
+
+        elif what == "text":
+            # Get visible text, truncated to avoid token explosion
+            text = await page.inner_text("body")
+            # Clean up whitespace and truncate
+            text = " ".join(text.split())[:8000]
+            return json.dumps({
+                "status": "ok",
+                "text": text,
+                "truncated": len(text) == 8000,
+            })
+
+        elif what == "html":
+            html = await page.content()
+            return json.dumps({
+                "status": "ok",
+                "html": html[:50000],
+                "truncated": len(html) > 50000,
+            })
+
+        elif what == "links":
+            links = await page.eval_on_selector_all(
+                "a[href]",
+                """els => els.slice(0, 100).map(a => ({
+                    text: a.innerText.trim().slice(0, 100),
+                    href: a.href
+                }))"""
+            )
+            return json.dumps({"status": "ok", "links": links, "count": len(links)})
+
+        else:
+            return json.dumps({
+                "status": "error",
+                "message": f"Unknown extract type: {what}. Use: text, title, url, html, links"
+            })
+
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
+@mcp.tool("browser_wait")  # type: ignore
+async def browser_wait(selector: str, timeout_seconds: int = 5) -> str:
+    """Wait for an element to appear on the page.
+
+    Args:
+        selector: CSS selector to wait for.
+        timeout_seconds: Maximum time to wait (default 5, max 30).
+
+    Returns:
+        JSON with status and whether element was found.
+    """
+    timeout_seconds = min(max(timeout_seconds, 1), 30)
+
+    try:
+        page = await _get_active_page()
+        await page.wait_for_selector(selector, timeout=timeout_seconds * 1000)
+
+        return json.dumps({
+            "status": "ok",
+            "selector": selector,
+            "found": True,
+        })
+    except Exception as e:
+        return json.dumps({
+            "status": "timeout",
+            "selector": selector,
+            "found": False,
+            "message": str(e),
+        })
+
+
+@mcp.tool("browser_tabs")  # type: ignore
+async def browser_tabs() -> str:
+    """List all open browser tabs/windows.
+
+    Returns:
+        JSON with list of tabs, each with title, url, and index.
+    """
+    try:
+        browser = await _ensure_browser()
+        tabs: list[dict] = []
+        tab_index = 0
+
+        for ctx_idx, ctx in enumerate(browser.contexts):
+            for page in ctx.pages:
+                try:
+                    title = await page.title()
+                except Exception:
+                    title = "(untitled)"
+
+                tabs.append({
+                    "index": tab_index,
+                    "title": title,
+                    "url": page.url,
+                    "context": ctx_idx,
+                })
+                tab_index += 1
+
+        return json.dumps({"status": "ok", "tabs": tabs, "count": len(tabs)})
+    except Exception as e:
+        return json.dumps({"status": "error", "message": str(e)})
+
+
 def _shutdown_sessions() -> None:
     """Synchronously terminate all active shell sessions on shutdown.
 
@@ -2611,7 +2926,7 @@ __all__ = [
     "host_get_profile",
     "system_update",
     "system_backup",
-    # UI Automation
+    # UI Automation (ydotool)
     "ui_type",
     "ui_key",
     "ui_click",
@@ -2620,5 +2935,12 @@ __all__ = [
     "ui_focus_window",
     "ui_close_window",
     "ui_get_monitors",
+    # Browser Automation (Playwright CDP)
+    "browser_open",
+    "browser_click",
+    "browser_type",
+    "browser_extract",
+    "browser_wait",
+    "browser_tabs",
     "run",
 ]

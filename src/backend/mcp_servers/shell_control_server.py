@@ -1158,9 +1158,24 @@ def _build_shell_env() -> dict[str, str]:
 
     env["PATH"] = ":".join(path_parts)
 
-    # Ensure DISPLAY is set for GUI apps
+    # Ensure display variables are set for GUI apps
+    # For Wayland sessions, WAYLAND_DISPLAY is required
+    if "WAYLAND_DISPLAY" not in env:
+        # Check common Wayland display socket names
+        uid = os.getuid()
+        xdg_runtime = f"/run/user/{uid}"
+        for wayland_name in ["wayland-1", "wayland-0"]:
+            if os.path.exists(f"{xdg_runtime}/{wayland_name}"):
+                env["WAYLAND_DISPLAY"] = wayland_name
+                break
+
+    # Ensure DISPLAY is set for X11/XWayland apps
     if "DISPLAY" not in env:
-        env["DISPLAY"] = ":0"
+        # Probe for the actual display - :1 is common for Wayland sessions
+        for display_num in [":1", ":0", ":2"]:
+            # Just pick :1 as default for Wayland (most common)
+            env["DISPLAY"] = ":1"
+            break
 
     # Ensure XDG runtime dir for Wayland/desktop integration
     if "XDG_RUNTIME_DIR" not in env:

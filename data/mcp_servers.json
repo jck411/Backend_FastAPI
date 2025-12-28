@@ -118,7 +118,7 @@
       "client_enabled": {
         "backend": true,
         "cli": true,
-        "kiosk": false,
+        "kiosk": true,
         "svelte": true
       },
       "contexts": [],
@@ -144,6 +144,20 @@
       "http_port": 9010,
       "id": "spotify",
       "module": "backend.mcp_servers.spotify_server",
+      "tool_overrides": {}
+    },
+    {
+      "client_enabled": {
+        "cli": true,
+        "kiosk": true,
+        "svelte": true
+      },
+      "contexts": [],
+      "enabled": true,
+      "env": {},
+      "http_port": 9011,
+      "id": "playwright",
+      "module": "backend.mcp_servers.playwright_server",
       "tool_overrides": {}
     }
   ]

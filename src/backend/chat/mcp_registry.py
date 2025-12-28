@@ -383,7 +383,7 @@ class _ToolDigestEntry:
 
 
 # Port range for discovering running MCP servers
-MCP_DISCOVERY_PORTS = range(9001, 9011)  # 9001-9010 inclusive
+MCP_DISCOVERY_PORTS = range(9001, 9012)  # 9001-9011 inclusive
 
 
 class MCPToolAggregator:

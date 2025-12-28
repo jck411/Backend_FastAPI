@@ -33,6 +33,7 @@ __all__ = [
     "monarch_server",
     "notes_server",
     "pdf_server",
+    "playwright_server",
     "shell_control_server",
     "spotify_server",
 ]
@@ -80,6 +81,11 @@ BUILTIN_MCP_SERVER_DEFINITIONS: Final[tuple[dict[str, Any], ...]] = (
         "id": "spotify",
         "module": "backend.mcp_servers.spotify_server",
         "http_port": 9010,
+    },
+    {
+        "id": "playwright",
+        "module": "backend.mcp_servers.playwright_server",
+        "http_port": 9011,
     },
 )
 

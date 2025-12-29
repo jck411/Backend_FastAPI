@@ -276,11 +276,18 @@ async def browser_type(
     """Type text into an input element.
 
     Args:
-        selector: CSS selector for the input element
+        selector: CSS selector for the input element. Common selectors:
+            - Google search: textarea[name="q"]
+            - YouTube search: input#search
+            - Generic search: input[type="search"], input[name="search"]
+            - Generic text input: input[type="text"]
         text: Text to type
         clear_first: Clear existing content before typing (default: True)
         delay_ms: Delay between keystrokes in milliseconds
         timeout_ms: Timeout waiting for element
+
+    Tip: If typing fails, use browser_navigate with URL params instead:
+        https://www.google.com/search?q=your+search+query
 
     Returns:
         JSON with status.

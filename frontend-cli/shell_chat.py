@@ -470,6 +470,24 @@ class ShellChat:
                                             tool_panels.append(
                                                 f"✓ {name}: {result[:100]}"
                                             )
+                                        elif status == "hop_limit":
+                                            # Show pause message - LLM hit tool call limit
+                                            hop_msg = parsed.get("message", "")
+                                            hop_count = parsed.get("hop_count", 0)
+                                            limit = parsed.get("limit", 20)
+                                            live.update(
+                                                Text(
+                                                    f"⏸️  {hop_msg}",
+                                                    style="bold cyan",
+                                                )
+                                            )
+                                            # Also print it permanently so user sees it
+                                            self.console.print(
+                                                f"\n[bold cyan]⏸️  Completed {hop_count} tool calls (limit: {limit})[/bold cyan]"
+                                            )
+                                            self.console.print(
+                                                "[cyan]Reply 'continue' or 'yes' to keep going, or ask something else.[/cyan]\n"
+                                            )
 
                                     elif event_type == "metadata":
                                         # Could show usage stats here

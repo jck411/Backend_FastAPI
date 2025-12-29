@@ -1,7 +1,7 @@
 """MCP server exposing Playwright-based browser automation tools.
 
-Connects to an existing browser via Chrome DevTools Protocol (CDP),
-enabling browser control without screenshots in the LLM loop.
+Always launches fresh app-mode browser windows for each session.
+Connects via Chrome DevTools Protocol (CDP) for browser-native automation.
 """
 
 from __future__ import annotations
@@ -17,22 +17,9 @@ from typing import Any
 
 from fastmcp import FastMCP
 
-# Default port for HTTP transport
+# Default ports
 DEFAULT_HTTP_PORT = 9011
-DEFAULT_CDP_ENDPOINT = "http://localhost:9222"
 DEFAULT_CDP_PORT = 9222
-
-# URLs that should never be auto-selected as the working page
-# These are typically chat interfaces or important apps
-_PROTECTED_URL_PATTERNS = [
-    "localhost:5173",       # Dev server (Svelte frontend)
-    "127.0.0.1:5173",
-    "chat.openai.com",      # ChatGPT
-    "gemini.google.com",    # Gemini
-    "claude.ai",            # Claude
-    "mail.google.com",      # Gmail
-    "calendar.google.com",  # Calendar
-]
 
 # Waybar bookmark presets (brave --app mode minimal windows)
 _WAYBAR_PRESETS: dict[str, str] = {
@@ -48,10 +35,9 @@ _WAYBAR_PRESETS: dict[str, str] = {
 mcp = FastMCP("playwright")
 
 # =============================================================================
-# Global Browser State
+# Global Browser State (single app-mode window per session)
 # =============================================================================
 
-# Lazy import playwright to avoid startup cost when not using browser tools
 _playwright: Any = None
 _browser: Any = None
 _context: Any = None
@@ -76,20 +62,8 @@ async def _ensure_playwright() -> Any:
 async def _get_page() -> Any:
     """Get the current page, raising if not connected."""
     if not _connected or _page is None:
-        raise RuntimeError("Not connected to browser. Call browser_connect first.")
+        raise RuntimeError("Not connected. Call browser_open first.")
     return _page
-
-
-def _is_protected_url(url: str) -> bool:
-    """Check if a URL is protected (should not be auto-selected for automation).
-
-    Protected URLs are typically chat interfaces or important apps that
-    should not be hijacked when connecting to the browser.
-    """
-    if not url:
-        return False
-    url_lower = url.lower()
-    return any(pattern in url_lower for pattern in _PROTECTED_URL_PATTERNS)
 
 
 # =============================================================================
@@ -97,134 +71,31 @@ def _is_protected_url(url: str) -> bool:
 # =============================================================================
 
 
-async def _browser_connect_impl(
-    endpoint: str = DEFAULT_CDP_ENDPOINT,
-    timeout_ms: int = 30000,
-) -> str:
-    """Internal implementation of browser_connect that can be called directly."""
-    global _browser, _context, _page, _connected
-
-    try:
-        pw = await _ensure_playwright()
-
-        # Connect to existing browser via CDP
-        _browser = await pw.chromium.connect_over_cdp(
-            endpoint,
-            timeout=timeout_ms,
-        )
-
-        # Gather all pages across all contexts
-        all_pages: list[Any] = []
-        for ctx in _browser.contexts:
-            all_pages.extend(ctx.pages)
-
-        # Find the first non-protected page to use
-        selected_page = None
-        protected_skipped = []
-        for p in all_pages:
-            if _is_protected_url(p.url):
-                protected_skipped.append(p.url)
-            elif selected_page is None:
-                selected_page = p
-
-        # If all pages are protected, create a new tab
-        if selected_page is None:
-            if _browser.contexts:
-                _context = _browser.contexts[0]
-            else:
-                _context = await _browser.new_context()
-            _page = await _context.new_page()
-            created_new_tab = True
-        else:
-            _page = selected_page
-            _context = _page.context
-            created_new_tab = False
-
-        _connected = True
-
-        # Gather info about open tabs
-        tabs = []
-        for ctx in _browser.contexts:
-            for p in ctx.pages:
-                page_title = await p.title()
-                tabs.append({
-                    "title": page_title[:50] if page_title else "(untitled)",
-                    "url": p.url,
-                    "protected": _is_protected_url(p.url),
-                    "active": p == _page,
-                })
-
-        return json.dumps({
-            "status": "ok",
-            "endpoint": endpoint,
-            "tabs_count": len(tabs),
-            "tabs": tabs[:10],  # Limit to first 10 for token efficiency
-            "current_url": _page.url if _page else None,
-            "created_new_tab": created_new_tab,
-            "protected_skipped": protected_skipped[:5] if protected_skipped else None,
-        })
-
-    except Exception as exc:
-        _connected = False
-        return json.dumps({
-            "status": "error",
-            "message": str(exc),
-            "hint": "Ensure browser is running with: brave --remote-debugging-port=9222",
-        })
-
-
-@mcp.tool("browser_connect")  # type: ignore[misc]
-async def browser_connect(
-    endpoint: str = DEFAULT_CDP_ENDPOINT,
-    timeout_ms: int = 30000,
-) -> str:
-    """Connect to a running browser via Chrome DevTools Protocol.
-
-    The browser must be started with remote debugging enabled, e.g.:
-        brave --remote-debugging-port=9222
-
-    IMPORTANT: This will NOT hijack protected pages like localhost:5173,
-    chat.openai.com, or other chat interfaces. If all open pages are
-    protected, a new blank tab will be created for automation work.
-
-    Args:
-        endpoint: CDP endpoint URL (default: http://localhost:9222)
-        timeout_ms: Connection timeout in milliseconds (default: 30000)
-
-    Returns:
-        JSON with status, browser info, and available pages.
-    """
-    return await _browser_connect_impl(endpoint, timeout_ms)
-
-
 @mcp.tool("browser_open")  # type: ignore[misc]
 async def browser_open(
     url: str | None = None,
     preset: str | None = None,
-    wait_for_ready: bool = True,
     timeout_ms: int = 10000,
 ) -> str:
-    """Launch a new minimal browser window (Brave 'app mode') with CDP enabled.
+    """Launch a fresh app-mode browser window and connect for automation.
 
-    Opens a clean, chromeless window like the waybar bookmarks.
-    Automatically connects via CDP when ready.
-
-    Use this when:
-    - No browser is running with CDP enabled
-    - You want a fresh window that won't interfere with existing tabs
-    - You want to use a waybar bookmark preset
+    Always starts a NEW window - no session restoration, no existing tabs.
+    This is the only way to start browser automation.
 
     Args:
         url: URL to open (ignored if preset is provided)
         preset: Waybar bookmark preset name. Options:
             - "chatgpt", "gemini", "google", "dev", "calendar", "gmail", "github"
-        wait_for_ready: Wait for CDP connection after launch (default: True)
         timeout_ms: CDP connection timeout (default: 10000)
 
     Returns:
         JSON with status and connection info.
     """
     global _browser, _context, _page, _connected
+
+    # Close any existing session first
+    if _connected:
+        await browser_close()
 
     # Resolve URL from preset or direct URL
     if preset:
@@ -242,135 +113,65 @@ async def browser_open(
         target_url = "about:blank"
 
     try:
-        # First, check if CDP is already available (browser already running)
-        # This prevents launching orphaned windows when a browser exists
-        try:
-            import httpx
-            async with httpx.AsyncClient(timeout=1.0) as client:
-                resp = await client.get(f"http://localhost:{DEFAULT_CDP_PORT}/json/version")
-                if resp.status_code == 200:
-                    # Browser already running! Just connect, don't navigate
-                    result = await _browser_connect_impl(timeout_ms=5000)
-                    result_data = json.loads(result)
+        # Launch Brave in app mode with CDP enabled
+        # --disable-session-restore: No tab restoration
+        # --no-first-run: Skip first-run dialogs
+        # --force-dark-mode: Dark theme
+        cmd = [
+            "brave",
+            f"--app={target_url}",
+            f"--remote-debugging-port={DEFAULT_CDP_PORT}",
+            "--disable-session-restore",
+            "--no-first-run",
+            "--force-dark-mode",
+        ]
 
-                    if result_data.get("status") == "ok":
-                        # Return connection info; LLM can use browser_navigate if needed
-                        return json.dumps({
-                            "status": "ok",
-                            "reused_existing": True,
-                            "intended_url": target_url,
-                            "preset": preset,
-                            "current_url": result_data.get("current_url"),
-                            "tabs_count": result_data.get("tabs_count"),
-                            "hint": f"Browser already running. Use browser_navigate to go to {target_url}",
-                        })
-        except Exception:
-            # CDP not available, proceed with launching new browser
-            pass
-
-        # No existing browser, launch Brave in app mode with CDP enabled
-        cdp_flags = f"--remote-debugging-port={DEFAULT_CDP_PORT} --force-dark-mode --disable-session-restore"
-        cmd = f'brave --app="{target_url}" {cdp_flags}'
-
-        # Launch in background
         subprocess.Popen(
             cmd,
-            shell=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
 
-        if not wait_for_ready:
-            return json.dumps({
-                "status": "launched",
-                "url": target_url,
-                "preset": preset,
-                "message": "Browser launched. Call browser_connect to connect.",
-            })
-
         # Wait for CDP to become available
+        pw = await _ensure_playwright()
         start_time = time.time()
         last_error = None
 
         while (time.time() - start_time) * 1000 < timeout_ms:
-            await asyncio.sleep(0.5)  # Check every 500ms
+            await asyncio.sleep(0.3)
 
             try:
-                result = await _browser_connect_impl(timeout_ms=2000)
-                result_data = json.loads(result)
+                _browser = await pw.chromium.connect_over_cdp(
+                    f"http://localhost:{DEFAULT_CDP_PORT}",
+                    timeout=2000,
+                )
 
-                if result_data.get("status") == "ok":
-                    # Successfully connected
-                    return json.dumps({
-                        "status": "ok",
-                        "launched_url": target_url,
-                        "preset": preset,
-                        "current_url": result_data.get("current_url"),
-                        "tabs_count": result_data.get("tabs_count"),
-                    })
+                # Get the page from the browser
+                if _browser.contexts and _browser.contexts[0].pages:
+                    _context = _browser.contexts[0]
+                    _page = _context.pages[0]
                 else:
-                    last_error = result_data.get("message")
+                    _context = await _browser.new_context()
+                    _page = await _context.new_page()
+                    await _page.goto(target_url)
+
+                _connected = True
+
+                return json.dumps({
+                    "status": "ok",
+                    "url": target_url,
+                    "preset": preset,
+                    "current_url": _page.url,
+                })
+
             except Exception as e:
                 last_error = str(e)
 
         return json.dumps({
             "status": "error",
-            "message": f"Browser launched but CDP connection timed out: {last_error}",
-            "hint": "The browser may still be starting. Try browser_connect in a few seconds.",
-        })
-
-    except Exception as exc:
-        return json.dumps({
-            "status": "error",
-            "message": str(exc),
-        })
-
-
-@mcp.tool("browser_new_tab")  # type: ignore[misc]
-async def browser_new_tab(
-    url: str = "about:blank",
-    switch_to: bool = True,
-) -> str:
-    """Create a new tab for automation work.
-
-    Use this when you're connected to a browser but want to work in a
-    fresh tab without disturbing existing pages.
-
-    Args:
-        url: URL to open in the new tab (default: about:blank)
-        switch_to: Make this the active page for automation (default: True)
-
-    Returns:
-        JSON with status and new tab info.
-    """
-    global _page
-
-    try:
-        if not _connected or _context is None:
-            return json.dumps({
-                "status": "error",
-                "message": "Not connected to browser. Call browser_connect or browser_open first.",
-            })
-
-        # Create new page in current context
-        new_page = await _context.new_page()
-
-        # Navigate if URL provided
-        if url and url != "about:blank":
-            await new_page.goto(url, wait_until="domcontentloaded")
-
-        # Switch to new page if requested
-        if switch_to:
-            _page = new_page
-            await new_page.bring_to_front()
-
-        page_title = await new_page.title()
-        return json.dumps({
-            "status": "ok",
-            "url": new_page.url,
-            "title": page_title[:50] if page_title else None,
-            "active": switch_to,
+            "message": f"CDP connection timed out: {last_error}",
+            "hint": "Browser may still be starting. Try again.",
         })
 
     except Exception as exc:
@@ -386,7 +187,7 @@ async def browser_navigate(
     wait_until: str = "domcontentloaded",
     timeout_ms: int = 30000,
 ) -> str:
-    """Navigate to a URL in the current tab.
+    """Navigate to a URL in the current page.
 
     Args:
         url: The URL to navigate to
@@ -439,7 +240,7 @@ async def browser_click(
         timeout_ms: Timeout waiting for element
 
     Returns:
-        JSON with status and clicked element info.
+        JSON with status.
     """
     try:
         page = await _get_page()
@@ -454,7 +255,6 @@ async def browser_click(
         return json.dumps({
             "status": "ok",
             "selector": selector,
-            "clicked": True,
         })
 
     except Exception as exc:
@@ -507,6 +307,50 @@ async def browser_type(
         })
 
 
+@mcp.tool("browser_press_key")  # type: ignore[misc]
+async def browser_press_key(
+    key: str,
+    selector: str | None = None,
+) -> str:
+    """Press a keyboard key on the page.
+
+    Use this to submit forms (Enter), navigate (Tab), close dialogs (Escape), etc.
+
+    Args:
+        key: Key to press. Examples:
+            - "Enter" - submit form
+            - "Tab" - next field
+            - "Escape" - close dialog
+            - "ArrowDown", "ArrowUp" - navigate lists
+            - "Backspace", "Delete" - delete text
+            - Modifiers: "Control+a", "Shift+Tab", "Meta+Enter"
+        selector: Optional element to focus first before pressing key
+
+    Returns:
+        JSON with status.
+    """
+    try:
+        page = await _get_page()
+
+        if selector:
+            await page.focus(selector)
+
+        await page.keyboard.press(key)
+
+        return json.dumps({
+            "status": "ok",
+            "key": key,
+            "selector": selector,
+        })
+
+    except Exception as exc:
+        return json.dumps({
+            "status": "error",
+            "key": key,
+            "message": str(exc),
+        })
+
+
 @mcp.tool("browser_extract")  # type: ignore[misc]
 async def browser_extract(
     selector: str | None = None,
@@ -550,7 +394,6 @@ async def browser_extract(
             else:
                 content = await element.inner_text()
         else:
-            # Full page text
             if content_type == "text":
                 content = await page.inner_text("body")
             elif content_type == "html":
@@ -558,7 +401,6 @@ async def browser_extract(
             else:
                 content = await page.inner_text("body")
 
-        # Truncate if needed
         truncated = len(content) > limit
         content = content[:limit]
 
@@ -626,68 +468,6 @@ async def browser_wait(
         })
 
 
-@mcp.tool("browser_tabs")  # type: ignore[misc]
-async def browser_tabs(
-    switch_to: int | None = None,
-) -> str:
-    """List browser tabs or switch to a specific tab.
-
-    Args:
-        switch_to: Tab index to switch to (0-based). If None, just list tabs.
-
-    Returns:
-        JSON with tabs list and current tab info.
-    """
-    global _page
-
-    try:
-        if not _connected or _browser is None:
-            raise RuntimeError("Not connected to browser")
-
-        # Gather all tabs
-        tabs = []
-        all_pages = []
-        for ctx in _browser.contexts:
-            for p in ctx.pages:
-                all_pages.append(p)
-                page_title = await p.title()
-                tabs.append({
-                    "index": len(tabs),
-                    "title": page_title[:50] if page_title else "(untitled)",
-                    "url": p.url,
-                    "active": p == _page,
-                })
-
-        # Switch if requested
-        if switch_to is not None:
-            if 0 <= switch_to < len(all_pages):
-                _page = all_pages[switch_to]
-                await _page.bring_to_front()
-                # Update active flag
-                for i, tab in enumerate(tabs):
-                    tab["active"] = (i == switch_to)
-            else:
-                return json.dumps({
-                    "status": "error",
-                    "message": f"Invalid tab index: {switch_to}. Valid: 0-{len(all_pages)-1}",
-                })
-
-        return json.dumps({
-            "status": "ok",
-            "tabs_count": len(tabs),
-            "tabs": tabs,
-            "current_index": next(
-                (i for i, t in enumerate(tabs) if t["active"]), 0
-            ),
-        })
-
-    except Exception as exc:
-        return json.dumps({
-            "status": "error",
-            "message": str(exc),
-        })
-
-
 @mcp.tool("browser_screenshot")  # type: ignore[misc]
 async def browser_screenshot(
     selector: str | None = None,
@@ -707,13 +487,11 @@ async def browser_screenshot(
     try:
         page = await _get_page()
 
-        # Determine save path
         if path:
             save_path = Path(path)
         else:
             save_path = Path(tempfile.gettempdir()) / f"screenshot_{int(time.time())}.png"
 
-        # Take screenshot
         if selector:
             element = await page.query_selector(selector)
             if not element:
@@ -741,10 +519,9 @@ async def browser_screenshot(
 
 @mcp.tool("browser_close")  # type: ignore[misc]
 async def browser_close() -> str:
-    """Close the Playwright connection (does NOT close the browser itself).
+    """Close the browser and disconnect.
 
-    Use this to cleanly disconnect when done with automation.
-    The browser window remains open for manual use.
+    Closes the app-mode window entirely.
 
     Returns:
         JSON with status.
@@ -765,7 +542,7 @@ async def browser_close() -> str:
 
         return json.dumps({
             "status": "ok",
-            "message": "Disconnected from browser",
+            "message": "Browser closed",
         })
 
     except Exception as exc:
@@ -825,15 +602,13 @@ if __name__ == "__main__":  # pragma: no cover - CLI helper
 __all__ = [
     "mcp",
     "run",
-    "browser_connect",
     "browser_open",
-    "browser_new_tab",
     "browser_navigate",
     "browser_click",
     "browser_type",
+    "browser_press_key",
     "browser_extract",
     "browser_wait",
-    "browser_tabs",
     "browser_screenshot",
     "browser_close",
 ]

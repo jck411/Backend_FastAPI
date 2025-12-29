@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -40,7 +40,7 @@ async def test_browser_navigate_not_connected():
     result = json.loads(await fn("https://example.com"))
 
     assert result["status"] == "error"
-    assert "connect" in result["message"].lower()
+    assert "browser_open" in result["message"].lower() or "connect" in result["message"].lower()
 
 
 async def test_browser_click_not_connected():
@@ -49,7 +49,7 @@ async def test_browser_click_not_connected():
     result = json.loads(await fn("button"))
 
     assert result["status"] == "error"
-    assert "connect" in result["message"].lower()
+    assert "browser_open" in result["message"].lower() or "connect" in result["message"].lower()
 
 
 async def test_browser_type_not_connected():
@@ -58,7 +58,7 @@ async def test_browser_type_not_connected():
     result = json.loads(await fn("input", "hello"))
 
     assert result["status"] == "error"
-    assert "connect" in result["message"].lower()
+    assert "browser_open" in result["message"].lower() or "connect" in result["message"].lower()
 
 
 async def test_browser_extract_not_connected():
@@ -67,7 +67,7 @@ async def test_browser_extract_not_connected():
     result = json.loads(await fn())
 
     assert result["status"] == "error"
-    assert "connect" in result["message"].lower()
+    assert "browser_open" in result["message"].lower() or "connect" in result["message"].lower()
 
 
 async def test_browser_wait_not_connected():
@@ -76,16 +76,7 @@ async def test_browser_wait_not_connected():
     result = json.loads(await fn("#element"))
 
     assert result["status"] == "error"
-    assert "connect" in result["message"].lower()
-
-
-async def test_browser_tabs_not_connected():
-    """Test error when trying to list tabs without connecting first."""
-    fn = _get_fn(playwright_server.browser_tabs)
-    result = json.loads(await fn())
-
-    assert result["status"] == "error"
-    assert "connect" in result["message"].lower()
+    assert "browser_open" in result["message"].lower() or "connect" in result["message"].lower()
 
 
 async def test_browser_screenshot_not_connected():
@@ -94,7 +85,7 @@ async def test_browser_screenshot_not_connected():
     result = json.loads(await fn())
 
     assert result["status"] == "error"
-    assert "connect" in result["message"].lower()
+    assert "browser_open" in result["message"].lower() or "connect" in result["message"].lower()
 
 
 async def test_browser_close_when_not_connected():
@@ -103,7 +94,7 @@ async def test_browser_close_when_not_connected():
     result = json.loads(await fn())
 
     assert result["status"] == "ok"
-    assert "disconnect" in result["message"].lower()
+    assert "close" in result["message"].lower()
 
 
 async def test_browser_navigate_success():
@@ -139,7 +130,6 @@ async def test_browser_click_success():
     result = json.loads(await fn("button.submit"))
 
     assert result["status"] == "ok"
-    assert result["clicked"] is True
     mock_page.click.assert_called_once()
 
 
@@ -199,48 +189,47 @@ async def test_browser_extract_truncation():
     assert result["truncated"] is True
 
 
-async def test_browser_tabs_list():
-    """Test listing tabs with mocked browser."""
-    mock_page1 = MagicMock()
-    mock_page1.title = AsyncMock(return_value="Page 1")
-    mock_page1.url = "https://example1.com"
-
-    mock_page2 = MagicMock()
-    mock_page2.title = AsyncMock(return_value="Page 2")
-    mock_page2.url = "https://example2.com"
-
-    mock_context = MagicMock()
-    mock_context.pages = [mock_page1, mock_page2]
-
-    mock_browser = MagicMock()
-    mock_browser.contexts = [mock_context]
-
-    playwright_server._browser = mock_browser
-    playwright_server._page = mock_page1
-    playwright_server._connected = True
-
-    fn = _get_fn(playwright_server.browser_tabs)
-    result = json.loads(await fn())
-
-    assert result["status"] == "ok"
-    assert result["tabs_count"] == 2
-    assert len(result["tabs"]) == 2
-
-
 def test_module_exports():
     """Test that all expected functions are exported."""
     expected = [
         "mcp",
         "run",
-        "browser_connect",
+        "browser_open",
         "browser_navigate",
         "browser_click",
         "browser_type",
+        "browser_press_key",
         "browser_extract",
         "browser_wait",
-        "browser_tabs",
         "browser_screenshot",
         "browser_close",
     ]
     for name in expected:
         assert hasattr(playwright_server, name), f"Missing export: {name}"
+
+async def test_browser_press_key_not_connected():
+    """Test error when trying to press key without connecting first."""
+    fn = _get_fn(playwright_server.browser_press_key)
+    result = json.loads(await fn("Enter"))
+
+    assert result["status"] == "error"
+    assert "browser_open" in result["message"].lower() or "connect" in result["message"].lower()
+
+
+async def test_browser_press_key_success():
+    """Test successful key press with mocked page."""
+    mock_keyboard = MagicMock()
+    mock_keyboard.press = AsyncMock()
+
+    mock_page = MagicMock()
+    mock_page.keyboard = mock_keyboard
+
+    playwright_server._page = mock_page
+    playwright_server._connected = True
+
+    fn = _get_fn(playwright_server.browser_press_key)
+    result = json.loads(await fn("Enter"))
+
+    assert result["status"] == "ok"
+    assert result["key"] == "Enter"
+    mock_keyboard.press.assert_called_once_with("Enter")

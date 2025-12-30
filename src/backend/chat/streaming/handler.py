@@ -36,6 +36,9 @@ from .tooling import (
     classify_tool_followup as _classify_tool_followup,
 )
 from .tooling import (
+    enforce_tool_policy as _enforce_tool_policy,
+)
+from .tooling import (
     finalize_tool_calls as _finalize_tool_calls,
 )
 from .tooling import (
@@ -63,6 +66,7 @@ class StreamingHandler:
         *,
         default_model: str,
         tool_hop_limit: int = 20,
+        tool_error_limit: int = 2,
         model_settings: ModelSettingsService | None = None,
         attachment_service: AttachmentService | None = None,
         conversation_logger: ConversationLogWriter | None = None,
@@ -72,6 +76,7 @@ class StreamingHandler:
         self._tool_client = tool_client
         self._default_model = default_model
         self._tool_hop_limit = tool_hop_limit
+        self._tool_error_limit = max(1, tool_error_limit)
         self._model_settings = model_settings
         self._attachment_service = attachment_service
         self._conversation_logger = conversation_logger
@@ -143,6 +148,13 @@ class StreamingHandler:
             if isinstance(candidate, str):
                 assistant_client_message_id = candidate
         active_tools_payload = list(tools_payload)
+        available_tool_names = {
+            tool.get("function", {}).get("name")
+            for tool in active_tools_payload
+            if isinstance(tool, dict)
+            and isinstance(tool.get("function"), dict)
+            and isinstance(tool.get("function", {}).get("name"), str)
+        }
         tool_choice_value = request.tool_choice
         requested_tool_choice = (
             tool_choice_value if isinstance(tool_choice_value, str) else None
@@ -157,6 +169,7 @@ class StreamingHandler:
         total_tool_calls = 0
         # Track tool attachments to inject into next assistant response
         pending_tool_attachments: list[dict[str, Any]] = []
+        consecutive_tool_errors = 0
 
         while True:
             tools_available = bool(active_tools_payload)
@@ -699,6 +712,7 @@ class StreamingHandler:
                 break
 
             processed_tool_calls = 0
+            stop_due_to_errors = False
 
             for call_index, tool_call in enumerate(assistant_turn.tool_calls):
                 function = tool_call.get("function") or {}
@@ -804,32 +818,42 @@ class StreamingHandler:
                         working_arguments = dict(arguments)
                         if session_id and _tool_requires_session_id(tool_name):
                             working_arguments.setdefault("session_id", session_id)
-                        try:
-                            # DEBUG: Log the arguments being sent to the tool
-                            logger.info(
-                                "[TOOL-DEBUG] Calling tool '%s' with arguments: %s",
-                                tool_name,
-                                json.dumps(working_arguments, indent=2),
-                            )
-                            result_obj = await self._tool_client.call_tool(
-                                tool_name, working_arguments
-                            )
-                            result_text = self._tool_client.format_tool_result(
-                                result_obj
-                            )
-                            # DEBUG: Log the result from the tool
-                            logger.info(
-                                "[TOOL-DEBUG] Tool '%s' returned: %s",
-                                tool_name,
-                                result_text[:500] if len(result_text) > 500 else result_text,
-                            )
-                            tool_error_flag = getattr(result_obj, "isError", False)
-                            status = "error" if tool_error_flag else "finished"
-                        except Exception as exc:  # pragma: no cover - MCP errors
-                            logger.exception("Tool '%s' raised an exception", tool_name)
-                            result_text = f"Tool error: {exc}"
+                        policy_violation = _enforce_tool_policy(
+                            tool_name,
+                            working_arguments,
+                            available_tools=available_tool_names,
+                        )
+                        if policy_violation:
+                            result_text = policy_violation
                             status = "error"
                             tool_error_flag = True
+                        else:
+                            try:
+                                # DEBUG: Log the arguments being sent to the tool
+                                logger.info(
+                                    "[TOOL-DEBUG] Calling tool '%s' with arguments: %s",
+                                    tool_name,
+                                    json.dumps(working_arguments, indent=2),
+                                )
+                                result_obj = await self._tool_client.call_tool(
+                                    tool_name, working_arguments
+                                )
+                                result_text = self._tool_client.format_tool_result(
+                                    result_obj
+                                )
+                                # DEBUG: Log the result from the tool
+                                logger.info(
+                                    "[TOOL-DEBUG] Tool '%s' returned: %s",
+                                    tool_name,
+                                    result_text[:500] if len(result_text) > 500 else result_text,
+                                )
+                                tool_error_flag = getattr(result_obj, "isError", False)
+                                status = "error" if tool_error_flag else "finished"
+                            except Exception as exc:  # pragma: no cover - MCP errors
+                                logger.exception("Tool '%s' raised an exception", tool_name)
+                                result_text = f"Tool error: {exc}"
+                                status = "error"
+                                tool_error_flag = True
 
                 tool_metadata = {
                     "tool_name": tool_name,
@@ -975,8 +999,51 @@ class StreamingHandler:
                     }
 
                 processed_tool_calls += 1
+                if status == "error":
+                    consecutive_tool_errors += 1
+                else:
+                    consecutive_tool_errors = 0
+                if consecutive_tool_errors >= self._tool_error_limit:
+                    stop_due_to_errors = True
+                    break
 
             total_tool_calls += processed_tool_calls
+            if stop_due_to_errors:
+                pause_message = (
+                    "Tool calls are failing repeatedly. "
+                    "I paused to avoid excessive retries. "
+                    "Would you like me to keep trying?"
+                )
+                logger.info(
+                    "Tool error limit (%d) reached for session %s, pausing for user",
+                    self._tool_error_limit,
+                    session_id,
+                )
+                await self._repo.add_message(
+                    session_id,
+                    role="assistant",
+                    content=pause_message,
+                    metadata={
+                        "tool_error_pause": True,
+                        "tool_error_count": consecutive_tool_errors,
+                        "tool_error_limit": self._tool_error_limit,
+                    },
+                    client_message_id=assistant_client_message_id,
+                    parent_client_message_id=assistant_parent_message_id,
+                )
+                yield {
+                    "event": "tool",
+                    "data": json.dumps(
+                        {
+                            "status": "tool_error_limit",
+                            "name": "system",
+                            "message": pause_message,
+                            "tool_error_count": consecutive_tool_errors,
+                            "limit": self._tool_error_limit,
+                        }
+                    ),
+                }
+                break
 
             hop_count += 1
 

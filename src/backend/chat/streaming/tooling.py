@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
+import shlex
 from typing import Any, Mapping, Sequence
+from urllib.parse import urlparse
 
 from ...openrouter import OpenRouterError
 
@@ -18,6 +21,79 @@ SESSION_AWARE_TOOLS = {
     "extract_gmail_attachment_by_id",
     "gdrive_display_image",
 }
+
+_WEB_URL_RE = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
+_WEB_FETCH_COMMANDS = {"curl", "wget", "http", "httpie", "lynx", "w3m", "links"}
+
+
+def _extract_command_name(command: str) -> str | None:
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
+
+    if not parts:
+        return None
+
+    idx = 0
+    while idx < len(parts):
+        token = parts[idx]
+        if token in {"sudo", "env"}:
+            idx += 1
+            continue
+        if "=" in token and not token.startswith("-"):
+            idx += 1
+            continue
+        return token
+    return None
+
+
+def _extract_remote_urls(text: str) -> list[str]:
+    urls = _WEB_URL_RE.findall(text)
+    remote: list[str] = []
+    for url in urls:
+        try:
+            parsed = urlparse(url)
+        except Exception:
+            remote.append(url)
+            continue
+        host = (parsed.hostname or "").lower()
+        if host and host not in _LOCAL_HOSTS:
+            remote.append(url)
+    return remote
+
+
+def _browser_tools_available(available_tools: set[str]) -> bool:
+    return any(name.startswith("browser_") for name in available_tools)
+
+
+def enforce_tool_policy(
+    tool_name: str,
+    arguments: Mapping[str, Any] | None,
+    *,
+    available_tools: set[str],
+) -> str | None:
+    if tool_name not in {"shell_execute", "shell_session"}:
+        return None
+
+    if not _browser_tools_available(available_tools):
+        return None
+
+    command = arguments.get("command") if isinstance(arguments, Mapping) else None
+    if not isinstance(command, str) or not command.strip():
+        return None
+
+    command_name = _extract_command_name(command)
+    if command_name not in _WEB_FETCH_COMMANDS:
+        return None
+
+    if not _extract_remote_urls(command):
+        return None
+
+    return (
+        "Blocked web fetch in shell command. Use browser_* tools for web access."
+    )
 
 
 def summarize_tool_parameters(parameters: Mapping[str, Any] | None) -> str:
@@ -228,6 +304,7 @@ __all__ = [
     "SESSION_AWARE_TOOL_SUFFIX",
     "SESSION_AWARE_TOOLS",
     "classify_tool_followup",
+    "enforce_tool_policy",
     "finalize_tool_calls",
     "is_tool_support_error",
     "looks_like_no_result",

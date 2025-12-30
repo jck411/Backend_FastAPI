@@ -20,12 +20,14 @@ def reset_global_state():
     playwright_server._context = None
     playwright_server._page = None
     playwright_server._connected = False
+    playwright_server._browser_process = None
     yield
     playwright_server._playwright = None
     playwright_server._browser = None
     playwright_server._context = None
     playwright_server._page = None
     playwright_server._connected = False
+    playwright_server._browser_process = None
 
 
 # Helper to get the underlying function from FunctionTool wrapper

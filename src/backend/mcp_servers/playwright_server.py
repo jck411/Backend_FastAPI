@@ -9,17 +9,22 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import socket
 import subprocess
 import tempfile
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastmcp import FastMCP
 
 # Default ports
 DEFAULT_HTTP_PORT = 9011
 DEFAULT_CDP_PORT = 9222
+CDP_PORT_ENV = "MCP_PLAYWRIGHT_CDP_PORT"
+CDP_PORT_ENV_FALLBACK = "PLAYWRIGHT_CDP_PORT"
 
 # Protected URLs that Playwright must NEVER navigate to or open
 # These are the chat app endpoints that would hijack the user's session
@@ -59,6 +64,7 @@ _browser: Any = None
 _context: Any = None
 _page: Any = None
 _connected: bool = False
+_browser_process: subprocess.Popen[str] | None = None
 
 
 async def _ensure_playwright() -> Any:
@@ -84,7 +90,7 @@ async def _get_page() -> Any:
 
 async def _close_browser() -> None:
     """Internal: Close browser and reset global state."""
-    global _browser, _context, _page, _connected, _playwright
+    global _browser, _context, _page, _connected, _playwright, _browser_process
 
     try:
         if _browser:
@@ -96,12 +102,144 @@ async def _close_browser() -> None:
             await _playwright.stop()
     except Exception:
         pass
+    await _terminate_browser_process()
 
     _browser = None
     _context = None
     _page = None
     _playwright = None
     _connected = False
+
+
+def _parse_cdp_port(value: str | int | None) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    raw = value.strip().lower()
+    if raw in ("auto", "0"):
+        return 0
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _port_is_listening(port: int) -> bool:
+    if port <= 0:
+        return False
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.2)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _pick_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def _resolve_cdp_port(requested: int | str | None) -> tuple[int, int | None, bool]:
+    parsed_requested = _parse_cdp_port(requested)
+    if requested is not None and parsed_requested is None:
+        raise ValueError(f"Invalid CDP port: {requested}")
+
+    env_value = _parse_cdp_port(os.environ.get(CDP_PORT_ENV, ""))
+    if env_value is None:
+        env_value = _parse_cdp_port(os.environ.get(CDP_PORT_ENV_FALLBACK, ""))
+
+    if parsed_requested is None:
+        requested = env_value if env_value is not None else DEFAULT_CDP_PORT
+    else:
+        requested = parsed_requested
+
+    if requested == 0:
+        return _pick_free_port(), requested, True
+
+    if not (1 <= requested <= 65535):
+        raise ValueError(f"Invalid CDP port: {requested}")
+
+    if _port_is_listening(requested):
+        return _pick_free_port(), requested, True
+
+    return requested, requested, False
+
+
+def _is_utility_page(url: str) -> bool:
+    return url.startswith(("chrome-extension://", "devtools://", "chrome://"))
+
+
+def _urls_match(page_url: str, target_url: str) -> bool:
+    if not page_url or not target_url:
+        return False
+    if page_url == target_url:
+        return True
+    if page_url.rstrip("/") == target_url.rstrip("/"):
+        return True
+    if page_url.startswith(target_url) or target_url.startswith(page_url):
+        return True
+
+    try:
+        page = urlparse(page_url)
+        target = urlparse(target_url)
+    except Exception:
+        return False
+
+    if page.scheme and target.scheme and page.scheme != target.scheme:
+        return False
+    if page.netloc and target.netloc and page.netloc != target.netloc:
+        return False
+    if page.netloc and target.netloc:
+        return True
+    return False
+
+
+async def _select_page_for_target(
+    browser: Any,
+    target_url: str,
+    timeout_ms: int,
+) -> tuple[Any | None, Any | None]:
+    wait_seconds = max(0.2, min(2.0, timeout_ms / 1000))
+    deadline = time.time() + wait_seconds
+    while True:
+        pages: list[Any] = []
+        for context in browser.contexts:
+            pages.extend(context.pages)
+
+        for page in pages:
+            if _urls_match(page.url, target_url):
+                return page.context, page
+
+        non_utility = [page for page in pages if not _is_utility_page(page.url)]
+        if len(non_utility) == 1:
+            page = non_utility[0]
+            return page.context, page
+
+        if time.time() >= deadline:
+            return None, None
+
+        await asyncio.sleep(0.2)
+
+
+async def _terminate_browser_process() -> None:
+    global _browser_process
+    process = _browser_process
+    _browser_process = None
+    if not process:
+        return
+    try:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                await asyncio.to_thread(process.wait, timeout=2.0)
+            except Exception:
+                process.kill()
+                try:
+                    await asyncio.to_thread(process.wait, timeout=1.0)
+                except Exception:
+                    pass
+    except Exception:
+        pass
 
 
 # =============================================================================
@@ -148,6 +286,7 @@ async def browser_open(
     preset: str | None = None,
     timeout_ms: int = 10000,
     force_new: bool = False,
+    cdp_port: int | None = None,
 ) -> str:
     """Open a browser window for automation, reusing existing if available.
 
@@ -160,11 +299,12 @@ async def browser_open(
             - "chatgpt", "gemini", "google", "calendar", "gmail", "github"
         timeout_ms: CDP connection timeout (default: 10000)
         force_new: Force close existing session and start fresh (default: False)
+        cdp_port: Override the CDP port (0 = auto-select free port)
 
     Returns:
         JSON with status and connection info.
     """
-    global _browser, _context, _page, _connected
+    global _browser, _context, _page, _connected, _browser_process
 
     # Resolve URL from preset or direct URL first (needed for reuse path)
     if preset:
@@ -200,7 +340,7 @@ async def browser_open(
                 "current_url": _page.url,
                 "reused": True,
             })
-        except Exception as exc:
+        except Exception:
             # Session is stale, fall through to launch new browser
             await _close_browser()
 
@@ -209,6 +349,14 @@ async def browser_open(
         await _close_browser()
 
     try:
+        try:
+            resolved_cdp_port, requested_cdp_port, port_changed = _resolve_cdp_port(cdp_port)
+        except ValueError as exc:
+            return json.dumps({
+                "status": "error",
+                "message": str(exc),
+            })
+
         # Launch Brave in app mode with CDP enabled
         # --disable-session-restore: No tab restoration
         # --no-first-run: Skip first-run dialogs
@@ -216,16 +364,17 @@ async def browser_open(
         cmd = [
             "brave",
             f"--app={target_url}",
-            f"--remote-debugging-port={DEFAULT_CDP_PORT}",
+            f"--remote-debugging-port={resolved_cdp_port}",
             "--disable-session-restore",
             "--no-first-run",
             "--force-dark-mode",
         ]
 
-        subprocess.Popen(
+        _browser_process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            text=True,
             start_new_session=True,
         )
 
@@ -242,18 +391,25 @@ async def browser_open(
             try:
                 # Use 127.0.0.1 explicitly to avoid IPv6 issues (::1)
                 _browser = await pw.chromium.connect_over_cdp(
-                    f"http://127.0.0.1:{DEFAULT_CDP_PORT}",
+                    f"http://127.0.0.1:{resolved_cdp_port}",
                     timeout=2000,
                 )
 
-                # Get the page from the browser
-                if _browser.contexts and _browser.contexts[0].pages:
-                    _context = _browser.contexts[0]
-                    _page = _context.pages[0]
-                else:
+                _context, _page = await _select_page_for_target(
+                    _browser,
+                    target_url,
+                    timeout_ms,
+                )
+                if _context is None or _page is None:
                     _context = await _browser.new_context()
                     _page = await _context.new_page()
-                    await _page.goto(target_url)
+
+                if target_url != "about:blank" and not _urls_match(_page.url, target_url):
+                    await _page.goto(
+                        target_url,
+                        wait_until="domcontentloaded",
+                        timeout=timeout_ms,
+                    )
 
                 _connected = True
 
@@ -262,18 +418,26 @@ async def browser_open(
                     "url": target_url,
                     "preset": preset,
                     "current_url": _page.url,
+                    "cdp_port": resolved_cdp_port,
+                    "cdp_port_requested": requested_cdp_port,
+                    "cdp_port_changed": port_changed,
                 })
 
             except Exception as e:
                 last_error = str(e)
 
+        await _close_browser()
         return json.dumps({
             "status": "error",
             "message": f"CDP connection timed out: {last_error}",
             "hint": "Browser may still be starting. Try again.",
+            "cdp_port": resolved_cdp_port,
+            "cdp_port_requested": requested_cdp_port,
+            "cdp_port_changed": port_changed,
         })
 
     except Exception as exc:
+        await _close_browser()
         return json.dumps({
             "status": "error",
             "message": str(exc),

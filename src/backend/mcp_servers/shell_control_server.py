@@ -13,7 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from asyncio.subprocess import Process
@@ -34,6 +34,7 @@ DELTAS_RETENTION_DAYS = 30
 DELTAS_MAX_ENTRIES = 100
 HOST_PROFILE_ENV = "HOST_PROFILE_ID"
 HOST_ROOT_ENV = "HOST_ROOT_PATH"
+SETTINGS_PANELS_ENV = "SHELL_CONTROL_SETTINGS_PANELS"
 
 # Shell session settings
 SESSION_IDLE_TIMEOUT = 300  # 5 minutes idle = cleanup
@@ -1046,11 +1047,36 @@ def _detect_desktop_environment() -> str:
         return "generic"
 
 
+def _has_gui_session() -> bool:
+    if os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY"):
+        return True
+
+    uid = os.getuid()
+    runtime_dir = Path(f"/run/user/{uid}")
+    if runtime_dir.exists():
+        if any((runtime_dir / name).exists() for name in ("wayland-0", "wayland-1", "wayland-2")):
+            return True
+
+    return Path("/tmp/.X11-unix").exists()
+
+
+def _settings_panels_enabled() -> bool:
+    value = os.environ.get(SETTINGS_PANELS_ENV, "").strip().lower()
+    if value in {"0", "false", "no", "off", "disable", "disabled"}:
+        return False
+    if value in {"1", "true", "yes", "on", "enable", "enabled"}:
+        return True
+    return _has_gui_session()
+
+
 async def _open_settings_panel(command: str) -> str | None:
     """Check if command triggers a settings panel and open it.
 
     Returns the panel command that was launched, or None.
     """
+    if not _settings_panels_enabled():
+        return None
+
     desktop = _detect_desktop_environment()
 
     for pattern, panels in _SETTINGS_PANELS.items():

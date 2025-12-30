@@ -985,6 +985,14 @@ async def _auto_snapshot_software(triggers: set[str]) -> dict[str, object]:
         - "defaults": Snapshot XDG default applications
     """
 
+    if not os.environ.get(HOST_PROFILE_ENV) or not os.environ.get(HOST_ROOT_ENV):
+        return {}
+
+    try:
+        _get_host_dir()
+    except (RuntimeError, ValueError):
+        return {}
+
     snapshot: dict[str, object] = {}
 
     # Package changes -> snapshot tracked packages + defaults (install may change defaults)
@@ -1319,7 +1327,10 @@ async def _find_path(name: str) -> str | None:
     safe_name = shlex.quote(f"*{name}*")
     try:
         proc = await asyncio.create_subprocess_shell(
-            f"find {shlex.quote(home)} -maxdepth 4 -iname {safe_name} -type d 2>/dev/null | head -1",
+            (
+                f"find {shlex.quote(home)} -maxdepth 4 "
+                f"\\( -type d -o -type f \\) -iname {safe_name} 2>/dev/null | head -1"
+            ),
             stdout=asyncio.subprocess.PIPE,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3.0)
@@ -1337,7 +1348,10 @@ async def _launch_gui_app(
 ) -> dict[str, object]:
     """Launch a GUI application in background. Searches for path if not found."""
     shell_env = _build_shell_env()
-    parts = command.split()
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        parts = command.split()
     base_cmd = parts[0] if parts else command
 
     # For xdg-open: if path doesn't exist, search for it
@@ -1459,8 +1473,8 @@ async def shell_session(
     """
     # Validate inputs
     timeout_seconds = _validate_timeout(timeout_seconds)
-
     start = time.perf_counter()
+    sess: ShellSession | None = None
 
     try:
         sess = await _get_or_create_session(session_id)
@@ -1481,11 +1495,13 @@ async def shell_session(
 
     except TimeoutError as e:
         duration_ms = (time.perf_counter() - start) * 1000
+        if sess:
+            await _close_session(sess.session_id)
         return json.dumps(
             {
                 "status": "timeout",
                 "error": str(e),
-                "session_id": session_id,
+                "session_id": sess.session_id if sess else session_id,
                 "duration_ms": duration_ms,
             }
         )
@@ -1494,11 +1510,13 @@ async def shell_session(
         raise
     except Exception as e:
         duration_ms = (time.perf_counter() - start) * 1000
+        if sess:
+            await _close_session(sess.session_id)
         return json.dumps(
             {
                 "status": "error",
                 "error": str(e),
-                "session_id": session_id,
+                "session_id": sess.session_id if sess else session_id,
                 "duration_ms": duration_ms,
             }
         )

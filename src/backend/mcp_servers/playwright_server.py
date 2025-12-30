@@ -86,10 +86,16 @@ async def _close_browser() -> None:
     """Internal: Close browser and reset global state."""
     global _browser, _context, _page, _connected, _playwright
 
-    if _browser:
-        await _browser.close()
-    if _playwright:
-        await _playwright.stop()
+    try:
+        if _browser:
+            await _browser.close()
+    except Exception:
+        pass
+    try:
+        if _playwright:
+            await _playwright.stop()
+    except Exception:
+        pass
 
     _browser = None
     _context = None

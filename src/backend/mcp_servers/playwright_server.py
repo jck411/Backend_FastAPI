@@ -21,16 +21,32 @@ from fastmcp import FastMCP
 DEFAULT_HTTP_PORT = 9011
 DEFAULT_CDP_PORT = 9222
 
+# Protected URLs that Playwright must NEVER navigate to or open
+# These are the chat app endpoints that would hijack the user's session
+PROTECTED_URL_PATTERNS: tuple[str, ...] = (
+    "localhost:5173",
+    "127.0.0.1:5173",
+    "192.168.1.223:5173",  # User's local network chat app
+)
+
 # Waybar bookmark presets (brave --app mode minimal windows)
 _WAYBAR_PRESETS: dict[str, str] = {
     "chatgpt": "https://chat.openai.com",
     "gemini": "https://gemini.google.com/app",
     "google": "https://www.google.com/",
-    "dev": "http://localhost:5173/",
     "calendar": "https://calendar.google.com/calendar/u/0/r?pli=1",
     "gmail": "https://mail.google.com/mail/u/0/#inbox",
     "github": "https://github.com/jck411?tab=repositories",
 }
+
+
+def _is_protected_url(url: str) -> bool:
+    """Check if a URL matches any protected pattern (chat app URLs)."""
+    url_lower = url.lower()
+    for pattern in PROTECTED_URL_PATTERNS:
+        if pattern in url_lower:
+            return True
+    return False
 
 mcp = FastMCP("playwright")
 
@@ -66,38 +82,85 @@ async def _get_page() -> Any:
     return _page
 
 
+async def _close_browser() -> None:
+    """Internal: Close browser and reset global state."""
+    global _browser, _context, _page, _connected, _playwright
+
+    if _browser:
+        await _browser.close()
+    if _playwright:
+        await _playwright.stop()
+
+    _browser = None
+    _context = None
+    _page = None
+    _playwright = None
+    _connected = False
+
+
 # =============================================================================
 # Browser Tools
 # =============================================================================
 
+
+@mcp.tool("browser_status")  # type: ignore[misc]
+async def browser_status() -> str:
+    """Check current browser connection status.
+
+    Call this FIRST to see if browser is connected before using other tools.
+    If not connected, call browser_open to start a new session.
+
+    Returns:
+        JSON with connection status, current URL, and page title if connected.
+    """
+    if not _connected or _page is None:
+        return json.dumps({
+            "status": "ok",
+            "connected": False,
+            "message": "No browser session. Call browser_open to start.",
+        })
+
+    try:
+        current_url = _page.url
+        page_title = await _page.title()
+        return json.dumps({
+            "status": "ok",
+            "connected": True,
+            "url": current_url,
+            "title": page_title[:100] if page_title else None,
+        })
+    except Exception as exc:
+        return json.dumps({
+            "status": "ok",
+            "connected": False,
+            "message": f"Session stale: {exc}. Call browser_open to start fresh.",
+        })
 
 @mcp.tool("browser_open")  # type: ignore[misc]
 async def browser_open(
     url: str | None = None,
     preset: str | None = None,
     timeout_ms: int = 10000,
+    force_new: bool = False,
 ) -> str:
-    """Launch a fresh app-mode browser window and connect for automation.
+    """Open a browser window for automation, reusing existing if available.
 
-    Always starts a NEW window - no session restoration, no existing tabs.
-    This is the only way to start browser automation.
+    If a browser session is already active, navigates to the new URL.
+    Only launches a fresh window when no session exists or force_new=True.
 
     Args:
         url: URL to open (ignored if preset is provided)
         preset: Waybar bookmark preset name. Options:
-            - "chatgpt", "gemini", "google", "dev", "calendar", "gmail", "github"
+            - "chatgpt", "gemini", "google", "calendar", "gmail", "github"
         timeout_ms: CDP connection timeout (default: 10000)
+        force_new: Force close existing session and start fresh (default: False)
 
     Returns:
         JSON with status and connection info.
     """
     global _browser, _context, _page, _connected
 
-    # Close any existing session first
-    if _connected:
-        await browser_close()
-
-    # Resolve URL from preset or direct URL
+    # Resolve URL from preset or direct URL first (needed for reuse path)
     if preset:
         preset_lower = preset.lower()
         if preset_lower not in _WAYBAR_PRESETS:
@@ -111,6 +174,33 @@ async def browser_open(
         target_url = url
     else:
         target_url = "about:blank"
+
+    # Block protected URLs (chat app)
+    if _is_protected_url(target_url):
+        return json.dumps({
+            "status": "error",
+            "message": "Cannot open chat app URL - this would hijack your session",
+            "url": target_url,
+        })
+
+    # Reuse existing session if connected (unless force_new)
+    if _connected and _page is not None and not force_new:
+        try:
+            await _page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
+            return json.dumps({
+                "status": "ok",
+                "url": target_url,
+                "preset": preset,
+                "current_url": _page.url,
+                "reused": True,
+            })
+        except Exception as exc:
+            # Session is stale, fall through to launch new browser
+            await _close_browser()
+
+    # Close any existing session if force_new requested
+    if _connected and force_new:
+        await _close_browser()
 
     try:
         # Launch Brave in app mode with CDP enabled
@@ -134,7 +224,9 @@ async def browser_open(
         )
 
         # Wait for CDP to become available
+        # Give browser a moment to start before polling
         pw = await _ensure_playwright()
+        await asyncio.sleep(1.0)  # Initial wait for browser startup
         start_time = time.time()
         last_error = None
 
@@ -142,8 +234,9 @@ async def browser_open(
             await asyncio.sleep(0.3)
 
             try:
+                # Use 127.0.0.1 explicitly to avoid IPv6 issues (::1)
                 _browser = await pw.chromium.connect_over_cdp(
-                    f"http://localhost:{DEFAULT_CDP_PORT}",
+                    f"http://127.0.0.1:{DEFAULT_CDP_PORT}",
                     timeout=2000,
                 )
 
@@ -201,6 +294,14 @@ async def browser_navigate(
         JSON with status, final URL, and page title.
     """
     try:
+        # Block protected URLs (chat app)
+        if _is_protected_url(url):
+            return json.dumps({
+                "status": "error",
+                "message": "Cannot navigate to chat app URL - this would hijack your session",
+                "url": url,
+            })
+
         page = await _get_page()
 
         response = await page.goto(
@@ -533,19 +634,8 @@ async def browser_close() -> str:
     Returns:
         JSON with status.
     """
-    global _browser, _context, _page, _connected, _playwright
-
     try:
-        if _browser:
-            await _browser.close()
-        if _playwright:
-            await _playwright.stop()
-
-        _browser = None
-        _context = None
-        _page = None
-        _playwright = None
-        _connected = False
+        await _close_browser()
 
         return json.dumps({
             "status": "ok",
@@ -609,6 +699,7 @@ if __name__ == "__main__":  # pragma: no cover - CLI helper
 __all__ = [
     "mcp",
     "run",
+    "browser_status",
     "browser_open",
     "browser_navigate",
     "browser_click",

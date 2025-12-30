@@ -34,6 +34,34 @@ def _get_fn(tool):
     return tool.fn if hasattr(tool, "fn") else tool
 
 
+async def test_browser_status_not_connected():
+    """Test browser_status returns correct state when not connected."""
+    fn = _get_fn(playwright_server.browser_status)
+    result = json.loads(await fn())
+
+    assert result["status"] == "ok"
+    assert result["connected"] is False
+    assert "browser_open" in result["message"].lower()
+
+
+async def test_browser_status_when_connected():
+    """Test browser_status returns URL and title when connected."""
+    mock_page = MagicMock()
+    mock_page.url = "https://example.com/page"
+    mock_page.title = AsyncMock(return_value="Example Page")
+
+    playwright_server._page = mock_page
+    playwright_server._connected = True
+
+    fn = _get_fn(playwright_server.browser_status)
+    result = json.loads(await fn())
+
+    assert result["status"] == "ok"
+    assert result["connected"] is True
+    assert result["url"] == "https://example.com/page"
+    assert result["title"] == "Example Page"
+
+
 async def test_browser_navigate_not_connected():
     """Test error when trying to navigate without connecting first."""
     fn = _get_fn(playwright_server.browser_navigate)

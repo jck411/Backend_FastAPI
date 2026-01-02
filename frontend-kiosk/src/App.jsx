@@ -2,7 +2,6 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
 import Clock from './components/Clock';
-import PhotoFrame from './components/PhotoFrame';
 import TranscriptionScreen from './components/TranscriptionScreen';
 
 /**
@@ -21,7 +20,7 @@ function generateClientId() {
 }
 
 export default function App() {
-    // 0 = Clock, 1 = Photos, 2 = Transcription
+    // 0 = Clock, 1 = Chat
     const [currentScreen, setCurrentScreen] = useState(0);
 
     // Generate a unique client ID for this frontend instance (stable across re-renders)
@@ -289,8 +288,7 @@ export default function App() {
                     setAgentState(data.state);
 
                     if (data.state === 'LISTENING' || data.state === 'THINKING' || data.state === 'SPEAKING') {
-                        setCurrentScreen(2); // Auto-jump to transcription screen
-                        // Do NOT clear messages
+                        setCurrentScreen(1); // Auto-jump to chat screen
                     }
 
                     // Clear tool status when transitioning to IDLE
@@ -327,18 +325,13 @@ export default function App() {
     }, [agentState, idleReturnDelay]);
 
     const handleSwipe = (direction) => {
-        if (direction > 0) {
-            setCurrentScreen((prev) => (prev + 1) % 3);
-        } else {
-            setCurrentScreen((prev) => (prev === 0 ? 2 : prev - 1));
-        }
+        setCurrentScreen((prev) => (prev === 0 ? 1 : 0));
     };
 
     const screens = [
         <Clock key="clock" />,
-        <PhotoFrame key="photos" />,
         <TranscriptionScreen
-            key="transcription"
+            key="chat"
             messages={messages}
             liveTranscript={liveTranscript}
             isListening={agentState === 'LISTENING'}
@@ -378,7 +371,7 @@ export default function App() {
 
             {/* Page Indicators */}
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex space-x-3 z-50">
-                {[0, 1, 2].map((i) => (
+                {[0, 1].map((i) => (
                     <div
                         key={i}
                         className={`h-1.5 rounded-full transition-all duration-300 ${i === currentScreen ? 'bg-white w-8' : 'bg-white/40 w-1.5'

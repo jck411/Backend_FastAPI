@@ -29,3 +29,17 @@ body {
   -webkit-font-smoothing: antialiased;
   background: #000;
 }
+
+/* 
+ * Echo Show 5 display: 960x480 pixels (2:1 aspect ratio)
+ * For development preview, uncomment the below to simulate the device size.
+ * On the actual device, use fullscreen and remove this constraint.
+ */
+/* 
+#root {
+  width: 960px !important;
+  height: 480px !important;
+  margin: auto;
+  border: 1px solid #333;
+}
+*/

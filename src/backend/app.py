@@ -24,6 +24,7 @@ from .routers.stt import router as stt_router
 from .routers.clients import router as clients_router
 from .routers.suggestions import router as suggestions_router
 from .routers.uploads import router as uploads_router
+from .routers.weather import router as weather_router
 from .services.attachments import AttachmentService
 from .services.attachments_cleanup import cleanup_expired_attachments
 from .mcp_servers import BUILTIN_MCP_SERVER_DEFINITIONS
@@ -247,6 +248,7 @@ def create_app() -> FastAPI:
     app.include_router(stt_router)
     app.include_router(clients_router)
     app.include_router(profiles_router)
+    app.include_router(weather_router)
 
     # helper for voice assistant imports to avoid circular deps if any,
     # though here it should be fine.

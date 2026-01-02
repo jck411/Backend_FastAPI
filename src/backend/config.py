@@ -228,6 +228,23 @@ class Settings(BaseSettings):
         default=None, validation_alias=AliasChoices("UNREAL_SPEECH_API_KEY")
     )
 
+    # AccuWeather API (for kiosk weather display)
+    accuweather_api_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("ACCUWEATHER_API_KEY")
+    )
+    accuweather_location_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("ACCUWEATHER_LOCATION_KEY"),
+        description="AccuWeather location key for your city (get from location search API)",
+    )
+    accuweather_cache_minutes: int = Field(
+        default=15,
+        ge=5,
+        le=60,
+        validation_alias=AliasChoices("ACCUWEATHER_CACHE_MINUTES"),
+        description="How long to cache weather data (min 5, max 60 minutes)",
+    )
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:

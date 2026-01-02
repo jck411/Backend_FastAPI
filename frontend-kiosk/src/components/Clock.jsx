@@ -1,4 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+
+/** Slideshow settings */
+const SLIDESHOW_INTERVAL = 30 * 1000; // 30 seconds between photos
+const SLIDESHOW_TRANSITION_DURATION = 1500; // 1.5 second crossfade
+const SLIDESHOW_REFRESH_INTERVAL = 60 * 60 * 1000; // Refresh photo list every hour
 
 /**
  * AccuWeather icon mapping to emoji/unicode symbols.
@@ -152,6 +157,107 @@ export default function Clock() {
     const [weather, setWeather] = useState(null);
     const [weatherError, setWeatherError] = useState(null);
 
+    // Slideshow state
+    const [photos, setPhotos] = useState([]);
+    const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+    const [isTransitioning, setIsTransitioning] = useState(false);
+    const preloadRef = useRef(null);
+    const slideshowTimerRef = useRef(null);
+
+    /**
+     * Skip to next photo (used for tap-to-skip).
+     */
+    const skipToNextPhoto = useCallback(() => {
+        if (photos.length <= 1 || isTransitioning) return;
+
+        // Clear existing timer to reset the 30s countdown
+        if (slideshowTimerRef.current) {
+            clearInterval(slideshowTimerRef.current);
+        }
+
+        // Preload and transition to next photo
+        const nextIndex = (currentPhotoIndex + 1) % photos.length;
+        const nextPhoto = photos[nextIndex];
+        const img = new Image();
+        img.src = `http://${window.location.hostname}:8000/api/slideshow/photo/${nextPhoto}`;
+        preloadRef.current = img;
+
+        setIsTransitioning(true);
+        setTimeout(() => {
+            setCurrentPhotoIndex(nextIndex);
+            setIsTransitioning(false);
+        }, SLIDESHOW_TRANSITION_DURATION);
+    }, [photos, currentPhotoIndex, isTransitioning]);
+
+    /**
+     * Fetch slideshow photos from backend API.
+     * Returns a shuffled list that's consistent for the day.
+     */
+    const fetchPhotos = useCallback(async () => {
+        try {
+            const response = await fetch(
+                `http://${window.location.hostname}:8000/api/slideshow/photos?daily_seed=true`
+            );
+            if (!response.ok) {
+                console.warn('Slideshow photos not available');
+                return;
+            }
+            const data = await response.json();
+            if (data.photos && data.photos.length > 0) {
+                setPhotos(data.photos);
+                console.log(`Loaded ${data.photos.length} slideshow photos`);
+            }
+        } catch (err) {
+            console.warn('Failed to fetch slideshow photos:', err);
+        }
+    }, []);
+
+    // Fetch photos on mount and periodically refresh
+    useEffect(() => {
+        fetchPhotos();
+        const photosTimer = setInterval(fetchPhotos, SLIDESHOW_REFRESH_INTERVAL);
+        return () => clearInterval(photosTimer);
+    }, [fetchPhotos]);
+
+    // Slideshow rotation (auto-advance every 30 seconds)
+    useEffect(() => {
+        if (photos.length <= 1) return;
+
+        const rotatePhoto = () => {
+            // Preload next image before transition
+            const nextIndex = (currentPhotoIndex + 1) % photos.length;
+            const nextPhoto = photos[nextIndex];
+            const img = new Image();
+            img.src = `http://${window.location.hostname}:8000/api/slideshow/photo/${nextPhoto}`;
+            preloadRef.current = img;
+
+            // Start transition
+            setIsTransitioning(true);
+
+            // After transition completes, update index
+            setTimeout(() => {
+                setCurrentPhotoIndex(nextIndex);
+                setIsTransitioning(false);
+            }, SLIDESHOW_TRANSITION_DURATION);
+        };
+
+        slideshowTimerRef.current = setInterval(rotatePhoto, SLIDESHOW_INTERVAL);
+        return () => {
+            if (slideshowTimerRef.current) {
+                clearInterval(slideshowTimerRef.current);
+            }
+        };
+    }, [photos, currentPhotoIndex]);
+
+    // Get photo URLs
+    const currentPhotoUrl = photos.length > 0
+        ? `http://${window.location.hostname}:8000/api/slideshow/photo/${photos[currentPhotoIndex]}`
+        : null;
+    const nextPhotoIndex = (currentPhotoIndex + 1) % Math.max(photos.length, 1);
+    const nextPhotoUrl = photos.length > 1
+        ? `http://${window.location.hostname}:8000/api/slideshow/photo/${photos[nextPhotoIndex]}`
+        : null;
+
     /**
      * Fetch weather data from backend API.
      * Backend caches data server-side (15 min default) to respect AccuWeather limits.
@@ -222,11 +328,38 @@ export default function Clock() {
     };
 
     return (
-        <div className="h-full w-full relative bg-black">
-            {/* Slideshow placeholder - photos will render here */}
-            <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-black">
-                {/* Placeholder gradient - will be replaced by slideshow images */}
-            </div>
+        <div 
+            className="h-full w-full relative bg-black cursor-pointer"
+            onClick={skipToNextPhoto}
+        >
+            {/* Slideshow background - tap anywhere to skip */}
+            {photos.length > 0 ? (
+                <>
+                    {/* Current photo */}
+                    <div
+                        className="absolute inset-0 bg-cover bg-center transition-opacity"
+                        style={{
+                            backgroundImage: `url(${currentPhotoUrl})`,
+                            opacity: isTransitioning ? 0 : 1,
+                            transitionDuration: `${SLIDESHOW_TRANSITION_DURATION}ms`,
+                        }}
+                    />
+                    {/* Next photo (fades in during transition) */}
+                    {nextPhotoUrl && (
+                        <div
+                            className="absolute inset-0 bg-cover bg-center transition-opacity"
+                            style={{
+                                backgroundImage: `url(${nextPhotoUrl})`,
+                                opacity: isTransitioning ? 1 : 0,
+                                transitionDuration: `${SLIDESHOW_TRANSITION_DURATION}ms`,
+                            }}
+                        />
+                    )}
+                </>
+            ) : (
+                /* Fallback gradient when no photos available */
+                <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-black" />
+            )}
 
             {/* Top gradient overlay for weather legibility */}
             <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent pointer-events-none" />

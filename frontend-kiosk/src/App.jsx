@@ -360,6 +360,17 @@ export default function App() {
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: -300, opacity: 0 }}
                     transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    drag="x"
+                    dragConstraints={{ left: 0, right: 0 }}
+                    dragElastic={0.2}
+                    onDragEnd={(event, info) => {
+                        const threshold = 50;
+                        if (info.offset.x < -threshold) {
+                            handleSwipe(1);  // Swipe left -> next screen
+                        } else if (info.offset.x > threshold) {
+                            handleSwipe(-1); // Swipe right -> previous screen
+                        }
+                    }}
                 >
                     {screens[currentScreen]}
                 </motion.div>

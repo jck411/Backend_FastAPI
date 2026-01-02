@@ -50,8 +50,8 @@ async def handle_connection(
         async def on_transcript_received(text: str, is_final: bool):
             logger.debug(f"Transcript ({client_id}): {text} (Final: {is_final})")
 
-            # Broadcast transcript to frontend
-            await manager.broadcast({"type": "transcript", "text": text, "is_final": is_final})
+            # Send transcript to THIS client only (session isolation)
+            await manager.send_message(client_id, {"type": "transcript", "text": text, "is_final": is_final})
 
             # User spoke, so update activity
             session = manager.get_session(client_id)
@@ -59,7 +59,7 @@ async def handle_connection(
                 session.update_activity()
 
             if is_final:
-                # Transition to PROCESSING
+                # Transition to PROCESSING (this client only)
                 await manager.update_state(client_id, "PROCESSING")
 
                 # Generate LLM response with streaming + queue-based TTS
@@ -73,8 +73,8 @@ async def handle_connection(
                 # Get sample rate for audio playback
                 sample_rate = tts_service.get_sample_rate()
 
-                # Signal start of TTS audio stream
-                await manager.broadcast({
+                # Signal start of TTS audio stream (to THIS client only)
+                await manager.send_message(client_id, {
                     "type": "tts_audio_start",
                     "sample_rate": sample_rate,
                     "streaming": True
@@ -88,7 +88,7 @@ async def handle_connection(
                             audio_chunk = await audio_queue.get()
                             if audio_chunk is None:
                                 break
-                            await manager.broadcast({
+                            await manager.send_message(client_id, {
                                 "type": "tts_audio_chunk",
                                 "data": base64.b64encode(audio_chunk).decode('utf-8'),
                                 "chunk_index": chunk_index,
@@ -98,7 +98,7 @@ async def handle_connection(
                     except Exception as e:
                         logger.error(f"Audio sender error: {e}")
                     finally:
-                        await manager.broadcast({
+                        await manager.send_message(client_id, {
                             "type": "tts_audio_chunk",
                             "data": "",
                             "chunk_index": chunk_index,
@@ -109,20 +109,20 @@ async def handle_connection(
                 await manager.update_state(client_id, "SPEAKING")
 
                 try:
-                    # Signal start of streaming response
-                    await manager.broadcast({"type": "assistant_response_start"})
+                    # Signal start of streaming response (to THIS client only)
+                    await manager.send_message(client_id, {"type": "assistant_response_start"})
 
                     async for event in kiosk_chat_service.generate_response_streaming(text, client_id):
                         if event["type"] == "text_chunk":
                             chunk = event["content"]
                             full_response += chunk
-                            await manager.broadcast({"type": "assistant_response_chunk", "text": chunk})
+                            await manager.send_message(client_id, {"type": "assistant_response_chunk", "text": chunk})
 
                             # Feed chunk directly to the TTS pipeline (segmentation happens internally)
                             await chunk_queue.put(chunk)
 
                         elif event["type"] == "tool_status":
-                            await manager.broadcast({
+                            await manager.send_message(client_id, {
                                 "type": "tool_status",
                                 "status": event["status"],
                                 "name": event["name"],
@@ -135,14 +135,14 @@ async def handle_connection(
                     # Signal end to chunk queue
                     await chunk_queue.put(None)
 
-                    # Signal end of streaming (with full text for backward compatibility)
-                    await manager.broadcast({"type": "assistant_response_end", "text": full_response})
+                    # Signal end of streaming (to THIS client only)
+                    await manager.send_message(client_id, {"type": "assistant_response_end", "text": full_response})
 
                 except Exception as e:
                     logger.error(f"LLM generation failed for {client_id}: {e}", exc_info=True)
                     await chunk_queue.put("Sorry, I couldn't process that request.")
                     await chunk_queue.put(None)
-                    await manager.broadcast({"type": "assistant_response_end", "text": "Sorry, I couldn't process that request."})
+                    await manager.send_message(client_id, {"type": "assistant_response_end", "text": "Sorry, I couldn't process that request."})
 
                 # Wait for TTS processing to complete
                 try:
@@ -199,8 +199,8 @@ async def handle_connection(
             elif event_type == "wakeword_barge_in":
                 logger.info(f"Barge-in for {client_id}")
 
-                # Interrupt TTS - broadcast to ALL clients (especially the frontend playing audio)
-                await manager.broadcast({"type": "interrupt_tts"})
+                # Interrupt TTS - send to THIS client only (session isolation)
+                await manager.send_message(client_id, {"type": "interrupt_tts"})
                 await cancel_tts()
                 await manager.update_state(client_id, "LISTENING")
 
@@ -219,15 +219,15 @@ async def handle_connection(
                         logger.debug(f"Received audio chunk for {client_id}: {len(chunk)} bytes")
                         await stt_service.stream_audio(client_id, chunk)
 
-                        # Check for Silence / Idle Timeout
+                        # Check for Silence / Idle Timeout (for THIS client only)
                         try:
                             # If we are listening but haven't heard/done anything for X seconds, go to IDLE
                             ui_settings = get_client_settings_service("kiosk").get_ui()
                             silence_duration_ms = (datetime.utcnow() - session.last_activity).total_seconds() * 1000
 
                             if silence_duration_ms > ui_settings.idle_return_delay_ms:
-                                logger.info(f"Silence timeout reached ({silence_duration_ms:.0f}ms > {ui_settings.idle_return_delay_ms}ms) - Returning to IDLE")
-                                await manager.set_all_states("IDLE", extra_data={"reason": "timeout"})
+                                logger.info(f"Silence timeout for {client_id} ({silence_duration_ms:.0f}ms > {ui_settings.idle_return_delay_ms}ms) - Returning to IDLE")
+                                await manager.update_state(client_id, "IDLE")
                         except Exception as e:
                             logger.error(f"Error checking silence timeout: {e}")
 
@@ -241,11 +241,10 @@ async def handle_connection(
                         pass
 
             elif event_type == "tts_playback_start":
-                logger.info(f"TTS playback started for {client_id} - Muting ALL clients (State -> SPEAKING)")
-                await manager.set_all_states("SPEAKING")
-                # Redundant safety: Ensure all ears are closed
-                for cid in manager.active_connections:
-                    stt_service.pause_session(cid)
+                logger.info(f"TTS playback started for {client_id} - Muting THIS client (State -> SPEAKING)")
+                await manager.update_state(client_id, "SPEAKING")
+                # Pause STT for this client only (session isolation)
+                stt_service.pause_session(client_id)
 
             elif event_type == "tts_playback_end":
                 logger.info(f"TTS playback ended for {client_id}")
@@ -253,24 +252,20 @@ async def handle_connection(
                 try:
                     llm_settings = get_client_settings_service("kiosk").get_llm()
                     if llm_settings.conversation_mode:
-                        logger.info(f"Conversation mode ON - resuming listening")
-                        # Resume ALL clients
-                        for cid in manager.active_connections:
-                            stt_service.resume_session(cid)
-                        await manager.set_all_states("LISTENING")
-                        # Re-initialize STT session for follow-up
+                        logger.info(f"Conversation mode ON - resuming listening for {client_id}")
+                        # Resume THIS client only (session isolation)
+                        stt_service.resume_session(client_id)
+                        await manager.update_state(client_id, "LISTENING")
                     else:
-                        logger.info(f"Conversation mode OFF - going to IDLE")
-                        # Resume ALL clients
-                        for cid in manager.active_connections:
-                            stt_service.resume_session(cid)
-                        await manager.set_all_states("IDLE")
+                        logger.info(f"Conversation mode OFF - {client_id} going to IDLE")
+                        # Resume THIS client only (session isolation)
+                        stt_service.resume_session(client_id)
+                        await manager.update_state(client_id, "IDLE")
                 except Exception as e:
                     logger.error(f"Error checking conversation mode: {e}")
-                    # Safety: Resume all
-                    for cid in manager.active_connections:
-                        stt_service.resume_session(cid)
-                    await manager.set_all_states("IDLE")
+                    # Safety: Resume this client
+                    stt_service.resume_session(client_id)
+                    await manager.update_state(client_id, "IDLE")
 
             elif event_type == "stream_end":
                 logger.info(f"Stream end for {client_id}")

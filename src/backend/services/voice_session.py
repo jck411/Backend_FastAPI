@@ -57,14 +57,25 @@ class VoiceConnectionManager:
                 print(f"Error sending to {client_id}: {e}")
                 self.disconnect(client_id)
 
-    async def update_state(self, client_id: str, new_state: str):
-        """Update the state of a client session and broadcast it."""
+    async def update_state(self, client_id: str, new_state: str, broadcast: bool = False):
+        """Update the state of a client session.
+
+        Args:
+            client_id: The client to update
+            new_state: The new state (IDLE, LISTENING, PROCESSING, SPEAKING)
+            broadcast: If True, broadcasts to all clients. If False (default),
+                       sends only to the specific client for session isolation.
+        """
         session = self.active_connections.get(client_id)
         if session:
             session.state = new_state
             session.update_activity()
             print(f"Client {client_id} state changed to {new_state}")
-            await self.broadcast({"type": "state", "state": new_state})
+            message = {"type": "state", "state": new_state}
+            if broadcast:
+                await self.broadcast(message)
+            else:
+                await self.send_message(client_id, message)
 
     async def broadcast(self, message: dict):
         """Broadcast a message to all connected clients."""

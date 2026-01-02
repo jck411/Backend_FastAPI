@@ -1,16 +1,34 @@
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
 import Clock from './components/Clock';
 import PhotoFrame from './components/PhotoFrame';
 import TranscriptionScreen from './components/TranscriptionScreen';
 
+/**
+ * Generate a unique client ID for this frontend instance.
+ * Uses crypto.randomUUID() with a fallback for older browsers.
+ */
+function generateClientId() {
+    const uuid = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    return `kiosk_${uuid}`;
+}
+
 export default function App() {
     // 0 = Clock, 1 = Photos, 2 = Transcription
     const [currentScreen, setCurrentScreen] = useState(0);
 
-    // WebSocket Connection - connects to backend
-    const wsUrl = `ws://${window.location.hostname}:8000/api/voice/connect?client_id=frontend_gui`;
+    // Generate a unique client ID for this frontend instance (stable across re-renders)
+    const clientId = useMemo(() => generateClientId(), []);
+
+    // WebSocket Connection - connects to backend with unique client ID
+    const wsUrl = `ws://${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
 
     const [messages, setMessages] = useState([]);
     const [liveTranscript, setLiveTranscript] = useState("");

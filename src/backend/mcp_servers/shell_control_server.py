@@ -1595,6 +1595,35 @@ async def shell_session_list() -> str:
     )
 
 
+@mcp.tool("shell_reset_all_sessions")  # type: ignore
+async def shell_reset_all_sessions() -> str:
+    """Close ALL active shell sessions.
+
+    Use this when starting fresh (e.g., clearing chat history) to free resources.
+    Individual sessions can be closed with shell_session_close instead.
+
+    Returns: JSON with count of sessions closed.
+    """
+    async with _sessions_lock:
+        count = len(_sessions)
+        for sid, sess in list(_sessions.items()):
+            if sess.is_alive():
+                sess.process.terminate()
+                try:
+                    await asyncio.wait_for(sess.process.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    sess.process.kill()
+        _sessions.clear()
+
+    return json.dumps(
+        {
+            "status": "ok",
+            "sessions_closed": count,
+            "message": f"Closed {count} shell session(s)",
+        }
+    )
+
+
 @mcp.tool("shell_execute")  # type: ignore
 async def shell_execute(
     command: str,
@@ -1983,6 +2012,7 @@ __all__ = [
     "shell_session",
     "shell_session_close",
     "shell_session_list",
+    "shell_reset_all_sessions",
     "shell_execute",
     "shell_get_full_output",
     "host_get_profile",

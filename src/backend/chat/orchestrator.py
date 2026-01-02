@@ -390,9 +390,28 @@ class ChatOrchestrator:
             yield event
 
     async def clear_session(self, session_id: str) -> None:
-        """Remove stored state for a session."""
+        """Remove stored state for a session and reset MCP server sessions."""
 
         await self._repo.clear_session(session_id)
+
+        # Reset stateful MCP servers (browser, shell sessions)
+        # Fire-and-forget with best-effort cleanup
+        reset_tools = [
+            ("browser_close", {}),
+            ("shell_reset_all_sessions", {}),
+        ]
+        for tool_name, args in reset_tools:
+            try:
+                await asyncio.wait_for(
+                    self._mcp_client.call_tool(tool_name, args),
+                    timeout=3.0,
+                )
+                logger.debug("Reset tool '%s' completed", tool_name)
+            except asyncio.TimeoutError:
+                logger.debug("Reset tool '%s' timed out (server may not be running)", tool_name)
+            except Exception as exc:
+                # Tool may not exist if server not connected - that's fine
+                logger.debug("Reset tool '%s' failed: %s", tool_name, exc)
 
     async def delete_message(self, session_id: str, client_message_id: str) -> bool:
         """Delete a specific message within a session."""

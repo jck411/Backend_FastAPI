@@ -159,6 +159,21 @@
       "id": "playwright",
       "module": "backend.mcp_servers.playwright_server",
       "tool_overrides": {}
+    },
+    {
+      "client_enabled": {
+        "backend": false,
+        "cli": true,
+        "kiosk": true,
+        "svelte": true
+      },
+      "contexts": [],
+      "enabled": true,
+      "env": {},
+      "http_port": 9012,
+      "id": "kiosk-clock-tools",
+      "module": "backend.mcp_servers.kiosk_clock_tools_server",
+      "tool_overrides": {}
     }
   ]
 }

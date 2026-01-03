@@ -271,6 +271,34 @@ async def handle_connection(
                 logger.info(f"Stream end for {client_id}")
                 pass
 
+            elif event_type == "alarm_acknowledge":
+                alarm_id = data.get("alarm_id")
+                if alarm_id:
+                    alarm_scheduler = getattr(websocket.app.state, "alarm_scheduler", None)
+                    if alarm_scheduler:
+                        success = await alarm_scheduler.acknowledge_alarm(alarm_id)
+                        logger.info(f"Alarm {alarm_id} acknowledged: {success}")
+                        await manager.send_message(client_id, {
+                            "type": "alarm_acknowledged",
+                            "alarm_id": alarm_id,
+                            "success": success
+                        })
+
+            elif event_type == "alarm_snooze":
+                alarm_id = data.get("alarm_id")
+                snooze_minutes = data.get("snooze_minutes", 5)
+                if alarm_id:
+                    alarm_scheduler = getattr(websocket.app.state, "alarm_scheduler", None)
+                    if alarm_scheduler:
+                        new_alarm = await alarm_scheduler.snooze_alarm(alarm_id, snooze_minutes)
+                        if new_alarm:
+                            logger.info(f"Alarm {alarm_id} snoozed for {snooze_minutes}m -> {new_alarm.alarm_id}")
+                            await manager.send_message(client_id, {
+                                "type": "alarm_snoozed",
+                                "original_alarm_id": alarm_id,
+                                "new_alarm": new_alarm.to_dict()
+                            })
+
     except WebSocketDisconnect:
         logger.info(f"Client {client_id} disconnected")
         manager.disconnect(client_id)

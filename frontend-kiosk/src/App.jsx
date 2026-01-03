@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
+import AlarmOverlay from './components/AlarmOverlay';
 import CalendarScreen from './components/CalendarScreen';
 import Clock from './components/Clock';
 import TranscriptionScreen from './components/TranscriptionScreen';
@@ -36,6 +37,7 @@ export default function App() {
     const [agentState, setAgentState] = useState("IDLE");
     const [toolStatus, setToolStatus] = useState(null);  // { name: string, status: 'started' | 'finished' | 'error' }
     const [idleReturnDelay, setIdleReturnDelay] = useState(10000); // Default 10s
+    const [activeAlarm, setActiveAlarm] = useState(null); // Currently firing alarm
     const messagesEndRef = useRef(null);
 
     // Web Audio API for streaming TTS playback
@@ -306,12 +308,32 @@ export default function App() {
                     if (data.status === 'finished' || data.status === 'error') {
                         setTimeout(() => setToolStatus(null), 2000);
                     }
+                } else if (data.type === 'alarm_trigger') {
+                    // Alarm is firing!
+                    console.log('🔔 Alarm trigger received:', data);
+                    setActiveAlarm({
+                        alarm_id: data.alarm_id,
+                        label: data.label,
+                        alarm_time: data.alarm_time
+                    });
+                } else if (data.type === 'alarm_acknowledged') {
+                    // Alarm was acknowledged (confirmation from backend)
+                    console.log('✓ Alarm acknowledged:', data.alarm_id);
+                    if (activeAlarm && activeAlarm.alarm_id === data.alarm_id) {
+                        setActiveAlarm(null);
+                    }
+                } else if (data.type === 'alarm_snoozed') {
+                    // Alarm was snoozed (confirmation from backend)
+                    console.log('💤 Alarm snoozed:', data.original_alarm_id, '-> new:', data.new_alarm?.alarm_id);
+                    if (activeAlarm && activeAlarm.alarm_id === data.original_alarm_id) {
+                        setActiveAlarm(null);
+                    }
                 }
             } catch (e) {
                 console.error("Failed to parse WS message", e);
             }
         }
-    }, [lastMessage]);
+    }, [lastMessage, activeAlarm]);
 
     // Idle Timeout Logic - Return to clock after delay
     useEffect(() => {
@@ -355,6 +377,37 @@ export default function App() {
         }
     };
 
+    /**
+     * Dismiss a firing alarm.
+     */
+    const handleAlarmDismiss = (alarmId) => {
+        if (readyState === ReadyState.OPEN) {
+            console.log('Dismissing alarm:', alarmId);
+            sendMessage(JSON.stringify({
+                type: "alarm_acknowledge",
+                alarm_id: alarmId
+            }));
+            // Optimistically clear the alarm (backend will confirm)
+            setActiveAlarm(null);
+        }
+    };
+
+    /**
+     * Snooze a firing alarm.
+     */
+    const handleAlarmSnooze = (alarmId, minutes = 5) => {
+        if (readyState === ReadyState.OPEN) {
+            console.log('Snoozing alarm:', alarmId, 'for', minutes, 'minutes');
+            sendMessage(JSON.stringify({
+                type: "alarm_snooze",
+                alarm_id: alarmId,
+                snooze_minutes: minutes
+            }));
+            // Optimistically clear the alarm (backend will confirm)
+            setActiveAlarm(null);
+        }
+    };
+
     const screens = [
         <Clock key="clock" />,
         <TranscriptionScreen
@@ -373,6 +426,14 @@ export default function App() {
     return (
         <div className="w-screen h-screen bg-black overflow-hidden relative font-sans text-white select-none">
             {/* Web Audio API is used for TTS playback - no HTML audio element needed */}
+
+            {/* Alarm Overlay - appears on top of everything when alarm fires */}
+            <AlarmOverlay
+                alarm={activeAlarm}
+                onDismiss={handleAlarmDismiss}
+                onSnooze={handleAlarmSnooze}
+                snoozeMinutes={5}
+            />
 
             <AnimatePresence mode="popLayout" initial={false}>
                 <motion.div

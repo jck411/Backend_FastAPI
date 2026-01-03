@@ -27,6 +27,7 @@ from .routers.uploads import router as uploads_router
 from .routers.weather import router as weather_router
 from .routers.slideshow import router as slideshow_router
 from .routers.kiosk_calendar import router as kiosk_calendar_router
+from .routers.alarms import router as alarms_router
 from .services.attachments import AttachmentService
 from .services.attachments_cleanup import cleanup_expired_attachments
 from .mcp_servers import BUILTIN_MCP_SERVER_DEFINITIONS
@@ -34,6 +35,8 @@ from .services.client_profiles import ClientProfileService
 from .services.mcp_server_settings import MCPServerSettingsService
 from .services.model_settings import ModelSettingsService
 from .services.suggestions import SuggestionsService
+from .services.alarm_repository import AlarmRepository
+from .services.alarm_scheduler import AlarmSchedulerService
 from .routers.profiles import router as profiles_router
 
 
@@ -165,6 +168,11 @@ def create_app() -> FastAPI:
     cleanup_interval_seconds = cleanup_interval_hours * 3600
     cleanup_task: asyncio.Task | None = None
 
+    # Alarm scheduler setup
+    alarms_db_path = _resolve_under(project_root, Path("data/alarms.db"))
+    alarm_repository = AlarmRepository(alarms_db_path)
+    alarm_scheduler = AlarmSchedulerService(alarm_repository)
+
     async def _attachment_cleanup_loop() -> None:
         while True:
             try:
@@ -182,6 +190,10 @@ def create_app() -> FastAPI:
     async def lifespan(app: FastAPI):
         nonlocal cleanup_task
         await orchestrator.initialize()
+
+        # Initialize alarm scheduler (loads pending alarms from DB)
+        await alarm_scheduler.initialize()
+        logging.info("Alarm scheduler initialized")
 
         # Clean up old log files
         logging_settings = parse_logging_settings(
@@ -215,6 +227,13 @@ def create_app() -> FastAPI:
                 cleanup_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await cleanup_task
+            # Shutdown alarm scheduler
+            try:
+                await asyncio.wait_for(alarm_scheduler.shutdown(), timeout=5.0)
+            except asyncio.TimeoutError:
+                logging.warning("Alarm scheduler shutdown timed out after 5s")
+            except Exception as exc:
+                logging.warning("Error during alarm scheduler shutdown: %s", exc)
             # Add timeout to prevent hanging during shutdown (especially in tests)
             try:
                 await asyncio.wait_for(orchestrator.shutdown(), timeout=10.0)
@@ -236,6 +255,7 @@ def create_app() -> FastAPI:
     app.state.attachment_service = attachment_service
     app.state.suggestions_service = suggestions_service
     app.state.client_profile_service = client_profile_service
+    app.state.alarm_scheduler = alarm_scheduler
 
     app.add_middleware(
         CORSMiddleware,
@@ -253,6 +273,7 @@ def create_app() -> FastAPI:
     app.include_router(weather_router)
     app.include_router(slideshow_router)
     app.include_router(kiosk_calendar_router)
+    app.include_router(alarms_router)
 
     # helper for voice assistant imports to avoid circular deps if any,
     # though here it should be fine.
@@ -268,6 +289,8 @@ def create_app() -> FastAPI:
         app.state.tts_service = TTSService()
         # Initialize KioskChatService with the orchestrator for tool support
         app.state.kiosk_chat_service = KioskChatService(orchestrator)
+        # Wire alarm scheduler to voice manager for WebSocket notifications
+        alarm_scheduler.set_voice_manager(app.state.voice_manager)
         app.include_router(voice_assistant.router)
         logging.info("Voice Assistant initialized successfully.")
     except Exception as e:

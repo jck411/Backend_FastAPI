@@ -5,7 +5,7 @@
 # ============================================================
 # Starts selected components of the stack:
 #   1 - Backend        (FastAPI on :8000)
-#   2 - MCP Servers    (Standalone MCP pool on :9001-9010)
+#   2 - MCP Servers    (Standalone MCP pool on :9001-9012)
 #   3 - Frontend       (Svelte chat UI on :5173)
 #   4 - Frontend-Kiosk (Kiosk UI on :5174)
 #   5 - Frontend-CLI   (Terminal chat client)
@@ -104,7 +104,7 @@ else
     echo -e "${BOLD}╚════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "  ${CYAN}1${NC} - Backend        (FastAPI on :8000)"
-    echo -e "  ${CYAN}2${NC} - MCP Servers    (Standalone pool on :9001-9010)"
+    echo -e "  ${CYAN}2${NC} - MCP Servers    (Standalone pool on :9001-9012)"
     echo -e "  ${CYAN}3${NC} - Frontend       (Svelte chat UI on :5173)"
     echo -e "  ${CYAN}4${NC} - Frontend-Kiosk (Kiosk UI on :5174)"
     echo -e "  ${CYAN}5${NC} - Frontend-CLI   (Terminal chat client)"
@@ -160,7 +160,7 @@ fi
 # Start MCP Servers (option 2) - start first so backend can connect
 if $START_MCP; then
     echo -e "${GREEN}[2/6] Starting MCP Servers...${NC}"
-    for port in {9001..9010}; do
+    for port in {9001..9012}; do
         uv run python scripts/kill_port.py "$port"
     done
     uv run python scripts/start_mcp_servers.py &
@@ -235,7 +235,7 @@ if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK; then
         echo -e "  ${GREEN}✓${NC} Slideshow:      Photos synced"
     fi
     if $START_MCP; then
-        echo -e "  ${GREEN}✓${NC} MCP Servers:    http://localhost:9001-9010"
+        echo -e "  ${GREEN}✓${NC} MCP Servers:    http://localhost:9001-9012"
     fi
     if $START_BACKEND; then
         echo -e "  ${GREEN}✓${NC} Backend:        http://localhost:8000"
@@ -257,7 +257,7 @@ if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK; then
         echo ""
         echo -e "${BOLD}Network Access (from other machines):${NC}"
         if $START_MCP; then
-            echo -e "  MCP Servers:    http://${LOCAL_IP}:9001-9010"
+            echo -e "  MCP Servers:    http://${LOCAL_IP}:9001-9012"
         fi
         if $START_BACKEND; then
             echo -e "  Backend:        http://${LOCAL_IP}:8000"

@@ -132,17 +132,17 @@ export default function CalendarScreen() {
     return (
         <div className="h-full w-full flex flex-col bg-black relative overflow-hidden font-sans">
             {/* Header */}
-            <div className="px-8 pt-8 pb-4 flex items-start justify-between">
+            <div className="px-6 sm:px-8 pt-6 sm:pt-8 pb-4 flex items-start justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold text-white">Calendar</h1>
-                    <p className="text-white/50 text-sm mt-1">
+                    <h1 className="text-[clamp(1.6rem,5vw,2.1rem)] font-bold text-white">Calendar</h1>
+                    <p className="text-white/50 text-[clamp(0.8rem,3vw,0.95rem)] mt-1">
                         {lastFetched ? `Updated ${lastFetched.toLocaleTimeString()}` : 'Loading...'}
                     </p>
                 </div>
                 <button
                     onClick={handleRefresh}
                     disabled={loading}
-                    className="p-3 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-50 transition-colors"
+                    className="p-3 sm:p-3.5 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-50 transition-colors"
                     aria-label="Refresh calendar"
                 >
                     <svg
@@ -163,7 +163,7 @@ export default function CalendarScreen() {
 
             {/* Content Area */}
             <div
-                className="flex-1 overflow-y-auto no-scrollbar px-8 pb-20"
+                className="flex-1 overflow-y-auto no-scrollbar px-6 sm:px-8 pb-16 sm:pb-20"
                 style={{
                     maskImage: 'linear-gradient(to bottom, black 0%, black 90%, transparent 100%)',
                     WebkitMaskImage: 'linear-gradient(to bottom, black 0%, black 90%, transparent 100%)'
@@ -201,7 +201,7 @@ export default function CalendarScreen() {
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: groupIdx * 0.1 }}
                             >
-                                <h2 className={`text-lg font-semibold mb-3 ${
+                                <h2 className={`sticky top-0 z-10 backdrop-blur-sm bg-black/70 px-2 py-1 -mx-2 rounded-lg text-[clamp(1rem,3.6vw,1.1rem)] font-semibold mb-3 ${
                                     group.label === 'Today' ? 'text-cyan-400' : 'text-white/70'
                                 }`}>
                                     {group.label}
@@ -214,28 +214,30 @@ export default function CalendarScreen() {
                                             initial={{ opacity: 0, x: -20 }}
                                             animate={{ opacity: 1, x: 0 }}
                                             transition={{ delay: groupIdx * 0.1 + idx * 0.05 }}
-                                            className="bg-white/5 backdrop-blur-sm rounded-xl p-4 border border-white/10"
+                                            className="bg-white/5 backdrop-blur-sm rounded-xl p-4 sm:p-4.5 border border-white/10"
                                         >
                                             <div className="flex items-start gap-3">
                                                 <div className={`w-1 h-full min-h-[24px] ${getCalendarColor(event.calendar_label)} rounded-full`} />
                                                 <div className="flex-1 min-w-0">
-                                                    <p className="text-white font-medium truncate">{event.summary}</p>
-                                                    <div className="flex items-center gap-2 mt-1">
-                                                        <p className="text-white/50 text-sm">
-                                                            {event.is_all_day ? (
-                                                                'All day'
-                                                            ) : (
-                                                                <>
-                                                                    {formatTime(event.start)}
-                                                                    {event.end && ` – ${formatTime(event.end)}`}
-                                                                </>
-                                                            )}
-                                                        </p>
+                                                    <p className="text-white font-medium truncate text-[clamp(1rem,4vw,1.15rem)] leading-snug">{event.summary}</p>
+                                                    <div className="flex flex-wrap items-center gap-2 mt-1">
+                                                        {event.is_all_day ? (
+                                                            <span className="px-3 py-1 rounded-full bg-white/10 border border-white/15 text-[clamp(0.85rem,3.6vw,1rem)] text-white/80">
+                                                                All day
+                                                            </span>
+                                                        ) : (
+                                                            <p className="text-white/60 text-[clamp(0.9rem,3.6vw,1rem)]">
+                                                                {formatTime(event.start)}
+                                                                {event.end && ` – ${formatTime(event.end)}`}
+                                                            </p>
+                                                        )}
                                                         <span className="text-white/30">•</span>
-                                                        <p className="text-white/40 text-sm truncate">{event.calendar_label}</p>
+                                                        <p className="px-2 py-1 rounded-full bg-white/5 border border-white/10 text-white/60 text-[clamp(0.85rem,3.4vw,0.95rem)] truncate">
+                                                            {event.calendar_label}
+                                                        </p>
                                                     </div>
                                                     {event.location && (
-                                                        <p className="text-white/40 text-sm mt-1 truncate flex items-center gap-1">
+                                                        <p className="text-white/40 text-[clamp(0.85rem,3.4vw,0.95rem)] mt-1 truncate flex items-center gap-1">
                                                             <span>📍</span>
                                                             {event.location}
                                                         </p>

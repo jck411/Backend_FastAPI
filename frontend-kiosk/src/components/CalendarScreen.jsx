@@ -115,23 +115,50 @@ export default function CalendarScreen() {
         }
     };
 
-    // Fetch on mount and every 5 minutes
+    // Fetch on mount and every hour (use refresh button for immediate updates)
     useEffect(() => {
         fetchCalendar();
-        const interval = setInterval(fetchCalendar, 5 * 60 * 1000);
+        const interval = setInterval(fetchCalendar, 60 * 60 * 1000);
         return () => clearInterval(interval);
     }, []);
+
+    const handleRefresh = () => {
+        setLoading(true);
+        fetchCalendar();
+    };
 
     const groupedEvents = groupEventsByDate(events);
 
     return (
         <div className="h-full w-full flex flex-col bg-black relative overflow-hidden font-sans">
             {/* Header */}
-            <div className="px-8 pt-8 pb-4">
-                <h1 className="text-3xl font-bold text-white">Calendar</h1>
-                <p className="text-white/50 text-sm mt-1">
-                    {lastFetched ? `Updated ${lastFetched.toLocaleTimeString()}` : 'Loading...'}
-                </p>
+            <div className="px-8 pt-8 pb-4 flex items-start justify-between">
+                <div>
+                    <h1 className="text-3xl font-bold text-white">Calendar</h1>
+                    <p className="text-white/50 text-sm mt-1">
+                        {lastFetched ? `Updated ${lastFetched.toLocaleTimeString()}` : 'Loading...'}
+                    </p>
+                </div>
+                <button
+                    onClick={handleRefresh}
+                    disabled={loading}
+                    className="p-3 rounded-full bg-white/10 hover:bg-white/20 disabled:opacity-50 transition-colors"
+                    aria-label="Refresh calendar"
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        className={`w-5 h-5 text-white ${loading ? 'animate-spin' : ''}`}
+                    >
+                        <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+                        <path d="M21 3v5h-5" />
+                    </svg>
+                </button>
             </div>
 
             {/* Content Area */}

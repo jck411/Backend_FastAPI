@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
+import CalendarScreen from './components/CalendarScreen';
 import Clock from './components/Clock';
 import TranscriptionScreen from './components/TranscriptionScreen';
 
@@ -20,8 +21,9 @@ function generateClientId() {
 }
 
 export default function App() {
-    // 0 = Clock, 1 = Chat
+    // 0 = Clock, 1 = Chat, 2 = Calendar
     const [currentScreen, setCurrentScreen] = useState(0);
+    const SCREEN_COUNT = 3;
 
     // Generate a unique client ID for this frontend instance (stable across re-renders)
     const clientId = useMemo(() => generateClientId(), []);
@@ -325,7 +327,32 @@ export default function App() {
     }, [agentState, idleReturnDelay]);
 
     const handleSwipe = (direction) => {
-        setCurrentScreen((prev) => (prev === 0 ? 1 : 0));
+        setCurrentScreen((prev) => {
+            if (direction > 0) {
+                // Swipe right -> previous screen (wrap to last)
+                return prev === 0 ? SCREEN_COUNT - 1 : prev - 1;
+            } else {
+                // Swipe left -> next screen (wrap to first)
+                return (prev + 1) % SCREEN_COUNT;
+            }
+        });
+    };
+
+    /**
+     * Manually activate listening mode (simulates wake word detection).
+     * Sends a wakeword_detected event to the backend to start STT processing.
+     */
+    const handleActivateListening = () => {
+        if (readyState === ReadyState.OPEN) {
+            console.log('Manual activation - sending wakeword_detected');
+            sendMessage(JSON.stringify({
+                type: "wakeword_detected",
+                confidence: 1.0,
+                manual: true
+            }));
+        } else {
+            console.warn('Cannot activate listening - WebSocket not connected');
+        }
     };
 
     const screens = [
@@ -338,7 +365,9 @@ export default function App() {
             agentState={agentState}
             toolStatus={toolStatus}
             messagesEndRef={messagesEndRef}
-        />
+            onActivateListening={handleActivateListening}
+        />,
+        <CalendarScreen key="calendar" />
     ];
 
     return (
@@ -371,7 +400,7 @@ export default function App() {
 
             {/* Page Indicators */}
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex space-x-3 z-50">
-                {[0, 1].map((i) => (
+                {Array.from({ length: SCREEN_COUNT }, (_, i) => (
                     <div
                         key={i}
                         className={`h-1.5 rounded-full transition-all duration-300 ${i === currentScreen ? 'bg-white w-8' : 'bg-white/40 w-1.5'

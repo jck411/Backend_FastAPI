@@ -1,7 +1,7 @@
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect } from 'react';
 
-export default function TranscriptionScreen({ messages, liveTranscript, isListening, agentState, toolStatus, messagesEndRef }) {
+export default function TranscriptionScreen({ messages, liveTranscript, isListening, agentState, toolStatus, messagesEndRef, onActivateListening }) {
     // Auto-scroll effect
     useEffect(() => {
         if (messagesEndRef.current) {
@@ -94,8 +94,32 @@ export default function TranscriptionScreen({ messages, liveTranscript, isListen
             {messages.length === 0 && !liveTranscript && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center z-0 pointer-events-none p-12 text-center opacity-40">
                     <h1 className="text-6xl font-bold text-white mb-4">Hi there.</h1>
-                    <p className="text-2xl text-white font-light">Say "Hey Jarvis"</p>
+                    <p className="text-2xl text-white font-light">Say "Hey Jarvis" or tap the mic</p>
                 </div>
+            )}
+
+            {/* Listen Button (Bottom Center) */}
+            {agentState === 'IDLE' && onActivateListening && (
+                <motion.button
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={onActivateListening}
+                    className="absolute bottom-20 left-1/2 -translate-x-1/2 z-50 w-16 h-16 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-colors"
+                    aria-label="Start listening"
+                >
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="currentColor"
+                        className="w-8 h-8"
+                    >
+                        <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                        <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
+                    </svg>
+                </motion.button>
             )}
         </div>
     );

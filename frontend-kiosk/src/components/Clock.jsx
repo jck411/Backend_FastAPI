@@ -5,6 +5,9 @@ const SLIDESHOW_INTERVAL = 30 * 1000; // 30 seconds between photos
 const SLIDESHOW_TRANSITION_DURATION = 1500; // 1.5 second crossfade
 const SLIDESHOW_REFRESH_INTERVAL = 60 * 60 * 1000; // Refresh photo list every hour
 
+/** Alarm refresh interval: 30 seconds */
+const ALARM_REFRESH_INTERVAL = 30 * 1000;
+
 /**
  * AccuWeather icon mapping to emoji/unicode symbols.
  * Icons 1-44 from AccuWeather API: https://developer.accuweather.com/weather-icons
@@ -156,6 +159,9 @@ export default function Clock() {
     const [time, setTime] = useState(new Date());
     const [weather, setWeather] = useState(null);
     const [weatherError, setWeatherError] = useState(null);
+    
+    // Pending alarms state
+    const [pendingAlarms, setPendingAlarms] = useState([]);
 
     // Slideshow state
     const [photos, setPhotos] = useState([]);
@@ -218,6 +224,32 @@ export default function Clock() {
         const photosTimer = setInterval(fetchPhotos, SLIDESHOW_REFRESH_INTERVAL);
         return () => clearInterval(photosTimer);
     }, [fetchPhotos]);
+
+    /**
+     * Fetch pending alarms from backend API.
+     */
+    const fetchAlarms = useCallback(async () => {
+        try {
+            const response = await fetch(
+                `http://${window.location.hostname}:8000/api/alarms`
+            );
+            if (!response.ok) {
+                console.warn('Alarms API not available');
+                return;
+            }
+            const data = await response.json();
+            setPendingAlarms(data || []);
+        } catch (err) {
+            console.warn('Failed to fetch alarms:', err);
+        }
+    }, []);
+
+    // Fetch alarms on mount and periodically refresh
+    useEffect(() => {
+        fetchAlarms();
+        const alarmsTimer = setInterval(fetchAlarms, ALARM_REFRESH_INTERVAL);
+        return () => clearInterval(alarmsTimer);
+    }, [fetchAlarms]);
 
     // Slideshow rotation (auto-advance every 30 seconds)
     useEffect(() => {
@@ -327,13 +359,94 @@ export default function Clock() {
         }
     };
 
+    /**
+     * Format alarm time for display.
+     */
+    const formatAlarmTime = (isoString) => {
+        const date = new Date(isoString);
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        const hour12 = hours % 12 || 12;
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const paddedMinutes = minutes.toString().padStart(2, '0');
+        return { time: `${hour12}:${paddedMinutes}`, ampm };
+    };
+
+    /**
+     * Calculate time until alarm.
+     */
+    const getTimeUntilAlarm = (isoString) => {
+        const alarmTime = new Date(isoString);
+        const now = new Date();
+        const diffMs = alarmTime - now;
+        
+        if (diffMs <= 0) return 'Now';
+        
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMins / 60);
+        const remainingMins = diffMins % 60;
+        
+        if (diffHours > 0) {
+            return `in ${diffHours}h ${remainingMins}m`;
+        }
+        return `in ${diffMins}m`;
+    };
+
+    // Check if we should show alarm display instead of slideshow
+    const hasAlarms = pendingAlarms.length > 0;
+    const nextAlarm = hasAlarms ? pendingAlarms[0] : null;
+
     return (
         <div 
             className="h-full w-full relative bg-black cursor-pointer"
-            onClick={skipToNextPhoto}
+            onClick={hasAlarms ? undefined : skipToNextPhoto}
         >
-            {/* Slideshow background - tap anywhere to skip */}
-            {photos.length > 0 ? (
+            {/* Background: Alarm display or Slideshow */}
+            {hasAlarms ? (
+                /* Alarm Display Mode - Modern minimal dark design */
+                <div className="absolute inset-0 bg-black">
+                    {/* Subtle gradient accent */}
+                    <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent" />
+                    
+                    {/* Alarm display - centered */}
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        {/* Alarm time - massive display */}
+                        <div className="flex items-baseline">
+                            <span className="text-[10rem] font-thin tracking-tighter text-white leading-none">
+                                {formatAlarmTime(nextAlarm.alarm_time).time}
+                            </span>
+                            <span className="text-4xl font-extralight text-white/40 ml-3 self-start mt-8">
+                                {formatAlarmTime(nextAlarm.alarm_time).ampm}
+                            </span>
+                        </div>
+                        
+                        {/* Divider line */}
+                        <div className="w-24 h-px bg-white/20 my-5" />
+                        
+                        {/* Alarm label or default text */}
+                        <div className="text-lg text-white/40 font-light tracking-wide">
+                            {nextAlarm.label && nextAlarm.label !== 'Alarm' 
+                                ? nextAlarm.label 
+                                : getTimeUntilAlarm(nextAlarm.alarm_time)
+                            }
+                        </div>
+                        
+                        {/* Time until (shown below label if custom label exists) */}
+                        {nextAlarm.label && nextAlarm.label !== 'Alarm' && (
+                            <div className="text-sm text-cyan-400/60 mt-2 font-medium">
+                                {getTimeUntilAlarm(nextAlarm.alarm_time)}
+                            </div>
+                        )}
+                        
+                        {/* Additional alarms indicator */}
+                        {pendingAlarms.length > 1 && (
+                            <div className="absolute bottom-24 text-xs text-white/30 tracking-wider uppercase">
+                                {pendingAlarms.length - 1} more alarm{pendingAlarms.length > 2 ? 's' : ''} set
+                            </div>
+                        )}
+                    </div>
+                </div>
+            ) : photos.length > 0 ? (
                 <>
                     {/* Current photo */}
                     <div
@@ -361,11 +474,16 @@ export default function Clock() {
                 <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-gray-800 to-black" />
             )}
 
-            {/* Top gradient overlay for weather legibility */}
-            <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent pointer-events-none" />
+            {/* Gradient overlays - only needed for slideshow mode */}
+            {!hasAlarms && (
+                <>
+                    {/* Top gradient overlay for weather legibility */}
+                    <div className="absolute inset-x-0 top-0 h-24 bg-gradient-to-b from-black/50 to-transparent pointer-events-none" />
 
-            {/* Bottom gradient overlay for text legibility */}
-            <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none" />
+                    {/* Bottom gradient overlay for text legibility */}
+                    <div className="absolute inset-x-0 bottom-0 h-2/3 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none" />
+                </>
+            )}
 
             {/* Current Weather + Rain Alert - Top Right */}
             <div className="absolute top-4 right-5 z-10 flex items-start gap-4">
@@ -399,23 +517,45 @@ export default function Clock() {
                 )}
             </div>
 
-            {/* Clock overlay - Bottom Left */}
-            <div className="absolute bottom-5 left-5 z-10">
-                {/* Time display */}
-                <div className="flex items-baseline gap-2">
-                    <span className="text-6xl font-light tracking-tight text-white drop-shadow-lg">
-                        {timeStr}
-                    </span>
-                    <span className="text-xl font-light text-white/80 drop-shadow-lg">
-                        {ampm}
-                    </span>
-                </div>
+            {/* Clock overlay - Bottom Left (hidden when alarm display is active) */}
+            {!hasAlarms && (
+                <div className="absolute bottom-5 left-5 z-10">
+                    {/* Time display */}
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-6xl font-light tracking-tight text-white drop-shadow-lg">
+                            {timeStr}
+                        </span>
+                        <span className="text-xl font-light text-white/80 drop-shadow-lg">
+                            {ampm}
+                        </span>
+                    </div>
 
-                {/* Date display */}
-                <div className="text-lg font-light text-white/70 tracking-wide mt-1 drop-shadow-lg">
-                    {formatDate(time)}
+                    {/* Date display */}
+                    <div className="text-lg font-light text-white/70 tracking-wide mt-1 drop-shadow-lg">
+                        {formatDate(time)}
+                    </div>
                 </div>
-            </div>
+            )}
+            
+            {/* Current time (smaller) when alarm is displayed - Bottom Left */}
+            {hasAlarms && (
+                <div className="absolute bottom-6 left-6 z-10">
+                    <div className="text-xs text-white/30 uppercase tracking-widest mb-1">
+                        Now
+                    </div>
+                    <div className="flex items-baseline gap-1">
+                        <span className="text-2xl font-extralight tracking-tight text-white/50">
+                            {timeStr}
+                        </span>
+                        <span className="text-xs font-light text-white/30">
+                            {ampm}
+                        </span>
+                    </div>
+                    <div className="text-xs font-light text-white/30 tracking-wide mt-1">
+                        {formatDate(time)}
+                    </div>
+                </div>
+            )}
 
             {/* 5-Day Forecast Strip - Bottom Right */}
             {weather?.daily && (

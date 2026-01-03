@@ -1,6 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+const BellIcon = ({ className = '' }) => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        className={className}
+    >
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M14.25 18.75a2.25 2.25 0 01-4.5 0M4.5 8.25a7.5 7.5 0 0115 0c0 3.222.917 5.003 1.617 5.941.373.497.56.746.543 1.049-.02.36-.214.691-.532.874-.263.151-.62.151-1.334.151H4.206c-.714 0-1.07 0-1.333-.151a1.125 1.125 0 01-.532-.874c-.018-.303.17-.552.543-1.049C3.583 13.253 4.5 11.472 4.5 8.25z"
+        />
+    </svg>
+);
+
 /**
  * AlarmOverlay - Full-screen overlay that appears when an alarm fires.
  * Features:
@@ -20,6 +37,34 @@ export default function AlarmOverlay({
     const isPlayingRef = useRef(false);
     const intervalRef = useRef(null);
     const [flashOn, setFlashOn] = useState(true);
+
+    const formatAlarmTime = (isoString) => {
+        const date = new Date(isoString);
+        const hours = date.getHours();
+        const minutes = date.getMinutes();
+        const hour12 = hours % 12 || 12;
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        const paddedMinutes = minutes.toString().padStart(2, '0');
+        return { time: `${hour12}:${paddedMinutes}`, ampm };
+    };
+
+    const getTimeUntilAlarm = (isoString) => {
+        const alarmTime = new Date(isoString);
+        const now = new Date();
+        const diffMs = alarmTime - now;
+
+        if (diffMs <= 0) return 'Now';
+
+        const diffMins = Math.floor(diffMs / 60000);
+        const diffHours = Math.floor(diffMins / 60);
+        const remainingMins = diffMins % 60;
+
+        if (diffHours > 0) {
+            return `in ${diffHours}h ${remainingMins}m`;
+        }
+
+        return `in ${diffMins}m`;
+    };
 
     /**
      * Play alarm beep pattern using Web Audio API.
@@ -139,68 +184,126 @@ export default function AlarmOverlay({
 
     if (!alarm) return null;
 
+    const formattedAlarm = formatAlarmTime(alarm.alarm_time);
+    const timeUntil = getTimeUntilAlarm(alarm.alarm_time);
+
     return (
         <AnimatePresence>
             <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[100] flex items-center justify-center"
+                className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden"
                 style={{
-                    backgroundColor: flashOn ? 'rgba(220, 38, 38, 0.95)' : 'rgba(185, 28, 28, 0.95)',
-                    transition: 'background-color 0.3s ease'
+                    backgroundImage: `
+                        radial-gradient(circle at 20% 20%, rgba(56, 189, 248, ${flashOn ? 0.24 : 0.14}), transparent 35%),
+                        radial-gradient(circle at 80% 0%, rgba(236, 72, 153, ${flashOn ? 0.22 : 0.12}), transparent 38%),
+                        radial-gradient(circle at 50% 80%, rgba(248, 113, 113, ${flashOn ? 0.20 : 0.12}), transparent 32%),
+                        linear-gradient(135deg, #05070d 0%, #0a0f1f 45%, #05070d 100%)
+                    `
                 }}
             >
+                <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/70" />
+                <div 
+                    className="absolute inset-0 opacity-25 mix-blend-screen"
+                    style={{
+                        backgroundImage: 'radial-gradient(circle at 30% 40%, rgba(255,255,255,0.12), transparent 32%), radial-gradient(circle at 70% 70%, rgba(255,255,255,0.08), transparent 28%)'
+                    }}
+                />
+                <div 
+                    className="absolute inset-0 opacity-30"
+                    style={{
+                        backgroundImage: `
+                            linear-gradient(120deg, rgba(255,255,255,0.04) 1px, transparent 1px),
+                            linear-gradient(300deg, rgba(255,255,255,0.04) 1px, transparent 1px)
+                        `,
+                        backgroundSize: '120px 120px'
+                    }}
+                />
                 <motion.div
-                    initial={{ scale: 0.8, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ type: 'spring', stiffness: 300, damping: 25 }}
-                    className="text-center p-8 max-w-lg"
+                    initial={{ y: 30, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+                    className="relative z-10 w-full max-w-4xl px-4 sm:px-10"
                 >
-                    {/* Alarm Icon */}
-                    <motion.div
-                        animate={{ 
-                            rotate: flashOn ? -15 : 15,
-                            scale: flashOn ? 1.1 : 1
-                        }}
-                        transition={{ duration: 0.3 }}
-                        className="text-8xl mb-6"
-                    >
-                        🔔
-                    </motion.div>
+                    <div className="flex flex-col items-center gap-6 sm:gap-10">
+                        <div className="flex items-center gap-3 text-cyan-200/80 text-xs tracking-[0.3em] uppercase">
+                            <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_0_8px_rgba(34,211,238,0.12)] animate-pulse" />
+                            <span>Alarm active</span>
+                        </div>
 
-                    {/* Alarm Label */}
-                    <h1 className="text-4xl font-bold text-white mb-4 drop-shadow-lg">
-                        {alarm.label || 'Alarm'}
-                    </h1>
+                        <div className="relative">
+                            <div className="absolute inset-[-28%] rounded-full bg-cyan-400/10 blur-3xl" />
+                            <motion.div
+                                animate={{ scale: flashOn ? 1.08 : 1, rotate: flashOn ? 3 : -3 }}
+                                transition={{ duration: 0.4, ease: 'easeInOut' }}
+                                className="relative flex items-center justify-center w-36 h-36 sm:w-48 sm:h-48 rounded-full bg-white/5 backdrop-blur-2xl border border-white/10 shadow-[0_20px_80px_rgba(0,0,0,0.45)]"
+                            >
+                                <div className="absolute inset-3 rounded-full border border-cyan-300/30" />
+                                <div className="absolute inset-6 rounded-full border border-white/10" />
+                                <BellIcon className="w-12 h-12 sm:w-16 sm:h-16 text-white drop-shadow-[0_15px_35px_rgba(34,211,238,0.45)]" />
+                            </motion.div>
+                            <motion.div
+                                animate={{ opacity: flashOn ? 0.7 : 0.35, scale: flashOn ? 1.3 : 1.1 }}
+                                transition={{ duration: 0.5 }}
+                                className="absolute inset-0 rounded-full bg-gradient-to-br from-cyan-400/25 via-fuchsia-500/10 to-rose-500/20 blur-3xl"
+                            />
+                        </div>
 
-                    {/* Alarm Time */}
-                    <p className="text-2xl text-white/90 mb-8">
-                        {new Date(alarm.alarm_time).toLocaleTimeString([], { 
-                            hour: '2-digit', 
-                            minute: '2-digit' 
-                        })}
-                    </p>
+                        <div className="text-center space-y-4">
+                            <h1 className="text-[clamp(1.8rem,5vw,2.4rem)] sm:text-4xl font-semibold tracking-tight text-white drop-shadow-lg">
+                                {alarm.label || 'Alarm'}
+                            </h1>
+                            <div className="flex items-baseline justify-center gap-3">
+                                <span className="text-[clamp(2.8rem,13vw,4.5rem)] sm:text-7xl font-light tracking-tight text-white drop-shadow-xl">
+                                    {formattedAlarm.time}
+                                </span>
+                                <span className="text-[clamp(1.1rem,4vw,1.6rem)] sm:text-2xl font-semibold text-cyan-200/80">
+                                    {formattedAlarm.ampm}
+                                </span>
+                            </div>
+                            <div className="flex items-center justify-center gap-2.5 text-sm text-white/70">
+                                <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur">
+                                    {timeUntil}
+                                </span>
+                                <span className="h-1 w-10 rounded-full bg-gradient-to-r from-cyan-300 via-white/50 to-rose-300 opacity-70" />
+                                <span className="text-cyan-100/80">Snooze: {snoozeMinutes}m</span>
+                            </div>
+                        </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex gap-6 justify-center">
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={handleSnooze}
-                            className="px-8 py-4 bg-white/20 hover:bg-white/30 text-white text-xl font-semibold rounded-2xl backdrop-blur-sm border-2 border-white/30 transition-colors"
-                        >
-                            💤 Snooze ({snoozeMinutes}m)
-                        </motion.button>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 w-full max-w-2xl">
+                            <motion.button
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={handleSnooze}
+                                className="relative overflow-hidden group rounded-2xl px-6 py-4 bg-gradient-to-r from-cyan-400 to-sky-500 text-slate-950 font-semibold shadow-[0_15px_50px_rgba(56,189,248,0.45)]"
+                            >
+                                <div className="absolute inset-0 opacity-0 group-hover:opacity-20 transition-opacity duration-300 bg-white" />
+                                <div className="flex items-center justify-between">
+                                    <div className="flex flex-col items-start">
+                                        <span className="text-xs uppercase tracking-[0.2em] text-slate-900/70">Snooze</span>
+                                        <span className="text-xl mt-1">Pause for {snoozeMinutes}m</span>
+                                    </div>
+                                    <span className="text-2xl">💤</span>
+                                </div>
+                            </motion.button>
 
-                        <motion.button
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            onClick={handleDismiss}
-                            className="px-8 py-4 bg-white text-red-600 text-xl font-semibold rounded-2xl shadow-lg transition-colors hover:bg-gray-100"
-                        >
-                            ✓ Dismiss
-                        </motion.button>
+                            <motion.button
+                                whileHover={{ scale: 1.02 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={handleDismiss}
+                                className="relative overflow-hidden group rounded-2xl px-6 py-4 bg-gradient-to-r from-rose-500 via-orange-500 to-amber-400 text-white font-semibold shadow-[0_15px_50px_rgba(249,115,22,0.45)] border border-white/10"
+                            >
+                                <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity duration-300 bg-white" />
+                                <div className="flex items-center justify-between">
+                                    <div className="flex flex-col items-start">
+                                        <span className="text-xs uppercase tracking-[0.2em] text-white/70">Dismiss</span>
+                                        <span className="text-xl mt-1">I&apos;m awake</span>
+                                    </div>
+                                    <span className="text-2xl">✓</span>
+                                </div>
+                            </motion.button>
+                        </div>
                     </div>
                 </motion.div>
             </motion.div>

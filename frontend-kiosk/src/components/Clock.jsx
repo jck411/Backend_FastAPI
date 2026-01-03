@@ -395,6 +395,8 @@ export default function Clock() {
     // Check if we should show alarm display instead of slideshow
     const hasAlarms = pendingAlarms.length > 0;
     const nextAlarm = hasAlarms ? pendingAlarms[0] : null;
+    const formattedNextAlarm = nextAlarm ? formatAlarmTime(nextAlarm.alarm_time) : null;
+    const timeUntilNextAlarm = nextAlarm ? getTimeUntilAlarm(nextAlarm.alarm_time) : null;
 
     return (
         <div 
@@ -403,47 +405,101 @@ export default function Clock() {
         >
             {/* Background: Alarm display or Slideshow */}
             {hasAlarms ? (
-                /* Alarm Display Mode - Modern minimal dark design */
-                <div className="absolute inset-0 bg-black">
-                    {/* Subtle gradient accent */}
-                    <div className="absolute inset-0 bg-gradient-to-b from-white/[0.02] to-transparent" />
+                /* Alarm Display Mode - glassy neon treatment */
+                <div className="absolute inset-0 bg-[#05070d] overflow-hidden">
+                    <div 
+                        className="absolute inset-0"
+                        style={{
+                            backgroundImage: `
+                                radial-gradient(circle at 12% 20%, rgba(56,189,248,0.18), transparent 32%),
+                                radial-gradient(circle at 82% 10%, rgba(236,72,153,0.16), transparent 30%),
+                                radial-gradient(circle at 50% 85%, rgba(248,113,113,0.12), transparent 28%),
+                                linear-gradient(135deg, #05070d 0%, #0a0f1f 45%, #05070d 100%)
+                            `
+                        }}
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/80" />
+                    <div 
+                        className="absolute inset-0 opacity-20"
+                        style={{
+                            backgroundImage: `
+                                linear-gradient(120deg, rgba(255,255,255,0.05) 1px, transparent 1px),
+                                linear-gradient(300deg, rgba(255,255,255,0.05) 1px, transparent 1px)
+                            `,
+                            backgroundSize: '140px 140px'
+                        }}
+                    />
                     
-                    {/* Alarm display - centered */}
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                        {/* Alarm time - massive display */}
-                        <div className="flex items-baseline">
-                            <span className="text-[10rem] font-thin tracking-tighter text-white leading-none">
-                                {formatAlarmTime(nextAlarm.alarm_time).time}
-                            </span>
-                            <span className="text-4xl font-extralight text-white/40 ml-3 self-start mt-8">
-                                {formatAlarmTime(nextAlarm.alarm_time).ampm}
-                            </span>
-                        </div>
-                        
-                        {/* Divider line */}
-                        <div className="w-24 h-px bg-white/20 my-5" />
-                        
-                        {/* Alarm label or default text */}
-                        <div className="text-lg text-white/40 font-light tracking-wide">
-                            {nextAlarm.label && nextAlarm.label !== 'Alarm' 
-                                ? nextAlarm.label 
-                                : getTimeUntilAlarm(nextAlarm.alarm_time)
-                            }
-                        </div>
-                        
-                        {/* Time until (shown below label if custom label exists) */}
-                        {nextAlarm.label && nextAlarm.label !== 'Alarm' && (
-                            <div className="text-sm text-cyan-400/60 mt-2 font-medium">
-                                {getTimeUntilAlarm(nextAlarm.alarm_time)}
+                    <div className="absolute inset-0 flex items-center justify-center px-6">
+                        <div className="w-full max-w-5xl">
+                            <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 backdrop-blur-2xl shadow-[0_30px_100px_rgba(0,0,0,0.55)] px-5 sm:px-10 py-8 sm:py-12 text-center">
+                                <div className="absolute inset-0 bg-gradient-to-br from-cyan-400/10 via-transparent to-rose-500/10" />
+                                <div className="absolute -left-20 -top-16 h-48 w-48 rounded-full bg-cyan-400/20 blur-3xl" />
+                                <div className="absolute -right-24 bottom-0 h-52 w-52 rounded-full bg-rose-500/25 blur-3xl" />
+                                
+                                <div className="relative space-y-6 sm:space-y-8">
+                                    <div className="flex flex-wrap items-center justify-center gap-3 text-xs uppercase tracking-[0.3em] text-cyan-200/80">
+                                        <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_0_8px_rgba(34,211,238,0.12)] animate-pulse" />
+                                        <span>Next alarm</span>
+                                        {timeUntilNextAlarm && (
+                                            <span className="text-white/60">{timeUntilNextAlarm}</span>
+                                        )}
+                                    </div>
+                                    
+                                    <div className="flex items-baseline justify-center gap-4">
+                                        <span className="text-[clamp(3.5rem,22vw,7.5rem)] sm:text-[9.5rem] font-light tracking-tight text-white drop-shadow-xl leading-none">
+                                            {formattedNextAlarm?.time}
+                                        </span>
+                                        <span className="text-[clamp(1.5rem,6vw,2.5rem)] sm:text-4xl font-semibold text-cyan-100/80 mt-6 sm:mt-8">
+                                            {formattedNextAlarm?.ampm}
+                                        </span>
+                                    </div>
+                                    
+                                    <div className="flex flex-wrap items-center justify-center gap-3 text-white/80">
+                                        <span className="px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm">
+                                            {nextAlarm.label && nextAlarm.label !== 'Alarm' 
+                                                ? nextAlarm.label 
+                                                : 'Scheduled reminder'}
+                                        </span>
+                                        {timeUntilNextAlarm && (
+                                            <span className="px-3 py-2 rounded-full bg-cyan-400/10 border border-cyan-400/20 text-xs uppercase tracking-[0.25em] text-cyan-100/80">
+                                                {timeUntilNextAlarm}
+                                            </span>
+                                        )}
+                                    </div>
+                                    
+                                    {pendingAlarms.length > 1 && (
+                                        <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-white/70 pt-2">
+                                            {pendingAlarms.slice(1, 4).map((alarm, idx) => {
+                                                const formatted = formatAlarmTime(alarm.alarm_time);
+                                                return (
+                                                    <div key={alarm.alarm_id || idx} className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 backdrop-blur">
+                                                        <div className="flex items-baseline gap-2">
+                                                            <span className="text-base sm:text-lg font-semibold text-white">
+                                                                {formatted.time}
+                                                            </span>
+                                                            <span className="text-[10px] font-semibold text-cyan-200/80 uppercase">
+                                                                {formatted.ampm}
+                                                            </span>
+                                                        </div>
+                                                        {alarm.label && alarm.label !== 'Alarm' ? (
+                                                            <div className="text-[11px] text-white/60 mt-0.5">{alarm.label}</div>
+                                                        ) : (
+                                                            <div className="text-[11px] text-white/50 mt-0.5">{getTimeUntilAlarm(alarm.alarm_time)}</div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                            {pendingAlarms.length > 4 && (
+                                                <div className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white/60 backdrop-blur">
+                                                    +{pendingAlarms.length - 4} more
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        )}
-                        
-                        {/* Additional alarms indicator */}
-                        {pendingAlarms.length > 1 && (
-                            <div className="absolute bottom-24 text-xs text-white/30 tracking-wider uppercase">
-                                {pendingAlarms.length - 1} more alarm{pendingAlarms.length > 2 ? 's' : ''} set
-                            </div>
-                        )}
+                        </div>
                     </div>
                 </div>
             ) : photos.length > 0 ? (
@@ -503,10 +559,10 @@ export default function Clock() {
                 {weather?.current && (
                     <div className="text-right">
                         <div className="flex items-center justify-end gap-2">
-                            <span className="text-4xl drop-shadow-lg">
+                            <span className="text-4xl max-[520px]:text-3xl drop-shadow-lg">
                                 {getWeatherIcon(weather.current.icon)}
                             </span>
-                            <span className="text-4xl font-light text-white drop-shadow-lg">
+                            <span className="text-4xl max-[520px]:text-3xl font-light text-white drop-shadow-lg">
                                 {weather.current.temp}°
                             </span>
                         </div>
@@ -522,16 +578,16 @@ export default function Clock() {
                 <div className="absolute bottom-5 left-5 z-10">
                     {/* Time display */}
                     <div className="flex items-baseline gap-2">
-                        <span className="text-6xl font-light tracking-tight text-white drop-shadow-lg">
+                        <span className="text-6xl max-[520px]:text-[2.9rem] font-light tracking-tight text-white drop-shadow-lg">
                             {timeStr}
                         </span>
-                        <span className="text-xl font-light text-white/80 drop-shadow-lg">
+                        <span className="text-xl max-[520px]:text-lg font-light text-white/80 drop-shadow-lg">
                             {ampm}
                         </span>
                     </div>
 
                     {/* Date display */}
-                    <div className="text-lg font-light text-white/70 tracking-wide mt-1 drop-shadow-lg">
+                    <div className="text-lg max-[520px]:text-base font-light text-white/70 tracking-wide mt-1 drop-shadow-lg">
                         {formatDate(time)}
                     </div>
                 </div>
@@ -539,19 +595,19 @@ export default function Clock() {
             
             {/* Current time (smaller) when alarm is displayed - Bottom Left */}
             {hasAlarms && (
-                <div className="absolute bottom-6 left-6 z-10">
-                    <div className="text-xs text-white/30 uppercase tracking-widest mb-1">
+                <div className="absolute bottom-6 left-6 z-10 px-4 py-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
+                    <div className="text-[10px] text-white/50 uppercase tracking-[0.25em] mb-1">
                         Now
                     </div>
-                    <div className="flex items-baseline gap-1">
-                        <span className="text-2xl font-extralight tracking-tight text-white/50">
+                    <div className="flex items-baseline gap-2">
+                        <span className="text-2xl font-light tracking-tight text-white">
                             {timeStr}
                         </span>
-                        <span className="text-xs font-light text-white/30">
+                        <span className="text-xs font-semibold text-cyan-100/80">
                             {ampm}
                         </span>
                     </div>
-                    <div className="text-xs font-light text-white/30 tracking-wide mt-1">
+                    <div className="text-[11px] font-light text-white/60 tracking-wide mt-1">
                         {formatDate(time)}
                     </div>
                 </div>

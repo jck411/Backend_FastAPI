@@ -362,7 +362,14 @@ def create_app() -> FastAPI:
                 return FileResponse(file_path)
 
             # Default to index.html for SPA routing
-            return FileResponse(static_dir / "index.html")
+            return FileResponse(
+                static_dir / "index.html",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0",
+                }
+            )
     else:
         logging.warning(f"Static directory not found at {static_dir}. Frontend will not be served.")
 

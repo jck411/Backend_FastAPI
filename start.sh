@@ -75,17 +75,6 @@ kill_existing() {
 # Kill existing processes before starting
 kill_existing
 
-# Build helpers to ensure static bundles stay fresh when serving from backend
-build_frontend() {
-    echo -e "${GREEN}[build] Frontend (Svelte) bundle...${NC}"
-    cd frontend && npm run build && cd "$SCRIPT_DIR"
-}
-
-build_kiosk() {
-    echo -e "${GREEN}[build] Frontend-Kiosk bundle...${NC}"
-    cd frontend-kiosk && npm run build && cd "$SCRIPT_DIR"
-}
-
 # Helper: Wait for backend to be ready
 wait_for_backend() {
     local max_attempts=30
@@ -166,14 +155,6 @@ if $START_SLIDESHOW; then
     echo -e "${GREEN}[6/6] Syncing Slideshow Photos...${NC}"
     uv run python scripts/sync_slideshow.py
     echo ""
-fi
-
-# Build web bundles (keep backend-served static up to date)
-if $START_FRONTEND; then
-    build_frontend
-fi
-if $START_BACKEND || $START_KIOSK; then
-    build_kiosk
 fi
 
 # Start MCP Servers (option 2) - start first so backend can connect

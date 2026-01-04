@@ -9,13 +9,13 @@ function formatDateHeader(dateStr) {
     const date = new Date(dateStr);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    
+
     const eventDate = new Date(date);
     eventDate.setHours(0, 0, 0, 0);
-    
+
     if (eventDate.getTime() === today.getTime()) {
         return 'Today';
     } else if (eventDate.getTime() === tomorrow.getTime()) {
@@ -50,7 +50,7 @@ function getDateKey(dateStr) {
  */
 function groupEventsByDate(events) {
     const groups = {};
-    
+
     for (const event of events) {
         const dateKey = getDateKey(event.start);
         if (!groups[dateKey]) {
@@ -58,10 +58,10 @@ function groupEventsByDate(events) {
         }
         groups[dateKey].push(event);
     }
-    
+
     // Sort dates
     const sortedDates = Object.keys(groups).sort();
-    
+
     return sortedDates.map(date => ({
         date,
         label: formatDateHeader(date),
@@ -87,13 +87,11 @@ export default function CalendarScreen() {
     const [events, setEvents] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
-    const [lastFetched, setLastFetched] = useState(null);
 
     const fetchCalendar = async () => {
         try {
             const response = await fetch(`http://${window.location.hostname}:8000/api/kiosk/calendar?days=7`);
             if (!response.ok) {
-                // Try to get error details from response
                 let errorDetail = `HTTP ${response.status}`;
                 try {
                     const errorData = await response.json();
@@ -105,7 +103,6 @@ export default function CalendarScreen() {
             }
             const data = await response.json();
             setEvents(data.events || []);
-            setLastFetched(new Date());
             setError(null);
         } catch (e) {
             console.error('Failed to fetch calendar:', e);
@@ -115,11 +112,9 @@ export default function CalendarScreen() {
         }
     };
 
-    // Fetch on mount and every hour (use refresh button for immediate updates)
+    // Fetch on mount only (manual refresh via button)
     useEffect(() => {
         fetchCalendar();
-        const interval = setInterval(fetchCalendar, 60 * 60 * 1000);
-        return () => clearInterval(interval);
     }, []);
 
     const handleRefresh = () => {
@@ -135,9 +130,7 @@ export default function CalendarScreen() {
             <div className="px-6 sm:px-8 pt-6 sm:pt-8 pb-4 flex items-start justify-between">
                 <div>
                     <h1 className="text-[clamp(1.6rem,5vw,2.1rem)] font-bold text-white">Calendar</h1>
-                    <p className="text-white/50 text-[clamp(0.8rem,3vw,0.95rem)] mt-1">
-                        {lastFetched ? `Updated ${lastFetched.toLocaleTimeString()}` : 'Loading...'}
-                    </p>
+                    <p className="text-white/50 text-[clamp(0.8rem,3vw,0.95rem)] mt-1">Next 7 days</p>
                 </div>
                 <button
                     onClick={handleRefresh}
@@ -201,12 +194,11 @@ export default function CalendarScreen() {
                                 animate={{ opacity: 1, y: 0 }}
                                 transition={{ delay: groupIdx * 0.1 }}
                             >
-                                <h2 className={`sticky top-0 z-10 backdrop-blur-sm bg-black/70 px-2 py-1 -mx-2 rounded-lg text-[clamp(1rem,3.6vw,1.1rem)] font-semibold mb-3 ${
-                                    group.label === 'Today' ? 'text-cyan-400' : 'text-white/70'
-                                }`}>
+                                <h2 className={`sticky top-0 z-10 backdrop-blur-sm bg-black/70 px-2 py-1 -mx-2 rounded-lg text-[clamp(1rem,3.6vw,1.1rem)] font-semibold mb-3 ${group.label === 'Today' ? 'text-cyan-400' : 'text-white/70'
+                                    }`}>
                                     {group.label}
                                 </h2>
-                                
+
                                 <div className="space-y-2">
                                     {group.events.map((event, idx) => (
                                         <motion.div

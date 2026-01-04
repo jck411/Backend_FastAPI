@@ -384,7 +384,24 @@ class _ToolDigestEntry:
 
 
 # Port range for discovering running MCP servers
-MCP_DISCOVERY_PORTS = range(9001, 9012)  # 9001-9011 inclusive
+# Read from data/mcp_ports.conf (single source of truth shared with waybar scripts)
+def _load_mcp_port_range() -> range:
+    """Load MCP port range from config file."""
+    config_path = Path(__file__).parents[3] / "data" / "mcp_ports.conf"
+    start, end = 9001, 9015  # Fallback defaults
+    try:
+        for line in config_path.read_text().splitlines():
+            line = line.strip()
+            if line.startswith("MCP_PORT_START="):
+                start = int(line.split("=", 1)[1])
+            elif line.startswith("MCP_PORT_END="):
+                end = int(line.split("=", 1)[1])
+    except (FileNotFoundError, ValueError):
+        pass  # Use defaults
+    return range(start, end + 1)
+
+
+MCP_DISCOVERY_PORTS = _load_mcp_port_range()
 
 
 class MCPToolAggregator:

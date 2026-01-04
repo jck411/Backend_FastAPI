@@ -7,6 +7,7 @@ import copy
 import json
 import logging
 import shlex
+import sys
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -396,6 +397,7 @@ class MCPToolAggregator:
         base_env: dict[str, str] | None = None,
         default_cwd: Path | None = None,
         lazy_mode: bool = False,
+        managed_mode: bool = False,
     ) -> None:
         self._configs = [cfg for cfg in configs]
         self._config_map: dict[str, MCPServerConfig] = {
@@ -404,7 +406,9 @@ class MCPToolAggregator:
         self._base_env = dict(base_env or {})
         self._default_cwd = default_cwd
         self._lazy_mode = lazy_mode
+        self._managed_mode = managed_mode
         self._clients: dict[str, MCPToolClient] = {}
+        self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._bindings: dict[str, _ToolBinding] = {}
         self._binding_order: list[_ToolBinding] = []
         self._openai_tools: list[dict[str, Any]] = []
@@ -558,12 +562,15 @@ class MCPToolAggregator:
                 if new_cfg is None or not new_cfg.enabled:
                     await client.close()
                     self._clients.pop(server_id, None)
+                    # Terminate spawned process if any
+                    await self._terminate_process(server_id)
                     continue
 
                 old_cfg = old_map.get(server_id)
                 if self._requires_restart(old_cfg, new_cfg):
                     await client.close()
                     self._clients.pop(server_id, None)
+                    await self._terminate_process(server_id)
 
             # Launch new or re-enabled servers.
             for config in new_configs:
@@ -728,7 +735,20 @@ class MCPToolAggregator:
                 except Exception as exc:
                     logger.warning("Error closing MCP client '%s': %s", server_id, exc)
 
+            # Terminate all spawned processes
+            for server_id, process in list(self._processes.items()):
+                try:
+                    if process.returncode is None:
+                        process.terminate()
+                        await asyncio.wait_for(process.wait(), timeout=3.0)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    await process.wait()
+                except Exception as exc:
+                    logger.warning("Error terminating MCP process '%s': %s", server_id, exc)
+
             self._clients.clear()
+            self._processes.clear()
             self._bindings.clear()
             self._binding_order.clear()
             self._openai_tools.clear()
@@ -1000,6 +1020,69 @@ class MCPToolAggregator:
         except (OSError, asyncio.TimeoutError):
             return False
 
+    async def _spawn_server_process(
+        self, config: MCPServerConfig, env: dict[str, str], cwd: Path | None
+    ) -> asyncio.subprocess.Process | None:
+        """Spawn an MCP server as a subprocess."""
+        if not config.module or config.http_port is None:
+            logger.warning(
+                "Cannot spawn MCP server '%s': missing module or http_port",
+                config.id,
+            )
+            return None
+
+        argv = [
+            sys.executable,
+            "-m",
+            config.module,
+            "--transport",
+            "streamable-http",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(config.http_port),
+        ]
+
+        # Disable FastMCP banner for cleaner output
+        spawn_env = {**env, "FASTMCP_SHOW_CLI_BANNER": "false", "PYTHONUNBUFFERED": "1"}
+
+        try:
+            logger.info(
+                "Spawning MCP server '%s' on port %d...",
+                config.id,
+                config.http_port,
+            )
+            process = await asyncio.create_subprocess_exec(
+                *argv,
+                cwd=str(cwd) if cwd else None,
+                env=spawn_env,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            return process
+        except Exception:
+            logger.exception("Failed to spawn MCP server '%s'", config.id)
+            return None
+
+    async def _terminate_process(self, server_id: str) -> None:
+        """Terminate a spawned server process if it exists."""
+        process = self._processes.pop(server_id, None)
+        if process is None:
+            return
+
+        try:
+            if process.returncode is None:
+                logger.info("Terminating MCP server '%s'...", server_id)
+                process.terminate()
+                await asyncio.wait_for(process.wait(), timeout=3.0)
+                logger.info("MCP server '%s' terminated", server_id)
+        except asyncio.TimeoutError:
+            logger.warning("MCP server '%s' did not terminate, killing...", server_id)
+            process.kill()
+            await process.wait()
+        except Exception as exc:
+            logger.warning("Error terminating MCP server '%s': %s", server_id, exc)
+
     async def _launch_server(self, config: MCPServerConfig) -> None:
         env = self._base_env.copy()
         env.update(config.env)
@@ -1014,33 +1097,63 @@ class MCPToolAggregator:
                     connect_only=True,
                 )
             elif config.http_port is not None:
-                if self._lazy_mode:
-                    # In lazy mode, only connect to already-running servers
-                    already_running = await self._is_server_running(
-                        "127.0.0.1", config.http_port
-                    )
+                already_running = await self._is_server_running(
+                    "127.0.0.1", config.http_port
+                )
 
-                    if already_running:
-                        logger.info(
-                            "MCP server '%s' already running on port %d, connecting...",
-                            config.id,
-                            config.http_port,
-                        )
-                        client = MCPToolClient(
-                            http_port=config.http_port,
-                            server_id=config.id,
-                            connect_only=True,
-                        )
-                    else:
-                        # Skip servers that aren't running
-                        logger.info(
-                            "MCP server '%s' not running on port %d, skipping (start with option 2)",
-                            config.id,
-                            config.http_port,
-                        )
+                if already_running:
+                    logger.info(
+                        "MCP server '%s' already running on port %d, connecting...",
+                        config.id,
+                        config.http_port,
+                    )
+                    client = MCPToolClient(
+                        http_port=config.http_port,
+                        server_id=config.id,
+                        connect_only=True,
+                    )
+                elif self._managed_mode and config.module:
+                    # In managed mode, spawn the server process
+                    process = await self._spawn_server_process(config, env, cwd)
+                    if process is None:
                         return
+
+                    self._processes[config.id] = process
+
+                    # Wait for server to start accepting connections
+                    for attempt in range(20):  # 10 second timeout
+                        await asyncio.sleep(0.5)
+                        if await self._is_server_running("127.0.0.1", config.http_port):
+                            break
+                    else:
+                        logger.error(
+                            "MCP server '%s' failed to start on port %d",
+                            config.id,
+                            config.http_port,
+                        )
+                        await self._terminate_process(config.id)
+                        return
+
+                    logger.info(
+                        "MCP server '%s' started on port %d, connecting...",
+                        config.id,
+                        config.http_port,
+                    )
+                    client = MCPToolClient(
+                        http_port=config.http_port,
+                        server_id=config.id,
+                        connect_only=True,
+                    )
+                elif self._lazy_mode:
+                    # In lazy mode without managed mode, skip servers that aren't running
+                    logger.info(
+                        "MCP server '%s' not running on port %d, skipping (start with option 2)",
+                        config.id,
+                        config.http_port,
+                    )
+                    return
                 else:
-                    # In normal mode (tests), spawn the server
+                    # In normal mode (tests), spawn the server via MCPToolClient
                     client = MCPToolClient(
                         server_module=config.module,
                         command=config.command,

@@ -69,3 +69,6 @@ data/model_settings.json
 
 # Kreuzberg cache
 .kreuzberg/
+
+# Slideshow photos
+data/slideshow/photos/

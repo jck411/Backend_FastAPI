@@ -106,6 +106,7 @@ class ChatOrchestrator:
             base_env=env,
             default_cwd=project_root,
             lazy_mode=True,  # Skip MCP connections at startup for faster boot
+            managed_mode=True,  # Allow spawning servers when enabled via UI
         )
         conversation_log_dir = settings.conversation_log_dir
         if not conversation_log_dir.is_absolute():

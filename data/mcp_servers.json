@@ -34,10 +34,10 @@
       "client_enabled": {
         "cli": true,
         "kiosk": true,
-        "svelte": false
+        "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "http_port": 9004,
       "id": "custom-calendar",
@@ -51,7 +51,7 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "http_port": 9005,
       "id": "custom-gmail",
@@ -65,7 +65,7 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "http_port": 9006,
       "id": "custom-gdrive",

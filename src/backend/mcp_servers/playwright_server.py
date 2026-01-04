@@ -54,6 +54,7 @@ def _is_protected_url(url: str) -> bool:
             return True
     return False
 
+
 mcp = FastMCP("playwright")
 
 # =============================================================================
@@ -75,6 +76,7 @@ async def _ensure_playwright() -> Any:
     if _playwright is None:
         try:
             from playwright.async_api import async_playwright
+
             _playwright = await async_playwright().start()
         except ImportError:
             raise RuntimeError(
@@ -275,27 +277,34 @@ async def browser_status() -> str:
         JSON with connection status, current URL, and page title if connected.
     """
     if not _connected or _page is None:
-        return json.dumps({
-            "status": "ok",
-            "connected": False,
-            "message": "No browser session. Call browser_open to start.",
-        })
+        return json.dumps(
+            {
+                "status": "ok",
+                "connected": False,
+                "message": "No browser session. Call browser_open to start.",
+            }
+        )
 
     try:
         current_url = _page.url
         page_title = await _page.title()
-        return json.dumps({
-            "status": "ok",
-            "connected": True,
-            "url": current_url,
-            "title": page_title[:100] if page_title else None,
-        })
+        return json.dumps(
+            {
+                "status": "ok",
+                "connected": True,
+                "url": current_url,
+                "title": page_title[:100] if page_title else None,
+            }
+        )
     except Exception as exc:
-        return json.dumps({
-            "status": "ok",
-            "connected": False,
-            "message": f"Session stale: {exc}. Call browser_open to start fresh.",
-        })
+        return json.dumps(
+            {
+                "status": "ok",
+                "connected": False,
+                "message": f"Session stale: {exc}. Call browser_open to start fresh.",
+            }
+        )
+
 
 @mcp.tool("browser_open")  # type: ignore[misc]
 async def browser_open(
@@ -327,11 +336,13 @@ async def browser_open(
     if preset:
         preset_lower = preset.lower()
         if preset_lower not in _WAYBAR_PRESETS:
-            return json.dumps({
-                "status": "error",
-                "message": f"Unknown preset: {preset}",
-                "available_presets": list(_WAYBAR_PRESETS.keys()),
-            })
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": f"Unknown preset: {preset}",
+                    "available_presets": list(_WAYBAR_PRESETS.keys()),
+                }
+            )
         target_url = _WAYBAR_PRESETS[preset_lower]
     elif url:
         target_url = url
@@ -340,23 +351,29 @@ async def browser_open(
 
     # Block protected URLs (chat app)
     if _is_protected_url(target_url):
-        return json.dumps({
-            "status": "error",
-            "message": "Cannot open chat app URL - this would hijack your session",
-            "url": target_url,
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": "Cannot open chat app URL - this would hijack your session",
+                "url": target_url,
+            }
+        )
 
     # Reuse existing session if connected (unless force_new)
     if _connected and _page is not None and not force_new:
         try:
-            await _page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
-            return json.dumps({
-                "status": "ok",
-                "url": target_url,
-                "preset": preset,
-                "current_url": _page.url,
-                "reused": True,
-            })
+            await _page.goto(
+                target_url, wait_until="domcontentloaded", timeout=timeout_ms
+            )
+            return json.dumps(
+                {
+                    "status": "ok",
+                    "url": target_url,
+                    "preset": preset,
+                    "current_url": _page.url,
+                    "reused": True,
+                }
+            )
         except Exception:
             # Session is stale, fall through to launch new browser
             await _close_browser()
@@ -367,12 +384,16 @@ async def browser_open(
 
     try:
         try:
-            resolved_cdp_port, requested_cdp_port, port_changed = _resolve_cdp_port(cdp_port)
+            resolved_cdp_port, requested_cdp_port, port_changed = _resolve_cdp_port(
+                cdp_port
+            )
         except ValueError as exc:
-            return json.dumps({
-                "status": "error",
-                "message": str(exc),
-            })
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": str(exc),
+                }
+            )
 
         # Launch Brave in app mode with CDP enabled
         # --disable-session-restore: No tab restoration
@@ -408,7 +429,9 @@ async def browser_open(
 
         while (time.time() - start_time) * 1000 < timeout_ms:
             if _browser_process and _browser_process.poll() is not None:
-                last_error = f"Browser process exited with code {_browser_process.returncode}"
+                last_error = (
+                    f"Browser process exited with code {_browser_process.returncode}"
+                )
                 break
 
             await asyncio.sleep(0.3)
@@ -429,7 +452,9 @@ async def browser_open(
                     _context = await _browser.new_context()
                     _page = await _context.new_page()
 
-                if target_url != "about:blank" and not _urls_match(_page.url, target_url):
+                if target_url != "about:blank" and not _urls_match(
+                    _page.url, target_url
+                ):
                     await _page.goto(
                         target_url,
                         wait_until="domcontentloaded",
@@ -438,35 +463,41 @@ async def browser_open(
 
                 _connected = True
 
-                return json.dumps({
-                    "status": "ok",
-                    "url": target_url,
-                    "preset": preset,
-                    "current_url": _page.url,
-                    "cdp_port": resolved_cdp_port,
-                    "cdp_port_requested": requested_cdp_port,
-                    "cdp_port_changed": port_changed,
-                })
+                return json.dumps(
+                    {
+                        "status": "ok",
+                        "url": target_url,
+                        "preset": preset,
+                        "current_url": _page.url,
+                        "cdp_port": resolved_cdp_port,
+                        "cdp_port_requested": requested_cdp_port,
+                        "cdp_port_changed": port_changed,
+                    }
+                )
 
             except Exception as e:
                 last_error = str(e)
 
         await _close_browser()
-        return json.dumps({
-            "status": "error",
-            "message": f"CDP connection timed out: {last_error}",
-            "hint": "Browser may still be starting. Try again.",
-            "cdp_port": resolved_cdp_port,
-            "cdp_port_requested": requested_cdp_port,
-            "cdp_port_changed": port_changed,
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": f"CDP connection timed out: {last_error}",
+                "hint": "Browser may still be starting. Try again.",
+                "cdp_port": resolved_cdp_port,
+                "cdp_port_requested": requested_cdp_port,
+                "cdp_port_changed": port_changed,
+            }
+        )
 
     except Exception as exc:
         await _close_browser()
-        return json.dumps({
-            "status": "error",
-            "message": str(exc),
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": str(exc),
+            }
+        )
 
 
 @mcp.tool("browser_navigate")  # type: ignore[misc]
@@ -491,11 +522,13 @@ async def browser_navigate(
     try:
         # Block protected URLs (chat app)
         if _is_protected_url(url):
-            return json.dumps({
-                "status": "error",
-                "message": "Cannot navigate to chat app URL - this would hijack your session",
-                "url": url,
-            })
+            return json.dumps(
+                {
+                    "status": "error",
+                    "message": "Cannot navigate to chat app URL - this would hijack your session",
+                    "url": url,
+                }
+            )
 
         page = await _get_page()
 
@@ -506,18 +539,22 @@ async def browser_navigate(
         )
 
         page_title = await page.title()
-        return json.dumps({
-            "status": "ok",
-            "url": page.url,
-            "title": page_title[:100] if page_title else None,
-            "http_status": response.status if response else None,
-        })
+        return json.dumps(
+            {
+                "status": "ok",
+                "url": page.url,
+                "title": page_title[:100] if page_title else None,
+                "http_status": response.status if response else None,
+            }
+        )
 
     except Exception as exc:
-        return json.dumps({
-            "status": "error",
-            "message": str(exc),
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": str(exc),
+            }
+        )
 
 
 @mcp.tool("browser_click")  # type: ignore[misc]
@@ -525,15 +562,17 @@ async def browser_click(
     selector: str,
     button: str = "left",
     click_count: int = 1,
-    timeout_ms: int = 10000,
+    timeout_ms: int = 20000,
+    index: int | None = None,
 ) -> str:
-    """Click an element on the page.
+    """Click an element on the page with basic robustness.
 
     Args:
         selector: CSS selector, text selector ("text=Click me"), or XPath
         button: Mouse button - "left", "right", or "middle"
         click_count: Number of clicks (2 for double-click)
-        timeout_ms: Timeout waiting for element
+        timeout_ms: Timeout waiting for element (defaults to 20s for flaky SERP links)
+        index: Optional index if the selector matches multiple elements (0-based)
 
     Returns:
         JSON with status.
@@ -541,24 +580,36 @@ async def browser_click(
     try:
         page = await _get_page()
 
-        await page.click(
-            selector,
+        locator = page.locator(selector)
+        target = locator.nth(index) if index is not None else locator
+
+        # Ensure the element is ready and on-screen before clicking.
+        await target.wait_for(state="visible", timeout=timeout_ms)
+        await target.scroll_into_view_if_needed(timeout=timeout_ms)
+
+        await target.click(
             button=button,
             click_count=click_count,
             timeout=timeout_ms,
         )
 
-        return json.dumps({
-            "status": "ok",
-            "selector": selector,
-        })
+        return json.dumps(
+            {
+                "status": "ok",
+                "selector": selector,
+                "index": index,
+            }
+        )
 
     except Exception as exc:
-        return json.dumps({
-            "status": "error",
-            "selector": selector,
-            "message": str(exc),
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "selector": selector,
+                "index": index,
+                "message": str(exc),
+            }
+        )
 
 
 @mcp.tool("browser_type")  # type: ignore[misc]
@@ -596,18 +647,22 @@ async def browser_type(
         else:
             await page.type(selector, text, delay=delay_ms, timeout=timeout_ms)
 
-        return json.dumps({
-            "status": "ok",
-            "selector": selector,
-            "typed_length": len(text),
-        })
+        return json.dumps(
+            {
+                "status": "ok",
+                "selector": selector,
+                "typed_length": len(text),
+            }
+        )
 
     except Exception as exc:
-        return json.dumps({
-            "status": "error",
-            "selector": selector,
-            "message": str(exc),
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "selector": selector,
+                "message": str(exc),
+            }
+        )
 
 
 @mcp.tool("browser_press_key")  # type: ignore[misc]
@@ -640,18 +695,22 @@ async def browser_press_key(
 
         await page.keyboard.press(key)
 
-        return json.dumps({
-            "status": "ok",
-            "key": key,
-            "selector": selector,
-        })
+        return json.dumps(
+            {
+                "status": "ok",
+                "key": key,
+                "selector": selector,
+            }
+        )
 
     except Exception as exc:
-        return json.dumps({
-            "status": "error",
-            "key": key,
-            "message": str(exc),
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "key": key,
+                "message": str(exc),
+            }
+        )
 
 
 @mcp.tool("browser_extract")  # type: ignore[misc]
@@ -680,10 +739,12 @@ async def browser_extract(
         if selector:
             element = await page.query_selector(selector)
             if not element:
-                return json.dumps({
-                    "status": "error",
-                    "message": f"Element not found: {selector}",
-                })
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "message": f"Element not found: {selector}",
+                    }
+                )
 
             if content_type == "text":
                 content = await element.inner_text()
@@ -707,19 +768,23 @@ async def browser_extract(
         truncated = len(content) > limit
         content = content[:limit]
 
-        return json.dumps({
-            "status": "ok",
-            "selector": selector or "body",
-            "content_type": content_type,
-            "content": content,
-            "truncated": truncated,
-        })
+        return json.dumps(
+            {
+                "status": "ok",
+                "selector": selector or "body",
+                "content_type": content_type,
+                "content": content,
+                "truncated": truncated,
+            }
+        )
 
     except Exception as exc:
-        return json.dumps({
-            "status": "error",
-            "message": str(exc),
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": str(exc),
+            }
+        )
 
 
 @mcp.tool("browser_wait")  # type: ignore[misc]
@@ -756,19 +821,23 @@ async def browser_wait(
 
         elapsed_ms = int((time.time() - start) * 1000)
 
-        return json.dumps({
-            "status": "ok",
-            "selector": selector,
-            "state": state,
-            "elapsed_ms": elapsed_ms,
-        })
+        return json.dumps(
+            {
+                "status": "ok",
+                "selector": selector,
+                "state": state,
+                "elapsed_ms": elapsed_ms,
+            }
+        )
 
     except Exception as exc:
-        return json.dumps({
-            "status": "error",
-            "selector": selector,
-            "message": str(exc),
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "selector": selector,
+                "message": str(exc),
+            }
+        )
 
 
 @mcp.tool("browser_screenshot")  # type: ignore[misc]
@@ -793,31 +862,39 @@ async def browser_screenshot(
         if path:
             save_path = Path(path)
         else:
-            save_path = Path(tempfile.gettempdir()) / f"screenshot_{int(time.time())}.png"
+            save_path = (
+                Path(tempfile.gettempdir()) / f"screenshot_{int(time.time())}.png"
+            )
 
         if selector:
             element = await page.query_selector(selector)
             if not element:
-                return json.dumps({
-                    "status": "error",
-                    "message": f"Element not found: {selector}",
-                })
+                return json.dumps(
+                    {
+                        "status": "error",
+                        "message": f"Element not found: {selector}",
+                    }
+                )
             await element.screenshot(path=str(save_path))
         else:
             await page.screenshot(path=str(save_path), full_page=full_page)
 
-        return json.dumps({
-            "status": "ok",
-            "path": str(save_path),
-            "selector": selector,
-            "full_page": full_page if not selector else False,
-        })
+        return json.dumps(
+            {
+                "status": "ok",
+                "path": str(save_path),
+                "selector": selector,
+                "full_page": full_page if not selector else False,
+            }
+        )
 
     except Exception as exc:
-        return json.dumps({
-            "status": "error",
-            "message": str(exc),
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": str(exc),
+            }
+        )
 
 
 @mcp.tool("browser_close")  # type: ignore[misc]
@@ -832,16 +909,20 @@ async def browser_close() -> str:
     try:
         await _close_browser()
 
-        return json.dumps({
-            "status": "ok",
-            "message": "Browser closed",
-        })
+        return json.dumps(
+            {
+                "status": "ok",
+                "message": "Browser closed",
+            }
+        )
 
     except Exception as exc:
-        return json.dumps({
-            "status": "error",
-            "message": str(exc),
-        })
+        return json.dumps(
+            {
+                "status": "error",
+                "message": str(exc),
+            }
+        )
 
 
 # =============================================================================

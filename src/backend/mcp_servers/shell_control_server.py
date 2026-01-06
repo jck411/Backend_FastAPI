@@ -56,6 +56,78 @@ _cached_package_manager: str | None = None
 TIMEOUT_MIN_SECONDS = 1
 TIMEOUT_MAX_SECONDS = 600  # 10 minutes max
 
+# Progress feedback threshold (seconds) - warn if command takes longer
+PROGRESS_FEEDBACK_THRESHOLD = 10
+
+# Patterns for commands that need --noconfirm or equivalent flags
+# Format: (regex pattern, flag to add, insert position: 'after_cmd' or 'end')
+_NOCONFIRM_PATTERNS: list[tuple[str, str, str]] = [
+    # Arch: pacman, yay, paru
+    (r"^(sudo\s+)?(pacman|yay|paru)\s+(-S|-R|-U)", "--noconfirm", "end"),
+    # Fedora/RHEL: dnf, yum
+    (r"^(sudo\s+)?(dnf|yum)\s+(install|remove|erase|upgrade|update)", "-y", "end"),
+    # Debian/Ubuntu: apt, apt-get
+    (r"^(sudo\s+)?(apt|apt-get)\s+(install|remove|purge|upgrade|dist-upgrade)", "-y", "end"),
+    # Flatpak
+    (r"^(sudo\s+)?flatpak\s+(install|uninstall|update)", "-y", "end"),
+    # Snap
+    (r"^(sudo\s+)?snap\s+(install|remove)", "--yes", "end"),
+    # pip/pipx (for completeness)
+    (r"^(sudo\s+)?pip3?\s+(install|uninstall)", "-y", "end"),
+    (r"^(sudo\s+)?pipx\s+(install|uninstall)", "--force", "end"),
+]
+
+# Commands that are inherently interactive and should be rejected/warned
+_INTERACTIVE_COMMANDS: list[tuple[str, str]] = [
+    (r"^\s*vim\s", "vim requires interactive input; use 'sed' or 'cat <<EOF' for file edits"),
+    (r"^\s*nano\s", "nano requires interactive input; use 'sed' or 'cat <<EOF' for file edits"),
+    (r"^\s*vi\s", "vi requires interactive input; use 'sed' or 'cat <<EOF' for file edits"),
+    (r"^\s*less\s", "less requires interactive input; use 'cat' or 'head/tail' instead"),
+    (r"^\s*more\s", "more requires interactive input; use 'cat' or 'head/tail' instead"),
+    (r"^\s*top$", "top requires interactive input; use 'top -bn1' for non-interactive"),
+    (r"^\s*htop$", "htop requires interactive input; use 'top -bn1' for system stats"),
+    (r"^\s*(sudo\s+)?visudo", "visudo requires interactive input; use 'echo ... | sudo tee' for sudoers"),
+    (r"^\s*passwd(\s|$)", "passwd requires interactive input"),
+    (r"^\s*ssh\s+(?!.*-o\s*BatchMode)", "ssh may prompt for password; use ssh-agent or BatchMode=yes"),
+    (r"\|\s*less(\s|$)", "piping to less requires interaction; remove '| less'"),
+    (r"\|\s*more(\s|$)", "piping to more requires interaction; remove '| more'"),
+]
+
+
+def _make_command_noninteractive(command: str) -> tuple[str, list[str]]:
+    """Transform a command to be non-interactive for headless automation.
+
+    Returns: (modified_command, list_of_warnings)
+
+    - Adds --noconfirm/-y flags to package managers
+    - Warns about inherently interactive commands
+    """
+    warnings: list[str] = []
+    modified = command.strip()
+
+    # Check for interactive commands that can't be automated
+    for pattern, warning in _INTERACTIVE_COMMANDS:
+        if re.search(pattern, modified, re.IGNORECASE):
+            warnings.append(f"⚠️ {warning}")
+
+    # Add non-interactive flags to package managers
+    for pattern, flag, position in _NOCONFIRM_PATTERNS:
+        if re.search(pattern, modified, re.IGNORECASE):
+            # Check if flag is already present
+            if flag not in modified:
+                if position == "end":
+                    modified = f"{modified} {flag}"
+                else:
+                    # Insert after the matched command
+                    match = re.search(pattern, modified, re.IGNORECASE)
+                    if match:
+                        insert_pos = match.end()
+                        modified = f"{modified[:insert_pos]} {flag}{modified[insert_pos:]}"
+                warnings.append(f"ℹ️ Auto-added '{flag}' for headless operation")
+            break  # Only apply one pattern
+
+    return modified, warnings
+
 
 def _get_package_manager() -> str:
     """Detect and cache the system package manager.
@@ -1473,7 +1545,13 @@ async def shell_session(
     session_id: str | None = None,
     timeout_seconds: int = 30,
 ) -> str:
-    """Run a command in a persistent shell session.
+    """Run a command in a persistent shell session (headless/non-interactive).
+
+    IMPORTANT: This is a headless automation environment - NO human is available
+    to provide input. Commands are automatically modified for non-interactive use:
+    - Package managers get --noconfirm/-y flags auto-added
+    - Interactive editors (vim, nano) will fail - use sed/cat instead
+    - Commands requiring password prompts need sudo with NOPASSWD configured
 
     PREFER THIS over shell_execute for multi-step tasks. The session persists:
     - cd changes carry over to next command
@@ -1488,7 +1566,7 @@ async def shell_session(
        → Same session, can reference previous context
 
     Args:
-        command: The command to run
+        command: The command to run (will be auto-modified for non-interactive use)
         session_id: Reuse an existing session. Omit to create new session.
         timeout_seconds: Max time to wait for command (default 30s, max 600s)
 
@@ -1502,33 +1580,58 @@ async def shell_session(
     start = time.perf_counter()
     sess: ShellSession | None = None
 
+    # Preprocess command for headless automation
+    original_command = command
+    modified_command, automation_warnings = _make_command_noninteractive(command)
+    command_was_modified = modified_command != original_command
+
     try:
         sess = await _get_or_create_session(session_id)
-        output, exit_code, cwd = await _run_in_session(sess, command, timeout_seconds)
+        output, exit_code, cwd = await _run_in_session(sess, modified_command, timeout_seconds)
         duration_ms = (time.perf_counter() - start) * 1000
 
-        return json.dumps(
-            {
-                "status": "ok",
-                "output": output,
-                "exit_code": exit_code,
-                "cwd": cwd,
-                "session_id": sess.session_id,
-                "command_count": sess.command_count,
-                "duration_ms": duration_ms,
-            }
-        )
+        result: dict = {
+            "status": "ok",
+            "output": output,
+            "exit_code": exit_code,
+            "cwd": cwd,
+            "session_id": sess.session_id,
+            "command_count": sess.command_count,
+            "duration_ms": duration_ms,
+        }
+
+        # Include automation info if command was modified or has warnings
+        if command_was_modified:
+            result["command_modified"] = modified_command
+            result["original_command"] = original_command
+        if automation_warnings:
+            result["automation_notes"] = automation_warnings
+
+        return json.dumps(result)
 
     except TimeoutError as e:
         duration_ms = (time.perf_counter() - start) * 1000
         if sess:
             await _close_session(sess.session_id)
+
+        # Provide helpful context for timeouts
+        timeout_hints = []
+        if automation_warnings:
+            timeout_hints.extend(automation_warnings)
+        timeout_hints.append(
+            f"💡 Command ran for {timeout_seconds}s without completing. "
+            "Possible causes: waiting for input (interactive command), "
+            "network delay, or slow operation."
+        )
+
         return json.dumps(
             {
                 "status": "timeout",
                 "error": str(e),
                 "session_id": sess.session_id if sess else session_id,
                 "duration_ms": duration_ms,
+                "command_executed": modified_command if command_was_modified else command,
+                "hints": timeout_hints,
             }
         )
 
@@ -1544,6 +1647,7 @@ async def shell_session(
                 "error": str(e),
                 "session_id": sess.session_id if sess else session_id,
                 "duration_ms": duration_ms,
+                "automation_notes": automation_warnings if automation_warnings else None,
             }
         )
 
@@ -1631,14 +1735,23 @@ async def shell_execute(
     timeout_seconds: int = 30,
     background: bool = False,
 ) -> str:
-    """Execute a shell command (one-shot, no session persistence).
+    """Execute a shell command (one-shot, headless/non-interactive).
+
+    IMPORTANT: This is a headless automation environment - NO human is available
+    to provide input. Commands are automatically modified for non-interactive use:
+    - Package managers get --noconfirm/-y flags auto-added
+    - Interactive editors (vim, nano) will fail - use sed/cat instead
 
     For multi-step tasks, PREFER shell_session instead - it maintains
     state between commands (cd, env vars, etc.).
 
+    ⚠️ For file editing, use file_edit() instead of sed/echo/cat.
+       file_edit handles quoting, atomic writes, and backups automatically.
+
     Use shell_execute for:
     - Simple one-off commands
     - GUI app launches (with background=true)
+    - System queries (ls, stat, df, etc.)
 
     Args:
         background: Set True for GUI apps (wizards, dialogs, editors).
@@ -1661,6 +1774,13 @@ async def shell_execute(
             }
         )
 
+    # Preprocess command for headless automation (skip for background/GUI apps)
+    original_command = command
+    automation_warnings: list[str] = []
+    if not background:
+        command, automation_warnings = _make_command_noninteractive(command)
+    command_was_modified = command != original_command
+
     if background:
         result = await _launch_gui_app(command, working_directory)
         return json.dumps(result)
@@ -1670,6 +1790,14 @@ async def shell_execute(
         working_directory=working_directory,
         timeout_seconds=timeout_seconds,
     )
+
+    # Add automation info to result
+    if command_was_modified:
+        result["command_modified"] = command
+        result["original_command"] = original_command
+    if automation_warnings:
+        result["automation_notes"] = automation_warnings
+
     return json.dumps(result)
 
 
@@ -1890,6 +2018,273 @@ async def _run_maintenance_script(script_key: str, timeout_seconds: int = 300) -
         }
 
 
+# =============================================================================
+# File Editing Tool
+# =============================================================================
+
+
+@mcp.tool("file_edit")  # type: ignore
+async def file_edit(
+    path: str,
+    operation: str,  # "read" | "write" | "patch" | "append"
+    content: str | None = None,
+    find: str | None = None,
+    replace: str | None = None,
+    backup: bool = True,
+) -> str:
+    """Structured file editing. Use instead of shell sed/echo for file changes.
+
+    Operations:
+        read   - Load file content (returns content in response)
+        write  - Replace entire file with content
+        patch  - Find and replace text (requires find and replace params)
+        append - Add content to end of file
+
+    Args:
+        path: Absolute or ~ path to file
+        operation: One of read, write, patch, append
+        content: File content for write/append operations
+        find: Text to find (patch operation only)
+        replace: Replacement text (patch operation only)
+        backup: Create .bak file before modifying (default True)
+
+    Returns:
+        JSON with status, path, and operation-specific data.
+        For read: includes content
+        For patch: includes occurrences_replaced count
+
+    Examples:
+        file_edit("/tmp/test.py", "read")
+        file_edit("/tmp/test.py", "write", content="print('hello')")
+        file_edit("/tmp/test.py", "patch", find="hello", replace="world")
+        file_edit("~/.bashrc", "append", content="\\nalias ll='ls -la'")
+    """
+    # Normalize path
+    try:
+        file_path = Path(path).expanduser().resolve()
+    except Exception as e:
+        return json.dumps({"status": "error", "error": f"Invalid path: {e}"})
+
+    valid_ops = ("read", "write", "patch", "append")
+    if operation not in valid_ops:
+        return json.dumps({
+            "status": "error",
+            "error": f"Invalid operation: {operation}. Must be one of: {valid_ops}",
+        })
+
+    # === READ ===
+    if operation == "read":
+        if not file_path.exists():
+            return json.dumps({
+                "status": "error",
+                "error": f"File not found: {file_path}",
+            })
+        if not file_path.is_file():
+            return json.dumps({
+                "status": "error",
+                "error": f"Path is not a file: {file_path}",
+            })
+        try:
+            content_read = file_path.read_text(encoding="utf-8")
+            return json.dumps({
+                "status": "ok",
+                "operation": "read",
+                "path": str(file_path),
+                "size_bytes": len(content_read.encode("utf-8")),
+                "content": content_read,
+            })
+        except UnicodeDecodeError:
+            return json.dumps({
+                "status": "error",
+                "error": "File is not valid UTF-8 text",
+            })
+        except PermissionError:
+            return json.dumps({
+                "status": "error",
+                "error": f"Permission denied: {file_path}",
+            })
+
+    # === WRITE ===
+    if operation == "write":
+        if content is None:
+            return json.dumps({
+                "status": "error",
+                "error": "content is required for write operation",
+            })
+
+        # Create parent dirs if needed
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Backup existing file
+        if backup and file_path.exists():
+            bak_path = file_path.with_suffix(file_path.suffix + ".bak")
+            try:
+                bak_path.write_bytes(file_path.read_bytes())
+            except Exception as e:
+                return json.dumps({
+                    "status": "error",
+                    "error": f"Failed to create backup: {e}",
+                })
+
+        # Atomic write via temp file
+        tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+        try:
+            tmp_path.write_text(content, encoding="utf-8")
+            tmp_path.replace(file_path)
+            return json.dumps({
+                "status": "ok",
+                "operation": "write",
+                "path": str(file_path),
+                "size_bytes": len(content.encode("utf-8")),
+                "backup_created": backup and file_path.with_suffix(
+                    file_path.suffix + ".bak"
+                ).exists(),
+            })
+        except PermissionError:
+            return json.dumps({
+                "status": "error",
+                "error": f"Permission denied: {file_path}",
+            })
+        except Exception as e:
+            return json.dumps({
+                "status": "error",
+                "error": f"Write failed: {e}",
+            })
+
+    # === PATCH ===
+    if operation == "patch":
+        if find is None or replace is None:
+            return json.dumps({
+                "status": "error",
+                "error": "find and replace are required for patch operation",
+            })
+        if not file_path.exists():
+            return json.dumps({
+                "status": "error",
+                "error": f"File not found: {file_path}",
+            })
+
+        try:
+            original = file_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return json.dumps({
+                "status": "error",
+                "error": "File is not valid UTF-8 text",
+            })
+        except PermissionError:
+            return json.dumps({
+                "status": "error",
+                "error": f"Permission denied: {file_path}",
+            })
+
+        occurrences = original.count(find)
+        if occurrences == 0:
+            return json.dumps({
+                "status": "error",
+                "error": f"Pattern not found in file: {find[:100]}...",
+            })
+
+        patched = original.replace(find, replace)
+
+        # Backup
+        if backup:
+            bak_path = file_path.with_suffix(file_path.suffix + ".bak")
+            try:
+                bak_path.write_text(original, encoding="utf-8")
+            except Exception as e:
+                return json.dumps({
+                    "status": "error",
+                    "error": f"Failed to create backup: {e}",
+                })
+
+        # Atomic write
+        tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+        try:
+            tmp_path.write_text(patched, encoding="utf-8")
+            tmp_path.replace(file_path)
+            return json.dumps({
+                "status": "ok",
+                "operation": "patch",
+                "path": str(file_path),
+                "occurrences_replaced": occurrences,
+                "backup_created": backup,
+            })
+        except Exception as e:
+            return json.dumps({
+                "status": "error",
+                "error": f"Write failed: {e}",
+            })
+
+    # === APPEND ===
+    if operation == "append":
+        if content is None:
+            return json.dumps({
+                "status": "error",
+                "error": "content is required for append operation",
+            })
+
+        # Create parent dirs if needed
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Backup existing file
+        if backup and file_path.exists():
+            try:
+                original = file_path.read_text(encoding="utf-8")
+                bak_path = file_path.with_suffix(file_path.suffix + ".bak")
+                bak_path.write_text(original, encoding="utf-8")
+            except Exception as e:
+                return json.dumps({
+                    "status": "error",
+                    "error": f"Failed to create backup: {e}",
+                })
+        else:
+            original = ""
+
+        # Read existing content and append
+        if file_path.exists():
+            try:
+                original = file_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                return json.dumps({
+                    "status": "error",
+                    "error": "File is not valid UTF-8 text",
+                })
+
+        new_content = original + content
+
+        # Atomic write
+        tmp_path = file_path.with_suffix(file_path.suffix + ".tmp")
+        try:
+            tmp_path.write_text(new_content, encoding="utf-8")
+            tmp_path.replace(file_path)
+            return json.dumps({
+                "status": "ok",
+                "operation": "append",
+                "path": str(file_path),
+                "appended_bytes": len(content.encode("utf-8")),
+                "total_size_bytes": len(new_content.encode("utf-8")),
+                "backup_created": backup,
+            })
+        except PermissionError:
+            return json.dumps({
+                "status": "error",
+                "error": f"Permission denied: {file_path}",
+            })
+        except Exception as e:
+            return json.dumps({
+                "status": "error",
+                "error": f"Append failed: {e}",
+            })
+
+    # Should never reach here
+    return json.dumps({"status": "error", "error": "Unknown operation"})
+
+
+# =============================================================================
+# System Maintenance Tools
+# =============================================================================
+
+
 @mcp.tool("system_update")  # type: ignore
 async def system_update() -> str:
     """Install and update packages, extensions, and apps.
@@ -2016,6 +2411,7 @@ __all__ = [
     "shell_execute",
     "shell_get_full_output",
     "host_get_profile",
+    "file_edit",
     "system_update",
     "system_backup",
     "run",

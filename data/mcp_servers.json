@@ -23,7 +23,7 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "http_port": 9002,
       "id": "housekeeping",
@@ -37,7 +37,7 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "http_port": 9004,
       "id": "custom-calendar",
@@ -51,7 +51,7 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "http_port": 9005,
       "id": "custom-gmail",
@@ -168,7 +168,7 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "http_port": 9012,
       "id": "kiosk-clock-tools",

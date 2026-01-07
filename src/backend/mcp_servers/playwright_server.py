@@ -10,6 +10,7 @@ import argparse
 import asyncio
 import json
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -65,6 +66,7 @@ _context: Any = None
 _page: Any = None
 _connected: bool = False
 _browser_process: subprocess.Popen[str] | None = None
+_profile_dir: Path | None = None
 
 
 async def _ensure_playwright() -> Any:
@@ -103,6 +105,7 @@ async def _close_browser() -> None:
     except Exception:
         pass
     await _terminate_browser_process()
+    _cleanup_profile_dir()
 
     _browser = None
     _context = None
@@ -242,6 +245,20 @@ async def _terminate_browser_process() -> None:
         pass
 
 
+def _cleanup_profile_dir() -> None:
+    global _profile_dir
+
+    profile_dir = _profile_dir
+    _profile_dir = None
+    if not profile_dir:
+        return
+
+    try:
+        shutil.rmtree(profile_dir, ignore_errors=True)
+    except Exception:
+        pass
+
+
 # =============================================================================
 # Browser Tools
 # =============================================================================
@@ -361,10 +378,14 @@ async def browser_open(
         # --disable-session-restore: No tab restoration
         # --no-first-run: Skip first-run dialogs
         # --force-dark-mode: Dark theme
+        _cleanup_profile_dir()
+        profile_dir = Path(tempfile.mkdtemp(prefix="mcp-playwright-"))
+        _profile_dir = profile_dir
         cmd = [
             "brave",
             f"--app={target_url}",
             f"--remote-debugging-port={resolved_cdp_port}",
+            f"--user-data-dir={profile_dir}",
             "--disable-session-restore",
             "--no-first-run",
             "--force-dark-mode",
@@ -386,6 +407,10 @@ async def browser_open(
         last_error = None
 
         while (time.time() - start_time) * 1000 < timeout_ms:
+            if _browser_process and _browser_process.poll() is not None:
+                last_error = f"Browser process exited with code {_browser_process.returncode}"
+                break
+
             await asyncio.sleep(0.3)
 
             try:

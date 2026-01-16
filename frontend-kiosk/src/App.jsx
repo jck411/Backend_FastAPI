@@ -443,6 +443,17 @@ export default function App() {
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: -300, opacity: 0 }}
                     transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    drag="x"
+                    dragConstraints={{ left: 0, right: 0 }}
+                    dragElastic={0.3}
+                    onDragEnd={(event, info) => {
+                        const threshold = 30; // Lower threshold for easier swipe
+                        if (info.offset.x < -threshold) {
+                            handleSwipe(-1);  // Swipe left -> next screen
+                        } else if (info.offset.x > threshold) {
+                            handleSwipe(1); // Swipe right -> previous screen
+                        }
+                    }}
                 >
                     {screens[currentScreen]}
                 </motion.div>
@@ -462,15 +473,15 @@ export default function App() {
                 style={{ touchAction: 'manipulation' }}
             />
 
-            {/* Page Indicators - now tappable */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex space-x-6 z-50">
+            {/* Page Indicators - subtle but tappable */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex space-x-4 z-50">
                 {Array.from({ length: SCREEN_COUNT }, (_, i) => (
                     <div
                         key={i}
                         onClick={() => setCurrentScreen(i)}
-                        className={`w-6 h-6 rounded-full transition-all duration-300 cursor-pointer border-2 ${i === currentScreen
-                            ? 'bg-white border-white scale-110'
-                            : 'bg-white/20 border-white/50 hover:bg-white/40'
+                        className={`w-4 h-4 rounded-full transition-all duration-300 cursor-pointer ${i === currentScreen
+                            ? 'bg-white/50'
+                            : 'bg-white/15'
                             }`}
                         style={{ touchAction: 'manipulation' }}
                     />

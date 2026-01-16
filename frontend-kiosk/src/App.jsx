@@ -443,29 +443,36 @@ export default function App() {
                     animate={{ x: 0, opacity: 1 }}
                     exit={{ x: -300, opacity: 0 }}
                     transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                    drag="x"
-                    dragConstraints={{ left: 0, right: 0 }}
-                    dragElastic={0.2}
-                    onDragEnd={(event, info) => {
-                        const threshold = 50;
-                        if (info.offset.x < -threshold) {
-                            handleSwipe(1);  // Swipe left -> next screen
-                        } else if (info.offset.x > threshold) {
-                            handleSwipe(-1); // Swipe right -> previous screen
-                        }
-                    }}
                 >
                     {screens[currentScreen]}
                 </motion.div>
             </AnimatePresence>
 
-            {/* Page Indicators */}
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex space-x-3 z-50">
+            {/* Tap zones for navigation - right side only (left reserved for Fully Kiosk menu) */}
+            {/* Tap right edge to go forward */}
+            <div
+                className="absolute right-0 top-0 w-16 h-full z-40 cursor-pointer"
+                onClick={() => handleSwipe(-1)}
+                style={{ touchAction: 'manipulation' }}
+            />
+            {/* Tap left-center area to go back (avoiding left edge for Fully Kiosk) */}
+            <div
+                className="absolute left-20 top-0 w-16 h-full z-40 cursor-pointer"
+                onClick={() => handleSwipe(1)}
+                style={{ touchAction: 'manipulation' }}
+            />
+
+            {/* Page Indicators - now tappable */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex space-x-6 z-50">
                 {Array.from({ length: SCREEN_COUNT }, (_, i) => (
                     <div
                         key={i}
-                        className={`h-1.5 rounded-full transition-all duration-300 ${i === currentScreen ? 'bg-white w-8' : 'bg-white/40 w-1.5'
+                        onClick={() => setCurrentScreen(i)}
+                        className={`w-6 h-6 rounded-full transition-all duration-300 cursor-pointer border-2 ${i === currentScreen
+                            ? 'bg-white border-white scale-110'
+                            : 'bg-white/20 border-white/50 hover:bg-white/40'
                             }`}
+                        style={{ touchAction: 'manipulation' }}
                     />
                 ))}
             </div>

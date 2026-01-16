@@ -159,16 +159,57 @@
       "stt": null,
       "tts": null,
       "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
         "sort": "price",
+        "series": null,
+        "providers": null,
         "supportedParameters": {
           "include": [
             "tools"
           ],
           "exclude": []
-        }
+        },
+        "moderation": null
       },
       "created_at": "2026-01-06T03:34:36.526585+00:00",
       "updated_at": "2026-01-06T06:17:12.224664+00:00"
+    },
+    {
+      "name": "HOME ASSISTANT",
+      "llm": {
+        "model": "minimax/minimax-m2",
+        "system_prompt": "You control are a personal assistant on a smart home device. You have access to tools to provide context and extend abilities.",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "price",
+        "series": null,
+        "providers": null,
+        "supportedParameters": {
+          "include": [
+            "tools"
+          ],
+          "exclude": []
+        },
+        "moderation": null
+      },
+      "created_at": "2026-01-16T10:44:19.194462+00:00",
+      "updated_at": "2026-01-16T10:44:19.194462+00:00"
     }
   ],
   "active_index": 5

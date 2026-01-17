@@ -1,58 +1,71 @@
 import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
+import { useDisplayTimezone } from '../context/ConfigContext';
 
 /**
  * Format a date string for display.
  * Returns "Today", "Tomorrow", or the day name for dates within a week.
  */
-function formatDateHeader(dateStr) {
+function formatDateHeader(dateStr, timezone) {
     const date = new Date(dateStr);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
 
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    // Get today and tomorrow in the display timezone
+    const now = new Date();
+    const todayStr = now.toLocaleDateString('en-CA', { timeZone: timezone }); // YYYY-MM-DD format
+    const tomorrow = new Date(now.getTime() + 86400000);
+    const tomorrowStr = tomorrow.toLocaleDateString('en-CA', { timeZone: timezone });
 
-    const eventDate = new Date(date);
-    eventDate.setHours(0, 0, 0, 0);
+    // Get the event date in the display timezone
+    const eventDateStr = date.toLocaleDateString('en-CA', { timeZone: timezone });
 
-    if (eventDate.getTime() === today.getTime()) {
+    if (eventDateStr === todayStr) {
         return 'Today';
-    } else if (eventDate.getTime() === tomorrow.getTime()) {
+    } else if (eventDateStr === tomorrowStr) {
         return 'Tomorrow';
     } else {
-        return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+        return date.toLocaleDateString('en-US', {
+            timeZone: timezone,
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric'
+        });
     }
 }
 
 /**
  * Format time from ISO string.
  */
-function formatTime(dateStr) {
+function formatTime(dateStr, timezone) {
     const date = new Date(dateStr);
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    return date.toLocaleTimeString('en-US', {
+        timeZone: timezone,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+    });
 }
 
 /**
  * Get the date key (YYYY-MM-DD) from a date string.
  */
-function getDateKey(dateStr) {
+function getDateKey(dateStr, timezone) {
     // Handle date-only strings (all-day events)
     if (dateStr.length === 10) {
         return dateStr;
     }
     const date = new Date(dateStr);
-    return date.toISOString().split('T')[0];
+    // Use the display timezone to get the correct date
+    return date.toLocaleDateString('en-CA', { timeZone: timezone });
 }
 
 /**
  * Group events by date.
  */
-function groupEventsByDate(events) {
+function groupEventsByDate(events, timezone) {
     const groups = {};
 
     for (const event of events) {
-        const dateKey = getDateKey(event.start);
+        const dateKey = getDateKey(event.start, timezone);
         if (!groups[dateKey]) {
             groups[dateKey] = [];
         }
@@ -64,7 +77,7 @@ function groupEventsByDate(events) {
 
     return sortedDates.map(date => ({
         date,
-        label: formatDateHeader(date),
+        label: formatDateHeader(date, timezone),
         events: groups[date],
     }));
 }
@@ -84,6 +97,9 @@ function getCalendarColor(calendarLabel) {
 }
 
 export default function CalendarScreen() {
+    // Get display timezone from context (sourced from backend)
+    const displayTimezone = useDisplayTimezone();
+
     const [events, setEvents] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -122,7 +138,7 @@ export default function CalendarScreen() {
         fetchCalendar();
     };
 
-    const groupedEvents = groupEventsByDate(events);
+    const groupedEvents = groupEventsByDate(events, displayTimezone);
 
     return (
         <div className="h-full w-full flex flex-col bg-black relative overflow-hidden font-sans">
@@ -219,8 +235,8 @@ export default function CalendarScreen() {
                                                             </span>
                                                         ) : (
                                                             <p className="text-white/60 text-[clamp(0.9rem,3.6vw,1rem)]">
-                                                                {formatTime(event.start)}
-                                                                {event.end && ` – ${formatTime(event.end)}`}
+                                                                {formatTime(event.start, displayTimezone)}
+                                                                {event.end && ` – ${formatTime(event.end, displayTimezone)}`}
                                                             </p>
                                                         )}
                                                         <span className="text-white/30">•</span>

@@ -1,5 +1,6 @@
+import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { useDisplayTimezone } from '../context/ConfigContext';
 
 const BellIcon = ({ className = '' }) => (
     <svg
@@ -25,12 +26,15 @@ const BellIcon = ({ className = '' }) => (
  * - Audio beep pattern using Web Audio API
  * - Dismiss and Snooze buttons
  */
-export default function AlarmOverlay({ 
-    alarm, 
-    onDismiss, 
+export default function AlarmOverlay({
+    alarm,
+    onDismiss,
     onSnooze,
-    snoozeMinutes = 5 
+    snoozeMinutes = 5
 }) {
+    // Get display timezone from context (sourced from backend)
+    const displayTimezone = useDisplayTimezone();
+
     const audioContextRef = useRef(null);
     const oscillatorRef = useRef(null);
     const gainNodeRef = useRef(null);
@@ -40,12 +44,18 @@ export default function AlarmOverlay({
 
     const formatAlarmTime = (isoString) => {
         const date = new Date(isoString);
-        const hours = date.getHours();
-        const minutes = date.getMinutes();
-        const hour12 = hours % 12 || 12;
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        const paddedMinutes = minutes.toString().padStart(2, '0');
-        return { time: `${hour12}:${paddedMinutes}`, ampm };
+        // Format time in the target timezone
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: displayTimezone,
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+        });
+        const parts = formatter.formatToParts(date);
+        const hour = parts.find(p => p.type === 'hour')?.value || '12';
+        const minute = parts.find(p => p.type === 'minute')?.value || '00';
+        const dayPeriod = parts.find(p => p.type === 'dayPeriod')?.value?.toUpperCase() || 'AM';
+        return { time: `${hour}:${minute}`, ampm: dayPeriod };
     };
 
     const getTimeUntilAlarm = (isoString) => {
@@ -98,7 +108,7 @@ export default function AlarmOverlay({
             // Beep pattern function
             const playBeepPattern = () => {
                 if (!audioContextRef.current || audioContextRef.current.state === 'closed') return;
-                
+
                 const now = audioContextRef.current.currentTime;
                 const gain = gainNodeRef.current.gain;
 
@@ -204,13 +214,13 @@ export default function AlarmOverlay({
                 }}
             >
                 <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/70" />
-                <div 
+                <div
                     className="absolute inset-0 opacity-25 mix-blend-screen"
                     style={{
                         backgroundImage: 'radial-gradient(circle at 30% 40%, rgba(255,255,255,0.12), transparent 32%), radial-gradient(circle at 70% 70%, rgba(255,255,255,0.08), transparent 28%)'
                     }}
                 />
-                <div 
+                <div
                     className="absolute inset-0 opacity-30"
                     style={{
                         backgroundImage: `

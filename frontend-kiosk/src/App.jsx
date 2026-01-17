@@ -5,6 +5,7 @@ import AlarmOverlay from './components/AlarmOverlay';
 import CalendarScreen from './components/CalendarScreen';
 import Clock from './components/Clock';
 import TranscriptionScreen from './components/TranscriptionScreen';
+import { useConfig } from './context/ConfigContext';
 
 /**
  * Generate a unique client ID for this frontend instance.
@@ -26,6 +27,9 @@ export default function App() {
     const [currentScreen, setCurrentScreen] = useState(0);
     const SCREEN_COUNT = 3;
 
+    // Get config from context (includes display timezone, idle delay, etc.)
+    const { idleReturnDelayMs } = useConfig();
+
     // Generate a unique client ID for this frontend instance (stable across re-renders)
     const clientId = useMemo(() => generateClientId(), []);
 
@@ -36,7 +40,6 @@ export default function App() {
     const [liveTranscript, setLiveTranscript] = useState("");
     const [agentState, setAgentState] = useState("IDLE");
     const [toolStatus, setToolStatus] = useState(null);  // { name: string, status: 'started' | 'finished' | 'error' }
-    const [idleReturnDelay, setIdleReturnDelay] = useState(10000); // Default 10s
     const [activeAlarm, setActiveAlarm] = useState(null); // Currently firing alarm
     const messagesEndRef = useRef(null);
 
@@ -48,22 +51,6 @@ export default function App() {
     const isPlayingRef = useRef(false);
     const hasStartedRef = useRef(false);
     const scheduledSourcesRef = useRef([]); // Track scheduled audio sources for cancellation
-
-    // Fetch UI settings on mount
-    useEffect(() => {
-        const fetchSettings = async () => {
-            try {
-                const response = await fetch(`http://${window.location.hostname}:8000/api/clients/kiosk/ui`);
-                if (response.ok) {
-                    const data = await response.json();
-                    setIdleReturnDelay(data.idle_return_delay_ms);
-                }
-            } catch (e) {
-                console.error("Failed to fetch UI settings", e);
-            }
-        };
-        fetchSettings();
-    }, []);
 
     const {
         sendMessage,
@@ -341,12 +328,12 @@ export default function App() {
             const timer = setTimeout(() => {
                 setCurrentScreen(0);
                 setMessages([]);
-            }, idleReturnDelay);
+            }, idleReturnDelayMs);
 
             // Cleanup: cancel timer if state changes before delay completes
             return () => clearTimeout(timer);
         }
-    }, [agentState, idleReturnDelay]);
+    }, [agentState, idleReturnDelayMs]);
 
     const handleSwipe = (direction) => {
         setCurrentScreen((prev) => {

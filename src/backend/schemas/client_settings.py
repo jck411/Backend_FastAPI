@@ -8,6 +8,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from backend.services.time_context import EASTERN_TIMEZONE_NAME
 
 # =============================================================================
 # LLM Settings
@@ -63,9 +64,7 @@ class LlmSettingsUpdate(BaseModel):
     max_tokens: Optional[int] = Field(default=None, ge=1, le=128000)
     supports_tools: Optional[bool] = None
     conversation_mode: Optional[bool] = None
-    conversation_timeout_seconds: Optional[float] = Field(
-        default=None, ge=1.0, le=60.0
-    )
+    conversation_timeout_seconds: Optional[float] = Field(default=None, ge=1.0, le=60.0)
 
 
 # =============================================================================
@@ -179,7 +178,6 @@ class TtsSettingsUpdate(BaseModel):
 # =============================================================================
 
 
-
 # =============================================================================
 # Preset Filters
 # =============================================================================
@@ -264,12 +262,20 @@ class UiSettings(BaseModel):
         le=60000,
         description="Delay (ms) before returning to default screen after going IDLE",
     )
+    display_timezone: str = Field(
+        default=EASTERN_TIMEZONE_NAME,
+        description="IANA timezone name for displaying times (e.g., 'America/New_York')",
+    )
 
 
 class UiSettingsUpdate(BaseModel):
     """Partial update for UI settings."""
 
     idle_return_delay_ms: Optional[int] = Field(default=None, ge=1000, le=60000)
+    display_timezone: Optional[str] = Field(
+        default=None,
+        description="IANA timezone name for displaying times",
+    )
 
 
 # =============================================================================

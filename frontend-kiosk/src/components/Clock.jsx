@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useDisplayTimezone } from '../context/ConfigContext';
 
 /** Slideshow settings */
 const SLIDESHOW_INTERVAL = 30 * 1000; // 30 seconds between photos
@@ -67,7 +68,7 @@ const WEATHER_REFRESH_INTERVAL = 15 * 60 * 1000;
 /**
  * Analyze hourly forecast to generate a smart rain alert.
  * Returns an object with alert text and severity level.
- * 
+ *
  * Uses rain_chance field from AccuWeather API (PrecipitationProbability).
  * This is REAL data from the API, not made up.
  */
@@ -93,11 +94,11 @@ const analyzeRainForecast = (hourlyData, threshold = 30) => {
 
     const firstRainyHour = rainyHours[0];
     const maxRainChance = Math.max(...rainyHours.map(h => h.rain_chance));
-    
+
     // Find rain window (consecutive or close hours with rain)
     const firstRainIndex = firstRainyHour.index;
     let lastRainIndex = firstRainIndex;
-    
+
     for (const h of rainyHours) {
         if (h.index <= lastRainIndex + 2) { // Allow 1-hour gaps in rain window
             lastRainIndex = h.index;
@@ -146,20 +147,23 @@ const analyzeRainForecast = (hourlyData, threshold = 30) => {
 /**
  * Clock component designed for Echo Show 5 (960x480) with photo slideshow background.
  * Includes weather display with current conditions, rain alert, and 5-day forecast.
- * 
+ *
  * Weather data is fetched from the backend API which proxies AccuWeather.
  * Rain probability values are REAL data from AccuWeather's PrecipitationProbability field.
- * 
+ *
  * Layout:
  * - Top-right: Current temperature + rain alert
  * - Bottom-left: Time and date
  * - Bottom-right: 5-day forecast strip
  */
 export default function Clock() {
+    // Get display timezone from context (sourced from backend)
+    const displayTimezone = useDisplayTimezone();
+
     const [time, setTime] = useState(new Date());
     const [weather, setWeather] = useState(null);
     const [weatherError, setWeatherError] = useState(null);
-    
+
     // Pending alarms state
     const [pendingAlarms, setPendingAlarms] = useState([]);
 
@@ -329,16 +333,23 @@ export default function Clock() {
     }, []);
 
     const formatTime = (date) => {
-        const hours = date.getHours();
-        const minutes = date.getMinutes();
-        const hour12 = hours % 12 || 12;
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        const paddedMinutes = minutes.toString().padStart(2, '0');
-        return { time: `${hour12}:${paddedMinutes}`, ampm };
+        // Format time in the target timezone
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: displayTimezone,
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+        });
+        const parts = formatter.formatToParts(date);
+        const hour = parts.find(p => p.type === 'hour')?.value || '12';
+        const minute = parts.find(p => p.type === 'minute')?.value || '00';
+        const dayPeriod = parts.find(p => p.type === 'dayPeriod')?.value?.toUpperCase() || 'AM';
+        return { time: `${hour}:${minute}`, ampm: dayPeriod };
     };
 
     const formatDate = (date) => {
         return date.toLocaleDateString('en-US', {
+            timeZone: displayTimezone,
             weekday: 'long',
             month: 'long',
             day: 'numeric',
@@ -364,12 +375,18 @@ export default function Clock() {
      */
     const formatAlarmTime = (isoString) => {
         const date = new Date(isoString);
-        const hours = date.getHours();
-        const minutes = date.getMinutes();
-        const hour12 = hours % 12 || 12;
-        const ampm = hours >= 12 ? 'PM' : 'AM';
-        const paddedMinutes = minutes.toString().padStart(2, '0');
-        return { time: `${hour12}:${paddedMinutes}`, ampm };
+        // Format time in the target timezone
+        const formatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: displayTimezone,
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+        });
+        const parts = formatter.formatToParts(date);
+        const hour = parts.find(p => p.type === 'hour')?.value || '12';
+        const minute = parts.find(p => p.type === 'minute')?.value || '00';
+        const dayPeriod = parts.find(p => p.type === 'dayPeriod')?.value?.toUpperCase() || 'AM';
+        return { time: `${hour}:${minute}`, ampm: dayPeriod };
     };
 
     /**
@@ -379,13 +396,13 @@ export default function Clock() {
         const alarmTime = new Date(isoString);
         const now = new Date();
         const diffMs = alarmTime - now;
-        
+
         if (diffMs <= 0) return 'Now';
-        
+
         const diffMins = Math.floor(diffMs / 60000);
         const diffHours = Math.floor(diffMins / 60);
         const remainingMins = diffMins % 60;
-        
+
         if (diffHours > 0) {
             return `in ${diffHours}h ${remainingMins}m`;
         }
@@ -399,7 +416,7 @@ export default function Clock() {
     const timeUntilNextAlarm = nextAlarm ? getTimeUntilAlarm(nextAlarm.alarm_time) : null;
 
     return (
-        <div 
+        <div
             className="h-full w-full relative bg-black cursor-pointer"
             onClick={hasAlarms ? undefined : skipToNextPhoto}
         >
@@ -407,7 +424,7 @@ export default function Clock() {
             {hasAlarms ? (
                 /* Alarm Display Mode - glassy neon treatment */
                 <div className="absolute inset-0 bg-[#05070d] overflow-hidden">
-                    <div 
+                    <div
                         className="absolute inset-0"
                         style={{
                             backgroundImage: `
@@ -419,7 +436,7 @@ export default function Clock() {
                         }}
                     />
                     <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/80" />
-                    <div 
+                    <div
                         className="absolute inset-0 opacity-20"
                         style={{
                             backgroundImage: `
@@ -429,14 +446,14 @@ export default function Clock() {
                             backgroundSize: '140px 140px'
                         }}
                     />
-                    
+
                     <div className="absolute inset-0 flex items-center justify-center px-6">
                         <div className="w-full max-w-5xl">
                             <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-white/5 backdrop-blur-2xl shadow-[0_30px_100px_rgba(0,0,0,0.55)] px-5 sm:px-10 py-8 sm:py-12 text-center">
                                 <div className="absolute inset-0 bg-gradient-to-br from-cyan-400/10 via-transparent to-rose-500/10" />
                                 <div className="absolute -left-20 -top-16 h-48 w-48 rounded-full bg-cyan-400/20 blur-3xl" />
                                 <div className="absolute -right-24 bottom-0 h-52 w-52 rounded-full bg-rose-500/25 blur-3xl" />
-                                
+
                                 <div className="relative space-y-6 sm:space-y-8">
                                     <div className="flex flex-wrap items-center justify-center gap-3 text-xs uppercase tracking-[0.3em] text-cyan-200/80">
                                         <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_0_8px_rgba(34,211,238,0.12)] animate-pulse" />
@@ -445,7 +462,7 @@ export default function Clock() {
                                             <span className="text-white/60">{timeUntilNextAlarm}</span>
                                         )}
                                     </div>
-                                    
+
                                     <div className="flex items-baseline justify-center gap-4">
                                         <span className="text-[clamp(3.5rem,22vw,7.5rem)] sm:text-[9.5rem] font-light tracking-tight text-white drop-shadow-xl leading-none">
                                             {formattedNextAlarm?.time}
@@ -454,11 +471,11 @@ export default function Clock() {
                                             {formattedNextAlarm?.ampm}
                                         </span>
                                     </div>
-                                    
+
                                     <div className="flex flex-wrap items-center justify-center gap-3 text-white/80">
                                         <span className="px-4 py-2 rounded-full bg-white/5 border border-white/10 text-sm">
-                                            {nextAlarm.label && nextAlarm.label !== 'Alarm' 
-                                                ? nextAlarm.label 
+                                            {nextAlarm.label && nextAlarm.label !== 'Alarm'
+                                                ? nextAlarm.label
                                                 : 'Scheduled reminder'}
                                         </span>
                                         {timeUntilNextAlarm && (
@@ -467,7 +484,7 @@ export default function Clock() {
                                             </span>
                                         )}
                                     </div>
-                                    
+
                                     {pendingAlarms.length > 1 && (
                                         <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-white/70 pt-2">
                                             {pendingAlarms.slice(1, 4).map((alarm, idx) => {
@@ -592,7 +609,7 @@ export default function Clock() {
                     </div>
                 </div>
             )}
-            
+
             {/* Current time (smaller) when alarm is displayed - Bottom Left */}
             {hasAlarms && (
                 <div className="absolute bottom-6 left-6 z-10 px-4 py-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-md shadow-[0_10px_30px_rgba(0,0,0,0.35)]">
@@ -623,21 +640,20 @@ export default function Clock() {
                                 <div className="text-[10px] font-medium text-white/60 uppercase tracking-wider drop-shadow">
                                     {day.day}
                                 </div>
-                                
+
                                 {/* Weather icon */}
                                 <div className="text-xl my-0.5 drop-shadow-lg">
                                     {getWeatherIcon(day.icon)}
                                 </div>
-                                
+
                                 {/* Rain probability - highlighted if > 30% (from API PrecipitationProbability) */}
-                                <div className={`text-xs font-medium drop-shadow ${
-                                    day.rain_chance > 30 
-                                        ? 'text-blue-300' 
+                                <div className={`text-xs font-medium drop-shadow ${day.rain_chance > 30
+                                        ? 'text-blue-300'
                                         : 'text-white/40'
-                                }`}>
+                                    }`}>
                                     {day.rain_chance}%
                                 </div>
-                                
+
                                 {/* High/Low temps */}
                                 <div className="text-[10px] text-white/50 drop-shadow">
                                     {day.high}°/{day.low}°

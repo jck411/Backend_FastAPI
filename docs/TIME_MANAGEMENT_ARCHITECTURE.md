@@ -21,27 +21,40 @@ The time management system is built on two core modules that provide consistent 
                          ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │              backend.services.time_context                      │
+│  - EASTERN_TIMEZONE_NAME = "America/New_York" (source of truth)│
 │  - TimeSnapshot: current moment in UTC + local timezone        │
 │  - Timezone resolution (defaults to America/New_York)          │
 │  - Prompt context formatting                                   │
 │  - Week calculations & upcoming anchors                        │
-└────────────────────────┬────────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              backend.utils.datetime_utils                       │
-│  - RFC3339 parsing & normalization                             │
-│  - ISO time string parsing                                     │
-│  - Database timestamp formatting                               │
-│  - Keyword parsing (today, tomorrow, next_week, etc.)         │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-          ┌───────────────┼───────────────┬──────────────────┐
-          ▼               ▼               ▼                  ▼
-    ┌──────────┐   ┌─────────────┐  ┌──────────┐   ┌──────────────┐
-    │ Calendar │   │    Tasks    │  │Repository│   │ Housekeeping │
-    │  Server  │   │   Service   │  │(DB times)│   │    Server    │
-    └──────────┘   └─────────────┘  └──────────┘   └──────────────┘
+└──────────────┬────────────────────────┬─────────────────────────┘
+               │                        │
+               │                        └──────────────────┐
+               ▼                                           ▼
+┌──────────────────────────────────┐    ┌──────────────────────────┐
+│ backend.utils.datetime_utils     │    │ UiSettings.display_      │
+│  - RFC3339 parsing               │    │   timezone (default from │
+│  - ISO time string parsing       │    │   time_context)          │
+│  - Database timestamp formatting │    │                          │
+│  - Keyword parsing (today, etc.) │    │ GET /api/clients/        │
+└────────────┬─────────────────────┘    │   kiosk/ui               │
+             │                           └──────────┬───────────────┘
+             │                                      │
+             │              ┌───────────────────────┘
+             │              │
+             │              ▼
+             │    ┌─────────────────────────────────┐
+             │    │ Kiosk Frontend                  │
+             │    │  - ConfigContext.jsx            │
+             │    │  - useDisplayTimezone() hook    │
+             │    │  - Clock/Calendar/Alarm comps   │
+             │    └─────────────────────────────────┘
+             │
+ ┌───────────┼───────────────┬──────────────────┐
+ ▼           ▼               ▼                  ▼
+┌──────────┐┌─────────────┐┌──────────┐┌──────────────┐
+│ Calendar ││   Tasks     ││Repository││ Housekeeping │
+│  Server  ││   Service   ││(DB times)││    Server    │
+└──────────┘└─────────────┘└──────────┘└──────────────┘
 ```
 
 ## Core Modules
@@ -301,6 +314,70 @@ edt_iso, utc_iso = format_timestamp_for_client(db_timestamp)
 
 ---
 
+### Kiosk Frontend (`frontend-kiosk/`)
+
+**Display Timezone Configuration**:
+
+The kiosk frontend fetches its display timezone from the backend's `UiSettings` API, ensuring a single source of truth for timezone configuration.
+
+```javascript
+// ConfigContext fetches settings on app init
+GET /api/clients/kiosk/ui
+// Returns: { idle_return_delay_ms: 10000, display_timezone: "America/New_York" }
+
+// Components use the timezone via React hook
+const displayTimezone = useDisplayTimezone();
+
+// All time formatting uses the configured timezone
+const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: displayTimezone,  // From backend
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+});
+```
+
+**Architecture Flow**:
+
+```
+time_context.py (EASTERN_TIMEZONE_NAME)
+       ↓
+client_settings.py (UiSettings.display_timezone default)
+       ↓
+GET /api/clients/kiosk/ui
+       ↓
+ConfigContext.jsx (fetches and caches)
+       ↓
+useDisplayTimezone() hook
+       ↓
+Clock, Calendar, Alarm components
+```
+
+**Updated Components**:
+- **Clock.jsx**: Main clock display, alarm times, weather timestamps
+- **CalendarScreen.jsx**: Event times, date grouping, "Today/Tomorrow" logic
+- **AlarmOverlay.jsx**: Firing alarm time display
+
+**Benefits**:
+- Kiosk displays correct local time regardless of device system timezone
+- Single configuration point (backend) for all clients
+- No hardcoded timezones in frontend code
+- Easy to override per-client via API
+
+**Per-Client Timezone Override**:
+
+```bash
+# Change kiosk timezone to Pacific Time
+PUT /api/clients/kiosk/ui
+{
+  "display_timezone": "America/Los_Angeles"
+}
+
+# Kiosk will fetch new setting on next page load/refresh
+```
+
+---
+
 ### Logging Handlers (`backend.logging_handlers`)
 
 **Date-Stamped Log Files**:
@@ -432,6 +509,7 @@ client_data = {
 ### Core Modules
 - **DateTime Utilities**: `src/backend/utils/datetime_utils.py`
 - **Time Context**: `src/backend/services/time_context.py`
+- **Client Settings Schema**: `src/backend/schemas/client_settings.py` (UiSettings.display_timezone)
 
 ### Integration Points
 - **Chat Orchestrator**: `src/backend/chat/orchestrator.py`
@@ -442,6 +520,14 @@ client_data = {
 - **Repository**: `src/backend/repository.py`
 - **Logging Handlers**: `src/backend/logging_handlers.py`
 - **Conversation Logging**: `src/backend/services/conversation_logging.py`
+- **Client Settings Router**: `src/backend/routers/clients.py` (GET/PUT /api/clients/{client_id}/ui)
+
+### Frontend (Kiosk)
+- **Config Context**: `frontend-kiosk/src/context/ConfigContext.jsx`
+- **Clock Component**: `frontend-kiosk/src/components/Clock.jsx`
+- **Calendar Component**: `frontend-kiosk/src/components/CalendarScreen.jsx`
+- **Alarm Overlay**: `frontend-kiosk/src/components/AlarmOverlay.jsx`
+- **App Root**: `frontend-kiosk/src/App.jsx`
 
 ### Tests
 - **DateTime Utils Tests**: `tests/test_datetime_utils.py`

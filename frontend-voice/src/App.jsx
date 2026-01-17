@@ -31,7 +31,6 @@ function App() {
   useEffect(() => {
     if (readyState === 1 && !hasAutoStarted) { // 1 = OPEN
       console.log('Auto-starting microphone on launch...');
-      // Simulate button press behavior
       setTranscription('');
       setResponse('');
       setIsRecording(true);
@@ -70,65 +69,67 @@ function App() {
     }
   }, [lastMessage]);
 
-  // Handle mic button press
-  const handleMicDown = () => {
+  // Handle touch/click interaction
+  const handleInteractionStart = (e) => {
+    e.preventDefault();
     setTranscription('');
     setResponse('');
     setIsRecording(true);
-    // startRecording is async
     startRecording();
   };
 
-  const handleMicUp = () => {
+  const handleInteractionEnd = (e) => {
+    e.preventDefault();
     setIsRecording(false);
     stopRecording();
   };
 
   return (
     <div className="app">
-      {/* Connection indicator */}
-      <div className={`status-dot ${isConnected ? 'connected' : 'disconnected'}`} />
+      {/* Connection status pill */}
+      <div className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}>
+        {isConnected ? 'Connected' : 'Connecting...'}
+      </div>
 
-      {/* Transcription display */}
+      {/* Main interaction area - tap/hold to speak */}
+      <div
+        className="interaction-area"
+        onMouseDown={handleInteractionStart}
+        onMouseUp={handleInteractionEnd}
+        onMouseLeave={handleInteractionEnd}
+        onTouchStart={handleInteractionStart}
+        onTouchEnd={handleInteractionEnd}
+      >
+        <div className="orb-container">
+          <div className={`orb ${isRecording ? 'recording' : 'idle'}`} />
+          <div className="ripple-ring" />
+          <div className="ripple-ring" />
+          <div className="ripple-ring" />
+        </div>
+
+        <div className={`status-text ${isRecording ? 'active' : ''}`}>
+          {isRecording ? 'Listening...' : 'Hold to speak'}
+        </div>
+      </div>
+
+      {/* Messages display */}
       <div className="content">
         {error && <div className="error">{error}</div>}
 
         {transcription && (
-          <div className="transcription">
-            <span className="label">You said:</span>
-            <p>{transcription}</p>
+          <div className="message-card user">
+            <div className="message-label">You</div>
+            <p className="message-text">{transcription}</p>
           </div>
         )}
 
         {response && (
-          <div className="response">
-            <span className="label">Assistant:</span>
-            <p>{response}</p>
-          </div>
-        )}
-
-        {!transcription && !response && !error && (
-          <div className="placeholder">
-            Hold the mic button and speak
+          <div className="message-card assistant">
+            <div className="message-label">Assistant</div>
+            <p className="message-text">{response}</p>
           </div>
         )}
       </div>
-
-      {/* Mic button */}
-      <button
-        className={`mic-button ${isRecording ? 'recording' : ''}`}
-        onMouseDown={handleMicDown}
-        onMouseUp={handleMicUp}
-        onMouseLeave={handleMicUp}
-        onTouchStart={handleMicDown}
-        onTouchEnd={handleMicUp}
-      >
-        <svg viewBox="0 0 24 24" fill="currentColor" className="mic-icon">
-          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
-        </svg>
-        <span className="mic-label">{isRecording ? 'Listening...' : 'Hold to talk'}</span>
-      </button>
     </div>
   );
 }

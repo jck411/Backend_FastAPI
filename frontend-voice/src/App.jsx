@@ -26,6 +26,20 @@ function App() {
   // Audio capture hook - passes audio chunks directly via sendMessage
   const { startRecording, stopRecording, isRecording: hookIsRecording, error } = useAudioCapture(sendMessage, readyState);
 
+  // Auto-listen on launch
+  const [hasAutoStarted, setHasAutoStarted] = useState(false);
+  useEffect(() => {
+    if (readyState === 1 && !hasAutoStarted) { // 1 = OPEN
+      console.log('Auto-starting microphone on launch...');
+      // Simulate button press behavior
+      setTranscription('');
+      setResponse('');
+      setIsRecording(true);
+      startRecording();
+      setHasAutoStarted(true);
+    }
+  }, [readyState, startRecording, hasAutoStarted]);
+
   // Handle incoming messages
   useEffect(() => {
     if (!lastMessage?.data) return;

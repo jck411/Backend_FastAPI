@@ -41,6 +41,6 @@ The Voice PWA (`frontend-voice`) is a minimal React app designed for mobile usag
 ### 4. How to Run
 ```bash
 # Starts Backend (8000) + Frontends (5173/5174/5175)
-./start_server.sh
+./start_dev.sh
 ```
 *Note: The script starts independent Vite servers for local dev (localhost:5175), but for mobile testing, rely on the backend build at :8000/voice/.*

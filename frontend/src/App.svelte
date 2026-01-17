@@ -90,7 +90,7 @@
       // Reload suggestions after applying preset
       await suggestionsStore.load();
     }
-    
+
     // Check for URL params to open modals directly
     const params = new URLSearchParams(window.location.search);
     if (params.get("mcp") === "1") {

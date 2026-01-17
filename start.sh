@@ -67,6 +67,7 @@ kill_existing() {
     pkill -f "npm.*frontend" 2>/dev/null || true
     pkill -f "vite.*5173" 2>/dev/null || true
     pkill -f "vite.*5174" 2>/dev/null || true
+    pkill -f "vite.*5175" 2>/dev/null || true
 
     # Give processes time to exit
     sleep 1
@@ -81,7 +82,7 @@ wait_for_backend() {
     local attempt=0
     echo -n "Waiting for backend..."
     while [ $attempt -lt $max_attempts ]; do
-        if curl -s http://localhost:8000/health > /dev/null 2>&1; then
+        if curl -s -k https://localhost:8000/health > /dev/null 2>&1; then
             echo " ready!"
             return 0
         fi
@@ -109,8 +110,9 @@ else
     echo -e "  ${CYAN}4${NC} - Frontend-Kiosk (Kiosk UI on :5174)"
     echo -e "  ${CYAN}5${NC} - Frontend-CLI   (Terminal chat client)"
     echo -e "  ${CYAN}6${NC} - Slideshow Sync (Download photos from Google Photos)"
+    echo -e "  ${CYAN}7${NC} - Voice PWA      (Voice UI on :5175)"
     echo ""
-    echo -e "  ${CYAN}all${NC} - Start 1, 2, 3, 4, and 6 (full web stack + slideshow)"
+    echo -e "  ${CYAN}all${NC} - Start 1, 2, 3, 4, 6, and 7 (full web stack + slideshow)"
     echo ""
     echo -e "${BOLD}Enter selection (e.g., '12' or '146' or 'all'):${NC} "
     read -r selection
@@ -118,7 +120,7 @@ fi
 
 # Handle 'all' shortcut
 if [[ "$selection" == "all" ]]; then
-    selection="12346"
+    selection="123467"
 fi
 
 # Validate input
@@ -127,8 +129,8 @@ if [[ -z "$selection" ]]; then
     exit 1
 fi
 
-if [[ ! "$selection" =~ ^[1-6]+$ ]]; then
-    echo -e "${RED}Invalid selection. Use only numbers 1-6 or 'all'.${NC}"
+if [[ ! "$selection" =~ ^[1-7]+$ ]]; then
+    echo -e "${RED}Invalid selection. Use only numbers 1-7 or 'all'.${NC}"
     exit 1
 fi
 
@@ -141,6 +143,7 @@ START_FRONTEND=false
 START_KIOSK=false
 START_CLI=false
 START_SLIDESHOW=false
+START_VOICE=false
 
 # Parse selection
 [[ "$selection" == *"1"* ]] && START_BACKEND=true
@@ -149,6 +152,7 @@ START_SLIDESHOW=false
 [[ "$selection" == *"4"* ]] && START_KIOSK=true
 [[ "$selection" == *"5"* ]] && START_CLI=true
 [[ "$selection" == *"6"* ]] && START_SLIDESHOW=true
+[[ "$selection" == *"7"* ]] && START_VOICE=true
 
 # Sync Slideshow Photos (option 6) - run first so photos are ready
 if $START_SLIDESHOW; then
@@ -175,13 +179,15 @@ if $START_BACKEND; then
     uv run uvicorn backend.app:create_app \
         --factory \
         --host 0.0.0.0 \
+        --ssl-keyfile=certs/server.key \
+        --ssl-certfile=certs/server.crt \
         --reload &
     PIDS+=($!)
     sleep 2
 fi
 
 # Avoid frontend proxy errors by waiting for backend to accept requests.
-if $START_BACKEND && ($START_FRONTEND || $START_KIOSK); then
+if $START_BACKEND && ($START_FRONTEND || $START_KIOSK || $START_VOICE); then
     wait_for_backend
 fi
 
@@ -203,9 +209,19 @@ if $START_KIOSK; then
     cd "$SCRIPT_DIR"
 fi
 
+# Start Voice PWA (option 7)
+if $START_VOICE; then
+    echo -e "${GREEN}[7/7] Starting Voice PWA...${NC}"
+    uv run python scripts/kill_port.py 5175
+    cd frontend-voice && npm run dev &
+    PIDS+=($!)
+    cd "$SCRIPT_DIR"
+fi
+
+
 # Start CLI (option 5) - interactive, runs in foreground
 if $START_CLI; then
-    if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK; then
+    if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK || $START_VOICE; then
         # Other services running, start CLI after them
         echo -e "${GREEN}[5/6] Starting Frontend-CLI...${NC}"
         echo ""
@@ -226,7 +242,7 @@ if $START_CLI; then
 fi
 
 # Show status (only if we have background services)
-if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK; then
+if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK || $START_VOICE; then
     echo ""
     echo -e "${BOLD}═══════════════════════════════════════════════${NC}"
     echo -e "${BOLD}Running Services:${NC}"
@@ -238,13 +254,16 @@ if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK; then
         echo -e "  ${GREEN}✓${NC} MCP Servers:    http://localhost:9001-9012"
     fi
     if $START_BACKEND; then
-        echo -e "  ${GREEN}✓${NC} Backend:        http://localhost:8000"
+        echo -e "  ${GREEN}✓${NC} Backend:        https://localhost:8000"
     fi
     if $START_FRONTEND; then
         echo -e "  ${GREEN}✓${NC} Frontend:       http://localhost:5173"
     fi
     if $START_KIOSK; then
         echo -e "  ${GREEN}✓${NC} Frontend-Kiosk: http://localhost:5174"
+    fi
+    if $START_VOICE; then
+        echo -e "  ${GREEN}✓${NC} Voice PWA:      http://localhost:5175"
     fi
 
     # Show network access info
@@ -260,13 +279,16 @@ if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK; then
             echo -e "  MCP Servers:    http://${LOCAL_IP}:9001-9012"
         fi
         if $START_BACKEND; then
-            echo -e "  Backend:        http://${LOCAL_IP}:8000"
+            echo -e "  Backend:        https://${LOCAL_IP}:8000"
         fi
         if $START_FRONTEND; then
             echo -e "  Frontend:       http://${LOCAL_IP}:5173"
         fi
         if $START_KIOSK; then
             echo -e "  Frontend-Kiosk: http://${LOCAL_IP}:5174"
+        fi
+        if $START_VOICE; then
+            echo -e "  Voice PWA:      http://${LOCAL_IP}:5175"
         fi
     fi
 

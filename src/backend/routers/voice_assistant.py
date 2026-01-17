@@ -267,6 +267,12 @@ async def handle_connection(
                     stt_service.resume_session(client_id)
                     await manager.update_state(client_id, "IDLE")
 
+            elif event_type == "pause_listening":
+                logger.info(f"User paused listening for {client_id}")
+                # Close STT session immediately to prevent stale connections
+                await stt_service.close_session(client_id)
+                await manager.update_state(client_id, "IDLE")
+
             elif event_type == "stream_end":
                 logger.info(f"Stream end for {client_id}")
                 pass

@@ -125,7 +125,8 @@ function App() {
     if (showHistory) return;
 
     if (appState === 'LISTENING') {
-      // Pause
+      // Pause - notify backend first to close STT session cleanly
+      sendMessage(JSON.stringify({ type: 'pause_listening' }));
       setIsPaused(true);
       setAppState('PAUSED');
       stopRecording();

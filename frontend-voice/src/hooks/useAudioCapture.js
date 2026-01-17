@@ -16,6 +16,8 @@ export function useAudioCapture(sendMessage, readyState) {
     const audioContextRef = useRef(null);
     const workletNodeRef = useRef(null);
     const scriptProcessorRef = useRef(null); // Fallback for older browsers
+    const isRecordingRef = useRef(false); // Sync ref for recording state
+    const isStartingRef = useRef(false); // Prevent concurrent startRecording calls
 
     const SAMPLE_RATE = 16000;
     const CHUNK_DURATION_MS = 100; // Send audio every 100ms
@@ -57,15 +59,49 @@ export function useAudioCapture(sendMessage, readyState) {
      * Start recording audio from microphone
      */
     const startRecording = useCallback(async () => {
-        if (isRecording) return;
-        if (readyState !== ReadyState.OPEN) {
-            setError('WebSocket not connected');
+        // Prevent concurrent calls - this is critical to prevent multiple wakeword events
+        if (isStartingRef.current) {
+            console.log('🎤 startRecording already in progress, skipping');
             return;
         }
 
-        setError(null);
+        // Already recording? Nothing to do
+        if (isRecordingRef.current) {
+            console.log('🎤 Already recording, skipping');
+            return;
+        }
+
+        isStartingRef.current = true;
 
         try {
+            // Force cleanup if previous recording wasn't properly stopped
+            if (mediaStreamRef.current || audioContextRef.current) {
+                console.log('🎤 Cleaning up previous recording state before starting');
+                if (scriptProcessorRef.current) {
+                    scriptProcessorRef.current.disconnect();
+                    scriptProcessorRef.current = null;
+                }
+                if (workletNodeRef.current) {
+                    workletNodeRef.current.disconnect();
+                    workletNodeRef.current = null;
+                }
+                if (audioContextRef.current) {
+                    try { audioContextRef.current.close(); } catch (e) { /* ignore */ }
+                    audioContextRef.current = null;
+                }
+                if (mediaStreamRef.current) {
+                    mediaStreamRef.current.getTracks().forEach(track => track.stop());
+                    mediaStreamRef.current = null;
+                }
+            }
+
+            if (readyState !== ReadyState.OPEN) {
+                setError('WebSocket not connected');
+                return;
+            }
+
+            setError(null);
+
             // Request microphone access
             const stream = await navigator.mediaDevices.getUserMedia({
                 audio: {
@@ -91,32 +127,25 @@ export function useAudioCapture(sendMessage, readyState) {
 
             const source = audioContext.createMediaStreamSource(stream);
 
-            // Try AudioWorklet first (modern browsers), fallback to ScriptProcessor
-            try {
-                // For AudioWorklet, we'd need to load a separate processor file
-                // Using ScriptProcessor for simplicity and broader compatibility
-                throw new Error('Use ScriptProcessor for simplicity');
-            } catch {
-                // Fallback: ScriptProcessor (deprecated but widely supported)
-                const bufferSize = Math.floor(SAMPLE_RATE * CHUNK_DURATION_MS / 1000);
-                const processor = audioContext.createScriptProcessor(
-                    bufferSize > 16384 ? 16384 : bufferSize < 256 ? 256 :
-                        Math.pow(2, Math.ceil(Math.log2(bufferSize))), // Must be power of 2
-                    1, // Input channels
-                    1  // Output channels
-                );
+            // Use ScriptProcessor for simplicity and broader compatibility
+            const bufferSize = Math.floor(SAMPLE_RATE * CHUNK_DURATION_MS / 1000);
+            const processor = audioContext.createScriptProcessor(
+                bufferSize > 16384 ? 16384 : bufferSize < 256 ? 256 :
+                    Math.pow(2, Math.ceil(Math.log2(bufferSize))), // Must be power of 2
+                1, // Input channels
+                1  // Output channels
+            );
 
-                processor.onaudioprocess = (e) => {
-                    const inputData = e.inputBuffer.getChannelData(0);
-                    // Clone the data since it's reused
-                    const audioData = new Float32Array(inputData);
-                    sendAudioChunk(audioData);
-                };
+            processor.onaudioprocess = (e) => {
+                const inputData = e.inputBuffer.getChannelData(0);
+                // Clone the data since it's reused
+                const audioData = new Float32Array(inputData);
+                sendAudioChunk(audioData);
+            };
 
-                source.connect(processor);
-                processor.connect(audioContext.destination); // Required for processing
-                scriptProcessorRef.current = processor;
-            }
+            source.connect(processor);
+            processor.connect(audioContext.destination); // Required for processing
+            scriptProcessorRef.current = processor;
 
             // Send wake word event to start STT session
             sendMessage(JSON.stringify({
@@ -125,13 +154,13 @@ export function useAudioCapture(sendMessage, readyState) {
                 manual: true
             }));
 
+            isRecordingRef.current = true;
             setIsRecording(true);
             console.log('🎤 Audio capture started');
 
         } catch (err) {
             console.error('Failed to start audio capture:', err);
             if (err.name === 'NotAllowedError') {
-                // Check if this might be due to insecure context (HTTP on mobile)
                 if (!window.isSecureContext && window.location.protocol !== 'https:') {
                     setError('HTTPS required for mic on mobile');
                 } else {
@@ -144,16 +173,19 @@ export function useAudioCapture(sendMessage, readyState) {
             } else {
                 setError(`Mic error: ${err.name || 'unknown'}`);
             }
+        } finally {
+            isStartingRef.current = false;
         }
-    }, [isRecording, readyState, sendMessage, sendAudioChunk, SAMPLE_RATE, CHUNK_DURATION_MS]);
+    }, [readyState, sendMessage, sendAudioChunk, SAMPLE_RATE, CHUNK_DURATION_MS]);
 
     /**
      * Stop recording and cleanup
      */
     const stopRecording = useCallback(() => {
-        if (!isRecording) return;
+        if (!isRecordingRef.current) return;
 
         console.log('🎤 Stopping audio capture');
+        isRecordingRef.current = false;
 
         // Stop script processor
         if (scriptProcessorRef.current) {
@@ -180,7 +212,7 @@ export function useAudioCapture(sendMessage, readyState) {
         }
 
         setIsRecording(false);
-    }, [isRecording]);
+    }, []);
 
     return {
         isRecording,

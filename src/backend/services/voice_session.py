@@ -1,10 +1,9 @@
-import asyncio
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
 from fastapi import WebSocket
-import logging
 
 
 @dataclass
@@ -18,6 +17,8 @@ class VoiceSession:
     started_at: datetime = field(default_factory=datetime.utcnow)
     last_activity: datetime = field(default_factory=datetime.utcnow)
     stt_session_id: Optional[str] = None
+    last_wakeword_time: Optional[datetime] = None
+    stt_session_pending: bool = False
 
     def update_activity(self):
         """Update the last activity timestamp."""
@@ -57,7 +58,9 @@ class VoiceConnectionManager:
                 print(f"Error sending to {client_id}: {e}")
                 self.disconnect(client_id)
 
-    async def update_state(self, client_id: str, new_state: str, broadcast: bool = False):
+    async def update_state(
+        self, client_id: str, new_state: str, broadcast: bool = False
+    ):
         """Update the state of a client session.
 
         Args:
@@ -80,14 +83,20 @@ class VoiceConnectionManager:
     async def broadcast(self, message: dict):
         """Broadcast a message to all connected clients."""
         clients = list(self.active_connections.keys())
-        print(f"Broadcasting {message.get('type')} to {len(clients)} clients: {clients}")
+        print(
+            f"Broadcasting {message.get('type')} to {len(clients)} clients: {clients}"
+        )
         for client_id in clients:
             await self.send_message(client_id, message)
 
-    async def set_all_states(self, new_state: str, extra_data: Optional[Dict[str, Any]] = None):
+    async def set_all_states(
+        self, new_state: str, extra_data: Optional[Dict[str, Any]] = None
+    ):
         """Update the state of ALL connected clients."""
         clients = list(self.active_connections.keys())
-        logging.getLogger(__name__).debug(f"Setting ALL {len(clients)} clients to {new_state}")
+        logging.getLogger(__name__).debug(
+            f"Setting ALL {len(clients)} clients to {new_state}"
+        )
 
         for client_id in clients:
             session = self.active_connections.get(client_id)

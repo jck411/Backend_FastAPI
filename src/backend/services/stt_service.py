@@ -2,6 +2,7 @@
 Deepgram STT service using the synchronous SDK pattern with threading.
 Based on working implementation from deepgram-voice-transcriber.
 """
+
 import asyncio
 import logging
 import threading
@@ -28,7 +29,9 @@ class DeepgramSession:
         session_id: str,
         on_transcript: Callable[[str, bool], None],
         on_error: Optional[Callable[[str], None]] = None,
-        on_speech_start: Optional[Callable[[], None]] = None,  # Called when Deepgram detects speech start
+        on_speech_start: Optional[
+            Callable[[], None]
+        ] = None,  # Called when Deepgram detects speech start
         eot_threshold: float = 0.7,
         eot_timeout_ms: int = 5000,
         eager_eot_threshold: Optional[float] = None,
@@ -73,8 +76,7 @@ class DeepgramSession:
                     if asyncio.iscoroutinefunction(self.on_speech_start):
                         if self._event_loop is not None:
                             asyncio.run_coroutine_threadsafe(
-                                self.on_speech_start(),
-                                self._event_loop
+                                self.on_speech_start(), self._event_loop
                             )
                     else:
                         self.on_speech_start()
@@ -83,7 +85,9 @@ class DeepgramSession:
             transcript = getattr(result, "transcript", None)
             if transcript:
                 is_end_of_turn = event == "EndOfTurn"
-                logger.info(f"Transcript for {self.session_id}: '{transcript}' (eot={is_end_of_turn})")
+                logger.info(
+                    f"Transcript for {self.session_id}: '{transcript}' (eot={is_end_of_turn})"
+                )
 
                 # Call callback - need to schedule in asyncio loop if it's async
                 if asyncio.iscoroutinefunction(self.on_transcript):
@@ -91,34 +95,40 @@ class DeepgramSession:
                         # Use the stored event loop reference (main loop)
                         asyncio.run_coroutine_threadsafe(
                             self.on_transcript(transcript, is_end_of_turn),
-                            self._event_loop
+                            self._event_loop,
                         )
                     else:
-                        logger.error(f"No event loop available for transcript callback")
+                        logger.error("No event loop available for transcript callback")
                 else:
                     self.on_transcript(transcript, is_end_of_turn)
             else:
                 # v1 style: check for channel.alternatives
-                if hasattr(result, 'channel'):
+                if hasattr(result, "channel"):
                     alternatives = result.channel.alternatives
                     if alternatives and len(alternatives) > 0:
                         transcript_text = alternatives[0].transcript
-                        is_final = getattr(result, 'is_final', False)
+                        is_final = getattr(result, "is_final", False)
 
                         if transcript_text:
-                            logger.info(f"Transcript for {self.session_id}: '{transcript_text}' (final={is_final})")
+                            logger.info(
+                                f"Transcript for {self.session_id}: '{transcript_text}' (final={is_final})"
+                            )
                             if asyncio.iscoroutinefunction(self.on_transcript):
                                 if self._event_loop is not None:
                                     asyncio.run_coroutine_threadsafe(
                                         self.on_transcript(transcript_text, is_final),
-                                        self._event_loop
+                                        self._event_loop,
                                     )
                                 else:
-                                    logger.error(f"No event loop available for transcript callback")
+                                    logger.error(
+                                        "No event loop available for transcript callback"
+                                    )
                             else:
                                 self.on_transcript(transcript_text, is_final)
         except Exception as e:
-            logger.error(f"Error processing transcript for {self.session_id}: {e}", exc_info=True)
+            logger.error(
+                f"Error processing transcript for {self.session_id}: {e}", exc_info=True
+            )
 
     def _on_open(self, _):
         logger.info(f"✅ Deepgram connected for {self.session_id}")
@@ -133,9 +143,11 @@ class DeepgramSession:
         if self.on_error:
             if asyncio.iscoroutinefunction(self.on_error):
                 if self._event_loop is not None:
-                    asyncio.run_coroutine_threadsafe(self.on_error(str(error)), self._event_loop)
+                    asyncio.run_coroutine_threadsafe(
+                        self.on_error(str(error)), self._event_loop
+                    )
                 else:
-                    logger.error(f"No event loop available for error callback")
+                    logger.error("No event loop available for error callback")
             else:
                 self.on_error(str(error))
 
@@ -159,9 +171,11 @@ class DeepgramSession:
         if self.keyterms:
             params["keyterm"] = self.keyterms
 
-        logger.info(f"Connecting to Deepgram Flux for {self.session_id} with settings: "
-                    f"eot_threshold={self.eot_threshold}, eot_timeout_ms={self.eot_timeout_ms}, "
-                    f"eager_eot={self.eager_eot_threshold}, keyterms={len(self.keyterms)}")
+        logger.info(
+            f"Connecting to Deepgram Flux for {self.session_id} with settings: "
+            f"eot_threshold={self.eot_threshold}, eot_timeout_ms={self.eot_timeout_ms}, "
+            f"eager_eot={self.eager_eot_threshold}, keyterms={len(self.keyterms)}"
+        )
 
         try:
             # Use v2 for Flux turn-taking
@@ -188,13 +202,18 @@ class DeepgramSession:
 
             # Wait for connection
             if not self._ready.wait(timeout=10.0):
-                raise RuntimeError(f"Failed to connect to Deepgram for {self.session_id}")
+                raise RuntimeError(
+                    f"Failed to connect to Deepgram for {self.session_id}"
+                )
 
             logger.info(f"Deepgram session ready for {self.session_id}")
             return True
 
         except Exception as e:
-            logger.error(f"Failed to connect to Deepgram for {self.session_id}: {e}", exc_info=True)
+            logger.error(
+                f"Failed to connect to Deepgram for {self.session_id}: {e}",
+                exc_info=True,
+            )
             return False
 
     def send_audio(self, data: bytes):
@@ -209,19 +228,50 @@ class DeepgramSession:
                 logger.error(f"Error sending audio for {self.session_id}: {e}")
 
     def pause(self):
-        """Pause audio streaming (mute)."""
+        """Pause audio streaming (mute) and start keepalive."""
         self._paused = True
-        logger.debug(f"Deepgram session {self.session_id} PAUSED")
+        self._start_keepalive()
+        logger.info(f"Deepgram session {self.session_id} PAUSED (keepalive started)")
 
     def resume(self):
-        """Resume audio streaming (unmute)."""
+        """Resume audio streaming (unmute) and stop keepalive."""
+        self._stop_keepalive()
         self._paused = False
-        logger.debug(f"Deepgram session {self.session_id} RESUMED")
+        logger.info(f"Deepgram session {self.session_id} RESUMED")
+
+    def _start_keepalive(self):
+        """Start sending KeepAlive messages every 5 seconds."""
+        if hasattr(self, "_keepalive_timer") and self._keepalive_timer:
+            return  # Already running
+
+        def send_keepalive():
+            if self._paused and self._socket and self._ready.is_set():
+                try:
+                    import json
+
+                    self._socket.send_text(json.dumps({"type": "KeepAlive"}))
+                    logger.debug(f"Sent KeepAlive for {self.session_id}")
+                except Exception as e:
+                    logger.warning(f"KeepAlive failed for {self.session_id}: {e}")
+
+            if self._paused:
+                self._keepalive_timer = threading.Timer(5.0, send_keepalive)
+                self._keepalive_timer.daemon = True
+                self._keepalive_timer.start()
+
+        send_keepalive()
+
+    def _stop_keepalive(self):
+        """Stop the keepalive timer."""
+        if hasattr(self, "_keepalive_timer") and self._keepalive_timer:
+            self._keepalive_timer.cancel()
+            self._keepalive_timer = None
 
     def close(self):
         """Close connection."""
         self._running = False
         self._ready.clear()
+        self._stop_keepalive()  # Stop keepalive timer
         self._paused = False
         if self._context_manager:
             try:
@@ -241,7 +291,11 @@ class STTService:
 
     def __init__(self):
         settings = get_settings()
-        api_key = settings.deepgram_api_key.get_secret_value() if settings.deepgram_api_key else None
+        api_key = (
+            settings.deepgram_api_key.get_secret_value()
+            if settings.deepgram_api_key
+            else None
+        )
         if not api_key:
             raise ValueError("DEEPGRAM_API_KEY is not set")
 

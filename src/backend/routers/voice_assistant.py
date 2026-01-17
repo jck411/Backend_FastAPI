@@ -6,14 +6,15 @@ from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from backend.services.voice_session import VoiceConnectionManager
+from backend.services.client_settings_service import get_client_settings_service
 from backend.services.stt_service import STTService
 from backend.services.tts_service import TTSService
 from backend.services.voice_chat_service import VoiceChatService
-from backend.services.client_settings_service import get_client_settings_service
+from backend.services.voice_session import VoiceConnectionManager
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 logger = logging.getLogger(__name__)
+
 
 async def handle_connection(
     websocket: WebSocket,
@@ -21,7 +22,7 @@ async def handle_connection(
     manager: VoiceConnectionManager,
     stt_service: STTService,
     tts_service: TTSService,
-    voice_chat_service: VoiceChatService
+    voice_chat_service: VoiceChatService,
 ):
     """
     Main loop for handling a single client's WebSocket connection.
@@ -43,7 +44,6 @@ async def handle_connection(
             tts_task.cancel()
             logger.info(f"Cancelled active TTS task for {client_id}")
 
-
     async def start_stt_session():
         """Helper to start the STT session with callbacks."""
 
@@ -51,7 +51,9 @@ async def handle_connection(
             logger.debug(f"Transcript ({client_id}): {text} (Final: {is_final})")
 
             # Send transcript to THIS client only (session isolation)
-            await manager.send_message(client_id, {"type": "transcript", "text": text, "is_final": is_final})
+            await manager.send_message(
+                client_id, {"type": "transcript", "text": text, "is_final": is_final}
+            )
 
             # User spoke, so update activity
             session = manager.get_session(client_id)
@@ -68,17 +70,25 @@ async def handle_connection(
                 full_response = ""
 
                 # Create TTS streaming pipeline
-                chunk_queue, audio_queue, segmenter_task, tts_processor_task = await tts_service.create_streaming_pipeline(tts_cancel_event)
+                (
+                    chunk_queue,
+                    audio_queue,
+                    segmenter_task,
+                    tts_processor_task,
+                ) = await tts_service.create_streaming_pipeline(tts_cancel_event)
 
                 # Get sample rate for audio playback
                 sample_rate = tts_service.get_sample_rate()
 
                 # Signal start of TTS audio stream (to THIS client only)
-                await manager.send_message(client_id, {
-                    "type": "tts_audio_start",
-                    "sample_rate": sample_rate,
-                    "streaming": True
-                })
+                await manager.send_message(
+                    client_id,
+                    {
+                        "type": "tts_audio_start",
+                        "sample_rate": sample_rate,
+                        "streaming": True,
+                    },
+                )
 
                 # Start audio sender task (streams audio chunks as they arrive)
                 async def send_audio_chunks():
@@ -88,47 +98,67 @@ async def handle_connection(
                             audio_chunk = await audio_queue.get()
                             if audio_chunk is None:
                                 break
-                            await manager.send_message(client_id, {
-                                "type": "tts_audio_chunk",
-                                "data": base64.b64encode(audio_chunk).decode('utf-8'),
-                                "chunk_index": chunk_index,
-                                "is_last": False
-                            })
+                            await manager.send_message(
+                                client_id,
+                                {
+                                    "type": "tts_audio_chunk",
+                                    "data": base64.b64encode(audio_chunk).decode(
+                                        "utf-8"
+                                    ),
+                                    "chunk_index": chunk_index,
+                                    "is_last": False,
+                                },
+                            )
                             chunk_index += 1
                     except Exception as e:
                         logger.error(f"Audio sender error: {e}")
                     finally:
-                        await manager.send_message(client_id, {
-                            "type": "tts_audio_chunk",
-                            "data": "",
-                            "chunk_index": chunk_index,
-                            "is_last": True
-                        })
+                        await manager.send_message(
+                            client_id,
+                            {
+                                "type": "tts_audio_chunk",
+                                "data": "",
+                                "chunk_index": chunk_index,
+                                "is_last": True,
+                            },
+                        )
 
                 audio_sender_task = asyncio.create_task(send_audio_chunks())
                 await manager.update_state(client_id, "SPEAKING")
 
                 try:
                     # Signal start of streaming response (to THIS client only)
-                    await manager.send_message(client_id, {"type": "assistant_response_start"})
+                    await manager.send_message(
+                        client_id, {"type": "assistant_response_start"}
+                    )
 
-                    async for event in voice_chat_service.generate_response_streaming(text, client_id):
+                    async for event in voice_chat_service.generate_response_streaming(
+                        text, client_id
+                    ):
                         if event["type"] == "text_chunk":
                             chunk = event["content"]
                             full_response += chunk
-                            await manager.send_message(client_id, {"type": "assistant_response_chunk", "text": chunk})
+                            await manager.send_message(
+                                client_id,
+                                {"type": "assistant_response_chunk", "text": chunk},
+                            )
 
                             # Feed chunk directly to the TTS pipeline (segmentation happens internally)
                             await chunk_queue.put(chunk)
 
                         elif event["type"] == "tool_status":
-                            await manager.send_message(client_id, {
-                                "type": "tool_status",
-                                "status": event["status"],
-                                "name": event["name"],
-                            })
+                            await manager.send_message(
+                                client_id,
+                                {
+                                    "type": "tool_status",
+                                    "status": event["status"],
+                                    "name": event["name"],
+                                },
+                            )
                         elif event["type"] == "error":
-                            full_response = event.get("message", "Sorry, I encountered an error.")
+                            full_response = event.get(
+                                "message", "Sorry, I encountered an error."
+                            )
                             await chunk_queue.put(full_response)
                             break
 
@@ -136,13 +166,24 @@ async def handle_connection(
                     await chunk_queue.put(None)
 
                     # Signal end of streaming (to THIS client only)
-                    await manager.send_message(client_id, {"type": "assistant_response_end", "text": full_response})
+                    await manager.send_message(
+                        client_id,
+                        {"type": "assistant_response_end", "text": full_response},
+                    )
 
                 except Exception as e:
-                    logger.error(f"LLM generation failed for {client_id}: {e}", exc_info=True)
+                    logger.error(
+                        f"LLM generation failed for {client_id}: {e}", exc_info=True
+                    )
                     await chunk_queue.put("Sorry, I couldn't process that request.")
                     await chunk_queue.put(None)
-                    await manager.send_message(client_id, {"type": "assistant_response_end", "text": "Sorry, I couldn't process that request."})
+                    await manager.send_message(
+                        client_id,
+                        {
+                            "type": "assistant_response_end",
+                            "text": "Sorry, I couldn't process that request.",
+                        },
+                    )
 
                 # Wait for TTS processing to complete
                 try:
@@ -156,7 +197,9 @@ async def handle_connection(
                 try:
                     llm_settings = get_client_settings_service("voice").get_llm()
                     if llm_settings.conversation_mode:
-                        logger.info(f"Conversation mode active for {client_id}, listening for reply")
+                        logger.info(
+                            f"Conversation mode active for {client_id}, listening for reply"
+                        )
                         await manager.update_state(client_id, "LISTENING")
                     else:
                         await manager.update_state(client_id, "IDLE")
@@ -168,7 +211,9 @@ async def handle_connection(
             logger.error(f"STT Error for {client_id}: {error}")
             await manager.update_state(client_id, "IDLE")
 
-        await stt_service.create_session(client_id, on_transcript_received, on_stt_error)
+        return await stt_service.create_session(
+            client_id, on_transcript_received, on_stt_error
+        )
 
     try:
         while True:
@@ -186,15 +231,69 @@ async def handle_connection(
 
             elif event_type == "wakeword_detected":
                 confidence = data.get("confidence", 0.0)
-                logger.info(f"Wake word detected for {client_id} (confidence: {confidence})")
+                logger.info(
+                    f"Wake word detected for {client_id} (confidence: {confidence})"
+                )
+
+                # Get session to check for debounce and pending state
+                session = manager.get_session(client_id)
+                if not session:
+                    logger.warning(f"No session found for {client_id}")
+                    continue
+
+                now = datetime.utcnow()
+                WAKEWORD_DEBOUNCE_MS = (
+                    1000  # Ignore duplicate wakewords within 1 second
+                )
+
+                # Debounce: ignore if we just processed a wakeword
+                if session.last_wakeword_time:
+                    elapsed_ms = (
+                        now - session.last_wakeword_time
+                    ).total_seconds() * 1000
+                    if elapsed_ms < WAKEWORD_DEBOUNCE_MS:
+                        logger.warning(
+                            f"Ignoring duplicate wakeword for {client_id} "
+                            f"(only {elapsed_ms:.0f}ms since last)"
+                        )
+                        continue
+
+                # Prevent concurrent session creation
+                if session.stt_session_pending:
+                    logger.warning(
+                        f"Ignoring wakeword for {client_id} - STT session creation pending"
+                    )
+                    continue
+
+                # Mark pending and update timestamp
+                session.stt_session_pending = True
+                session.last_wakeword_time = now
 
                 # New conversation starts with wake word -> Clear history
                 voice_chat_service.clear_history(client_id)
 
                 await manager.update_state(client_id, "LISTENING")
 
-                # Start STT processing
-                await start_stt_session()
+                # Start STT processing and confirm when ready
+                try:
+                    success = await start_stt_session()
+                    if success:
+                        # Send confirmation to frontend that STT session is ready
+                        await manager.send_message(
+                            client_id, {"type": "stt_session_ready"}
+                        )
+                        logger.info(f"STT session ready for {client_id}")
+                    else:
+                        logger.error(f"Failed to start STT session for {client_id}")
+                        await manager.send_message(
+                            client_id,
+                            {
+                                "type": "stt_session_error",
+                                "error": "Failed to start STT",
+                            },
+                        )
+                finally:
+                    session.stt_session_pending = False
 
             elif event_type == "wakeword_barge_in":
                 logger.info(f"Barge-in for {client_id}")
@@ -208,40 +307,59 @@ async def handle_connection(
                 await stt_service.close_session(client_id)
                 await start_stt_session()
 
-            elif event_type == "audio_chunk":
+            elif event_type in ("audio_chunk", "audio_data"):
                 session = manager.get_session(client_id)
                 # Only process audio if we are in listening mode
                 if session and session.state == "LISTENING":
                     payload = data.get("data")
+                    if payload is None:
+                        payload = data.get("audio")
                     if payload:
                         audio_b64 = payload.get("audio") if isinstance(payload, dict) else payload
+                        if not audio_b64:
+                            logger.warning(
+                                f"Received {event_type} event without audio for {client_id}"
+                            )
+                            continue
                         chunk = base64.b64decode(audio_b64)
-                        logger.debug(f"Received audio chunk for {client_id}: {len(chunk)} bytes")
+                        logger.debug(
+                            f"Received audio chunk for {client_id}: {len(chunk)} bytes"
+                        )
                         await stt_service.stream_audio(client_id, chunk)
 
                         # Check for Silence / Idle Timeout (for THIS client only)
                         try:
                             # If we are listening but haven't heard/done anything for X seconds, go to IDLE
                             ui_settings = get_client_settings_service("voice").get_ui()
-                            silence_duration_ms = (datetime.utcnow() - session.last_activity).total_seconds() * 1000
+                            silence_duration_ms = (
+                                datetime.utcnow() - session.last_activity
+                            ).total_seconds() * 1000
 
                             if silence_duration_ms > ui_settings.idle_return_delay_ms:
-                                logger.info(f"Silence timeout for {client_id} ({silence_duration_ms:.0f}ms > {ui_settings.idle_return_delay_ms}ms) - Returning to IDLE")
+                                logger.info(
+                                    f"Silence timeout for {client_id} ({silence_duration_ms:.0f}ms > {ui_settings.idle_return_delay_ms}ms) - Returning to IDLE"
+                                )
                                 await manager.update_state(client_id, "IDLE")
                         except Exception as e:
                             logger.error(f"Error checking silence timeout: {e}")
 
                     else:
-                        logger.warning(f"Received audio_chunk event without data for {client_id}")
+                        logger.warning(
+                            f"Received {event_type} event without data for {client_id}"
+                        )
                 else:
                     if not session:
-                        logger.warning(f"Received audio_chunk but no session for {client_id}")
+                        logger.warning(
+                            f"Received audio_chunk but no session for {client_id}"
+                        )
                     else:
                         # logger.debug(f"Received audio_chunk but state is {session.state}, not LISTENING")
                         pass
 
             elif event_type == "tts_playback_start":
-                logger.info(f"TTS playback started for {client_id} - Muting THIS client (State -> SPEAKING)")
+                logger.info(
+                    f"TTS playback started for {client_id} - Muting THIS client (State -> SPEAKING)"
+                )
                 await manager.update_state(client_id, "SPEAKING")
                 # Pause STT for this client only (session isolation)
                 stt_service.pause_session(client_id)
@@ -252,12 +370,16 @@ async def handle_connection(
                 try:
                     llm_settings = get_client_settings_service("voice").get_llm()
                     if llm_settings.conversation_mode:
-                        logger.info(f"Conversation mode ON - resuming listening for {client_id}")
+                        logger.info(
+                            f"Conversation mode ON - resuming listening for {client_id}"
+                        )
                         # Resume THIS client only (session isolation)
                         stt_service.resume_session(client_id)
                         await manager.update_state(client_id, "LISTENING")
                     else:
-                        logger.info(f"Conversation mode OFF - {client_id} going to IDLE")
+                        logger.info(
+                            f"Conversation mode OFF - {client_id} going to IDLE"
+                        )
                         # Resume THIS client only (session isolation)
                         stt_service.resume_session(client_id)
                         await manager.update_state(client_id, "IDLE")
@@ -269,9 +391,41 @@ async def handle_connection(
 
             elif event_type == "pause_listening":
                 logger.info(f"User paused listening for {client_id}")
-                # Close STT session immediately to prevent stale connections
-                await stt_service.close_session(client_id)
+                # Just pause the STT session (keep connection alive with KeepAlive)
+                stt_service.pause_session(client_id)
                 await manager.update_state(client_id, "IDLE")
+
+            elif event_type == "resume_listening":
+                # Resume from pause - just unpause the existing STT session
+                logger.info(f"User resumed listening for {client_id}")
+
+                # Check if session exists, if not create one
+                if client_id in stt_service.sessions:
+                    stt_service.resume_session(client_id)
+                    await manager.update_state(client_id, "LISTENING")
+                    await manager.send_message(client_id, {"type": "stt_session_ready"})
+                    logger.info(f"STT session resumed for {client_id}")
+                else:
+                    # Session doesn't exist (maybe timed out), create new one
+                    logger.info(
+                        f"No existing session for {client_id}, creating new one"
+                    )
+                    await manager.update_state(client_id, "LISTENING")
+                    success = await start_stt_session()
+                    if success:
+                        await manager.send_message(
+                            client_id, {"type": "stt_session_ready"}
+                        )
+                        logger.info(f"STT session ready for {client_id}")
+                    else:
+                        logger.error(f"Failed to start STT session for {client_id}")
+                        await manager.send_message(
+                            client_id,
+                            {
+                                "type": "stt_session_error",
+                                "error": "Failed to start STT",
+                            },
+                        )
 
             elif event_type == "stream_end":
                 logger.info(f"Stream end for {client_id}")
@@ -280,30 +434,44 @@ async def handle_connection(
             elif event_type == "alarm_acknowledge":
                 alarm_id = data.get("alarm_id")
                 if alarm_id:
-                    alarm_scheduler = getattr(websocket.app.state, "alarm_scheduler", None)
+                    alarm_scheduler = getattr(
+                        websocket.app.state, "alarm_scheduler", None
+                    )
                     if alarm_scheduler:
                         success = await alarm_scheduler.acknowledge_alarm(alarm_id)
                         logger.info(f"Alarm {alarm_id} acknowledged: {success}")
-                        await manager.send_message(client_id, {
-                            "type": "alarm_acknowledged",
-                            "alarm_id": alarm_id,
-                            "success": success
-                        })
+                        await manager.send_message(
+                            client_id,
+                            {
+                                "type": "alarm_acknowledged",
+                                "alarm_id": alarm_id,
+                                "success": success,
+                            },
+                        )
 
             elif event_type == "alarm_snooze":
                 alarm_id = data.get("alarm_id")
                 snooze_minutes = data.get("snooze_minutes", 5)
                 if alarm_id:
-                    alarm_scheduler = getattr(websocket.app.state, "alarm_scheduler", None)
+                    alarm_scheduler = getattr(
+                        websocket.app.state, "alarm_scheduler", None
+                    )
                     if alarm_scheduler:
-                        new_alarm = await alarm_scheduler.snooze_alarm(alarm_id, snooze_minutes)
+                        new_alarm = await alarm_scheduler.snooze_alarm(
+                            alarm_id, snooze_minutes
+                        )
                         if new_alarm:
-                            logger.info(f"Alarm {alarm_id} snoozed for {snooze_minutes}m -> {new_alarm.alarm_id}")
-                            await manager.send_message(client_id, {
-                                "type": "alarm_snoozed",
-                                "original_alarm_id": alarm_id,
-                                "new_alarm": new_alarm.to_dict()
-                            })
+                            logger.info(
+                                f"Alarm {alarm_id} snoozed for {snooze_minutes}m -> {new_alarm.alarm_id}"
+                            )
+                            await manager.send_message(
+                                client_id,
+                                {
+                                    "type": "alarm_snoozed",
+                                    "original_alarm_id": alarm_id,
+                                    "new_alarm": new_alarm.to_dict(),
+                                },
+                            )
 
     except WebSocketDisconnect:
         logger.info(f"Client {client_id} disconnected")
@@ -341,5 +509,6 @@ async def voice_connect(websocket: WebSocket):
         # We allow connection but LLM calls will fail individually
         logger.warning("VoiceChatService not found in app state")
 
-    await handle_connection(websocket, client_id, manager, stt_service, tts_service, voice_chat_service)
-
+    await handle_connection(
+        websocket, client_id, manager, stt_service, tts_service, voice_chat_service
+    )

@@ -3,6 +3,9 @@ import useWebSocket from 'react-use-websocket';
 import './App.css';
 import useAudioCapture from './hooks/useAudioCapture';
 
+// Version for debugging
+console.log('🔧 App.jsx v3 loaded');
+
 const clientId = `voice_${crypto.randomUUID()}`;
 
 function App() {
@@ -14,12 +17,13 @@ function App() {
   const [latestExchange, setLatestExchange] = useState(null);
   const [textVisible, setTextVisible] = useState(false);
 
-  // Simple states: FRESH, LISTENING, PAUSED, PROCESSING, SPEAKING
+  // States: FRESH, LISTENING, PAUSED, PROCESSING, SPEAKING
   const [appState, setAppState] = useState('FRESH');
-  const [isPaused, setIsPaused] = useState(false); // User explicitly paused
+  const appStateRef = useRef('FRESH');  // Ref to avoid stale closures
 
   const responseRef = useRef('');
   const fadeTimeoutRef = useRef(null);
+  const hasAutoStartedRef = useRef(false);
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
@@ -31,20 +35,39 @@ function App() {
     onClose: () => setIsConnected(false),
   });
 
-  const { startRecording, stopRecording, isRecording, error } = useAudioCapture(sendMessage, readyState);
+  const {
+    error,
+    initMic,
+    releaseMic,
+    startNewConversation,
+    resumeListening,
+    pauseListening,
+    handleSessionReady,
+  } = useAudioCapture(sendMessage, readyState);
 
-  // Auto-start when connected
+  // Keep appStateRef in sync
   useEffect(() => {
-    if (readyState === 1 && appState === 'FRESH') {
-      setTimeout(() => {
-        setAppState('LISTENING');
-        startRecording();
-        setTextVisible(true);
-      }, 300);
+    appStateRef.current = appState;
+  }, [appState]);
+
+  // Auto-start on first connect - run only ONCE
+  useEffect(() => {
+    if (readyState === 1 && !hasAutoStartedRef.current) {
+      hasAutoStartedRef.current = true;
+      console.log('🎤 Auto-starting (one-time)...');
+      initMic().then(ok => {
+        if (ok) {
+          appStateRef.current = 'LISTENING';
+          setAppState('LISTENING');
+          setTextVisible(true);
+          startNewConversation();
+        }
+      });
     }
+    // Intentionally minimal deps - this should only run once
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readyState]);
 
-  // Fade text
   const scheduleFade = () => {
     if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
     fadeTimeoutRef.current = setTimeout(() => setTextVisible(false), 5000);
@@ -57,32 +80,30 @@ function App() {
     try {
       const msg = JSON.parse(lastMessage.data);
 
+      if (msg.type === 'stt_session_ready') {
+        handleSessionReady();
+      }
+
       if (msg.type === 'state') {
         const s = msg.state;
-        console.log('Backend state:', s, '| isPaused:', isPaused);
+        const currentAppState = appStateRef.current;
+        console.log('Backend state:', s, '| appState:', currentAppState);
 
         if (s === 'LISTENING') {
-          // Backend wants us to listen
-          if (!isPaused) {
+          // Only update UI if not paused
+          if (currentAppState !== 'PAUSED') {
             setAppState('LISTENING');
-            if (!isRecording) {
-              startRecording();
-            }
             setTextVisible(true);
           }
+          // DON'T send any messages to backend - just update UI
         } else if (s === 'PROCESSING') {
           setAppState('PROCESSING');
         } else if (s === 'SPEAKING') {
           setAppState('SPEAKING');
         } else if (s === 'IDLE') {
-          if (isPaused) {
-            setAppState('PAUSED');
-          } else {
-            // After speaking/processing, resume listening
-            setAppState('LISTENING');
-            if (!isRecording) {
-              startRecording();
-            }
+          // Just update UI, don't try to auto-resume
+          if (currentAppState !== 'PAUSED') {
+            setAppState('LISTENING');  // Stay in listening mode for UI
           }
           scheduleFade();
         }
@@ -116,39 +137,53 @@ function App() {
       }
 
     } catch (e) {
-      console.error('Failed to parse message:', e);
+      console.error('Parse error:', e);
     }
-  }, [lastMessage, isPaused, isRecording]);
+  }, [lastMessage, handleSessionReady]);
 
-  // Handle tap
+  // Handle tap - pause/resume
   const handleTap = (e) => {
     if (showHistory) return;
+    const currentAppState = appStateRef.current;
 
-    if (appState === 'LISTENING') {
-      // Pause - notify backend first to close STT session cleanly
-      sendMessage(JSON.stringify({ type: 'pause_listening' }));
-      setIsPaused(true);
+    if (currentAppState === 'LISTENING') {
+      console.log('🎤 TAP: PAUSE');
+      appStateRef.current = 'PAUSED';
       setAppState('PAUSED');
-      stopRecording();
+      pauseListening();
       scheduleFade();
-    } else if (appState === 'PAUSED' || appState === 'FRESH') {
-      // Resume or start - need small delay to ensure cleanup is complete
-      setIsPaused(false);
+    } else if (currentAppState === 'PAUSED') {
+      console.log('🎤 TAP: RESUME');
+      appStateRef.current = 'LISTENING';
       setAppState('LISTENING');
       setTextVisible(true);
-      // Small timeout to ensure previous recording is fully stopped
-      setTimeout(() => {
-        startRecording();
-      }, 100);
+      initMic().then(ok => {
+        if (ok) {
+          resumeListening();
+        }
+      });
+    } else if (currentAppState === 'FRESH') {
+      console.log('🎤 TAP: FIRST START');
+      appStateRef.current = 'LISTENING';
+      setTextVisible(true);
+      initMic().then(ok => {
+        if (ok) {
+          setAppState('LISTENING');
+          startNewConversation();
+        }
+      });
     }
+    // Don't do anything for PROCESSING or SPEAKING states
   };
 
   // Clear session
   const handleClear = (e) => {
     e.stopPropagation();
-    setIsPaused(false);
+    pauseListening();
+    releaseMic();
+    hasAutoStartedRef.current = false;
+    appStateRef.current = 'FRESH';
     setAppState('FRESH');
-    stopRecording();
     setMessages([]);
     setLatestExchange(null);
     setCurrentTranscript('');

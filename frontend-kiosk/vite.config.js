@@ -1,5 +1,14 @@
 import react from '@vitejs/plugin-react'
+import fs from 'fs'
+import path from 'path'
 import { defineConfig } from 'vite'
+
+// Use the same SSL certificates as the backend
+const certPath = path.resolve(__dirname, '../certs/server.crt')
+const keyPath = path.resolve(__dirname, '../certs/server.key')
+const httpsConfig = fs.existsSync(certPath) && fs.existsSync(keyPath)
+    ? { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) }
+    : undefined
 
 export default defineConfig({
     plugins: [react()],
@@ -7,9 +16,16 @@ export default defineConfig({
         host: '0.0.0.0',
         port: 5174,
         strictPort: true,
+        https: httpsConfig,
         proxy: {
-            '/api': 'http://localhost:8000',
-            '/health': 'http://localhost:8000',
+            '/api': {
+                target: 'https://localhost:8000',
+                secure: false, // Accept self-signed certs
+            },
+            '/health': {
+                target: 'https://localhost:8000',
+                secure: false,
+            },
         },
     },
     build: {

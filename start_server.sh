@@ -22,6 +22,7 @@ kill_existing() {
     pkill -f "npm.*frontend" 2>/dev/null || true
     pkill -f "vite.*5173" 2>/dev/null || true
     pkill -f "vite.*5174" 2>/dev/null || true
+    pkill -f "vite.*5175" 2>/dev/null || true
 
     # Give processes time to exit
     sleep 1
@@ -43,10 +44,12 @@ trap cleanup SIGINT SIGTERM
 echo "Cleaning up port 8000..."
 uv run python scripts/kill_port.py 8000
 
-echo "Starting FastAPI backend..."
+echo "Starting FastAPI backend with HTTPS..."
 uv run uvicorn backend.app:create_app \
     --factory \
     --host 0.0.0.0 \
+    --ssl-keyfile=certs/server.key \
+    --ssl-certfile=certs/server.crt \
     --reload &
 
 BACKEND_PID=$!
@@ -72,11 +75,21 @@ echo "Starting Kiosk frontend on port 5174..."
 
 KIOSK_PID=$!
 
+# Start the Voice PWA frontend
+echo "Cleaning up port 5175..."
+uv run python scripts/kill_port.py 5175
+
+echo "Starting Voice PWA frontend on port 5175..."
+(cd "$SCRIPT_DIR/frontend-voice" && npm run dev) &
+
+VOICE_PID=$!
+
 echo ""
 echo "=============================================="
-echo "Backend:        http://localhost:8000"
+echo "Backend:        https://localhost:8000"
 echo "Svelte Chat UI: http://localhost:5173"
-echo "Kiosk UI:       http://localhost:5174"
+echo "Kiosk UI:       https://localhost:5174"
+echo "Voice PWA:      https://localhost:5175"
 echo ""
 # Detect the primary IP address
 LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
@@ -85,9 +98,12 @@ if [ -z "$LOCAL_IP" ]; then
 fi
 if [ -n "$LOCAL_IP" ]; then
     echo "From other machines (use your IP):"
-    echo "  Backend:        http://${LOCAL_IP}:8000"
+    echo "  Backend:        https://${LOCAL_IP}:8000"
     echo "  Svelte Chat UI: http://${LOCAL_IP}:5173"
-    echo "  Kiosk UI:       http://${LOCAL_IP}:5174"
+    echo "  Kiosk UI:       https://${LOCAL_IP}:5174"
+    echo "  Voice PWA:      https://${LOCAL_IP}:5175"
+    echo ""
+    echo "NOTE: Accept the certificate warning on first visit."
 else
     echo "From other machines, use your machine's IP address."
 fi

@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDisplayTimezone } from '../context/ConfigContext';
 
+/** API base URL - auto-detect protocol based on page */
+const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
+
 /** Slideshow settings */
 const SLIDESHOW_INTERVAL = 30 * 1000; // 30 seconds between photos
 const SLIDESHOW_TRANSITION_DURATION = 1500; // 1.5 second crossfade
@@ -189,7 +192,7 @@ export default function Clock() {
         const nextIndex = (currentPhotoIndex + 1) % photos.length;
         const nextPhoto = photos[nextIndex];
         const img = new Image();
-        img.src = `http://${window.location.hostname}:8000/api/slideshow/photo/${nextPhoto}`;
+        img.src = `${API_BASE_URL}/api/slideshow/photo/${nextPhoto}`;
         preloadRef.current = img;
 
         setIsTransitioning(true);
@@ -206,7 +209,7 @@ export default function Clock() {
     const fetchPhotos = useCallback(async () => {
         try {
             const response = await fetch(
-                `http://${window.location.hostname}:8000/api/slideshow/photos?daily_seed=true`
+                `${API_BASE_URL}/api/slideshow/photos?daily_seed=true`
             );
             if (!response.ok) {
                 console.warn('Slideshow photos not available');
@@ -235,7 +238,7 @@ export default function Clock() {
     const fetchAlarms = useCallback(async () => {
         try {
             const response = await fetch(
-                `http://${window.location.hostname}:8000/api/alarms`
+                `${API_BASE_URL}/api/alarms`
             );
             if (!response.ok) {
                 console.warn('Alarms API not available');
@@ -264,7 +267,7 @@ export default function Clock() {
             const nextIndex = (currentPhotoIndex + 1) % photos.length;
             const nextPhoto = photos[nextIndex];
             const img = new Image();
-            img.src = `http://${window.location.hostname}:8000/api/slideshow/photo/${nextPhoto}`;
+            img.src = `${API_BASE_URL}/api/slideshow/photo/${nextPhoto}`;
             preloadRef.current = img;
 
             // Start transition
@@ -287,11 +290,11 @@ export default function Clock() {
 
     // Get photo URLs
     const currentPhotoUrl = photos.length > 0
-        ? `http://${window.location.hostname}:8000/api/slideshow/photo/${photos[currentPhotoIndex]}`
+        ? `${API_BASE_URL}/api/slideshow/photo/${photos[currentPhotoIndex]}`
         : null;
     const nextPhotoIndex = (currentPhotoIndex + 1) % Math.max(photos.length, 1);
     const nextPhotoUrl = photos.length > 1
-        ? `http://${window.location.hostname}:8000/api/slideshow/photo/${photos[nextPhotoIndex]}`
+        ? `${API_BASE_URL}/api/slideshow/photo/${photos[nextPhotoIndex]}`
         : null;
 
     /**
@@ -300,7 +303,7 @@ export default function Clock() {
      */
     const fetchWeather = useCallback(async () => {
         try {
-            const response = await fetch(`http://${window.location.hostname}:8000/api/weather`);
+            const response = await fetch(`${API_BASE_URL}/api/weather`);
             if (!response.ok) {
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorData.detail?.detail || errorData.detail || 'Weather unavailable');
@@ -648,8 +651,8 @@ export default function Clock() {
 
                                 {/* Rain probability - highlighted if > 30% (from API PrecipitationProbability) */}
                                 <div className={`text-xs font-medium drop-shadow ${day.rain_chance > 30
-                                        ? 'text-blue-300'
-                                        : 'text-white/40'
+                                    ? 'text-blue-300'
+                                    : 'text-white/40'
                                     }`}>
                                     {day.rain_chance}%
                                 </div>

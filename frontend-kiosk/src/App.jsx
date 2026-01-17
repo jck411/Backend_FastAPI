@@ -4,8 +4,10 @@ import useWebSocket, { ReadyState } from 'react-use-websocket';
 import AlarmOverlay from './components/AlarmOverlay';
 import CalendarScreen from './components/CalendarScreen';
 import Clock from './components/Clock';
+import MicButton from './components/MicButton';
 import TranscriptionScreen from './components/TranscriptionScreen';
 import { useConfig } from './context/ConfigContext';
+import { useAudioCapture } from './hooks/useAudioCapture';
 
 /**
  * Generate a unique client ID for this frontend instance.
@@ -34,7 +36,9 @@ export default function App() {
     const clientId = useMemo(() => generateClientId(), []);
 
     // WebSocket Connection - connects to backend with unique client ID
-    const wsUrl = `ws://${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
+    // Auto-detect secure WebSocket (wss://) when page is served over HTTPS
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
 
     const [messages, setMessages] = useState([]);
     const [liveTranscript, setLiveTranscript] = useState("");
@@ -62,6 +66,9 @@ export default function App() {
         reconnectAttempts: 10,
         reconnectInterval: 3000,
     });
+
+    // Audio capture hook for tap-to-talk
+    const { isRecording, startRecording, stopRecording, error: audioError } = useAudioCapture(sendMessage, readyState);
 
     /**
      * Initialize or get the AudioContext.
@@ -474,6 +481,17 @@ export default function App() {
                     />
                 ))}
             </div>
+
+            {/* Microphone Button - shows on clock screen */}
+            {currentScreen === 0 && (
+                <MicButton
+                    isRecording={isRecording}
+                    onStart={startRecording}
+                    onStop={stopRecording}
+                    disabled={readyState !== ReadyState.OPEN || agentState === 'PROCESSING'}
+                    error={audioError}
+                />
+            )}
 
             {/* Connection Indicator */}
             <div

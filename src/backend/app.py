@@ -347,6 +347,37 @@ def create_app() -> FastAPI:
         # Mount the assets folder specifically
         app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
 
+        # Mount Voice PWA assets if they exist
+        voice_dir = static_dir / "voice"
+        if voice_dir.exists():
+            # Mount assets for voice app (Vite puts them in assets/)
+            if (voice_dir / "assets").exists():
+                 app.mount("/voice/assets", StaticFiles(directory=voice_dir / "assets"), name="voice_assets")
+
+            # Serve Voice PWA index.html for /voice and subpaths
+            @app.get("/voice/{full_path:path}")
+            async def serve_voice_spa(full_path: str):
+                # Check if file exists directly
+                file_path = voice_dir / full_path
+                if file_path.exists() and file_path.is_file():
+                    return FileResponse(file_path)
+
+                # Default to index.html for SPA routing
+                return FileResponse(
+                    voice_dir / "index.html",
+                    headers={
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Pragma": "no-cache",
+                        "Expires": "0",
+                    }
+                )
+
+            # Redirect /voice to /voice/ (trailing slash important for relative assets)
+            @app.get("/voice")
+            async def redirect_voice():
+                 from starlette.responses import RedirectResponse
+                 return RedirectResponse(url="/voice/")
+
         # Serve index.html for root and any other SPA routes (catch-all)
         @app.get("/{full_path:path}")
         async def serve_spa(full_path: str):

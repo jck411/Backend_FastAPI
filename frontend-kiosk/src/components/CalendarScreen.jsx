@@ -2,6 +2,9 @@ import { motion } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import { useDisplayTimezone } from '../context/ConfigContext';
 
+/** API base URL - auto-detect protocol based on page */
+const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
+
 /**
  * Format a date string for display.
  * Returns "Today", "Tomorrow", or the day name for dates within a week.
@@ -106,7 +109,7 @@ export default function CalendarScreen() {
 
     const fetchCalendar = async () => {
         try {
-            const response = await fetch(`http://${window.location.hostname}:8000/api/kiosk/calendar?days=7`);
+            const response = await fetch(`${API_BASE_URL}/api/kiosk/calendar?days=7`);
             if (!response.ok) {
                 let errorDetail = `HTTP ${response.status}`;
                 try {

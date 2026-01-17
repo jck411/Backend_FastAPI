@@ -9,8 +9,14 @@ export default defineConfig({
     port: 5173,
     strictPort: true, // Fail if port is in use (we kill it via start_server.sh)
     proxy: {
-      '/api': 'http://localhost:8000',
-      '/health': 'http://localhost:8000',
+      '/api': {
+        target: 'https://localhost:8000',
+        secure: false, // Accept self-signed certs
+      },
+      '/health': {
+        target: 'https://localhost:8000',
+        secure: false,
+      },
     },
   },
 })

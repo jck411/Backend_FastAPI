@@ -18,7 +18,10 @@ kill_existing() {
     pkill -f "uvicorn backend.app:create_app" 2>/dev/null || true
 
     # Kill node/npm processes for frontend and frontend-kiosk
-    pkill -f "node.*frontend" 2>/dev/null || true
+    pkill -f "no
+
+
+    de.*frontend" 2>/dev/null || true
     pkill -f "npm.*frontend" 2>/dev/null || true
     pkill -f "vite.*5173" 2>/dev/null || true
     pkill -f "vite.*5174" 2>/dev/null || true

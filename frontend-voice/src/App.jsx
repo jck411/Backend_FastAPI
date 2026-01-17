@@ -1,18 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import useWebSocket from 'react-use-websocket';
 import './App.css';
 import useAudioCapture from './hooks/useAudioCapture';
 
-// Generate a unique client ID
 const clientId = `voice_${crypto.randomUUID()}`;
 
 function App() {
-  const [transcription, setTranscription] = useState('');
-  const [response, setResponse] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [currentTranscript, setCurrentTranscript] = useState('');
+  const [currentResponse, setCurrentResponse] = useState('');
   const [isConnected, setIsConnected] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [latestExchange, setLatestExchange] = useState(null);
+  const [textVisible, setTextVisible] = useState(false);
 
-  // WebSocket URL - auto-detect protocol
+  // Simple states: FRESH, LISTENING, PAUSED, PROCESSING, SPEAKING
+  const [appState, setAppState] = useState('FRESH');
+  const [isPaused, setIsPaused] = useState(false); // User explicitly paused
+
+  const responseRef = useRef('');
+  const fadeTimeoutRef = useRef(null);
+
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
 
@@ -23,113 +31,211 @@ function App() {
     onClose: () => setIsConnected(false),
   });
 
-  // Audio capture hook - passes audio chunks directly via sendMessage
-  const { startRecording, stopRecording, isRecording: hookIsRecording, error } = useAudioCapture(sendMessage, readyState);
+  const { startRecording, stopRecording, isRecording, error } = useAudioCapture(sendMessage, readyState);
 
-  // Auto-listen on launch
-  const [hasAutoStarted, setHasAutoStarted] = useState(false);
+  // Auto-start when connected
   useEffect(() => {
-    if (readyState === 1 && !hasAutoStarted) { // 1 = OPEN
-      console.log('Auto-starting microphone on launch...');
-      setTranscription('');
-      setResponse('');
-      setIsRecording(true);
-      startRecording();
-      setHasAutoStarted(true);
+    if (readyState === 1 && appState === 'FRESH') {
+      setTimeout(() => {
+        setAppState('LISTENING');
+        startRecording();
+        setTextVisible(true);
+      }, 300);
     }
-  }, [readyState, startRecording, hasAutoStarted]);
+  }, [readyState]);
 
-  // Handle incoming messages
+  // Fade text
+  const scheduleFade = () => {
+    if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
+    fadeTimeoutRef.current = setTimeout(() => setTextVisible(false), 5000);
+  };
+
+  // Handle backend messages
   useEffect(() => {
     if (!lastMessage?.data) return;
 
     try {
       const msg = JSON.parse(lastMessage.data);
 
-      // Handle User Transcription
-      if (msg.type === 'transcript') {
-        if (msg.is_final) {
-          setTranscription(msg.text || '');
-        } else {
-          setTranscription(msg.text || '');
+      if (msg.type === 'state') {
+        const s = msg.state;
+        console.log('Backend state:', s, '| isPaused:', isPaused);
+
+        if (s === 'LISTENING') {
+          // Backend wants us to listen
+          if (!isPaused) {
+            setAppState('LISTENING');
+            if (!isRecording) {
+              startRecording();
+            }
+            setTextVisible(true);
+          }
+        } else if (s === 'PROCESSING') {
+          setAppState('PROCESSING');
+        } else if (s === 'SPEAKING') {
+          setAppState('SPEAKING');
+        } else if (s === 'IDLE') {
+          if (isPaused) {
+            setAppState('PAUSED');
+          } else {
+            // After speaking/processing, resume listening
+            setAppState('LISTENING');
+            if (!isRecording) {
+              startRecording();
+            }
+          }
+          scheduleFade();
         }
       }
 
-      // Handle Streaming Assistant Response
-      else if (msg.type === 'assistant_response_start') {
-        setResponse('');
-      } else if (msg.type === 'assistant_response_chunk') {
-        setResponse(prev => prev + (msg.text || ''));
-      } else if (msg.type === 'assistant_response') {
-        // Legacy/Full response
-        setResponse(msg.text || '');
+      if (msg.type === 'transcript') {
+        setCurrentTranscript(msg.text || '');
+        setTextVisible(true);
+        if (msg.is_final && msg.text) {
+          setMessages(prev => [...prev, { role: 'user', content: msg.text }]);
+          setLatestExchange(prev => ({ ...prev, user: msg.text, assistant: '' }));
+          setCurrentTranscript('');
+        }
       }
+
+      if (msg.type === 'assistant_response_start') {
+        responseRef.current = '';
+        setCurrentResponse('');
+        setTextVisible(true);
+      } else if (msg.type === 'assistant_response_chunk') {
+        responseRef.current += (msg.text || '');
+        setCurrentResponse(responseRef.current);
+      } else if (msg.type === 'assistant_response_end') {
+        const finalText = responseRef.current || msg.text || '';
+        if (finalText) {
+          setMessages(prev => [...prev, { role: 'assistant', content: finalText }]);
+          setLatestExchange(prev => ({ ...prev, assistant: finalText }));
+        }
+        responseRef.current = '';
+        setCurrentResponse('');
+      }
+
     } catch (e) {
       console.error('Failed to parse message:', e);
     }
-  }, [lastMessage]);
+  }, [lastMessage, isPaused, isRecording]);
 
-  // Handle touch/click interaction
-  const handleInteractionStart = (e) => {
-    e.preventDefault();
-    setTranscription('');
-    setResponse('');
-    setIsRecording(true);
-    startRecording();
+  // Handle tap
+  const handleTap = (e) => {
+    if (showHistory) return;
+
+    if (appState === 'LISTENING') {
+      // Pause
+      setIsPaused(true);
+      setAppState('PAUSED');
+      stopRecording();
+      scheduleFade();
+    } else if (appState === 'PAUSED' || appState === 'FRESH') {
+      // Resume or start - need small delay to ensure cleanup is complete
+      setIsPaused(false);
+      setAppState('LISTENING');
+      setTextVisible(true);
+      // Small timeout to ensure previous recording is fully stopped
+      setTimeout(() => {
+        startRecording();
+      }, 100);
+    }
   };
 
-  const handleInteractionEnd = (e) => {
-    e.preventDefault();
-    setIsRecording(false);
+  // Clear session
+  const handleClear = (e) => {
+    e.stopPropagation();
+    setIsPaused(false);
+    setAppState('FRESH');
     stopRecording();
+    setMessages([]);
+    setLatestExchange(null);
+    setCurrentTranscript('');
+    setCurrentResponse('');
+    setTextVisible(false);
+  };
+
+  const handlePullUp = (e) => {
+    e.stopPropagation();
+    setShowHistory(true);
+  };
+
+  const handleCloseHistory = () => setShowHistory(false);
+
+  const getOrbClass = () => {
+    if (appState === 'LISTENING') return 'listening';
+    if (appState === 'PROCESSING') return 'processing';
+    if (appState === 'SPEAKING') return 'speaking';
+    if (appState === 'PAUSED') return 'paused';
+    return 'idle';
+  };
+
+  const getStatusText = () => {
+    if (!isConnected) return 'Connecting...';
+    if (appState === 'LISTENING') return 'Listening...';
+    if (appState === 'PROCESSING') return 'Thinking...';
+    if (appState === 'SPEAKING') return '';
+    if (appState === 'PAUSED') return 'Paused';
+    return 'Tap to start';
   };
 
   return (
-    <div className="app">
-      {/* Connection status pill */}
-      <div className={`status-indicator ${isConnected ? 'connected' : 'disconnected'}`}>
-        {isConnected ? 'Connected' : 'Connecting...'}
-      </div>
+    <div className="app" onClick={handleTap}>
+      <div className={`connection-dot ${isConnected ? 'connected' : ''}`} />
 
-      {/* Main interaction area - tap/hold to speak */}
-      <div
-        className="interaction-area"
-        onMouseDown={handleInteractionStart}
-        onMouseUp={handleInteractionEnd}
-        onMouseLeave={handleInteractionEnd}
-        onTouchStart={handleInteractionStart}
-        onTouchEnd={handleInteractionEnd}
-      >
+      {error && <div className="error">{error}</div>}
+
+      <div className="main-content">
         <div className="orb-container">
-          <div className={`orb ${isRecording ? 'recording' : 'idle'}`} />
+          <div className={`orb ${getOrbClass()}`} />
           <div className="ripple-ring" />
           <div className="ripple-ring" />
           <div className="ripple-ring" />
         </div>
 
-        <div className={`status-text ${isRecording ? 'active' : ''}`}>
-          {isRecording ? 'Listening...' : 'Hold to speak'}
+        <div className={`status-text ${appState !== 'FRESH' ? 'active' : ''}`}>
+          {getStatusText()}
+        </div>
+
+        <div className={`floating-text ${textVisible ? 'visible' : ''}`}>
+          {currentTranscript && <p className="user-text">{currentTranscript}</p>}
+          {!currentTranscript && latestExchange?.user && <p className="user-text">{latestExchange.user}</p>}
+          {(currentResponse || latestExchange?.assistant) && (
+            <p className="assistant-text">{currentResponse || latestExchange?.assistant}</p>
+          )}
         </div>
       </div>
 
-      {/* Messages display */}
-      <div className="content">
-        {error && <div className="error">{error}</div>}
-
-        {transcription && (
-          <div className="message-card user">
-            <div className="message-label">You</div>
-            <p className="message-text">{transcription}</p>
-          </div>
+      <div className="bottom-controls">
+        {(appState === 'PAUSED' || (messages.length > 0 && appState !== 'LISTENING')) && (
+          <button className="new-button" onClick={handleClear}>New</button>
         )}
-
-        {response && (
-          <div className="message-card assistant">
-            <div className="message-label">Assistant</div>
-            <p className="message-text">{response}</p>
+        {messages.length > 0 && !showHistory && (
+          <div className="pull-indicator" onClick={handlePullUp}>
+            <div className="pull-line" />
+            <span>History</span>
           </div>
         )}
       </div>
+
+      {showHistory && (
+        <div className="history-overlay" onClick={handleCloseHistory}>
+          <div className="history-panel" onClick={e => e.stopPropagation()}>
+            <div className="history-header">
+              <span>Conversation</span>
+              <button onClick={handleCloseHistory}>Done</button>
+            </div>
+            <div className="history-scroll">
+              {messages.map((msg, i) => (
+                <div key={i} className={`history-message ${msg.role}`}>
+                  <span className="history-label">{msg.role === 'user' ? 'You' : 'Assistant'}</span>
+                  <p>{msg.content}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

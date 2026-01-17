@@ -36,7 +36,7 @@ class TTSService:
 
     def get_settings(self) -> TtsSettings:
         """Get current TTS settings."""
-        return get_client_settings_service("kiosk").get_tts()
+        return get_client_settings_service("voice").get_tts()
 
     async def synthesize(self, text: str) -> bytes:
         """

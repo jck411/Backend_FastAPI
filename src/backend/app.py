@@ -282,6 +282,7 @@ def create_app() -> FastAPI:
     from .services.stt_service import STTService
     from .services.tts_service import TTSService
     from .services.kiosk_chat_service import KioskChatService
+    from .services.voice_chat_service import VoiceChatService
 
     try:
         app.state.voice_manager = VoiceConnectionManager()
@@ -289,6 +290,8 @@ def create_app() -> FastAPI:
         app.state.tts_service = TTSService()
         # Initialize KioskChatService with the orchestrator for tool support
         app.state.kiosk_chat_service = KioskChatService(orchestrator)
+        # Initialize VoiceChatService for the voice PWA (separate from kiosk)
+        app.state.voice_chat_service = VoiceChatService(orchestrator)
         # Wire alarm scheduler to voice manager for WebSocket notifications
         alarm_scheduler.set_voice_manager(app.state.voice_manager)
         app.include_router(voice_assistant.router)

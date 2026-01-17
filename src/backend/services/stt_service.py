@@ -263,8 +263,8 @@ class STTService:
             if session_id in self.sessions:
                 await self.close_session(session_id)
 
-            # Get current kiosk STT settings
-            stt_settings = get_client_settings_service("kiosk").get_stt()
+            # Get current voice STT settings
+            stt_settings = get_client_settings_service("voice").get_stt()
 
             # IMPORTANT: The Deepgram listener runs in a background thread,
             # which has no asyncio event loop. We must capture the main loop

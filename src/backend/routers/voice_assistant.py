@@ -9,7 +9,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from backend.services.voice_session import VoiceConnectionManager
 from backend.services.stt_service import STTService
 from backend.services.tts_service import TTSService
-from backend.services.kiosk_chat_service import KioskChatService
+from backend.services.voice_chat_service import VoiceChatService
 from backend.services.client_settings_service import get_client_settings_service
 
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
@@ -21,7 +21,7 @@ async def handle_connection(
     manager: VoiceConnectionManager,
     stt_service: STTService,
     tts_service: TTSService,
-    kiosk_chat_service: KioskChatService
+    voice_chat_service: VoiceChatService
 ):
     """
     Main loop for handling a single client's WebSocket connection.
@@ -112,7 +112,7 @@ async def handle_connection(
                     # Signal start of streaming response (to THIS client only)
                     await manager.send_message(client_id, {"type": "assistant_response_start"})
 
-                    async for event in kiosk_chat_service.generate_response_streaming(text, client_id):
+                    async for event in voice_chat_service.generate_response_streaming(text, client_id):
                         if event["type"] == "text_chunk":
                             chunk = event["content"]
                             full_response += chunk
@@ -154,7 +154,7 @@ async def handle_connection(
 
                 # Transition back based on conversation mode
                 try:
-                    llm_settings = get_client_settings_service("kiosk").get_llm()
+                    llm_settings = get_client_settings_service("voice").get_llm()
                     if llm_settings.conversation_mode:
                         logger.info(f"Conversation mode active for {client_id}, listening for reply")
                         await manager.update_state(client_id, "LISTENING")
@@ -189,7 +189,7 @@ async def handle_connection(
                 logger.info(f"Wake word detected for {client_id} (confidence: {confidence})")
 
                 # New conversation starts with wake word -> Clear history
-                kiosk_chat_service.clear_history(client_id)
+                voice_chat_service.clear_history(client_id)
 
                 await manager.update_state(client_id, "LISTENING")
 
@@ -222,7 +222,7 @@ async def handle_connection(
                         # Check for Silence / Idle Timeout (for THIS client only)
                         try:
                             # If we are listening but haven't heard/done anything for X seconds, go to IDLE
-                            ui_settings = get_client_settings_service("kiosk").get_ui()
+                            ui_settings = get_client_settings_service("voice").get_ui()
                             silence_duration_ms = (datetime.utcnow() - session.last_activity).total_seconds() * 1000
 
                             if silence_duration_ms > ui_settings.idle_return_delay_ms:
@@ -250,7 +250,7 @@ async def handle_connection(
                 logger.info(f"TTS playback ended for {client_id}")
                 # Check if conversation mode is active
                 try:
-                    llm_settings = get_client_settings_service("kiosk").get_llm()
+                    llm_settings = get_client_settings_service("voice").get_llm()
                     if llm_settings.conversation_mode:
                         logger.info(f"Conversation mode ON - resuming listening for {client_id}")
                         # Resume THIS client only (session isolation)
@@ -320,7 +320,6 @@ async def voice_connect(websocket: WebSocket):
     app_state = websocket.app.state
 
     # Ensure services are initialized
-    # Note: KioskChatService is optional for startup but required for LLM processing
     if not hasattr(app_state, "voice_manager"):
         logger.error("Voice Manager not initialized")
         await websocket.close(code=1000, reason="Server not ready")
@@ -329,11 +328,12 @@ async def voice_connect(websocket: WebSocket):
     manager = app_state.voice_manager
     stt_service = app_state.stt_service
     tts_service = app_state.tts_service
-    kiosk_chat_service = getattr(app_state, "kiosk_chat_service", None)
+    voice_chat_service = getattr(app_state, "voice_chat_service", None)
 
-    if kiosk_chat_service is None:
+    if voice_chat_service is None:
         # Fallback if service not initialized properly (e.g. startup error)
         # We allow connection but LLM calls will fail individually
-        logger.warning("KioskChatService not found in app state")
+        logger.warning("VoiceChatService not found in app state")
 
-    await handle_connection(websocket, client_id, manager, stt_service, tts_service, kiosk_chat_service)
+    await handle_connection(websocket, client_id, manager, stt_service, tts_service, voice_chat_service)
+

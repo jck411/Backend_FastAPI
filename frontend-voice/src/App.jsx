@@ -16,6 +16,14 @@ function App() {
   const [showHistory, setShowHistory] = useState(false);
   const [latestExchange, setLatestExchange] = useState(null);
   const [textVisible, setTextVisible] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [sttDraft, setSttDraft] = useState({
+    eot_timeout_ms: 5000,
+    eot_threshold: 0.7,
+  });
+  const [settingsError, setSettingsError] = useState(null);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsSaving, setSettingsSaving] = useState(false);
 
   // States: FRESH, LISTENING, PAUSED, PROCESSING, SPEAKING
   const [appState, setAppState] = useState('FRESH');
@@ -141,9 +149,44 @@ function App() {
     }
   }, [lastMessage, handleSessionReady]);
 
+  // Load STT settings when opening settings panel
+  useEffect(() => {
+    if (!showSettings) return;
+
+    let cancelled = false;
+    setSettingsLoading(true);
+    setSettingsError(null);
+
+    fetch('/api/clients/voice/stt')
+      .then(resp => {
+        if (!resp.ok) throw new Error('Failed to load settings');
+        return resp.json();
+      })
+      .then(data => {
+        if (cancelled) return;
+        const normalized = {
+          eot_timeout_ms: Number(data.eot_timeout_ms ?? 5000),
+          eot_threshold: Number(data.eot_threshold ?? 0.7),
+        };
+        setSttDraft(normalized);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSettingsError('Failed to load settings');
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setSettingsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [showSettings]);
+
   // Handle tap - pause/resume
   const handleTap = (e) => {
-    if (showHistory) return;
+    if (showHistory || showSettings) return;
     const currentAppState = appStateRef.current;
 
     if (currentAppState === 'LISTENING') {
@@ -193,10 +236,57 @@ function App() {
 
   const handlePullUp = (e) => {
     e.stopPropagation();
+    setShowSettings(false);
     setShowHistory(true);
   };
 
   const handleCloseHistory = () => setShowHistory(false);
+
+  const handleOpenSettings = (e) => {
+    e.stopPropagation();
+    setShowHistory(false);
+    setShowSettings(true);
+  };
+
+  const handleCloseSettings = (e) => {
+    e.stopPropagation();
+    setShowSettings(false);
+  };
+
+  const handleSaveSettings = async (e) => {
+    e.stopPropagation();
+    setSettingsSaving(true);
+    setSettingsError(null);
+
+    try {
+      const payload = {
+        eot_timeout_ms: Number(sttDraft.eot_timeout_ms),
+        eot_threshold: Number(sttDraft.eot_threshold),
+      };
+
+      const resp = await fetch('/api/clients/voice/stt', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!resp.ok) {
+        throw new Error('Failed to save settings');
+      }
+
+      const data = await resp.json();
+      const normalized = {
+        eot_timeout_ms: Number(data.eot_timeout_ms ?? payload.eot_timeout_ms),
+        eot_threshold: Number(data.eot_threshold ?? payload.eot_threshold),
+      };
+      setSttDraft(normalized);
+      setShowSettings(false);
+    } catch {
+      setSettingsError('Failed to save settings');
+    } finally {
+      setSettingsSaving(false);
+    }
+  };
 
   const getOrbClass = () => {
     if (appState === 'LISTENING') return 'listening';
@@ -217,6 +307,7 @@ function App() {
 
   return (
     <div className="app" onClick={handleTap}>
+      <button className="settings-button" onClick={handleOpenSettings}>S</button>
       <div className={`connection-dot ${isConnected ? 'connected' : ''}`} />
 
       {error && <div className="error">{error}</div>}
@@ -268,6 +359,71 @@ function App() {
                   <p>{msg.content}</p>
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSettings && (
+        <div className="settings-overlay" onClick={handleCloseSettings}>
+          <div className="settings-panel" onClick={e => e.stopPropagation()}>
+            <div className="settings-header">
+              <span>Voice Settings</span>
+              <button onClick={handleCloseSettings}>Done</button>
+            </div>
+
+            {settingsError && <div className="settings-error">{settingsError}</div>}
+
+            {settingsLoading ? (
+              <div className="settings-loading">Loading...</div>
+            ) : (
+              <>
+                <div className="settings-row">
+                  <div className="settings-label">End of turn timeout</div>
+                  <div className="settings-value">{sttDraft.eot_timeout_ms} ms</div>
+                  <input
+                    className="settings-slider"
+                    type="range"
+                    min="100"
+                    max="30000"
+                    step="100"
+                    value={sttDraft.eot_timeout_ms}
+                    onChange={(e) => setSttDraft(prev => ({
+                      ...prev,
+                      eot_timeout_ms: Number(e.target.value),
+                    }))}
+                  />
+                </div>
+
+                <div className="settings-row">
+                  <div className="settings-label">End of turn threshold</div>
+                  <div className="settings-value">
+                    {Number(sttDraft.eot_threshold).toFixed(2)}
+                  </div>
+                  <input
+                    className="settings-slider"
+                    type="range"
+                    min="0.5"
+                    max="0.9"
+                    step="0.01"
+                    value={sttDraft.eot_threshold}
+                    onChange={(e) => setSttDraft(prev => ({
+                      ...prev,
+                      eot_threshold: Number(e.target.value),
+                    }))}
+                  />
+                </div>
+              </>
+            )}
+
+            <div className="settings-actions">
+              <button
+                className="settings-save"
+                onClick={handleSaveSettings}
+                disabled={settingsLoading || settingsSaving}
+              >
+                {settingsSaving ? 'Saving...' : 'Save'}
+              </button>
             </div>
           </div>
         </div>

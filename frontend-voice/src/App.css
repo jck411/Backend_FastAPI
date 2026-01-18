@@ -22,28 +22,45 @@ body,
   overflow: hidden;
 }
 
-/* Tiny connection dot */
-.connection-dot {
+/* Top controls */
+.top-controls {
   position: fixed;
   top: max(12px, env(safe-area-inset-top));
+  left: 12px;
   right: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 120;
+  pointer-events: none;
+}
+
+.top-left-controls,
+.top-right-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+/* Tiny connection dot */
+.connection-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: #f87171;
-  z-index: 100;
-  transition: background 0.3s;
+  box-shadow: 0 0 8px rgba(248, 113, 113, 0.55);
+  pointer-events: none;
+  transition: background 0.3s, box-shadow 0.3s;
 }
 
 .connection-dot.connected {
   background: #34d399;
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.65);
 }
 
 /* Settings button */
 .settings-button {
-  position: fixed;
-  top: max(12px, env(safe-area-inset-top));
-  left: 12px;
   width: 28px;
   height: 28px;
   border-radius: 50%;
@@ -57,7 +74,6 @@ body,
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  z-index: 110;
   transition: background 0.2s ease, border-color 0.2s ease;
 }
 

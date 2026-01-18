@@ -61,6 +61,7 @@ function App() {
   const scheduledSourcesRef = useRef([]);
   const countdownTimeoutRef = useRef(null);
   const countdownIntervalRef = useRef(null);
+  const backgroundedRef = useRef(false);
 
   // Inactivity timeout refs
   const pauseTimeoutRef = useRef(null);
@@ -232,6 +233,7 @@ function App() {
 
   // Auto-start on first connect - run only ONCE
   useEffect(() => {
+    if (document.visibilityState === 'hidden') return;
     if (readyState === 1 && !hasAutoStartedRef.current) {
       hasAutoStartedRef.current = true;
       console.log('🎤 Auto-starting (one-time)...');
@@ -249,10 +251,10 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readyState]);
 
-  const scheduleFade = () => {
+  const scheduleFade = useCallback(() => {
     if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
     fadeTimeoutRef.current = setTimeout(() => setTextVisible(false), 5000);
-  };
+  }, []);
 
   // Keep sttDraftRef in sync with sttDraft state
   useEffect(() => {
@@ -308,27 +310,43 @@ function App() {
     }, startDelayMs);
   }, [clearTimeoutCountdown]);
 
-  // Handle inactivity timeout - close session but preserve context
-  const handleInactivityTimeout = useCallback(() => {
-    console.log('⏰ Inactivity timeout triggered');
+  const resetSession = useCallback((options = {}) => {
+    const { clearMessages = false, fadeText = false, resetAutoStart = true } = options;
     clearInactivityTimeouts();
 
-    // Send clear_session to close Deepgram session (stops billing)
     if (readyState === 1) {
       sendMessage(JSON.stringify({ type: 'clear_session' }));
     }
+
     stopTtsPlayback();
     releaseMic();
-    hasAutoStartedRef.current = false;
+    if (resetAutoStart) {
+      hasAutoStartedRef.current = false;
+    }
 
-    // Go to FRESH state but DO NOT clear messages/context
     setUiMode('FRESH');
     setBackendState('IDLE');
     setSttStatus('idle');
     setCurrentTranscript('');
     setCurrentResponse('');
-    scheduleFade();
-  }, [clearInactivityTimeouts, readyState, releaseMic, sendMessage, stopTtsPlayback]);
+
+    if (clearMessages) {
+      setMessages([]);
+      setLatestExchange(null);
+    }
+
+    if (fadeText) {
+      scheduleFade();
+    } else {
+      setTextVisible(false);
+    }
+  }, [clearInactivityTimeouts, readyState, releaseMic, sendMessage, stopTtsPlayback, scheduleFade]);
+
+  // Handle inactivity timeout - close session but preserve context
+  const handleInactivityTimeout = useCallback(() => {
+    console.log('⏰ Inactivity timeout triggered');
+    resetSession({ fadeText: true });
+  }, [resetSession]);
 
   // Schedule listen timeout (when listening with no speech)
   const scheduleListenTimeout = useCallback((options = {}) => {
@@ -363,6 +381,7 @@ function App() {
 
   // Handle backend messages
   useEffect(() => {
+    if (backgroundedRef.current) return;
     if (!lastMessage?.data) return;
 
     try {
@@ -583,23 +602,7 @@ function App() {
   // Clear session
   const handleClear = (e) => {
     e.stopPropagation();
-    clearInactivityTimeouts();
-    // Send clear_session to ensure backend cleans up STT session
-    if (readyState === 1) {
-      sendMessage(JSON.stringify({ type: 'clear_session' }));
-    }
-    stopTtsPlayback();
-    // Release mic locally (no need to pauseListening since clear_session closes the session)
-    releaseMic();
-    hasAutoStartedRef.current = false;
-    setUiMode('FRESH');
-    setBackendState('IDLE');
-    setSttStatus('idle');
-    setMessages([]);
-    setLatestExchange(null);
-    setCurrentTranscript('');
-    setCurrentResponse('');
-    setTextVisible(false);
+    resetSession({ clearMessages: true });
   };
 
   const handlePullUp = (e) => {
@@ -621,6 +624,36 @@ function App() {
     e.stopPropagation();
     setShowSettings(false);
   };
+
+  const handleAppHidden = useCallback(() => {
+    if (backgroundedRef.current) return;
+    backgroundedRef.current = true;
+    setShowHistory(false);
+    setShowSettings(false);
+    resetSession({ resetAutoStart: false });
+  }, [resetSession]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        handleAppHidden();
+      } else {
+        backgroundedRef.current = false;
+      }
+    };
+
+    const handlePageHide = () => {
+      handleAppHidden();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [handleAppHidden]);
 
   // Community-recommended defaults for Deepgram STT
   const defaultSettings = {
@@ -730,8 +763,14 @@ function App() {
 
   return (
     <div className="app" onClick={handleTap}>
-      <button className="settings-button" onClick={handleOpenSettings}>S</button>
-      <div className={`connection-dot ${isConnected ? 'connected' : ''}`} />
+      <div className="top-controls">
+        <div className="top-left-controls">
+          <button className="settings-button" onClick={handleOpenSettings}>S</button>
+        </div>
+        <div className="top-right-controls">
+          <div className={`connection-dot ${isConnected ? 'connected' : ''}`} />
+        </div>
+      </div>
 
       {error && <div className="error">{error}</div>}
 
@@ -932,6 +971,7 @@ function App() {
           </div>
         </div>
       )}
+
     </div>
   );
 }

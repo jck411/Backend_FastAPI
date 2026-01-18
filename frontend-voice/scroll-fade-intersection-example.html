@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scrollable Text with Intersection Fade</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #0a0a0a;
+            color: #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .orb-placeholder {
+            width: 120px;
+            height: 120px;
+            background: radial-gradient(circle, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            margin-bottom: 40px;
+            box-shadow: 0 0 40px rgba(102, 126, 234, 0.5);
+        }
+
+        /*
+         * SCROLLABLE CONTAINER
+         * Simple container with padding, no CSS masking
+         */
+        .scroll-container {
+            max-height: 400px;
+            width: 100%;
+            max-width: 600px;
+            overflow-y: auto;
+            padding: 20px;
+            background: #0a0a0a;
+            position: relative;
+        }
+
+        /* Scrollbar styling */
+        .scroll-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .scroll-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .scroll-container::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+
+        .scroll-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .scroll-container {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+        }
+
+        /*
+         * FADE-IN SECTIONS
+         * Each paragraph/element gets these classes
+         *
+         * Adjustable parameters:
+         * 1. SLIDE DISTANCE: Change translateY value (currently 20px)
+         * 2. FADE DURATION: Change opacity transition (currently 800ms)
+         * 3. SLIDE DURATION: Change transform transition (currently 600ms)
+         */
+        .fade-in-section {
+            opacity: 0;
+            transform: translateY(20px);
+            /* (1) Elements start 20px below their final position */
+            visibility: hidden;
+            transition: opacity 800ms ease-out,
+                transform 0s linear 800ms,
+                /* Delay transform reset until fade out is done */
+                visibility 800ms;
+            will-change: opacity, transform, visibility;
+            margin-bottom: 16px;
+        }
+
+        /* Applied by IntersectionObserver when element enters viewport */
+        .fade-in-section.is-visible {
+            opacity: 1;
+            transform: none;
+            /* Slides to original position */
+            visibility: visible;
+            transition: opacity 800ms ease-out,
+                transform 600ms ease-out,
+                visibility 800ms;
+        }
+
+        .text-content {
+            line-height: 1.6;
+            font-size: 16px;
+        }
+
+        /* Instructions below the container */
+        .instructions {
+            margin-top: 40px;
+            max-width: 600px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .instructions h3 {
+            margin-bottom: 10px;
+            color: #667eea;
+        }
+
+        .instructions code {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Placeholder for the orb -->
+    <div class="orb-placeholder"></div>
+
+    <!-- Scrollable container -->
+    <div class="scroll-container">
+        <div class="text-content" id="text-content">
+            <!-- Paragraphs will be wrapped with fade-in-section class by JavaScript -->
+            <p>This is a scrollable text container with IntersectionObserver-based fade effects.</p>
+
+            <p>As you scroll, each paragraph fades in and slides up as it enters the visible area. This creates a
+                dynamic, engaging reading experience.</p>
+
+            <p>The fade effect uses the IntersectionObserver API to detect when elements enter the viewport, then
+                triggers CSS transitions.</p>
+
+            <p>Unlike CSS masking, which creates a static window effect, this approach animates each element
+                individually as it becomes visible.</p>
+
+            <p>The implementation is pure CSS transitions triggered by JavaScript - no complex animation libraries
+                needed.</p>
+
+            <p>You can easily adjust three key parameters in the CSS:</p>
+
+            <p><strong>1. Slide Distance:</strong> How far elements start below their final position (currently 20px).
+            </p>
+
+            <p><strong>2. Fade Duration:</strong> How long the opacity transition takes (currently 800ms).</p>
+
+            <p><strong>3. Slide Duration:</strong> How long the slide-up animation takes (currently 600ms).</p>
+
+            <p>The scrollbar is styled to be minimal and unobtrusive, matching modern design patterns.</p>
+
+            <p>This approach works great for content that loads all at once, like this example.</p>
+
+            <p>The text continues here to demonstrate the scrolling behavior. Notice how each paragraph smoothly fades
+                in as you scroll down.</p>
+
+            <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et
+                dolore magna aliqua.</p>
+
+            <p>Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo
+                consequat.</p>
+
+            <p>Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur.
+            </p>
+
+            <p>Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est
+                laborum.</p>
+
+            <p>This is the end of the scrollable content. Watch how this final paragraph fades in as you reach the
+                bottom.</p>
+        </div>
+    </div>
+
+    <!-- Instructions -->
+    <div class="instructions">
+        <h3>How to Customize</h3>
+        <p><strong>Slide Distance:</strong> Edit <code>translateY(20px)</code> in <code>.fade-in-section</code></p>
+        <p><strong>Fade Speed:</strong> Change <code>opacity 800ms</code> transition duration</p>
+        <p><strong>Slide Speed:</strong> Change <code>transform 600ms</code> transition duration</p>
+        <p><strong>Threshold:</strong> Adjust <code>threshold: 0.1</code> in JavaScript to change when elements start
+            fading (0 = starts as soon as 1 pixel is visible, 1 = waits until fully visible)</p>
+    </div>
+
+    <script>
+        // Wrap each paragraph in a fade-in container
+        // This could be done in your template/React component instead
+        document.addEventListener('DOMContentLoaded', function () {
+            const textContent = document.getElementById('text-content');
+            const paragraphs = textContent.querySelectorAll('p');
+
+            paragraphs.forEach(p => {
+                p.classList.add('fade-in-section');
+            });
+
+            // Create intersection observer
+            // threshold: 0.1 means trigger when 10% of element is visible
+            // You can adjust this: 0 = trigger immediately, 1 = wait until fully visible
+            const observerOptions = {
+                root: document.querySelector('.scroll-container'), // Observe within scroll container
+                threshold: 0.1, // Trigger when 10% visible
+                rootMargin: '-150px 0px' // Extreme fade zones: only middle 100px is "visible"
+            };
+
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        // Element is now visible, add the class
+                        entry.target.classList.add('is-visible');
+
+                        // Optional: Stop observing once visible (one-time animation)
+                        // Uncomment the next line if you only want elements to fade in once
+                        // observer.unobserve(entry.target);
+                    } else {
+                        // Optional: Remove class when element leaves viewport
+                        // (creates fade-out effect when scrolling back up)
+                        // Comment this out if you want elements to stay visible once shown
+                        entry.target.classList.remove('is-visible');
+                    }
+                });
+            }, observerOptions);
+
+            // Start observing all paragraphs
+            paragraphs.forEach(p => {
+                observer.observe(p);
+            });
+        });
+    </script>
+</body>
+
+</html>

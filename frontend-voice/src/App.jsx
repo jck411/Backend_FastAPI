@@ -110,7 +110,8 @@ function App() {
           setAppState('SPEAKING');
         } else if (s === 'IDLE') {
           // Just update UI, don't try to auto-resume
-          if (currentAppState !== 'PAUSED') {
+          // Don't overwrite FRESH state (user clicked New and wants to start fresh)
+          if (currentAppState !== 'PAUSED' && currentAppState !== 'FRESH') {
             setAppState('LISTENING');  // Stay in listening mode for UI
           }
           scheduleFade();
@@ -222,7 +223,11 @@ function App() {
   // Clear session
   const handleClear = (e) => {
     e.stopPropagation();
-    pauseListening();
+    // Send clear_session to ensure backend cleans up STT session
+    if (readyState === 1) {
+      sendMessage(JSON.stringify({ type: 'clear_session' }));
+    }
+    // Release mic locally (no need to pauseListening since clear_session closes the session)
     releaseMic();
     hasAutoStartedRef.current = false;
     appStateRef.current = 'FRESH';

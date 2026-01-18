@@ -389,6 +389,16 @@ async def handle_connection(
                     stt_service.resume_session(client_id)
                     await manager.update_state(client_id, "IDLE")
 
+            elif event_type == "clear_session":
+                # User clicked "New" - clean up everything for fresh start
+                logger.info(f"User clearing session for {client_id}")
+                await stt_service.close_session(client_id)
+                voice_chat_service.clear_history(client_id)
+                session = manager.get_session(client_id)
+                if session:
+                    session.stt_session_pending = False
+                await manager.update_state(client_id, "IDLE")
+
             elif event_type == "pause_listening":
                 logger.info(f"User paused listening for {client_id}")
                 # Just pause the STT session (keep connection alive with KeepAlive)

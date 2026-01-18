@@ -253,6 +253,17 @@ function App() {
     setShowSettings(false);
   };
 
+  // Community-recommended defaults for Deepgram STT
+  const defaultSettings = {
+    eot_timeout_ms: 1000,  // 1 second - natural conversation pace
+    eot_threshold: 0.7,    // balanced confidence threshold
+  };
+
+  const handleResetDefaults = (e) => {
+    e.stopPropagation();
+    setSttDraft(defaultSettings);
+  };
+
   const handleSaveSettings = async (e) => {
     e.stopPropagation();
     setSettingsSaving(true);
@@ -417,6 +428,13 @@ function App() {
             )}
 
             <div className="settings-actions">
+              <button
+                className="settings-default"
+                onClick={handleResetDefaults}
+                disabled={settingsLoading || settingsSaving}
+              >
+                Default
+              </button>
               <button
                 className="settings-save"
                 onClick={handleSaveSettings}

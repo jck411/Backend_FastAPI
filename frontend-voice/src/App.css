@@ -569,7 +569,33 @@ body,
 .settings-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 10px;
   margin-top: 6px;
+}
+
+.settings-default {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.7);
+  padding: 8px 18px;
+  border-radius: 18px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.settings-default:hover,
+.settings-default:active {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.settings-default:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .settings-save {

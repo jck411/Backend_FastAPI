@@ -1,5 +1,5 @@
 {
-    "eot_threshold": 0.7,
-    "eot_timeout_ms": 5000,
-    "keyterms": []
+  "eot_threshold": 0.7,
+  "eot_timeout_ms": 1000,
+  "keyterms": []
 }

@@ -8,6 +8,13 @@ console.log('🔧 App.jsx v3 loaded');
 
 const clientId = `voice_${crypto.randomUUID()}`;
 
+const deriveAppState = (mode, backend) => {
+  if (backend === 'PROCESSING' || backend === 'SPEAKING') return backend;
+  if (mode === 'PAUSED') return 'PAUSED';
+  if (mode === 'FRESH') return 'FRESH';
+  return 'LISTENING';
+};
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [currentTranscript, setCurrentTranscript] = useState('');
@@ -25,9 +32,16 @@ function App() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
 
-  // States: FRESH, LISTENING, PAUSED, PROCESSING, SPEAKING
-  const [appState, setAppState] = useState('FRESH');
-  const appStateRef = useRef('FRESH');  // Ref to avoid stale closures
+  // UI modes: FRESH (never started), ACTIVE (listening/processing/speaking), PAUSED (user paused)
+  const [uiMode, setUiModeState] = useState('FRESH');
+  const uiModeRef = useRef('FRESH');
+
+  // Backend states: IDLE, LISTENING, PROCESSING, SPEAKING
+  const [backendState, setBackendStateState] = useState('IDLE');
+  const backendStateRef = useRef('IDLE');
+
+  // STT session tracking (local only)
+  const sttStatusRef = useRef('idle'); // idle | starting | ready | paused
 
   const responseRef = useRef('');
   const fadeTimeoutRef = useRef(null);
@@ -53,10 +67,21 @@ function App() {
     handleSessionReady,
   } = useAudioCapture(sendMessage, readyState);
 
-  // Keep appStateRef in sync
-  useEffect(() => {
-    appStateRef.current = appState;
-  }, [appState]);
+  const setUiMode = (nextMode) => {
+    uiModeRef.current = nextMode;
+    setUiModeState(nextMode);
+  };
+
+  const setBackendState = (nextState) => {
+    backendStateRef.current = nextState;
+    setBackendStateState(nextState);
+  };
+
+  const setSttStatus = (nextStatus) => {
+    sttStatusRef.current = nextStatus;
+  };
+
+  const appState = deriveAppState(uiMode, backendState);
 
   // Auto-start on first connect - run only ONCE
   useEffect(() => {
@@ -65,10 +90,11 @@ function App() {
       console.log('🎤 Auto-starting (one-time)...');
       initMic().then(ok => {
         if (ok) {
-          appStateRef.current = 'LISTENING';
-          setAppState('LISTENING');
+          setUiMode('ACTIVE');
+          setBackendState('IDLE');
           setTextVisible(true);
-          startNewConversation();
+          const started = startNewConversation();
+          if (started) setSttStatus('starting');
         }
       });
     }
@@ -90,30 +116,37 @@ function App() {
 
       if (msg.type === 'stt_session_ready') {
         handleSessionReady();
+        if (uiModeRef.current !== 'PAUSED') {
+          setSttStatus('ready');
+        }
+      }
+
+      if (msg.type === 'stt_session_error') {
+        console.warn('STT session error:', msg.error);
+        setSttStatus('idle');
       }
 
       if (msg.type === 'state') {
         const s = msg.state;
-        const currentAppState = appStateRef.current;
+        const currentAppState = deriveAppState(uiModeRef.current, backendStateRef.current);
         console.log('Backend state:', s, '| appState:', currentAppState);
+        setBackendState(s);
 
         if (s === 'LISTENING') {
           // Only update UI if not paused
-          if (currentAppState !== 'PAUSED') {
-            setAppState('LISTENING');
+          if (uiModeRef.current !== 'PAUSED') {
+            if (uiModeRef.current === 'FRESH') {
+              setUiMode('ACTIVE');
+            }
             setTextVisible(true);
           }
           // DON'T send any messages to backend - just update UI
-        } else if (s === 'PROCESSING') {
-          setAppState('PROCESSING');
-        } else if (s === 'SPEAKING') {
-          setAppState('SPEAKING');
-        } else if (s === 'IDLE') {
-          // Just update UI, don't try to auto-resume
-          // Don't overwrite FRESH state (user clicked New and wants to start fresh)
-          if (currentAppState !== 'PAUSED' && currentAppState !== 'FRESH') {
-            setAppState('LISTENING');  // Stay in listening mode for UI
+        } else if (s === 'PROCESSING' || s === 'SPEAKING') {
+          if (uiModeRef.current !== 'ACTIVE') {
+            setUiMode('ACTIVE');
           }
+        } else if (s === 'IDLE') {
+          // Keep UI mode as-is; just fade the transcript after idle.
           scheduleFade();
         }
       }
@@ -186,34 +219,36 @@ function App() {
   }, [showSettings]);
 
   // Handle tap - pause/resume
-  const handleTap = (e) => {
+  const handleTap = () => {
     if (showHistory || showSettings) return;
-    const currentAppState = appStateRef.current;
+    const currentAppState = deriveAppState(uiModeRef.current, backendStateRef.current);
 
     if (currentAppState === 'LISTENING') {
       console.log('🎤 TAP: PAUSE');
-      appStateRef.current = 'PAUSED';
-      setAppState('PAUSED');
-      pauseListening();
+      setUiMode('PAUSED');
+      const paused = pauseListening();
+      if (paused) setSttStatus('paused');
       scheduleFade();
     } else if (currentAppState === 'PAUSED') {
       console.log('🎤 TAP: RESUME');
-      appStateRef.current = 'LISTENING';
-      setAppState('LISTENING');
+      setUiMode('ACTIVE');
+      setBackendState('IDLE');
       setTextVisible(true);
       initMic().then(ok => {
         if (ok) {
-          resumeListening();
+          const resumed = resumeListening();
+          if (resumed) setSttStatus('starting');
         }
       });
     } else if (currentAppState === 'FRESH') {
       console.log('🎤 TAP: FIRST START');
-      appStateRef.current = 'LISTENING';
+      setUiMode('ACTIVE');
+      setBackendState('IDLE');
       setTextVisible(true);
       initMic().then(ok => {
         if (ok) {
-          setAppState('LISTENING');
-          startNewConversation();
+          const started = startNewConversation();
+          if (started) setSttStatus('starting');
         }
       });
     }
@@ -230,8 +265,9 @@ function App() {
     // Release mic locally (no need to pauseListening since clear_session closes the session)
     releaseMic();
     hasAutoStartedRef.current = false;
-    appStateRef.current = 'FRESH';
-    setAppState('FRESH');
+    setUiMode('FRESH');
+    setBackendState('IDLE');
+    setSttStatus('idle');
     setMessages([]);
     setLatestExchange(null);
     setCurrentTranscript('');

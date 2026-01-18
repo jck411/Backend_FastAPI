@@ -127,7 +127,7 @@ export default function useAudioCapture(sendMessage, readyState) {
 
         if (readyStateRef.current !== ReadyState.OPEN) {
             console.log('🎤 WebSocket not ready, skipping');
-            return;
+            return false;
         }
 
         sessionReadyRef.current = false;
@@ -136,6 +136,7 @@ export default function useAudioCapture(sendMessage, readyState) {
 
         // This tells backend to clear history and start fresh STT session
         sendMessage(JSON.stringify({ type: 'wakeword_detected', confidence: 1.0 }));
+        return true;
     }, [sendMessage]);
 
     // Resume listening (keeps history on backend)
@@ -144,7 +145,7 @@ export default function useAudioCapture(sendMessage, readyState) {
 
         if (readyStateRef.current !== ReadyState.OPEN) {
             console.log('🎤 WebSocket not ready, skipping');
-            return;
+            return false;
         }
 
         pausedRef.current = false;
@@ -152,6 +153,7 @@ export default function useAudioCapture(sendMessage, readyState) {
 
         // Resume existing session without clearing history
         sendMessage(JSON.stringify({ type: 'resume_listening' }));
+        return true;
     }, [sendMessage]);
 
     // Pause listening (keeps session alive on backend with KeepAlive)
@@ -160,13 +162,14 @@ export default function useAudioCapture(sendMessage, readyState) {
 
         if (readyStateRef.current !== ReadyState.OPEN) {
             console.log('🎤 WebSocket not ready, skipping');
-            return;
+            return false;
         }
 
         pausedRef.current = true;
         sessionReadyRef.current = false;
         pendingBuffersRef.current = [];
         sendMessage(JSON.stringify({ type: 'pause_listening' }));
+        return true;
     }, [sendMessage]);
 
     // Backend signals STT session is ready

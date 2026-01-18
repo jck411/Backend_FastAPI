@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/clients", tags=["Client Settings"])
 
 # Valid client IDs to prevent arbitrary directory creation
-VALID_CLIENTS = {"kiosk", "svelte", "cli"}
+VALID_CLIENTS = {"kiosk", "svelte", "cli", "voice"}
 
 
 def validate_client_id(client_id: str = Path(..., description="Client identifier")) -> str:

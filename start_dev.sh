@@ -43,6 +43,17 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
+# Open firewall ports for network access (phone, other devices)
+open_firewall_ports() {
+    if command -v firewall-cmd &>/dev/null && sudo firewall-cmd --state &>/dev/null 2>&1; then
+        echo "Opening firewall ports for network access..."
+        for port in 5173 5174 5175 8000; do
+            sudo firewall-cmd --add-port=${port}/tcp --quiet 2>/dev/null || true
+        done
+    fi
+}
+open_firewall_ports
+
 # Start the backend
 echo "Cleaning up port 8000..."
 uv run python scripts/kill_port.py 8000
@@ -104,9 +115,16 @@ if [ -n "$LOCAL_IP" ]; then
     echo "  Backend:        https://${LOCAL_IP}:8000"
     echo "  Svelte Chat UI: http://${LOCAL_IP}:5173"
     echo "  Kiosk UI:       https://${LOCAL_IP}:5174"
-    echo "  Voice PWA:      https://${LOCAL_IP}:5175"
+    echo "  Voice PWA:      https://${LOCAL_IP}:5175/voice/"
     echo ""
     echo "NOTE: Accept the certificate warning on first visit."
+
+    # Show QR code for Voice PWA if qrencode is available
+    if command -v qrencode &>/dev/null; then
+        echo ""
+        echo "📱 Scan to open Voice PWA on your phone:"
+        qrencode -t ANSIUTF8 -m 2 "https://${LOCAL_IP}:5175/voice/"
+    fi
 else
     echo "From other machines, use your machine's IP address."
 fi

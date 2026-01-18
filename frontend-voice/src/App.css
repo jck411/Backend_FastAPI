@@ -470,6 +470,26 @@ body,
   background: rgba(239, 68, 68, 0.25);
 }
 
+/* Stop response button */
+.stop-button {
+  background: rgba(251, 191, 36, 0.16);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fde68a;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.stop-button:hover,
+.stop-button:active {
+  background: rgba(251, 191, 36, 0.28);
+}
+
 /* Pull-up indicator */
 .pull-indicator {
   display: flex;

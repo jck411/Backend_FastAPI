@@ -51,6 +51,7 @@ function App() {
   const sttStatusRef = useRef('idle'); // idle | starting | ready | paused
 
   const responseRef = useRef('');
+  const responseInterruptedRef = useRef(false);
   const fadeTimeoutRef = useRef(null);
   const hasAutoStartedRef = useRef(false);
   const audioContextRef = useRef(null);
@@ -310,6 +311,27 @@ function App() {
     }, startDelayMs);
   }, [clearTimeoutCountdown]);
 
+  const finalizePartialResponse = useCallback(() => {
+    const partial = responseRef.current;
+    if (partial) {
+      setMessages(prev => [...prev, { role: 'assistant', content: partial }]);
+      setLatestExchange(prev => ({ ...(prev || {}), assistant: partial }));
+    }
+    responseRef.current = '';
+    setCurrentResponse('');
+  }, [setLatestExchange, setMessages]);
+
+  const interruptResponse = useCallback(() => {
+    responseInterruptedRef.current = true;
+    clearInactivityTimeouts();
+    stopTtsPlayback();
+    finalizePartialResponse();
+
+    if (readyState === 1) {
+      sendMessage(JSON.stringify({ type: 'wakeword_barge_in', manual: true }));
+    }
+  }, [clearInactivityTimeouts, finalizePartialResponse, readyState, sendMessage, stopTtsPlayback]);
+
   const resetSession = useCallback((options = {}) => {
     const { clearMessages = false, fadeText = false, resetAutoStart = true } = options;
     clearInactivityTimeouts();
@@ -329,6 +351,8 @@ function App() {
     setSttStatus('idle');
     setCurrentTranscript('');
     setCurrentResponse('');
+    responseRef.current = '';
+    responseInterruptedRef.current = false;
 
     if (clearMessages) {
       setMessages([]);
@@ -401,26 +425,30 @@ function App() {
 
       if (msg.type === 'interrupt_tts') {
         console.log('TTS interrupted');
+        responseInterruptedRef.current = true;
         stopTtsPlayback();
       }
 
       if (msg.type === 'tts_audio_start') {
+        responseInterruptedRef.current = false;
         const sampleRate = Number(msg.sample_rate) || 24000;
         ttsSampleRateRef.current = sampleRate;
         resetTtsPlayback();
       }
 
       if (msg.type === 'tts_audio_chunk') {
-        if (msg.data) {
-          playTtsChunk(msg.data);
-        }
-        if (msg.is_last) {
-          scheduleTtsPlaybackEnd();
+        if (!responseInterruptedRef.current) {
+          if (msg.data) {
+            playTtsChunk(msg.data);
+          }
+          if (msg.is_last) {
+            scheduleTtsPlaybackEnd();
+          }
         }
       }
 
       if (msg.type === 'tts_audio') {
-        if (msg.data) {
+        if (!responseInterruptedRef.current && msg.data) {
           playTtsChunk(msg.data);
         }
       }
@@ -473,20 +501,25 @@ function App() {
       }
 
       if (msg.type === 'assistant_response_start') {
+        responseInterruptedRef.current = false;
         responseRef.current = '';
         setCurrentResponse('');
         setTextVisible(true);
       } else if (msg.type === 'assistant_response_chunk') {
-        responseRef.current += (msg.text || '');
-        setCurrentResponse(responseRef.current);
-      } else if (msg.type === 'assistant_response_end') {
-        const finalText = responseRef.current || msg.text || '';
-        if (finalText) {
-          setMessages(prev => [...prev, { role: 'assistant', content: finalText }]);
-          setLatestExchange(prev => ({ ...prev, assistant: finalText }));
+        if (!responseInterruptedRef.current) {
+          responseRef.current += (msg.text || '');
+          setCurrentResponse(responseRef.current);
         }
-        responseRef.current = '';
-        setCurrentResponse('');
+      } else if (msg.type === 'assistant_response_end') {
+        if (!responseInterruptedRef.current) {
+          const finalText = responseRef.current || msg.text || '';
+          if (finalText) {
+            setMessages(prev => [...prev, { role: 'assistant', content: finalText }]);
+            setLatestExchange(prev => ({ ...prev, assistant: finalText }));
+          }
+          responseRef.current = '';
+          setCurrentResponse('');
+        }
       }
 
     } catch (e) {
@@ -562,6 +595,12 @@ function App() {
     if (showHistory || showSettings) return;
     const currentAppState = deriveAppState(uiModeRef.current, backendStateRef.current);
 
+    if (currentAppState === 'PROCESSING' || currentAppState === 'SPEAKING') {
+      console.log('🎤 TAP: INTERRUPT');
+      interruptResponse();
+      return;
+    }
+
     if (currentAppState === 'LISTENING') {
       console.log('🎤 TAP: PAUSE');
       clearInactivityTimeouts();
@@ -596,13 +635,18 @@ function App() {
         }
       });
     }
-    // Don't do anything for PROCESSING or SPEAKING states
+    // Other states are handled above.
   };
 
   // Clear session
   const handleClear = (e) => {
     e.stopPropagation();
     resetSession({ clearMessages: true });
+  };
+
+  const handleStop = (e) => {
+    e.stopPropagation();
+    interruptResponse();
   };
 
   const handlePullUp = (e) => {
@@ -821,6 +865,9 @@ function App() {
       </div>
 
       <div className="bottom-controls">
+        {(appState === 'PROCESSING' || appState === 'SPEAKING') && (
+          <button className="stop-button" onClick={handleStop}>Stop</button>
+        )}
         {(appState === 'PAUSED' || (messages.length > 0 && appState !== 'LISTENING')) && (
           <button className="new-button" onClick={handleClear}>New</button>
         )}

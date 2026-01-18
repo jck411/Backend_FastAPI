@@ -68,6 +68,7 @@ async def handle_connection(
                 nonlocal tts_cancel_event, tts_task
                 tts_cancel_event = asyncio.Event()
                 full_response = ""
+                response_interrupted = False
 
                 # Create TTS streaming pipeline
                 (
@@ -135,6 +136,11 @@ async def handle_connection(
                     async for event in voice_chat_service.generate_response_streaming(
                         text, client_id
                     ):
+                        if tts_cancel_event.is_set():
+                            response_interrupted = True
+                            logger.info(f"LLM stream interrupted for {client_id}")
+                            break
+
                         if event["type"] == "text_chunk":
                             chunk = event["content"]
                             full_response += chunk
@@ -168,7 +174,11 @@ async def handle_connection(
                     # Signal end of streaming (to THIS client only)
                     await manager.send_message(
                         client_id,
-                        {"type": "assistant_response_end", "text": full_response},
+                        {
+                            "type": "assistant_response_end",
+                            "text": full_response,
+                            "interrupted": response_interrupted,
+                        },
                     )
 
                 except Exception as e:
@@ -194,18 +204,24 @@ async def handle_connection(
                     logger.info("TTS tasks were cancelled")
 
                 # Transition back based on conversation mode
-                try:
-                    llm_settings = get_client_settings_service("voice").get_llm()
-                    if llm_settings.conversation_mode:
-                        logger.info(
-                            f"Conversation mode active for {client_id}, listening for reply"
-                        )
-                        await manager.update_state(client_id, "LISTENING")
-                    else:
+                interrupted = response_interrupted or tts_cancel_event.is_set()
+                if interrupted:
+                    logger.info(
+                        f"Response interrupted for {client_id}, leaving state as-is"
+                    )
+                else:
+                    try:
+                        llm_settings = get_client_settings_service("voice").get_llm()
+                        if llm_settings.conversation_mode:
+                            logger.info(
+                                f"Conversation mode active for {client_id}, listening for reply"
+                            )
+                            await manager.update_state(client_id, "LISTENING")
+                        else:
+                            await manager.update_state(client_id, "IDLE")
+                    except Exception as e:
+                        logger.error(f"Error transitioning state after speaking: {e}")
                         await manager.update_state(client_id, "IDLE")
-                except Exception as e:
-                    logger.error(f"Error transitioning state after speaking: {e}")
-                    await manager.update_state(client_id, "IDLE")
 
         async def on_stt_error(error: str):
             logger.error(f"STT Error for {client_id}: {error}")

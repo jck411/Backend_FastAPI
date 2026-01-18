@@ -1014,15 +1014,12 @@ function App() {
             </svg>
           </button>
           <button
-            className="refresh-button"
+            className="clear-button"
             onClick={handleClear}
-            aria-label="Start a new session"
-            title="New session"
+            aria-label="Clear conversation"
+            title="Clear"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
-              <path d="M20 4v5h-5" />
-              <path d="M20 9a8 8 0 1 1-5.66-4.7" />
-            </svg>
+            Clear
           </button>
         </div>
         <div className="top-right-controls">

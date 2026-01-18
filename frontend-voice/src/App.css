@@ -60,8 +60,7 @@ body,
 }
 
 /* Control buttons */
-.settings-button,
-.refresh-button {
+.settings-button {
   width: 36px;
   height: 36px;
   border: none;
@@ -75,8 +74,7 @@ body,
   transition: color 0.2s ease, opacity 0.2s ease;
 }
 
-.settings-button svg,
-.refresh-button svg {
+.settings-button svg {
   width: 20px;
   height: 20px;
   stroke: currentColor;
@@ -85,19 +83,51 @@ body,
   stroke-linejoin: round;
 }
 
-.settings-button:hover,
-.refresh-button:hover {
+.settings-button:hover {
   color: rgba(255, 255, 255, 0.85);
 }
 
-.settings-button:active,
-.refresh-button:active {
+.settings-button:active {
   color: rgba(255, 255, 255, 1);
 }
 
-.settings-button:focus-visible,
-.refresh-button:focus-visible {
+.settings-button:focus-visible {
   outline: 1px solid rgba(255, 255, 255, 0.3);
+  outline-offset: 2px;
+}
+
+/* Clear button - glassmorphic text style */
+.clear-button {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 7px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.clear-button:hover {
+  color: rgba(255, 255, 255, 0.85);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.06) 100%);
+  border-color: rgba(255, 255, 255, 0.22);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+.clear-button:active {
+  color: rgba(255, 255, 255, 1);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.08) 100%);
+  transform: scale(0.96);
+}
+
+.clear-button:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.35);
   outline-offset: 2px;
 }
 

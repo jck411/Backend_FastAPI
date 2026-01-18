@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import useWebSocket from 'react-use-websocket';
 import './App.css';
 import useAudioCapture from './hooks/useAudioCapture';
@@ -28,6 +28,9 @@ function App() {
     eot_timeout_ms: 5000,
     eot_threshold: 0.7,
   });
+  const [ttsDraft, setTtsDraft] = useState({
+    enabled: false,
+  });
   const [settingsError, setSettingsError] = useState(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -46,6 +49,12 @@ function App() {
   const responseRef = useRef('');
   const fadeTimeoutRef = useRef(null);
   const hasAutoStartedRef = useRef(false);
+  const audioContextRef = useRef(null);
+  const nextPlayTimeRef = useRef(0);
+  const ttsSampleRateRef = useRef(24000);
+  const hasTtsPlaybackStartedRef = useRef(false);
+  const ttsEndTimeoutRef = useRef(null);
+  const scheduledSourcesRef = useRef([]);
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
@@ -80,6 +89,133 @@ function App() {
   const setSttStatus = (nextStatus) => {
     sttStatusRef.current = nextStatus;
   };
+
+  const getAudioContext = useCallback(() => {
+    if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({
+        sampleRate: ttsSampleRateRef.current,
+      });
+      console.log(`Created AudioContext with sample rate: ${ttsSampleRateRef.current}`);
+    }
+
+    if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+
+    return audioContextRef.current;
+  }, []);
+
+  const primeAudioContext = useCallback(() => {
+    try {
+      getAudioContext();
+    } catch (err) {
+      console.warn('Failed to prime audio context:', err);
+    }
+  }, [getAudioContext]);
+
+  const resetTtsPlayback = useCallback(() => {
+    if (ttsEndTimeoutRef.current) {
+      clearTimeout(ttsEndTimeoutRef.current);
+      ttsEndTimeoutRef.current = null;
+    }
+
+    scheduledSourcesRef.current.forEach(source => {
+      try {
+        source.stop();
+      } catch {
+        // Best-effort stop for already-ended sources.
+      }
+    });
+    scheduledSourcesRef.current = [];
+    nextPlayTimeRef.current = 0;
+    hasTtsPlaybackStartedRef.current = false;
+
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+    }
+    audioContextRef.current = null;
+  }, []);
+
+  const stopTtsPlayback = useCallback(() => {
+    if (ttsEndTimeoutRef.current) {
+      clearTimeout(ttsEndTimeoutRef.current);
+      ttsEndTimeoutRef.current = null;
+    }
+
+    scheduledSourcesRef.current.forEach(source => {
+      try {
+        source.stop();
+      } catch {
+        // Best-effort stop for already-ended sources.
+      }
+    });
+    scheduledSourcesRef.current = [];
+    nextPlayTimeRef.current = 0;
+
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+    }
+    audioContextRef.current = null;
+
+    if (hasTtsPlaybackStartedRef.current) {
+      sendMessage(JSON.stringify({ type: 'tts_playback_end' }));
+    }
+    hasTtsPlaybackStartedRef.current = false;
+  }, [sendMessage]);
+
+  const scheduleTtsPlaybackEnd = useCallback(() => {
+    const ctx = audioContextRef.current;
+    if (!ctx || !hasTtsPlaybackStartedRef.current) {
+      return;
+    }
+
+    const remaining = Math.max(0, nextPlayTimeRef.current - ctx.currentTime);
+    if (ttsEndTimeoutRef.current) clearTimeout(ttsEndTimeoutRef.current);
+    ttsEndTimeoutRef.current = setTimeout(() => {
+      sendMessage(JSON.stringify({ type: 'tts_playback_end' }));
+      hasTtsPlaybackStartedRef.current = false;
+      scheduledSourcesRef.current = [];
+      nextPlayTimeRef.current = 0;
+    }, remaining * 1000 + 100);
+  }, [sendMessage]);
+
+  const playTtsChunk = useCallback((base64Audio) => {
+    try {
+      const ctx = getAudioContext();
+      const binaryString = atob(base64Audio);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const samples = new Int16Array(bytes.buffer);
+      const floatSamples = new Float32Array(samples.length);
+      for (let i = 0; i < samples.length; i++) {
+        floatSamples[i] = samples[i] / 32768;
+      }
+
+      const audioBuffer = ctx.createBuffer(1, floatSamples.length, ttsSampleRateRef.current);
+      audioBuffer.getChannelData(0).set(floatSamples);
+
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(ctx.destination);
+
+      const currentTime = ctx.currentTime;
+      const startTime = Math.max(nextPlayTimeRef.current, currentTime);
+      source.start(startTime);
+      scheduledSourcesRef.current.push(source);
+
+      nextPlayTimeRef.current = startTime + audioBuffer.duration;
+
+      if (!hasTtsPlaybackStartedRef.current) {
+        hasTtsPlaybackStartedRef.current = true;
+        sendMessage(JSON.stringify({ type: 'tts_playback_start' }));
+      }
+    } catch (err) {
+      console.error('Failed to play audio chunk:', err);
+    }
+  }, [getAudioContext, sendMessage]);
 
   const appState = deriveAppState(uiMode, backendState);
 
@@ -124,6 +260,32 @@ function App() {
       if (msg.type === 'stt_session_error') {
         console.warn('STT session error:', msg.error);
         setSttStatus('idle');
+      }
+
+      if (msg.type === 'interrupt_tts') {
+        console.log('TTS interrupted');
+        stopTtsPlayback();
+      }
+
+      if (msg.type === 'tts_audio_start') {
+        const sampleRate = Number(msg.sample_rate) || 24000;
+        ttsSampleRateRef.current = sampleRate;
+        resetTtsPlayback();
+      }
+
+      if (msg.type === 'tts_audio_chunk') {
+        if (msg.data) {
+          playTtsChunk(msg.data);
+        }
+        if (msg.is_last) {
+          scheduleTtsPlaybackEnd();
+        }
+      }
+
+      if (msg.type === 'tts_audio') {
+        if (msg.data) {
+          playTtsChunk(msg.data);
+        }
       }
 
       if (msg.type === 'state') {
@@ -181,7 +343,7 @@ function App() {
     } catch (e) {
       console.error('Parse error:', e);
     }
-  }, [lastMessage, handleSessionReady]);
+  }, [handleSessionReady, lastMessage, playTtsChunk, resetTtsPlayback, scheduleTtsPlaybackEnd, stopTtsPlayback]);
 
   // Load STT settings when opening settings panel
   useEffect(() => {
@@ -191,27 +353,52 @@ function App() {
     setSettingsLoading(true);
     setSettingsError(null);
 
-    fetch('/api/clients/voice/stt')
-      .then(resp => {
-        if (!resp.ok) throw new Error('Failed to load settings');
-        return resp.json();
-      })
-      .then(data => {
-        if (cancelled) return;
-        const normalized = {
-          eot_timeout_ms: Number(data.eot_timeout_ms ?? 5000),
-          eot_threshold: Number(data.eot_threshold ?? 0.7),
-        };
-        setSttDraft(normalized);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSettingsError('Failed to load settings');
-      })
-      .finally(() => {
-        if (cancelled) return;
+    const loadSettings = async () => {
+      let hadError = false;
+
+      try {
+        const sttResp = await fetch('/api/clients/voice/stt');
+        if (!sttResp.ok) {
+          hadError = true;
+        } else {
+          const data = await sttResp.json();
+          if (!cancelled) {
+            const normalized = {
+              eot_timeout_ms: Number(data.eot_timeout_ms ?? 5000),
+              eot_threshold: Number(data.eot_threshold ?? 0.7),
+            };
+            setSttDraft(normalized);
+          }
+        }
+      } catch {
+        hadError = true;
+      }
+
+      try {
+        const ttsResp = await fetch('/api/clients/voice/tts');
+        if (!ttsResp.ok) {
+          hadError = true;
+        } else {
+          const data = await ttsResp.json();
+          if (!cancelled) {
+            setTtsDraft({
+              enabled: Boolean(data.enabled),
+            });
+          }
+        }
+      } catch {
+        hadError = true;
+      }
+
+      if (!cancelled) {
+        if (hadError) {
+          setSettingsError('Failed to load settings');
+        }
         setSettingsLoading(false);
-      });
+      }
+    };
+
+    loadSettings();
 
     return () => {
       cancelled = true;
@@ -220,6 +407,7 @@ function App() {
 
   // Handle tap - pause/resume
   const handleTap = () => {
+    primeAudioContext();
     if (showHistory || showSettings) return;
     const currentAppState = deriveAppState(uiModeRef.current, backendStateRef.current);
 
@@ -262,6 +450,7 @@ function App() {
     if (readyState === 1) {
       sendMessage(JSON.stringify({ type: 'clear_session' }));
     }
+    stopTtsPlayback();
     // Release mic locally (no need to pauseListening since clear_session closes the session)
     releaseMic();
     hasAutoStartedRef.current = false;
@@ -287,6 +476,7 @@ function App() {
     e.stopPropagation();
     setShowHistory(false);
     setShowSettings(true);
+    primeAudioContext();
   };
 
   const handleCloseSettings = (e) => {
@@ -303,6 +493,17 @@ function App() {
   const handleResetDefaults = (e) => {
     e.stopPropagation();
     setSttDraft(defaultSettings);
+  };
+
+  const handleToggleTts = (e) => {
+    e.stopPropagation();
+    const nextEnabled = !ttsDraft.enabled;
+    setTtsDraft({ enabled: nextEnabled });
+    if (nextEnabled) {
+      primeAudioContext();
+    } else {
+      stopTtsPlayback();
+    }
   };
 
   const handleSaveSettings = async (e) => {
@@ -322,16 +523,42 @@ function App() {
         body: JSON.stringify(payload),
       });
 
+      let hadError = false;
+
       if (!resp.ok) {
+        hadError = true;
+      } else {
+        const data = await resp.json();
+        const normalized = {
+          eot_timeout_ms: Number(data.eot_timeout_ms ?? payload.eot_timeout_ms),
+          eot_threshold: Number(data.eot_threshold ?? payload.eot_threshold),
+        };
+        setSttDraft(normalized);
+      }
+
+      const ttsPayload = {
+        enabled: Boolean(ttsDraft.enabled),
+      };
+
+      const ttsResp = await fetch('/api/clients/voice/tts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ttsPayload),
+      });
+
+      if (!ttsResp.ok) {
+        hadError = true;
+      } else {
+        const data = await ttsResp.json();
+        setTtsDraft({
+          enabled: Boolean(data.enabled),
+        });
+      }
+
+      if (hadError) {
         throw new Error('Failed to save settings');
       }
 
-      const data = await resp.json();
-      const normalized = {
-        eot_timeout_ms: Number(data.eot_timeout_ms ?? payload.eot_timeout_ms),
-        eot_threshold: Number(data.eot_threshold ?? payload.eot_threshold),
-      };
-      setSttDraft(normalized);
       setShowSettings(false);
     } catch {
       setSettingsError('Failed to save settings');
@@ -430,6 +657,17 @@ function App() {
               <div className="settings-loading">Loading...</div>
             ) : (
               <>
+                <div className="settings-row">
+                  <div className="settings-label">Text to speech</div>
+                  <button
+                    className={`settings-toggle ${ttsDraft.enabled ? 'on' : ''}`}
+                    onClick={handleToggleTts}
+                    disabled={settingsSaving}
+                  >
+                    {ttsDraft.enabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+
                 <div className="settings-row">
                   <div className="settings-label">End of turn timeout</div>
                   <div className="settings-value">{sttDraft.eot_timeout_ms} ms</div>

@@ -1,20 +1,20 @@
 {
-    "enabled": false,
-    "provider": "openai",
-    "model": "tts-1",
-    "voice": "alloy",
-    "speed": 1.0,
-    "response_format": "pcm",
-    "sample_rate": 24000,
-    "use_segmentation": true,
-    "delimiters": [
-        "\n",
-        ". ",
-        "? ",
-        "! ",
-        "* ",
-        ", ",
-        ": "
-    ],
-    "character_maximum": 50
+  "enabled": false,
+  "provider": "openai",
+  "model": "tts-1",
+  "voice": "alloy",
+  "speed": 1.0,
+  "response_format": "pcm",
+  "sample_rate": 24000,
+  "use_segmentation": true,
+  "delimiters": [
+    "\n",
+    ". ",
+    "? ",
+    "! ",
+    "* ",
+    ", ",
+    ": "
+  ],
+  "character_maximum": 50
 }

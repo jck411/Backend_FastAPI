@@ -27,6 +27,8 @@ function App() {
   const [sttDraft, setSttDraft] = useState({
     eot_timeout_ms: 5000,
     eot_threshold: 0.7,
+    pause_timeout_seconds: 30,
+    listen_timeout_seconds: 15,
   });
   const [ttsDraft, setTtsDraft] = useState({
     enabled: false,
@@ -55,6 +57,11 @@ function App() {
   const hasTtsPlaybackStartedRef = useRef(false);
   const ttsEndTimeoutRef = useRef(null);
   const scheduledSourcesRef = useRef([]);
+
+  // Inactivity timeout refs
+  const pauseTimeoutRef = useRef(null);
+  const listenTimeoutRef = useRef(null);
+  const sttDraftRef = useRef(sttDraft);  // Keep ref in sync for use in callbacks
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
@@ -243,6 +250,71 @@ function App() {
     fadeTimeoutRef.current = setTimeout(() => setTextVisible(false), 5000);
   };
 
+  // Keep sttDraftRef in sync with sttDraft state
+  useEffect(() => {
+    sttDraftRef.current = sttDraft;
+  }, [sttDraft]);
+
+  // Clear all inactivity timeouts
+  const clearInactivityTimeouts = useCallback(() => {
+    if (pauseTimeoutRef.current) {
+      clearTimeout(pauseTimeoutRef.current);
+      pauseTimeoutRef.current = null;
+    }
+    if (listenTimeoutRef.current) {
+      clearTimeout(listenTimeoutRef.current);
+      listenTimeoutRef.current = null;
+    }
+  }, []);
+
+  // Handle inactivity timeout - close session but preserve context
+  const handleInactivityTimeout = useCallback(() => {
+    console.log('⏰ Inactivity timeout triggered');
+    clearInactivityTimeouts();
+
+    // Send clear_session to close Deepgram session (stops billing)
+    if (readyState === 1) {
+      sendMessage(JSON.stringify({ type: 'clear_session' }));
+    }
+    stopTtsPlayback();
+    releaseMic();
+    hasAutoStartedRef.current = false;
+
+    // Go to FRESH state but DO NOT clear messages/context
+    setUiMode('FRESH');
+    setBackendState('IDLE');
+    setSttStatus('idle');
+    setCurrentTranscript('');
+    setCurrentResponse('');
+    scheduleFade();
+  }, [clearInactivityTimeouts, readyState, releaseMic, sendMessage, stopTtsPlayback]);
+
+  // Schedule listen timeout (when listening with no speech)
+  const scheduleListenTimeout = useCallback(() => {
+    clearInactivityTimeouts();
+    const seconds = sttDraftRef.current.listen_timeout_seconds;
+    if (seconds <= 0) return; // Disabled
+
+    console.log(`⏱️ Starting listen timeout: ${seconds}s`);
+    listenTimeoutRef.current = setTimeout(() => {
+      console.log('⏰ Listen timeout expired');
+      handleInactivityTimeout();
+    }, seconds * 1000);
+  }, [clearInactivityTimeouts, handleInactivityTimeout]);
+
+  // Schedule pause timeout (when paused)
+  const schedulePauseTimeout = useCallback(() => {
+    clearInactivityTimeouts();
+    const seconds = sttDraftRef.current.pause_timeout_seconds;
+    if (seconds <= 0) return; // Disabled
+
+    console.log(`⏱️ Starting pause timeout: ${seconds}s`);
+    pauseTimeoutRef.current = setTimeout(() => {
+      console.log('⏰ Pause timeout expired');
+      handleInactivityTimeout();
+    }, seconds * 1000);
+  }, [clearInactivityTimeouts, handleInactivityTimeout]);
+
   // Handle backend messages
   useEffect(() => {
     if (!lastMessage?.data) return;
@@ -304,16 +376,26 @@ function App() {
           }
           // DON'T send any messages to backend - just update UI
         } else if (s === 'PROCESSING' || s === 'SPEAKING') {
+          // Clear timeouts while processing/speaking - don't timeout during activity
+          clearInactivityTimeouts();
           if (uiModeRef.current !== 'ACTIVE') {
             setUiMode('ACTIVE');
           }
         } else if (s === 'IDLE') {
           // Keep UI mode as-is; just fade the transcript after idle.
           scheduleFade();
+          // If ACTIVE (not paused/fresh), schedule listen timeout
+          if (uiModeRef.current === 'ACTIVE') {
+            scheduleListenTimeout();
+          }
         }
       }
 
       if (msg.type === 'transcript') {
+        // Reset listen timeout on any transcript (user is speaking)
+        if (uiModeRef.current === 'ACTIVE') {
+          clearInactivityTimeouts();
+        }
         setCurrentTranscript(msg.text || '');
         setTextVisible(true);
         if (msg.is_final && msg.text) {
@@ -343,7 +425,7 @@ function App() {
     } catch (e) {
       console.error('Parse error:', e);
     }
-  }, [handleSessionReady, lastMessage, playTtsChunk, resetTtsPlayback, scheduleTtsPlaybackEnd, stopTtsPlayback]);
+  }, [clearInactivityTimeouts, handleSessionReady, lastMessage, playTtsChunk, resetTtsPlayback, scheduleListenTimeout, scheduleTtsPlaybackEnd, stopTtsPlayback]);
 
   // Load STT settings when opening settings panel
   useEffect(() => {
@@ -366,6 +448,8 @@ function App() {
             const normalized = {
               eot_timeout_ms: Number(data.eot_timeout_ms ?? 5000),
               eot_threshold: Number(data.eot_threshold ?? 0.7),
+              pause_timeout_seconds: Number(data.pause_timeout_seconds ?? 30),
+              listen_timeout_seconds: Number(data.listen_timeout_seconds ?? 15),
             };
             setSttDraft(normalized);
           }
@@ -413,12 +497,16 @@ function App() {
 
     if (currentAppState === 'LISTENING') {
       console.log('🎤 TAP: PAUSE');
+      clearInactivityTimeouts();
       setUiMode('PAUSED');
       const paused = pauseListening();
       if (paused) setSttStatus('paused');
       scheduleFade();
+      // Schedule pause timeout
+      schedulePauseTimeout();
     } else if (currentAppState === 'PAUSED') {
       console.log('🎤 TAP: RESUME');
+      clearInactivityTimeouts();
       setUiMode('ACTIVE');
       setBackendState('IDLE');
       setTextVisible(true);
@@ -430,6 +518,7 @@ function App() {
       });
     } else if (currentAppState === 'FRESH') {
       console.log('🎤 TAP: FIRST START');
+      clearInactivityTimeouts();
       setUiMode('ACTIVE');
       setBackendState('IDLE');
       setTextVisible(true);
@@ -488,6 +577,8 @@ function App() {
   const defaultSettings = {
     eot_timeout_ms: 1000,  // 1 second - natural conversation pace
     eot_threshold: 0.7,    // balanced confidence threshold
+    pause_timeout_seconds: 30,   // 30 seconds when paused
+    listen_timeout_seconds: 15,  // 15 seconds of no speech
   };
 
   const handleResetDefaults = (e) => {
@@ -515,6 +606,8 @@ function App() {
       const payload = {
         eot_timeout_ms: Number(sttDraft.eot_timeout_ms),
         eot_threshold: Number(sttDraft.eot_threshold),
+        pause_timeout_seconds: Number(sttDraft.pause_timeout_seconds),
+        listen_timeout_seconds: Number(sttDraft.listen_timeout_seconds),
       };
 
       const resp = await fetch('/api/clients/voice/stt', {
@@ -532,6 +625,8 @@ function App() {
         const normalized = {
           eot_timeout_ms: Number(data.eot_timeout_ms ?? payload.eot_timeout_ms),
           eot_threshold: Number(data.eot_threshold ?? payload.eot_threshold),
+          pause_timeout_seconds: Number(data.pause_timeout_seconds ?? payload.pause_timeout_seconds),
+          listen_timeout_seconds: Number(data.listen_timeout_seconds ?? payload.listen_timeout_seconds),
         };
         setSttDraft(normalized);
       }
@@ -700,6 +795,44 @@ function App() {
                     onChange={(e) => setSttDraft(prev => ({
                       ...prev,
                       eot_threshold: Number(e.target.value),
+                    }))}
+                  />
+                </div>
+
+                <div className="settings-row">
+                  <div className="settings-label">Pause timeout</div>
+                  <div className="settings-value">
+                    {sttDraft.pause_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.pause_timeout_seconds}s`}
+                  </div>
+                  <input
+                    className="settings-slider"
+                    type="range"
+                    min="0"
+                    max="600"
+                    step="5"
+                    value={sttDraft.pause_timeout_seconds}
+                    onChange={(e) => setSttDraft(prev => ({
+                      ...prev,
+                      pause_timeout_seconds: Number(e.target.value),
+                    }))}
+                  />
+                </div>
+
+                <div className="settings-row">
+                  <div className="settings-label">Listen timeout</div>
+                  <div className="settings-value">
+                    {sttDraft.listen_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.listen_timeout_seconds}s`}
+                  </div>
+                  <input
+                    className="settings-slider"
+                    type="range"
+                    min="0"
+                    max="600"
+                    step="5"
+                    value={sttDraft.listen_timeout_seconds}
+                    onChange={(e) => setSttDraft(prev => ({
+                      ...prev,
+                      listen_timeout_seconds: Number(e.target.value),
                     }))}
                   />
                 </div>

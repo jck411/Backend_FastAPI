@@ -91,6 +91,18 @@ class SttSettings(BaseModel):
         default_factory=list,
         description="Keywords to boost recognition",
     )
+    pause_timeout_seconds: int = Field(
+        default=30,
+        ge=0,
+        le=600,
+        description="Close session after X seconds when paused (0 = disabled)",
+    )
+    listen_timeout_seconds: int = Field(
+        default=15,
+        ge=0,
+        le=600,
+        description="Close session after X seconds of no speech while listening (0 = disabled)",
+    )
 
 
 class SttSettingsUpdate(BaseModel):
@@ -99,6 +111,8 @@ class SttSettingsUpdate(BaseModel):
     eot_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     eot_timeout_ms: Optional[int] = Field(default=None, ge=100, le=30000)
     keyterms: Optional[list[str]] = None
+    pause_timeout_seconds: Optional[int] = Field(default=None, ge=0, le=600)
+    listen_timeout_seconds: Optional[int] = Field(default=None, ge=0, le=600)
 
 
 # =============================================================================

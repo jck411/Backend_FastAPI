@@ -1,5 +1,7 @@
 {
   "eot_threshold": 0.7,
   "eot_timeout_ms": 1000,
-  "keyterms": []
+  "keyterms": [],
+  "pause_timeout_seconds": 30,
+  "listen_timeout_seconds": 15
 }

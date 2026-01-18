@@ -14,6 +14,9 @@ const DEFAULT_STREAM_SPEED_CPS = 45;
 const STREAM_SPEED_MIN = 20;
 const STREAM_SPEED_MAX = 120;
 const STREAM_SPEED_STEP = 5;
+const DEFAULT_TTS_SYNC_CPS = 15;
+const TTS_SYNC_CPS_MIN = 8;
+const TTS_SYNC_CPS_MAX = 30;
 
 const deriveAppState = (mode, backend) => {
   if (backend === 'PROCESSING' || backend === 'SPEAKING') return backend;
@@ -105,7 +108,11 @@ function App() {
   const streamSpeedRef = useRef(streamSpeedCps);
   const syncToTtsRef = useRef(syncToTts);
   const ttsTextLengthRef = useRef(0);  // Track response text length for TTS sync
-  const ttsAudioStartTimeRef = useRef(0);  // Track when TTS audio started playing
+  const ttsAudioStartTimeRef = useRef(null);  // Track when TTS audio started playing
+  const ttsAudioDurationRef = useRef(0);  // Total buffered audio duration (seconds)
+  const ttsAudioCompleteRef = useRef(false);  // Whether we've received the last audio chunk
+  const ttsCpsEstimateRef = useRef(DEFAULT_TTS_SYNC_CPS);
+  const ttsCpsUpdatedRef = useRef(false);
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
@@ -164,6 +171,21 @@ function App() {
     }
   }, [getAudioContext]);
 
+  const updateTtsCpsEstimate = useCallback(() => {
+    if (ttsCpsUpdatedRef.current) return;
+    if (!ttsAudioCompleteRef.current) return;
+    const textLength = ttsTextLengthRef.current;
+    const audioDuration = ttsAudioDurationRef.current;
+    if (!textLength || !Number.isFinite(audioDuration) || audioDuration <= 0) return;
+    const measured = textLength / audioDuration;
+    const clamped = Math.max(TTS_SYNC_CPS_MIN, Math.min(TTS_SYNC_CPS_MAX, measured));
+    const previous = Number.isFinite(ttsCpsEstimateRef.current)
+      ? ttsCpsEstimateRef.current
+      : clamped;
+    ttsCpsEstimateRef.current = previous * 0.7 + clamped * 0.3;
+    ttsCpsUpdatedRef.current = true;
+  }, []);
+
   const resetTtsPlayback = useCallback(() => {
     if (ttsEndTimeoutRef.current) {
       clearTimeout(ttsEndTimeoutRef.current);
@@ -180,6 +202,11 @@ function App() {
     scheduledSourcesRef.current = [];
     nextPlayTimeRef.current = 0;
     hasTtsPlaybackStartedRef.current = false;
+    ttsAudioStartTimeRef.current = null;
+    ttsAudioDurationRef.current = 0;
+    ttsAudioCompleteRef.current = false;
+    ttsCpsUpdatedRef.current = false;
+    ttsTextLengthRef.current = 0;
 
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       audioContextRef.current.close();
@@ -202,6 +229,11 @@ function App() {
     });
     scheduledSourcesRef.current = [];
     nextPlayTimeRef.current = 0;
+    ttsAudioStartTimeRef.current = null;
+    ttsAudioDurationRef.current = 0;
+    ttsAudioCompleteRef.current = false;
+    ttsCpsUpdatedRef.current = false;
+    ttsTextLengthRef.current = 0;
 
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
       audioContextRef.current.close();
@@ -268,10 +300,14 @@ function App() {
 
       const currentTime = ctx.currentTime;
       const startTime = Math.max(nextPlayTimeRef.current, currentTime);
+      if (ttsAudioStartTimeRef.current === null) {
+        ttsAudioStartTimeRef.current = startTime;
+      }
       source.start(startTime);
       scheduledSourcesRef.current.push(source);
 
       nextPlayTimeRef.current = startTime + audioBuffer.duration;
+      ttsAudioDurationRef.current += audioBuffer.duration;
 
       if (!hasTtsPlaybackStartedRef.current) {
         hasTtsPlaybackStartedRef.current = true;
@@ -372,12 +408,25 @@ function App() {
     let speed = streamSpeedRef.current;
     if (syncToTtsRef.current && hasTtsPlaybackStartedRef.current && audioContextRef.current) {
       const ctx = audioContextRef.current;
-      const remainingAudioTime = Math.max(0.1, nextPlayTimeRef.current - ctx.currentTime);
-      const remainingChars = targetText.length - displayedText.length;
-      // Calculate speed to finish text when audio finishes, with a small buffer
-      const dynamicSpeed = remainingChars / remainingAudioTime;
-      // Clamp to reasonable bounds (10-200 chars/sec)
-      speed = Math.max(10, Math.min(200, dynamicSpeed));
+      const startTime = ttsAudioStartTimeRef.current;
+      const cpsEstimate = Number.isFinite(ttsCpsEstimateRef.current)
+        ? ttsCpsEstimateRef.current
+        : DEFAULT_TTS_SYNC_CPS;
+      const targetLength = targetText.length;
+      if (startTime !== null && targetLength > 0) {
+        const elapsedAudioTime = Math.max(0, ctx.currentTime - startTime);
+        const scheduledDuration = Math.max(0, nextPlayTimeRef.current - startTime);
+        const predictedDuration = targetLength / Math.max(1, cpsEstimate);
+        let totalDuration = Math.max(predictedDuration, scheduledDuration);
+        if (ttsAudioCompleteRef.current && scheduledDuration > 0) {
+          totalDuration = scheduledDuration;
+        }
+        const remainingAudioTime = Math.max(0.05, totalDuration - elapsedAudioTime);
+        const remainingChars = targetLength - displayedText.length;
+        const dynamicSpeed = remainingChars / remainingAudioTime;
+        // Clamp to reasonable bounds (10-200 chars/sec)
+        speed = Math.max(10, Math.min(200, dynamicSpeed));
+      }
     }
 
     const budget = streamCarryRef.current + (speed * deltaMs) / 1000;
@@ -651,6 +700,8 @@ function App() {
             playTtsChunk(msg.data);
           }
           if (msg.is_last) {
+            ttsAudioCompleteRef.current = true;
+            updateTtsCpsEstimate();
             scheduleTtsPlaybackEnd();
           }
         }
@@ -713,6 +764,8 @@ function App() {
         responseInterruptedRef.current = false;
         responseCompleteRef.current = false;
         responseRef.current = '';
+        ttsTextLengthRef.current = 0;
+        ttsCpsUpdatedRef.current = false;
         pendingFadeRef.current = false;
         stopResponseStreaming();
         setDisplayedResponse('');
@@ -736,6 +789,8 @@ function App() {
             setDisplayedResponse('');
             return;
           }
+          ttsTextLengthRef.current = finalText.length;
+          updateTtsCpsEstimate();
           if (displayedResponseRef.current.length >= finalText.length) {
             finalizeStreamingResponse();
           } else {
@@ -760,6 +815,7 @@ function App() {
     startResponseStreaming,
     stopResponseStreaming,
     stopTtsPlayback,
+    updateTtsCpsEstimate,
   ]);
 
   // Load STT settings when opening settings panel

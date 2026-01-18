@@ -9,6 +9,7 @@ console.log('🔧 App.jsx v3 loaded');
 const clientId = `voice_${crypto.randomUUID()}`;
 const TIMEOUT_COUNTDOWN_SECONDS = 5;
 const STREAM_SPEED_STORAGE_KEY = 'voice_stream_speed_cps';
+const SYNC_TO_TTS_STORAGE_KEY = 'voice_sync_to_tts';
 const DEFAULT_STREAM_SPEED_CPS = 45;
 const STREAM_SPEED_MIN = 20;
 const STREAM_SPEED_MAX = 120;
@@ -55,6 +56,14 @@ function App() {
     }
     return DEFAULT_STREAM_SPEED_CPS;
   });
+  const [syncToTts, setSyncToTts] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(SYNC_TO_TTS_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
 
   // UI modes: FRESH (never started), ACTIVE (listening/processing/speaking), PAUSED (user paused)
   const [uiMode, setUiModeState] = useState('FRESH');
@@ -94,6 +103,9 @@ function App() {
   const listenTimeoutRef = useRef(null);
   const sttDraftRef = useRef(sttDraft);  // Keep ref in sync for use in callbacks
   const streamSpeedRef = useRef(streamSpeedCps);
+  const syncToTtsRef = useRef(syncToTts);
+  const ttsTextLengthRef = useRef(0);  // Track response text length for TTS sync
+  const ttsAudioStartTimeRef = useRef(0);  // Track when TTS audio started playing
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
@@ -355,7 +367,19 @@ function App() {
 
     const deltaMs = Math.max(0, timestamp - streamLastTickRef.current);
     streamLastTickRef.current = timestamp;
-    const speed = streamSpeedRef.current;
+
+    // Calculate speed - use dynamic TTS sync if enabled and audio is playing
+    let speed = streamSpeedRef.current;
+    if (syncToTtsRef.current && hasTtsPlaybackStartedRef.current && audioContextRef.current) {
+      const ctx = audioContextRef.current;
+      const remainingAudioTime = Math.max(0.1, nextPlayTimeRef.current - ctx.currentTime);
+      const remainingChars = targetText.length - displayedText.length;
+      // Calculate speed to finish text when audio finishes, with a small buffer
+      const dynamicSpeed = remainingChars / remainingAudioTime;
+      // Clamp to reasonable bounds (10-200 chars/sec)
+      speed = Math.max(10, Math.min(200, dynamicSpeed));
+    }
+
     const budget = streamCarryRef.current + (speed * deltaMs) / 1000;
     const charsToAdd = Math.floor(budget);
 
@@ -396,12 +420,27 @@ function App() {
   }, [streamSpeedCps]);
 
   useEffect(() => {
+    syncToTtsRef.current = syncToTts;
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(SYNC_TO_TTS_STORAGE_KEY, String(syncToTts));
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [syncToTts]);
+
+  useEffect(() => {
     if (!textVisible) return;
     const container = floatingTextRef.current;
     if (!container) return;
     if (!autoScrollRef.current) return;
+    // Double RAF to ensure DOM has painted and scrollHeight is accurate
     const frame = requestAnimationFrame(() => {
-      container.scrollTop = container.scrollHeight;
+      requestAnimationFrame(() => {
+        if (container) {
+          container.scrollTop = container.scrollHeight;
+        }
+      });
     });
     return () => cancelAnimationFrame(frame);
   }, [currentResponse, currentTranscript, latestExchange, textVisible]);
@@ -902,6 +941,7 @@ function App() {
     e.stopPropagation();
     setSttDraft(defaultSettings);
     setStreamSpeedCps(DEFAULT_STREAM_SPEED_CPS);
+    setSyncToTts(false);
   };
 
   const handleToggleTts = (e) => {
@@ -1112,7 +1152,16 @@ function App() {
           <div className="settings-panel" onClick={e => e.stopPropagation()}>
             <div className="settings-header">
               <span>Voice Settings</span>
-              <button onClick={handleCloseSettings}>Done</button>
+              <div className="settings-header-actions">
+                <button
+                  className="settings-header-save"
+                  onClick={handleSaveSettings}
+                  disabled={settingsLoading || settingsSaving}
+                >
+                  {settingsSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button onClick={handleCloseSettings}>Close</button>
+              </div>
             </div>
 
             {settingsError && <div className="settings-error">{settingsError}</div>}
@@ -1120,106 +1169,131 @@ function App() {
             {settingsLoading ? (
               <div className="settings-loading">Loading...</div>
             ) : (
-              <>
-                <div className="settings-row">
-                  <div className="settings-label">Text to speech</div>
-                  <button
-                    className={`settings-toggle ${ttsDraft.enabled ? 'on' : ''}`}
-                    onClick={handleToggleTts}
-                    disabled={settingsSaving}
-                  >
-                    {ttsDraft.enabled ? 'On' : 'Off'}
-                  </button>
-                </div>
+              <div className="settings-scroll">
+                <div className="settings-section">
+                  <div className="settings-section-title">Text to Speech</div>
 
-                <div className="settings-row">
-                  <div className="settings-label">Text stream speed</div>
-                  <div className="settings-value">{streamSpeedCps} chars/sec</div>
-                  <input
-                    className="settings-slider"
-                    type="range"
-                    min={STREAM_SPEED_MIN}
-                    max={STREAM_SPEED_MAX}
-                    step={STREAM_SPEED_STEP}
-                    value={streamSpeedCps}
-                    onChange={(e) => setStreamSpeedCps(Number(e.target.value))}
-                  />
-                </div>
-
-                <div className="settings-row">
-                  <div className="settings-label">End of turn timeout</div>
-                  <div className="settings-value">{sttDraft.eot_timeout_ms} ms</div>
-                  <input
-                    className="settings-slider"
-                    type="range"
-                    min="100"
-                    max="30000"
-                    step="100"
-                    value={sttDraft.eot_timeout_ms}
-                    onChange={(e) => setSttDraft(prev => ({
-                      ...prev,
-                      eot_timeout_ms: Number(e.target.value),
-                    }))}
-                  />
-                </div>
-
-                <div className="settings-row">
-                  <div className="settings-label">End of turn threshold</div>
-                  <div className="settings-value">
-                    {Number(sttDraft.eot_threshold).toFixed(2)}
+                  <div className="settings-row">
+                    <div className="settings-label">Enable TTS</div>
+                    <button
+                      className={`settings-toggle ${ttsDraft.enabled ? 'on' : ''}`}
+                      onClick={handleToggleTts}
+                      disabled={settingsSaving}
+                    >
+                      {ttsDraft.enabled ? 'On' : 'Off'}
+                    </button>
                   </div>
-                  <input
-                    className="settings-slider"
-                    type="range"
-                    min="0.5"
-                    max="0.9"
-                    step="0.01"
-                    value={sttDraft.eot_threshold}
-                    onChange={(e) => setSttDraft(prev => ({
-                      ...prev,
-                      eot_threshold: Number(e.target.value),
-                    }))}
-                  />
+
+                  <div className={`settings-row ${syncToTts && ttsDraft.enabled ? 'disabled' : ''}`}>
+                    <div className="settings-row-header">
+                      <div className="settings-label">Text stream speed</div>
+                      {ttsDraft.enabled && (
+                        <button
+                          className={`settings-sync-btn ${syncToTts ? 'on' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSyncToTts(!syncToTts);
+                          }}
+                          disabled={settingsSaving}
+                        >
+                          Sync
+                        </button>
+                      )}
+                    </div>
+                    <div className="settings-value">
+                      {syncToTts && ttsDraft.enabled ? 'Synced to TTS' : `${streamSpeedCps} chars/sec`}
+                    </div>
+                    <input
+                      className="settings-slider"
+                      type="range"
+                      min={STREAM_SPEED_MIN}
+                      max={STREAM_SPEED_MAX}
+                      step={STREAM_SPEED_STEP}
+                      value={streamSpeedCps}
+                      onChange={(e) => setStreamSpeedCps(Number(e.target.value))}
+                      disabled={syncToTts && ttsDraft.enabled}
+                    />
+                  </div>
                 </div>
 
-                <div className="settings-row">
-                  <div className="settings-label">Pause timeout</div>
-                  <div className="settings-value">
-                    {sttDraft.pause_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.pause_timeout_seconds}s`}
-                  </div>
-                  <input
-                    className="settings-slider"
-                    type="range"
-                    min="0"
-                    max="600"
-                    step="5"
-                    value={sttDraft.pause_timeout_seconds}
-                    onChange={(e) => setSttDraft(prev => ({
-                      ...prev,
-                      pause_timeout_seconds: Number(e.target.value),
-                    }))}
-                  />
-                </div>
+                <div className="settings-section">
+                  <div className="settings-section-title">Speech Recognition</div>
 
-                <div className="settings-row">
-                  <div className="settings-label">Listen timeout</div>
-                  <div className="settings-value">
-                    {sttDraft.listen_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.listen_timeout_seconds}s`}
+                  <div className="settings-row">
+                    <div className="settings-label">End of turn timeout</div>
+                    <div className="settings-value">{sttDraft.eot_timeout_ms} ms</div>
+                    <input
+                      className="settings-slider"
+                      type="range"
+                      min="100"
+                      max="2000"
+                      step="100"
+                      value={sttDraft.eot_timeout_ms}
+                      onChange={(e) => setSttDraft(prev => ({
+                        ...prev,
+                        eot_timeout_ms: Number(e.target.value),
+                      }))}
+                    />
                   </div>
-                  <input
-                    className="settings-slider"
-                    type="range"
-                    min="0"
-                    max="600"
-                    step="5"
-                    value={sttDraft.listen_timeout_seconds}
-                    onChange={(e) => setSttDraft(prev => ({
-                      ...prev,
-                      listen_timeout_seconds: Number(e.target.value),
-                    }))}
-                  />
+
+                  <div className="settings-row">
+                    <div className="settings-label">End of turn threshold</div>
+                    <div className="settings-value">
+                      {Number(sttDraft.eot_threshold).toFixed(2)}
+                    </div>
+                    <input
+                      className="settings-slider"
+                      type="range"
+                      min="0.5"
+                      max="0.9"
+                      step="0.01"
+                      value={sttDraft.eot_threshold}
+                      onChange={(e) => setSttDraft(prev => ({
+                        ...prev,
+                        eot_threshold: Number(e.target.value),
+                      }))}
+                    />
+                  </div>
+
+                  <div className="settings-row">
+                    <div className="settings-label">Pause timeout</div>
+                    <div className="settings-value">
+                      {sttDraft.pause_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.pause_timeout_seconds}s`}
+                    </div>
+                    <input
+                      className="settings-slider"
+                      type="range"
+                      min="0"
+                      max="60"
+                      step="5"
+                      value={sttDraft.pause_timeout_seconds}
+                      onChange={(e) => setSttDraft(prev => ({
+                        ...prev,
+                        pause_timeout_seconds: Number(e.target.value),
+                      }))}
+                    />
+                  </div>
+
+                  <div className="settings-row">
+                    <div className="settings-label">Listen timeout</div>
+                    <div className="settings-value">
+                      {sttDraft.listen_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.listen_timeout_seconds}s`}
+                    </div>
+                    <input
+                      className="settings-slider"
+                      type="range"
+                      min="0"
+                      max="30"
+                      step="1"
+                      value={sttDraft.listen_timeout_seconds}
+                      onChange={(e) => setSttDraft(prev => ({
+                        ...prev,
+                        listen_timeout_seconds: Number(e.target.value),
+                      }))}
+                    />
+                  </div>
                 </div>
-              </>
+              </div>
             )}
 
             <div className="settings-actions">
@@ -1229,13 +1303,6 @@ function App() {
                 disabled={settingsLoading || settingsSaving}
               >
                 Default
-              </button>
-              <button
-                className="settings-save"
-                onClick={handleSaveSettings}
-                disabled={settingsLoading || settingsSaving}
-              >
-                {settingsSaving ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>

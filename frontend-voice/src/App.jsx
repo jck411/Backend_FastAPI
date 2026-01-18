@@ -63,6 +63,8 @@ function App() {
   const countdownTimeoutRef = useRef(null);
   const countdownIntervalRef = useRef(null);
   const backgroundedRef = useRef(false);
+  const floatingTextRef = useRef(null);
+  const autoScrollRef = useRef(true);
 
   // Inactivity timeout refs
   const pauseTimeoutRef = useRef(null);
@@ -261,6 +263,29 @@ function App() {
   useEffect(() => {
     sttDraftRef.current = sttDraft;
   }, [sttDraft]);
+
+  useEffect(() => {
+    if (!textVisible) return;
+    const container = floatingTextRef.current;
+    if (!container) return;
+    if (!autoScrollRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [currentResponse, currentTranscript, latestExchange, textVisible]);
+
+  useEffect(() => {
+    if (!textVisible) return;
+    autoScrollRef.current = true;
+  }, [textVisible]);
+
+  const handleFloatingScroll = () => {
+    const container = floatingTextRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    autoScrollRef.current = distanceFromBottom < 12;
+  };
 
   // Clear all inactivity timeouts
   const clearTimeoutCountdown = useCallback(() => {
@@ -855,7 +880,11 @@ function App() {
           )}
         </div>
 
-        <div className={`floating-text ${textVisible ? 'visible' : ''}`}>
+        <div
+          ref={floatingTextRef}
+          onScroll={handleFloatingScroll}
+          className={`floating-text ${textVisible ? 'visible' : ''}`}
+        >
           {currentTranscript && <p className="user-text">{currentTranscript}</p>}
           {!currentTranscript && latestExchange?.user && <p className="user-text">{latestExchange.user}</p>}
           {(currentResponse || latestExchange?.assistant) && (

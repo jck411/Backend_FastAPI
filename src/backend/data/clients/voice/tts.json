@@ -1,5 +1,5 @@
 {
-  "enabled": false,
+  "enabled": true,
   "provider": "openai",
   "model": "tts-1",
   "voice": "alloy",

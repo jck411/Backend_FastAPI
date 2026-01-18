@@ -59,28 +59,46 @@ body,
   box-shadow: 0 0 10px rgba(52, 211, 153, 0.65);
 }
 
-/* Settings button */
-.settings-button {
-  width: 28px;
-  height: 28px;
+/* Control buttons */
+.settings-button,
+.refresh-button {
+  width: 36px;
+  height: 36px;
+  border: none;
   border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.settings-button svg,
+.refresh-button svg {
+  width: 20px;
+  height: 20px;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .settings-button:hover,
-.settings-button:active {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.35);
+.refresh-button:hover {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.settings-button:active,
+.refresh-button:active {
+  color: rgba(255, 255, 255, 1);
+}
+
+.settings-button:focus-visible,
+.refresh-button:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.3);
+  outline-offset: 2px;
 }
 
 /* Error */
@@ -406,8 +424,9 @@ body,
 /* Floating text - appears below orb, fades smoothly */
 .floating-text {
   position: relative;
-  text-align: center;
-  max-width: 85%;
+  text-align: left;
+  width: 85%;
+  max-width: 720px;
   max-height: clamp(160px, 32vh, 280px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
@@ -478,46 +497,6 @@ body,
 
 .bottom-controls>* {
   pointer-events: auto;
-}
-
-/* New conversation button */
-.new-button {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #fca5a5;
-  padding: 8px 20px;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.new-button:hover,
-.new-button:active {
-  background: rgba(239, 68, 68, 0.25);
-}
-
-/* Stop response button */
-.stop-button {
-  background: rgba(251, 191, 36, 0.16);
-  border: 1px solid rgba(251, 191, 36, 0.35);
-  color: #fde68a;
-  padding: 8px 20px;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.stop-button:hover,
-.stop-button:active {
-  background: rgba(251, 191, 36, 0.28);
 }
 
 /* Pull-up indicator */
@@ -831,7 +810,7 @@ body,
   }
 
   .floating-text {
-    max-width: 90%;
+    width: 90%;
   }
 
   .assistant-text {

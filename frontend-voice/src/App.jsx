@@ -8,6 +8,11 @@ console.log('🔧 App.jsx v3 loaded');
 
 const clientId = `voice_${crypto.randomUUID()}`;
 const TIMEOUT_COUNTDOWN_SECONDS = 5;
+const STREAM_SPEED_STORAGE_KEY = 'voice_stream_speed_cps';
+const DEFAULT_STREAM_SPEED_CPS = 45;
+const STREAM_SPEED_MIN = 20;
+const STREAM_SPEED_MAX = 120;
+const STREAM_SPEED_STEP = 5;
 
 const deriveAppState = (mode, backend) => {
   if (backend === 'PROCESSING' || backend === 'SPEAKING') return backend;
@@ -38,6 +43,18 @@ function App() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [timeoutCountdown, setTimeoutCountdown] = useState(null);
+  const [streamSpeedCps, setStreamSpeedCps] = useState(() => {
+    if (typeof window === 'undefined') return DEFAULT_STREAM_SPEED_CPS;
+    try {
+      const saved = Number(window.localStorage.getItem(STREAM_SPEED_STORAGE_KEY));
+      if (Number.isFinite(saved) && saved > 0) {
+        return Math.min(STREAM_SPEED_MAX, Math.max(STREAM_SPEED_MIN, saved));
+      }
+    } catch {
+      // Fall back to default when storage is unavailable.
+    }
+    return DEFAULT_STREAM_SPEED_CPS;
+  });
 
   // UI modes: FRESH (never started), ACTIVE (listening/processing/speaking), PAUSED (user paused)
   const [uiMode, setUiModeState] = useState('FRESH');
@@ -51,8 +68,14 @@ function App() {
   const sttStatusRef = useRef('idle'); // idle | starting | ready | paused
 
   const responseRef = useRef('');
+  const displayedResponseRef = useRef('');
   const responseInterruptedRef = useRef(false);
+  const responseCompleteRef = useRef(false);
+  const streamAnimationRef = useRef(null);
+  const streamLastTickRef = useRef(0);
+  const streamCarryRef = useRef(0);
   const fadeTimeoutRef = useRef(null);
+  const pendingFadeRef = useRef(false);
   const hasAutoStartedRef = useRef(false);
   const audioContextRef = useRef(null);
   const nextPlayTimeRef = useRef(0);
@@ -70,6 +93,7 @@ function App() {
   const pauseTimeoutRef = useRef(null);
   const listenTimeoutRef = useRef(null);
   const sttDraftRef = useRef(sttDraft);  // Keep ref in sync for use in callbacks
+  const streamSpeedRef = useRef(streamSpeedCps);
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
@@ -179,13 +203,27 @@ function App() {
   }, [sendMessage]);
 
   const scheduleTtsPlaybackEnd = useCallback(() => {
+    if (ttsEndTimeoutRef.current) clearTimeout(ttsEndTimeoutRef.current);
+    ttsEndTimeoutRef.current = null;
+
+    if (!hasTtsPlaybackStartedRef.current) {
+      // No audio was scheduled, but backend still expects a playback end signal.
+      sendMessage(JSON.stringify({ type: 'tts_playback_end' }));
+      scheduledSourcesRef.current = [];
+      nextPlayTimeRef.current = 0;
+      return;
+    }
+
     const ctx = audioContextRef.current;
-    if (!ctx || !hasTtsPlaybackStartedRef.current) {
+    if (!ctx) {
+      sendMessage(JSON.stringify({ type: 'tts_playback_end' }));
+      hasTtsPlaybackStartedRef.current = false;
+      scheduledSourcesRef.current = [];
+      nextPlayTimeRef.current = 0;
       return;
     }
 
     const remaining = Math.max(0, nextPlayTimeRef.current - ctx.currentTime);
-    if (ttsEndTimeoutRef.current) clearTimeout(ttsEndTimeoutRef.current);
     ttsEndTimeoutRef.current = setTimeout(() => {
       sendMessage(JSON.stringify({ type: 'tts_playback_end' }));
       hasTtsPlaybackStartedRef.current = false;
@@ -256,13 +294,106 @@ function App() {
 
   const scheduleFade = useCallback(() => {
     if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
+    const isStreaming = responseRef.current
+      && displayedResponseRef.current.length < responseRef.current.length;
+    if (isStreaming) {
+      pendingFadeRef.current = true;
+      return;
+    }
+    pendingFadeRef.current = false;
     fadeTimeoutRef.current = setTimeout(() => setTextVisible(false), 5000);
   }, []);
+
+  const setDisplayedResponse = useCallback((nextText) => {
+    displayedResponseRef.current = nextText;
+    setCurrentResponse(nextText);
+  }, []);
+
+  const stopResponseStreaming = useCallback(() => {
+    if (streamAnimationRef.current) {
+      cancelAnimationFrame(streamAnimationRef.current);
+      streamAnimationRef.current = null;
+    }
+    streamLastTickRef.current = 0;
+    streamCarryRef.current = 0;
+  }, []);
+
+  const finalizeStreamingResponse = useCallback(() => {
+    const finalText = responseRef.current;
+    if (finalText) {
+      setMessages(prev => [...prev, { role: 'assistant', content: finalText }]);
+      setLatestExchange(prev => ({ ...(prev || {}), assistant: finalText }));
+    }
+    responseRef.current = '';
+    responseCompleteRef.current = false;
+    setDisplayedResponse('');
+    if (pendingFadeRef.current) {
+      scheduleFade();
+    }
+  }, [scheduleFade, setDisplayedResponse, setLatestExchange, setMessages]);
+
+  const streamResponseTick = useCallback((timestamp) => {
+    const targetText = responseRef.current || '';
+    const displayedText = displayedResponseRef.current || '';
+
+    if (responseInterruptedRef.current) {
+      stopResponseStreaming();
+      return;
+    }
+
+    if (!targetText || displayedText.length >= targetText.length) {
+      if (responseCompleteRef.current && targetText) {
+        finalizeStreamingResponse();
+      }
+      stopResponseStreaming();
+      return;
+    }
+
+    if (!streamLastTickRef.current) {
+      streamLastTickRef.current = timestamp;
+    }
+
+    const deltaMs = Math.max(0, timestamp - streamLastTickRef.current);
+    streamLastTickRef.current = timestamp;
+    const speed = streamSpeedRef.current;
+    const budget = streamCarryRef.current + (speed * deltaMs) / 1000;
+    const charsToAdd = Math.floor(budget);
+
+    if (charsToAdd > 0) {
+      const nextLength = Math.min(targetText.length, displayedText.length + charsToAdd);
+      const nextText = targetText.slice(0, nextLength);
+      streamCarryRef.current = budget - charsToAdd;
+      if (nextText !== displayedText) {
+        setDisplayedResponse(nextText);
+      }
+    } else {
+      streamCarryRef.current = budget;
+    }
+
+    streamAnimationRef.current = requestAnimationFrame(streamResponseTick);
+  }, [finalizeStreamingResponse, setDisplayedResponse, stopResponseStreaming]);
+
+  const startResponseStreaming = useCallback(() => {
+    if (streamAnimationRef.current) return;
+    streamLastTickRef.current = 0;
+    streamCarryRef.current = 0;
+    streamAnimationRef.current = requestAnimationFrame(streamResponseTick);
+  }, [streamResponseTick]);
 
   // Keep sttDraftRef in sync with sttDraft state
   useEffect(() => {
     sttDraftRef.current = sttDraft;
   }, [sttDraft]);
+
+  useEffect(() => {
+    streamSpeedRef.current = streamSpeedCps;
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(STREAM_SPEED_STORAGE_KEY, String(streamSpeedCps));
+    } catch {
+      // Ignore storage errors; speed will reset next load.
+    }
+  }, [streamSpeedCps]);
 
   useEffect(() => {
     if (!textVisible) return;
@@ -337,14 +468,16 @@ function App() {
   }, [clearTimeoutCountdown]);
 
   const finalizePartialResponse = useCallback(() => {
-    const partial = responseRef.current;
+    const partial = displayedResponseRef.current;
     if (partial) {
       setMessages(prev => [...prev, { role: 'assistant', content: partial }]);
       setLatestExchange(prev => ({ ...(prev || {}), assistant: partial }));
     }
     responseRef.current = '';
-    setCurrentResponse('');
-  }, [setLatestExchange, setMessages]);
+    responseCompleteRef.current = false;
+    stopResponseStreaming();
+    setDisplayedResponse('');
+  }, [setDisplayedResponse, setLatestExchange, setMessages, stopResponseStreaming]);
 
   const interruptResponse = useCallback(() => {
     responseInterruptedRef.current = true;
@@ -375,9 +508,12 @@ function App() {
     setBackendState('IDLE');
     setSttStatus('idle');
     setCurrentTranscript('');
-    setCurrentResponse('');
+    setDisplayedResponse('');
     responseRef.current = '';
+    responseCompleteRef.current = false;
     responseInterruptedRef.current = false;
+    pendingFadeRef.current = false;
+    stopResponseStreaming();
 
     if (clearMessages) {
       setMessages([]);
@@ -389,7 +525,16 @@ function App() {
     } else {
       setTextVisible(false);
     }
-  }, [clearInactivityTimeouts, readyState, releaseMic, sendMessage, stopTtsPlayback, scheduleFade]);
+  }, [
+    clearInactivityTimeouts,
+    readyState,
+    releaseMic,
+    sendMessage,
+    stopTtsPlayback,
+    scheduleFade,
+    setDisplayedResponse,
+    stopResponseStreaming,
+  ]);
 
   // Handle inactivity timeout - close session but preserve context
   const handleInactivityTimeout = useCallback(() => {
@@ -527,30 +672,56 @@ function App() {
 
       if (msg.type === 'assistant_response_start') {
         responseInterruptedRef.current = false;
+        responseCompleteRef.current = false;
         responseRef.current = '';
-        setCurrentResponse('');
+        pendingFadeRef.current = false;
+        stopResponseStreaming();
+        setDisplayedResponse('');
         setTextVisible(true);
       } else if (msg.type === 'assistant_response_chunk') {
         if (!responseInterruptedRef.current) {
           responseRef.current += (msg.text || '');
-          setCurrentResponse(responseRef.current);
+          if (displayedResponseRef.current.length < responseRef.current.length) {
+            startResponseStreaming();
+          }
         }
       } else if (msg.type === 'assistant_response_end') {
         if (!responseInterruptedRef.current) {
-          const finalText = responseRef.current || msg.text || '';
-          if (finalText) {
-            setMessages(prev => [...prev, { role: 'assistant', content: finalText }]);
-            setLatestExchange(prev => ({ ...prev, assistant: finalText }));
+          const candidateText = responseRef.current;
+          const finalText = msg.text && msg.text.length > candidateText.length
+            ? msg.text
+            : candidateText;
+          responseRef.current = finalText || '';
+          responseCompleteRef.current = Boolean(finalText);
+          if (!finalText) {
+            setDisplayedResponse('');
+            return;
           }
-          responseRef.current = '';
-          setCurrentResponse('');
+          if (displayedResponseRef.current.length >= finalText.length) {
+            finalizeStreamingResponse();
+          } else {
+            startResponseStreaming();
+          }
         }
       }
 
     } catch (e) {
       console.error('Parse error:', e);
     }
-  }, [clearInactivityTimeouts, handleSessionReady, lastMessage, playTtsChunk, resetTtsPlayback, scheduleListenTimeout, scheduleTtsPlaybackEnd, stopTtsPlayback]);
+  }, [
+    clearInactivityTimeouts,
+    finalizeStreamingResponse,
+    handleSessionReady,
+    lastMessage,
+    playTtsChunk,
+    resetTtsPlayback,
+    scheduleListenTimeout,
+    scheduleTtsPlaybackEnd,
+    setDisplayedResponse,
+    startResponseStreaming,
+    stopResponseStreaming,
+    stopTtsPlayback,
+  ]);
 
   // Load STT settings when opening settings panel
   useEffect(() => {
@@ -669,11 +840,6 @@ function App() {
     resetSession({ clearMessages: true });
   };
 
-  const handleStop = (e) => {
-    e.stopPropagation();
-    interruptResponse();
-  };
-
   const handlePullUp = (e) => {
     e.stopPropagation();
     setShowSettings(false);
@@ -735,6 +901,7 @@ function App() {
   const handleResetDefaults = (e) => {
     e.stopPropagation();
     setSttDraft(defaultSettings);
+    setStreamSpeedCps(DEFAULT_STREAM_SPEED_CPS);
   };
 
   const handleToggleTts = (e) => {
@@ -834,7 +1001,29 @@ function App() {
     <div className="app" onClick={handleTap}>
       <div className="top-controls">
         <div className="top-left-controls">
-          <button className="settings-button" onClick={handleOpenSettings}>S</button>
+          <button
+            className="settings-button"
+            onClick={handleOpenSettings}
+            aria-label="Open settings"
+            title="Settings"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <circle cx="12" cy="5" r="1.5" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+              <circle cx="12" cy="19" r="1.5" fill="currentColor" />
+            </svg>
+          </button>
+          <button
+            className="refresh-button"
+            onClick={handleClear}
+            aria-label="Start a new session"
+            title="New session"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="none">
+              <path d="M20 4v5h-5" />
+              <path d="M20 9a8 8 0 1 1-5.66-4.7" />
+            </svg>
+          </button>
         </div>
         <div className="top-right-controls">
           <div className={`connection-dot ${isConnected ? 'connected' : ''}`} />
@@ -894,12 +1083,6 @@ function App() {
       </div>
 
       <div className="bottom-controls">
-        {(appState === 'PROCESSING' || appState === 'SPEAKING') && (
-          <button className="stop-button" onClick={handleStop}>Stop</button>
-        )}
-        {(appState === 'PAUSED' || (messages.length > 0 && appState !== 'LISTENING')) && (
-          <button className="new-button" onClick={handleClear}>New</button>
-        )}
         {messages.length > 0 && !showHistory && (
           <div className="pull-indicator" onClick={handlePullUp}>
             <div className="pull-line" />
@@ -950,6 +1133,20 @@ function App() {
                   >
                     {ttsDraft.enabled ? 'On' : 'Off'}
                   </button>
+                </div>
+
+                <div className="settings-row">
+                  <div className="settings-label">Text stream speed</div>
+                  <div className="settings-value">{streamSpeedCps} chars/sec</div>
+                  <input
+                    className="settings-slider"
+                    type="range"
+                    min={STREAM_SPEED_MIN}
+                    max={STREAM_SPEED_MAX}
+                    step={STREAM_SPEED_STEP}
+                    value={streamSpeedCps}
+                    onChange={(e) => setStreamSpeedCps(Number(e.target.value))}
+                  />
                 </div>
 
                 <div className="settings-row">

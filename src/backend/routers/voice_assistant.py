@@ -70,6 +70,9 @@ async def handle_connection(
                 full_response = ""
                 response_interrupted = False
 
+                tts_settings = tts_service.get_settings()
+                tts_enabled = tts_settings.enabled
+
                 # Create TTS streaming pipeline
                 (
                     chunk_queue,
@@ -79,7 +82,7 @@ async def handle_connection(
                 ) = await tts_service.create_streaming_pipeline(tts_cancel_event)
 
                 # Get sample rate for audio playback
-                sample_rate = tts_service.get_sample_rate()
+                sample_rate = tts_settings.sample_rate
 
                 # Signal start of TTS audio stream (to THIS client only)
                 await manager.send_message(
@@ -208,6 +211,11 @@ async def handle_connection(
                 if interrupted:
                     logger.info(
                         f"Response interrupted for {client_id}, leaving state as-is"
+                    )
+                elif tts_enabled:
+                    logger.info(
+                        "TTS stream complete for %s, waiting for playback end",
+                        client_id,
                     )
                 else:
                     try:

@@ -327,21 +327,30 @@ async def handle_connection(
                         )
                         await stt_service.stream_audio(client_id, chunk)
 
-                        # Check for Silence / Idle Timeout (for THIS client only)
+                        # Check for listen timeout (for THIS client only)
                         try:
                             # If we are listening but haven't heard/done anything for X seconds, go to IDLE
-                            ui_settings = get_client_settings_service("voice").get_ui()
+                            stt_settings = get_client_settings_service("voice").get_stt()
+                            listen_timeout_seconds = stt_settings.listen_timeout_seconds
                             silence_duration_ms = (
                                 datetime.utcnow() - session.last_activity
                             ).total_seconds() * 1000
 
-                            if silence_duration_ms > ui_settings.idle_return_delay_ms:
+                            if listen_timeout_seconds > 0:
+                                silence_timeout_ms = listen_timeout_seconds * 1000
+                            else:
+                                silence_timeout_ms = None
+
+                            if silence_timeout_ms and silence_duration_ms > silence_timeout_ms:
                                 logger.info(
-                                    f"Silence timeout for {client_id} ({silence_duration_ms:.0f}ms > {ui_settings.idle_return_delay_ms}ms) - Returning to IDLE"
+                                    "Listen timeout for %s (%.0fms > %.0fms) - Returning to IDLE",
+                                    client_id,
+                                    silence_duration_ms,
+                                    silence_timeout_ms,
                                 )
                                 await manager.update_state(client_id, "IDLE")
                         except Exception as e:
-                            logger.error(f"Error checking silence timeout: {e}")
+                            logger.error(f"Error checking listen timeout: {e}")
 
                     else:
                         logger.warning(

@@ -7,6 +7,7 @@ import useAudioCapture from './hooks/useAudioCapture';
 console.log('🔧 App.jsx v3 loaded');
 
 const clientId = `voice_${crypto.randomUUID()}`;
+const TIMEOUT_COUNTDOWN_SECONDS = 5;
 
 const deriveAppState = (mode, backend) => {
   if (backend === 'PROCESSING' || backend === 'SPEAKING') return backend;
@@ -36,6 +37,7 @@ function App() {
   const [settingsError, setSettingsError] = useState(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [timeoutCountdown, setTimeoutCountdown] = useState(null);
 
   // UI modes: FRESH (never started), ACTIVE (listening/processing/speaking), PAUSED (user paused)
   const [uiMode, setUiModeState] = useState('FRESH');
@@ -57,6 +59,8 @@ function App() {
   const hasTtsPlaybackStartedRef = useRef(false);
   const ttsEndTimeoutRef = useRef(null);
   const scheduledSourcesRef = useRef([]);
+  const countdownTimeoutRef = useRef(null);
+  const countdownIntervalRef = useRef(null);
 
   // Inactivity timeout refs
   const pauseTimeoutRef = useRef(null);
@@ -256,6 +260,18 @@ function App() {
   }, [sttDraft]);
 
   // Clear all inactivity timeouts
+  const clearTimeoutCountdown = useCallback(() => {
+    if (countdownTimeoutRef.current) {
+      clearTimeout(countdownTimeoutRef.current);
+      countdownTimeoutRef.current = null;
+    }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    setTimeoutCountdown(null);
+  }, []);
+
   const clearInactivityTimeouts = useCallback(() => {
     if (pauseTimeoutRef.current) {
       clearTimeout(pauseTimeoutRef.current);
@@ -265,7 +281,32 @@ function App() {
       clearTimeout(listenTimeoutRef.current);
       listenTimeoutRef.current = null;
     }
-  }, []);
+    clearTimeoutCountdown();
+  }, [clearTimeoutCountdown]);
+
+  const startTimeoutCountdown = useCallback((seconds, mode) => {
+    clearTimeoutCountdown();
+    const totalSeconds = Number(seconds);
+    if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return;
+
+    const startDelayMs = Math.max(0, (totalSeconds - TIMEOUT_COUNTDOWN_SECONDS) * 1000);
+    const startValue = totalSeconds >= TIMEOUT_COUNTDOWN_SECONDS
+      ? TIMEOUT_COUNTDOWN_SECONDS
+      : Math.max(1, Math.floor(totalSeconds));
+
+    countdownTimeoutRef.current = setTimeout(() => {
+      let remaining = startValue;
+      setTimeoutCountdown({ remaining, mode });
+      countdownIntervalRef.current = setInterval(() => {
+        remaining -= 1;
+        if (remaining <= 0) {
+          clearTimeoutCountdown();
+        } else {
+          setTimeoutCountdown({ remaining, mode });
+        }
+      }, 1000);
+    }, startDelayMs);
+  }, [clearTimeoutCountdown]);
 
   // Handle inactivity timeout - close session but preserve context
   const handleInactivityTimeout = useCallback(() => {
@@ -290,17 +331,21 @@ function App() {
   }, [clearInactivityTimeouts, readyState, releaseMic, sendMessage, stopTtsPlayback]);
 
   // Schedule listen timeout (when listening with no speech)
-  const scheduleListenTimeout = useCallback(() => {
+  const scheduleListenTimeout = useCallback((options = {}) => {
     clearInactivityTimeouts();
     const seconds = sttDraftRef.current.listen_timeout_seconds;
     if (seconds <= 0) return; // Disabled
+    const { shouldLog = true } = options;
 
-    console.log(`⏱️ Starting listen timeout: ${seconds}s`);
+    if (shouldLog) {
+      console.log(`⏱️ Starting listen timeout: ${seconds}s`);
+    }
+    startTimeoutCountdown(seconds, 'listen');
     listenTimeoutRef.current = setTimeout(() => {
       console.log('⏰ Listen timeout expired');
       handleInactivityTimeout();
     }, seconds * 1000);
-  }, [clearInactivityTimeouts, handleInactivityTimeout]);
+  }, [clearInactivityTimeouts, handleInactivityTimeout, startTimeoutCountdown]);
 
   // Schedule pause timeout (when paused)
   const schedulePauseTimeout = useCallback(() => {
@@ -309,11 +354,12 @@ function App() {
     if (seconds <= 0) return; // Disabled
 
     console.log(`⏱️ Starting pause timeout: ${seconds}s`);
+    startTimeoutCountdown(seconds, 'pause');
     pauseTimeoutRef.current = setTimeout(() => {
       console.log('⏰ Pause timeout expired');
       handleInactivityTimeout();
     }, seconds * 1000);
-  }, [clearInactivityTimeouts, handleInactivityTimeout]);
+  }, [clearInactivityTimeouts, handleInactivityTimeout, startTimeoutCountdown]);
 
   // Handle backend messages
   useEffect(() => {
@@ -362,6 +408,7 @@ function App() {
 
       if (msg.type === 'state') {
         const s = msg.state;
+        const previousBackendState = backendStateRef.current;
         const currentAppState = deriveAppState(uiModeRef.current, backendStateRef.current);
         console.log('Backend state:', s, '| appState:', currentAppState);
         setBackendState(s);
@@ -373,6 +420,7 @@ function App() {
               setUiMode('ACTIVE');
             }
             setTextVisible(true);
+            scheduleListenTimeout();
           }
           // DON'T send any messages to backend - just update UI
         } else if (s === 'PROCESSING' || s === 'SPEAKING') {
@@ -385,7 +433,7 @@ function App() {
           // Keep UI mode as-is; just fade the transcript after idle.
           scheduleFade();
           // If ACTIVE (not paused/fresh), schedule listen timeout
-          if (uiModeRef.current === 'ACTIVE') {
+          if (uiModeRef.current === 'ACTIVE' && previousBackendState !== 'LISTENING') {
             scheduleListenTimeout();
           }
         }
@@ -393,8 +441,8 @@ function App() {
 
       if (msg.type === 'transcript') {
         // Reset listen timeout on any transcript (user is speaking)
-        if (uiModeRef.current === 'ACTIVE') {
-          clearInactivityTimeouts();
+        if (uiModeRef.current === 'ACTIVE' && backendStateRef.current === 'LISTENING') {
+          scheduleListenTimeout({ shouldLog: false });
         }
         setCurrentTranscript(msg.text || '');
         setTextVisible(true);
@@ -535,6 +583,7 @@ function App() {
   // Clear session
   const handleClear = (e) => {
     e.stopPropagation();
+    clearInactivityTimeouts();
     // Send clear_session to ensure backend cleans up STT session
     if (readyState === 1) {
       sendMessage(JSON.stringify({ type: 'clear_session' }));
@@ -696,6 +745,31 @@ function App() {
 
         <div className={`status-text ${appState !== 'FRESH' ? 'active' : ''}`}>
           {getStatusText()}
+        </div>
+
+        <div
+          className={`timeout-countdown${timeoutCountdown ? ` visible ${timeoutCountdown.mode}` : ''}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {timeoutCountdown && (
+            <>
+              <div className="timeout-banner">
+                <span className="timeout-label">
+                  {timeoutCountdown.mode === 'pause' ? 'Paused' : 'No speech'}
+                </span>
+                <span className="timeout-sep">|</span>
+                <span className="timeout-text">Session ends in</span>
+              </div>
+              <div className="timeout-ticker">
+                <span key={timeoutCountdown.remaining} className="timeout-digit">
+                  {timeoutCountdown.remaining}
+                </span>
+                <span className="timeout-unit">s</span>
+              </div>
+            </>
+          )}
         </div>
 
         <div className={`floating-text ${textVisible ? 'visible' : ''}`}>

@@ -294,6 +294,99 @@ body,
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* Timeout countdown */
+.timeout-countdown {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-height: 0;
+  opacity: 0;
+  transform: translateY(-6px);
+  overflow: hidden;
+  transition: max-height 0.35s ease, opacity 0.35s ease, transform 0.35s ease;
+  pointer-events: none;
+}
+
+.timeout-countdown.visible {
+  max-height: 120px;
+  opacity: 1;
+  transform: translateY(0);
+  margin-bottom: 18px;
+}
+
+.timeout-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.04) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.timeout-label {
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 600;
+}
+
+.timeout-sep {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.timeout-text {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.timeout-ticker {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  line-height: 1;
+}
+
+.timeout-digit {
+  font-size: 2.4rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  background: linear-gradient(135deg, #f472b6 0%, #fbbf24 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 24px rgba(251, 191, 36, 0.35);
+  animation: countdown-pop 0.35s ease;
+}
+
+.timeout-countdown.pause .timeout-digit {
+  background: linear-gradient(135deg, #94a3b8 0%, #e2e8f0 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  text-shadow: 0 0 18px rgba(148, 163, 184, 0.35);
+}
+
+.timeout-unit {
+  font-size: 0.8rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+@keyframes countdown-pop {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.6;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 /* Floating text - appears below orb, fades smoothly */
 .floating-text {
   text-align: center;
@@ -677,6 +770,10 @@ body,
 
   .assistant-text {
     font-size: 1rem;
+  }
+
+  .timeout-digit {
+    font-size: 2rem;
   }
 }
 

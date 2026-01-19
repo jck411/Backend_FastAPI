@@ -383,7 +383,7 @@ function App() {
       setTextVisible(false);
       // Clear the old exchange data so it doesn't reappear on next transcript
       setLatestExchange(null);
-    }, 3000);
+    }, 4000);
   }, []);
 
   const cancelFade = useCallback(() => {

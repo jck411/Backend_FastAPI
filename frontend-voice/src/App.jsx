@@ -19,7 +19,8 @@ const DEFAULT_TTS_SYNC_CPS = 15;
 const TTS_SYNC_CPS_MIN = 8;
 const TTS_SYNC_CPS_MAX = 30;
 
-const deriveAppState = (mode, backend) => {
+const deriveAppState = (mode, backend, responseActive = false) => {
+  if (responseActive) return 'SPEAKING';
   if (backend === 'PROCESSING' || backend === 'SPEAKING') return backend;
   if (mode === 'PAUSED') return 'PAUSED';
   if (mode === 'FRESH') return 'FRESH';
@@ -30,6 +31,7 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [currentTranscript, setCurrentTranscript] = useState('');
   const [currentResponse, setCurrentResponse] = useState('');
+  const [isResponseActive, setIsResponseActiveState] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [latestExchange, setLatestExchange] = useState(null);
@@ -84,6 +86,8 @@ function App() {
   const displayedResponseRef = useRef('');
   const responseInterruptedRef = useRef(false);
   const responseCompleteRef = useRef(false);
+  const responseActiveRef = useRef(false);
+  const responseActivePrevRef = useRef(false);
   const streamAnimationRef = useRef(null);
   const streamLastTickRef = useRef(0);
   const streamCarryRef = useRef(0);
@@ -148,6 +152,11 @@ function App() {
   const setSttStatus = (nextStatus) => {
     sttStatusRef.current = nextStatus;
   };
+
+  const setResponseActive = useCallback((nextActive) => {
+    responseActiveRef.current = nextActive;
+    setIsResponseActiveState(nextActive);
+  }, []);
 
   const latestUserText = latestExchange?.user || '';
   const latestAssistantText = latestExchange?.assistant || '';
@@ -334,7 +343,7 @@ function App() {
     }
   }, [getAudioContext, sendMessage]);
 
-  const appState = deriveAppState(uiMode, backendState);
+  const appState = deriveAppState(uiMode, backendState, isResponseActive);
 
   // Auto-start on first connect - run only ONCE
   useEffect(() => {
@@ -390,11 +399,12 @@ function App() {
     }
     responseRef.current = '';
     responseCompleteRef.current = false;
+    setResponseActive(false);
     setDisplayedResponse('');
     if (pendingFadeRef.current) {
       scheduleFade();
     }
-  }, [scheduleFade, setDisplayedResponse, setLatestExchange, setMessages]);
+  }, [scheduleFade, setDisplayedResponse, setLatestExchange, setMessages, setResponseActive]);
 
   const streamResponseTick = useCallback((timestamp) => {
     const targetText = responseRef.current || '';
@@ -580,9 +590,10 @@ function App() {
     }
     responseRef.current = '';
     responseCompleteRef.current = false;
+    setResponseActive(false);
     stopResponseStreaming();
     setDisplayedResponse('');
-  }, [setDisplayedResponse, setLatestExchange, setMessages, stopResponseStreaming]);
+  }, [setDisplayedResponse, setLatestExchange, setMessages, setResponseActive, stopResponseStreaming]);
 
   const interruptResponse = useCallback(() => {
     responseInterruptedRef.current = true;
@@ -616,6 +627,7 @@ function App() {
     setDisplayedResponse('');
     responseRef.current = '';
     responseCompleteRef.current = false;
+    setResponseActive(false);
     responseInterruptedRef.current = false;
     pendingFadeRef.current = false;
     stopResponseStreaming();
@@ -638,6 +650,7 @@ function App() {
     stopTtsPlayback,
     scheduleFade,
     setDisplayedResponse,
+    setResponseActive,
     stopResponseStreaming,
   ]);
 
@@ -649,6 +662,7 @@ function App() {
 
   // Schedule listen timeout (when listening with no speech)
   const scheduleListenTimeout = useCallback((options = {}) => {
+    if (responseActiveRef.current) return;
     clearInactivityTimeouts();
     const seconds = sttDraftRef.current.listen_timeout_seconds;
     if (seconds <= 0) return; // Disabled
@@ -678,6 +692,17 @@ function App() {
     }, seconds * 1000);
   }, [clearInactivityTimeouts, handleInactivityTimeout, startTimeoutCountdown]);
 
+  useEffect(() => {
+    const wasActive = responseActivePrevRef.current;
+    responseActivePrevRef.current = isResponseActive;
+    if (!wasActive || isResponseActive) return;
+    if (uiModeRef.current !== 'ACTIVE') return;
+    const backend = backendStateRef.current;
+    if (backend === 'LISTENING' || backend === 'IDLE') {
+      scheduleListenTimeout();
+    }
+  }, [isResponseActive, scheduleListenTimeout]);
+
   // Handle backend messages
   useEffect(() => {
     if (backgroundedRef.current) return;
@@ -702,6 +727,7 @@ function App() {
         console.log('TTS interrupted');
         responseInterruptedRef.current = true;
         stopTtsPlayback();
+        setResponseActive(false);
       }
 
       if (msg.type === 'tts_audio_start') {
@@ -733,7 +759,11 @@ function App() {
       if (msg.type === 'state') {
         const s = msg.state;
         const previousBackendState = backendStateRef.current;
-        const currentAppState = deriveAppState(uiModeRef.current, backendStateRef.current);
+        const currentAppState = deriveAppState(
+          uiModeRef.current,
+          backendStateRef.current,
+          responseActiveRef.current,
+        );
         console.log('Backend state:', s, '| appState:', currentAppState);
         setBackendState(s);
 
@@ -784,6 +814,8 @@ function App() {
         ttsTextLengthRef.current = 0;
         ttsCpsUpdatedRef.current = false;
         pendingFadeRef.current = false;
+        setResponseActive(true);
+        clearInactivityTimeouts();
         stopResponseStreaming();
         setDisplayedResponse('');
         setTextVisible(true);
@@ -803,6 +835,7 @@ function App() {
           responseRef.current = finalText || '';
           responseCompleteRef.current = Boolean(finalText);
           if (!finalText) {
+            setResponseActive(false);
             setDisplayedResponse('');
             return;
           }
@@ -829,6 +862,7 @@ function App() {
     scheduleListenTimeout,
     scheduleTtsPlaybackEnd,
     setDisplayedResponse,
+    setResponseActive,
     startResponseStreaming,
     stopResponseStreaming,
     stopTtsPlayback,
@@ -901,7 +935,11 @@ function App() {
   const handleTap = () => {
     primeAudioContext();
     if (showHistory || showSettings) return;
-    const currentAppState = deriveAppState(uiModeRef.current, backendStateRef.current);
+    const currentAppState = deriveAppState(
+      uiModeRef.current,
+      backendStateRef.current,
+      responseActiveRef.current,
+    );
 
     if (currentAppState === 'PROCESSING' || currentAppState === 'SPEAKING') {
       console.log('🎤 TAP: INTERRUPT');

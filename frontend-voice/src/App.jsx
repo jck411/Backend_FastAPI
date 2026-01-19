@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useWebSocket from 'react-use-websocket';
 import './App.css';
 import useAudioCapture from './hooks/useAudioCapture';
+import ScrollFadeText from './components/ScrollFadeText';
 
 // Version for debugging
 console.log('🔧 App.jsx v3 loaded');
@@ -147,6 +148,21 @@ function App() {
   const setSttStatus = (nextStatus) => {
     sttStatusRef.current = nextStatus;
   };
+
+  const latestUserText = latestExchange?.user || '';
+  const latestAssistantText = latestExchange?.assistant || '';
+  const textItems = useMemo(() => {
+    const items = [];
+    const userText = currentTranscript || latestUserText;
+    const assistantText = currentResponse || latestAssistantText;
+    if (userText) {
+      items.push({ id: 'user', text: userText, className: 'user-text' });
+    }
+    if (assistantText) {
+      items.push({ id: 'assistant', text: assistantText, className: 'assistant-text' });
+    }
+    return items;
+  }, [currentTranscript, currentResponse, latestAssistantText, latestUserText]);
 
   const getAudioContext = useCallback(() => {
     if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
@@ -498,6 +514,7 @@ function App() {
     if (!textVisible) return;
     autoScrollRef.current = true;
   }, [textVisible]);
+
 
   const handleFloatingScroll = () => {
     const container = floatingTextRef.current;
@@ -1162,17 +1179,12 @@ function App() {
           )}
         </div>
 
-        <div
+        <ScrollFadeText
           ref={floatingTextRef}
           onScroll={handleFloatingScroll}
-          className={`floating-text ${textVisible ? 'visible' : ''}`}
-        >
-          {currentTranscript && <p className="user-text">{currentTranscript}</p>}
-          {!currentTranscript && latestExchange?.user && <p className="user-text">{latestExchange.user}</p>}
-          {(currentResponse || latestExchange?.assistant) && (
-            <p className="assistant-text">{currentResponse || latestExchange?.assistant}</p>
-          )}
-        </div>
+          visible={textVisible}
+          items={textItems}
+        />
       </div>
 
       <div className="bottom-controls">

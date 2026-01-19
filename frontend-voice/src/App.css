@@ -467,24 +467,18 @@ body,
   min-height: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 28px 10px 40px;
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  padding: 0 12px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   overscroll-behavior: contain;
   opacity: 0;
   transform: translateY(10px);
-  transition: opacity 0.6s ease, transform 0.4s ease;
+  transition: opacity 0.6s ease, transform 0.6s ease;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(to bottom,
-      rgba(0, 0, 0, 0) 0%,
-      rgba(0, 0, 0, 1) 10%,
-      rgba(0, 0, 0, 1) 88%,
-      rgba(0, 0, 0, 0) 100%);
-  mask-image: linear-gradient(to bottom,
-      rgba(0, 0, 0, 0) 0%,
-      rgba(0, 0, 0, 1) 10%,
-      rgba(0, 0, 0, 1) 88%,
-      rgba(0, 0, 0, 0) 100%);
+  --slide-dist: 10px;
+  --fade-dur: 600ms;
+  --slide-dur: 600ms;
+  --fade-zone: 140px;
 }
 
 .floating-text.visible {
@@ -494,28 +488,51 @@ body,
 }
 
 .floating-text::-webkit-scrollbar {
-  width: 6px;
+  display: none;
 }
 
-.floating-text::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0);
-  border-radius: 999px;
-  transition: background 0.3s ease;
+.fade-spacer {
+  height: var(--fade-zone);
+  flex-shrink: 0;
 }
 
-.floating-text:hover::-webkit-scrollbar-thumb,
-.floating-text:active::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.16);
+.text-chunk {
+  display: block;
+  margin: 0 0 0.45em;
+  white-space: pre-wrap;
 }
 
-.floating-text::-webkit-scrollbar-track {
-  background: transparent;
+.text-gap {
+  height: 0.45em;
+  flex-shrink: 0;
+}
+
+.text-gap-group {
+  height: 0.8em;
+}
+
+.fade-in-section {
+  opacity: 0;
+  transform: translateY(var(--slide-dist));
+  visibility: hidden;
+  transition: opacity var(--fade-dur) ease-out,
+    transform 0s linear var(--fade-dur),
+    visibility var(--fade-dur);
+  will-change: opacity, transform, visibility;
+}
+
+.fade-in-section.is-visible {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition: opacity var(--fade-dur) ease-out,
+    transform var(--slide-dur) ease-out,
+    visibility var(--fade-dur);
 }
 
 .user-text {
   font-size: 1rem;
   color: rgba(255, 255, 255, 0.6);
-  margin-bottom: 12px;
   line-height: 1.4;
 }
 
@@ -524,7 +541,6 @@ body,
   color: rgba(255, 255, 255, 0.95);
   line-height: 1.5;
   font-weight: 400;
-  white-space: pre-wrap;
 }
 
 /* Bottom controls container */

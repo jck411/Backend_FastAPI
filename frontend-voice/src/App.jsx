@@ -3,12 +3,12 @@ import useWebSocket from 'react-use-websocket';
 import './App.css';
 import ScrollFadeText from './components/ScrollFadeText';
 import useAudioCapture from './hooks/useAudioCapture';
+import { buildVoiceWsUrl, createClientId, VOICE_CONFIG } from './voice/config';
 
-// Version for debugging
-console.log('🔧 App.jsx v3 loaded');
-
-const clientId = `voice_${crypto.randomUUID()}`;
-const TIMEOUT_COUNTDOWN_SECONDS = 5;
+const clientId = createClientId();
+const TIMEOUT_COUNTDOWN_SECONDS = VOICE_CONFIG.ui.timeoutCountdownSeconds;
+const MAX_HISTORY_MESSAGES = VOICE_CONFIG.history.maxMessages;
+const DEFAULT_TTS_SAMPLE_RATE = VOICE_CONFIG.tts.defaultSampleRate;
 const STREAM_SPEED_STORAGE_KEY = 'voice_stream_speed_cps';
 const SYNC_TO_TTS_STORAGE_KEY = 'voice_sync_to_tts';
 const DEFAULT_STREAM_SPEED_CPS = 45;
@@ -79,9 +79,6 @@ function App() {
   const [backendState, setBackendStateState] = useState('IDLE');
   const backendStateRef = useRef('IDLE');
 
-  // STT session tracking (local only)
-  const sttStatusRef = useRef('idle'); // idle | starting | ready | paused
-
   const responseRef = useRef('');
   const displayedResponseRef = useRef('');
   const responseInterruptedRef = useRef(false);
@@ -96,7 +93,7 @@ function App() {
   const hasAutoStartedRef = useRef(false);
   const audioContextRef = useRef(null);
   const nextPlayTimeRef = useRef(0);
-  const ttsSampleRateRef = useRef(24000);
+  const ttsSampleRateRef = useRef(DEFAULT_TTS_SAMPLE_RATE);
   const hasTtsPlaybackStartedRef = useRef(false);
   const ttsEndTimeoutRef = useRef(null);
   const scheduledSourcesRef = useRef([]);
@@ -119,8 +116,7 @@ function App() {
   const ttsCpsEstimateRef = useRef(DEFAULT_TTS_SYNC_CPS);
   const ttsCpsUpdatedRef = useRef(false);
 
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
+  const wsUrl = buildVoiceWsUrl(clientId);
 
   const { sendMessage, lastMessage, readyState } = useWebSocket(wsUrl, {
     shouldReconnect: () => true,
@@ -137,7 +133,7 @@ function App() {
     resumeListening,
     pauseListening,
     handleSessionReady,
-  } = useAudioCapture(sendMessage, readyState);
+  } = useAudioCapture(sendMessage, readyState, VOICE_CONFIG.audio);
 
   const setUiMode = (nextMode) => {
     uiModeRef.current = nextMode;
@@ -149,13 +145,19 @@ function App() {
     setBackendStateState(nextState);
   };
 
-  const setSttStatus = (nextStatus) => {
-    sttStatusRef.current = nextStatus;
-  };
-
   const setResponseActive = useCallback((nextActive) => {
     responseActiveRef.current = nextActive;
     setIsResponseActiveState(nextActive);
+  }, []);
+
+  const pushMessage = useCallback((message) => {
+    setMessages(prev => {
+      const nextMessages = [...prev, message];
+      if (MAX_HISTORY_MESSAGES > 0 && nextMessages.length > MAX_HISTORY_MESSAGES) {
+        return nextMessages.slice(-MAX_HISTORY_MESSAGES);
+      }
+      return nextMessages;
+    });
   }, []);
 
   const latestUserText = latestExchange?.user || '';
@@ -356,8 +358,7 @@ function App() {
           setUiMode('ACTIVE');
           setBackendState('IDLE');
           setTextVisible(true);
-          const started = startNewConversation();
-          if (started) setSttStatus('starting');
+          startNewConversation();
         }
       });
     }
@@ -417,7 +418,7 @@ function App() {
   const finalizeStreamingResponse = useCallback(() => {
     const finalText = responseRef.current;
     if (finalText) {
-      setMessages(prev => [...prev, { role: 'assistant', content: finalText }]);
+      pushMessage({ role: 'assistant', content: finalText });
       setLatestExchange(prev => ({ ...(prev || {}), assistant: finalText }));
     }
     responseRef.current = '';
@@ -427,7 +428,7 @@ function App() {
     // Always schedule the fade after streaming completes (3 seconds, unless paused)
     pendingFadeRef.current = false;
     scheduleFade();
-  }, [scheduleFade, setDisplayedResponse, setLatestExchange, setMessages, setResponseActive]);
+  }, [pushMessage, scheduleFade, setDisplayedResponse, setLatestExchange, setResponseActive]);
 
   const streamResponseTick = useCallback((timestamp) => {
     const targetText = responseRef.current || '';
@@ -608,7 +609,7 @@ function App() {
   const finalizePartialResponse = useCallback(() => {
     const partial = displayedResponseRef.current;
     if (partial) {
-      setMessages(prev => [...prev, { role: 'assistant', content: partial }]);
+      pushMessage({ role: 'assistant', content: partial });
       setLatestExchange(prev => ({ ...(prev || {}), assistant: partial }));
     }
     responseRef.current = '';
@@ -616,7 +617,7 @@ function App() {
     setResponseActive(false);
     stopResponseStreaming();
     setDisplayedResponse('');
-  }, [setDisplayedResponse, setLatestExchange, setMessages, setResponseActive, stopResponseStreaming]);
+  }, [pushMessage, setDisplayedResponse, setLatestExchange, setResponseActive, stopResponseStreaming]);
 
   const interruptResponse = useCallback(() => {
     responseInterruptedRef.current = true;
@@ -632,6 +633,7 @@ function App() {
   const resetSession = useCallback((options = {}) => {
     const { clearMessages = false, fadeText = false, resetAutoStart = true } = options;
     clearInactivityTimeouts();
+    cancelFade();
 
     if (readyState === 1) {
       sendMessage(JSON.stringify({ type: 'clear_session' }));
@@ -645,7 +647,6 @@ function App() {
 
     setUiMode('FRESH');
     setBackendState('IDLE');
-    setSttStatus('idle');
     setCurrentTranscript('');
     setDisplayedResponse('');
     responseRef.current = '';
@@ -666,6 +667,7 @@ function App() {
       setTextVisible(false);
     }
   }, [
+    cancelFade,
     clearInactivityTimeouts,
     readyState,
     releaseMic,
@@ -736,14 +738,10 @@ function App() {
 
       if (msg.type === 'stt_session_ready') {
         handleSessionReady();
-        if (uiModeRef.current !== 'PAUSED') {
-          setSttStatus('ready');
-        }
       }
 
       if (msg.type === 'stt_session_error') {
         console.warn('STT session error:', msg.error);
-        setSttStatus('idle');
       }
 
       if (msg.type === 'interrupt_tts') {
@@ -830,7 +828,7 @@ function App() {
         setCurrentTranscript(msg.text || '');
         setTextVisible(true);
         if (msg.is_final && msg.text) {
-          setMessages(prev => [...prev, { role: 'user', content: msg.text }]);
+          pushMessage({ role: 'user', content: msg.text });
           // Store finalized user text but keep it displayed (don't clear currentTranscript)
           // The text will remain visible while the assistant reply streams below
           setLatestExchange(prev => ({ ...prev, user: msg.text, assistant: '' }));
@@ -888,6 +886,7 @@ function App() {
     handleSessionReady,
     lastMessage,
     playTtsChunk,
+    pushMessage,
     resetTtsPlayback,
     scheduleFade,
     scheduleListenTimeout,
@@ -985,8 +984,7 @@ function App() {
       clearInactivityTimeouts();
       cancelFade();
       setUiMode('PAUSED');
-      const paused = pauseListening();
-      if (paused) setSttStatus('paused');
+      pauseListening();
       // Schedule pause timeout
       schedulePauseTimeout();
     } else if (currentAppState === 'PAUSED') {
@@ -999,8 +997,7 @@ function App() {
       setTextVisible(true);
       initMic().then(ok => {
         if (ok) {
-          const resumed = resumeListening();
-          if (resumed) setSttStatus('starting');
+          resumeListening();
         }
       });
     } else if (currentAppState === 'FRESH') {
@@ -1013,8 +1010,7 @@ function App() {
       setTextVisible(true);
       initMic().then(ok => {
         if (ok) {
-          const started = startNewConversation();
-          if (started) setSttStatus('starting');
+          startNewConversation();
         }
       });
     }
@@ -1076,6 +1072,37 @@ function App() {
       window.removeEventListener('pagehide', handlePageHide);
     };
   }, [handleAppHidden]);
+
+  useEffect(() => {
+    return () => {
+      if (fadeTimeoutRef.current) {
+        clearTimeout(fadeTimeoutRef.current);
+        fadeTimeoutRef.current = null;
+      }
+      if (pauseTimeoutRef.current) {
+        clearTimeout(pauseTimeoutRef.current);
+        pauseTimeoutRef.current = null;
+      }
+      if (listenTimeoutRef.current) {
+        clearTimeout(listenTimeoutRef.current);
+        listenTimeoutRef.current = null;
+      }
+      if (countdownTimeoutRef.current) {
+        clearTimeout(countdownTimeoutRef.current);
+        countdownTimeoutRef.current = null;
+      }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+      if (streamAnimationRef.current) {
+        cancelAnimationFrame(streamAnimationRef.current);
+        streamAnimationRef.current = null;
+      }
+      stopTtsPlayback();
+      releaseMic();
+    };
+  }, [releaseMic, stopTtsPlayback]);
 
   // Community-recommended defaults for Deepgram STT
   const defaultSettings = {

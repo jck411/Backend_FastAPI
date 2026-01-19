@@ -1,22 +1,7 @@
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  height: 100%;
-  width: 100%;
-  overflow: hidden;
-}
-
 .app {
   height: 100%;
-  background: linear-gradient(160deg, #0a0a12 0%, #12121f 50%, #0f1420 100%);
-  color: white;
-  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--app-bg);
+  color: var(--color-text);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -591,14 +576,18 @@ body,
 }
 
 /* History overlay */
-.history-overlay {
+.history-overlay,
+.settings-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
-  z-index: 200;
+  background: var(--overlay-bg);
   display: flex;
   align-items: flex-end;
   animation: fadeIn 0.2s ease;
+}
+
+.history-overlay {
+  z-index: 200;
 }
 
 @keyframes fadeIn {
@@ -613,12 +602,12 @@ body,
 
 .history-panel {
   width: 100%;
-  max-height: 75%;
-  background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%);
+  background: var(--panel-bg);
   border-radius: 24px 24px 0 0;
   padding: 16px;
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   animation: slideUp 0.3s ease;
+  max-height: 75%;
 }
 
 @keyframes slideUp {
@@ -698,23 +687,17 @@ body,
 
 /* Settings overlay */
 .settings-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.7);
   z-index: 210;
-  display: flex;
-  align-items: flex-end;
-  animation: fadeIn 0.2s ease;
 }
 
 .settings-panel {
   width: 100%;
-  max-height: 85vh;
-  background: linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%);
+  background: var(--panel-bg);
   border-radius: 24px 24px 0 0;
   padding: 16px;
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   animation: slideUp 0.3s ease;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -801,15 +784,15 @@ body,
   border-color: rgba(255, 255, 255, 0.25);
 }
 
-.settings-header-save {
-  background: rgba(59, 130, 246, 0.2) !important;
-  border-color: rgba(59, 130, 246, 0.35) !important;
-  color: #93c5fd !important;
+.settings-header .settings-header-save {
+  background: rgba(59, 130, 246, 0.2);
+  border-color: rgba(59, 130, 246, 0.35);
+  color: #93c5fd;
 }
 
-.settings-header-save:hover {
-  background: rgba(59, 130, 246, 0.3) !important;
-  border-color: rgba(59, 130, 246, 0.5) !important;
+.settings-header .settings-header-save:hover {
+  background: rgba(59, 130, 246, 0.3);
+  border-color: rgba(59, 130, 246, 0.5);
 }
 
 .settings-header-save:disabled {
@@ -945,25 +928,6 @@ body,
   cursor: default;
 }
 
-.settings-save {
-  background: rgba(59, 130, 246, 0.2);
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  color: #93c5fd;
-  padding: 8px 18px;
-  border-radius: 18px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  cursor: pointer;
-  transition: background 0.2s ease;
-}
-
-.settings-save:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
 .settings-loading {
   font-size: 0.85rem;
   color: rgba(255, 255, 255, 0.6);
@@ -1009,9 +973,4 @@ body,
   .timeout-digit {
     font-size: 2rem;
   }
-}
-
-body {
-  overscroll-behavior: none;
-  touch-action: manipulation;
 }

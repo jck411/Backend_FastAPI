@@ -1,11 +1,18 @@
 :root {
-  font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-sans: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --color-text: rgba(255, 255, 255, 0.9);
+  --color-bg: #0f0f1a;
+  --app-bg: linear-gradient(160deg, #0a0a12 0%, #12121f 50%, #0f1420 100%);
+  --panel-bg: linear-gradient(180deg, #1a1a2e 0%, #0f0f1a 100%);
+  --overlay-bg: rgba(0, 0, 0, 0.7);
+
+  font-family: var(--font-sans);
   line-height: 1.5;
   font-weight: 400;
 
   color-scheme: dark;
-  color: rgba(255, 255, 255, 0.9);
-  background-color: #0f0f1a;
+  color: var(--color-text);
+  background-color: var(--color-bg);
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -13,15 +20,30 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-touch-callout: none;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
   min-height: 100dvh;
-}
-
-/* Prevent text selection and zoom issues on mobile */
-* {
-  -webkit-touch-callout: none;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  font-family: var(--font-sans);
+  overscroll-behavior: none;
+  touch-action: manipulation;
 }
 
 /* Fix for iOS viewport height */

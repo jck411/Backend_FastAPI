@@ -377,6 +377,22 @@ function App() {
     fadeTimeoutRef.current = setTimeout(() => setTextVisible(false), 5000);
   }, []);
 
+  const cancelFade = useCallback(() => {
+    if (fadeTimeoutRef.current) {
+      clearTimeout(fadeTimeoutRef.current);
+      fadeTimeoutRef.current = null;
+    }
+    pendingFadeRef.current = false;
+  }, []);
+
+  const clearTranscriptForListening = useCallback(() => {
+    setCurrentTranscript('');
+    setLatestExchange(prev => {
+      if (!prev || !prev.user) return prev;
+      return { ...prev, user: '' };
+    });
+  }, []);
+
   const setDisplayedResponse = useCallback((nextText) => {
     displayedResponseRef.current = nextText;
     setCurrentResponse(nextText);
@@ -773,6 +789,10 @@ function App() {
             if (uiModeRef.current === 'FRESH') {
               setUiMode('ACTIVE');
             }
+            if (previousBackendState !== 'LISTENING') {
+              clearTranscriptForListening();
+            }
+            cancelFade();
             setTextVisible(true);
             scheduleListenTimeout();
           }
@@ -785,7 +805,9 @@ function App() {
           }
         } else if (s === 'IDLE') {
           // Keep UI mode as-is; just fade the transcript after idle.
-          scheduleFade();
+          if (uiModeRef.current !== 'PAUSED') {
+            scheduleFade();
+          }
           // If ACTIVE (not paused/fresh), schedule listen timeout
           if (uiModeRef.current === 'ACTIVE' && previousBackendState !== 'LISTENING') {
             scheduleListenTimeout();
@@ -859,6 +881,7 @@ function App() {
     lastMessage,
     playTtsChunk,
     resetTtsPlayback,
+    scheduleFade,
     scheduleListenTimeout,
     scheduleTtsPlaybackEnd,
     setDisplayedResponse,
@@ -867,6 +890,8 @@ function App() {
     stopResponseStreaming,
     stopTtsPlayback,
     updateTtsCpsEstimate,
+    cancelFade,
+    clearTranscriptForListening,
   ]);
 
   // Load STT settings when opening settings panel
@@ -950,15 +975,17 @@ function App() {
     if (currentAppState === 'LISTENING') {
       console.log('🎤 TAP: PAUSE');
       clearInactivityTimeouts();
+      cancelFade();
       setUiMode('PAUSED');
       const paused = pauseListening();
       if (paused) setSttStatus('paused');
-      scheduleFade();
       // Schedule pause timeout
       schedulePauseTimeout();
     } else if (currentAppState === 'PAUSED') {
       console.log('🎤 TAP: RESUME');
       clearInactivityTimeouts();
+      cancelFade();
+      clearTranscriptForListening();
       setUiMode('ACTIVE');
       setBackendState('IDLE');
       setTextVisible(true);
@@ -971,6 +998,8 @@ function App() {
     } else if (currentAppState === 'FRESH') {
       console.log('🎤 TAP: FIRST START');
       clearInactivityTimeouts();
+      cancelFade();
+      clearTranscriptForListening();
       setUiMode('ACTIVE');
       setBackendState('IDLE');
       setTextVisible(true);

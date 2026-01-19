@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useWebSocket from 'react-use-websocket';
 import './App.css';
-import useAudioCapture from './hooks/useAudioCapture';
 import ScrollFadeText from './components/ScrollFadeText';
+import useAudioCapture from './hooks/useAudioCapture';
 
 // Version for debugging
 console.log('🔧 App.jsx v3 loaded');
@@ -367,6 +367,11 @@ function App() {
 
   const scheduleFade = useCallback(() => {
     if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
+    // Don't fade if paused - user may want to read the text
+    if (uiModeRef.current === 'PAUSED') {
+      pendingFadeRef.current = false;
+      return;
+    }
     const isStreaming = responseRef.current
       && displayedResponseRef.current.length < responseRef.current.length;
     if (isStreaming) {
@@ -374,7 +379,11 @@ function App() {
       return;
     }
     pendingFadeRef.current = false;
-    fadeTimeoutRef.current = setTimeout(() => setTextVisible(false), 5000);
+    fadeTimeoutRef.current = setTimeout(() => {
+      setTextVisible(false);
+      // Clear the old exchange data so it doesn't reappear on next transcript
+      setLatestExchange(null);
+    }, 3000);
   }, []);
 
   const cancelFade = useCallback(() => {
@@ -386,11 +395,9 @@ function App() {
   }, []);
 
   const clearTranscriptForListening = useCallback(() => {
+    // Only clear the live transcript, NOT the finalized user text in latestExchange
+    // This allows the user's question to stay visible while the assistant reply streams
     setCurrentTranscript('');
-    setLatestExchange(prev => {
-      if (!prev || !prev.user) return prev;
-      return { ...prev, user: '' };
-    });
   }, []);
 
   const setDisplayedResponse = useCallback((nextText) => {
@@ -417,9 +424,9 @@ function App() {
     responseCompleteRef.current = false;
     setResponseActive(false);
     setDisplayedResponse('');
-    if (pendingFadeRef.current) {
-      scheduleFade();
-    }
+    // Always schedule the fade after streaming completes (3 seconds, unless paused)
+    pendingFadeRef.current = false;
+    scheduleFade();
   }, [scheduleFade, setDisplayedResponse, setLatestExchange, setMessages, setResponseActive]);
 
   const streamResponseTick = useCallback((timestamp) => {
@@ -824,8 +831,9 @@ function App() {
         setTextVisible(true);
         if (msg.is_final && msg.text) {
           setMessages(prev => [...prev, { role: 'user', content: msg.text }]);
+          // Store finalized user text but keep it displayed (don't clear currentTranscript)
+          // The text will remain visible while the assistant reply streams below
           setLatestExchange(prev => ({ ...prev, user: msg.text, assistant: '' }));
-          setCurrentTranscript('');
         }
       }
 

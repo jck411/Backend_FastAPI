@@ -54,6 +54,8 @@ const float32ToBase64 = (float32) => {
  * - Uses AudioWorklet for low-latency capture when available
  * - Falls back to ScriptProcessor for older browsers
  * - Proper cleanup of all audio resources
+ * - Universal pause/resume that works with both AudioWorklet and ScriptProcessor
+ * - No routing to audioContext.destination (prevents feedback)
  *
  * State machine:
  * 1. initMic() - Request mic permissions and set up audio pipeline
@@ -76,6 +78,9 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
     const streamRef = useRef(null);
     const inputSampleRateRef = useRef(audioConfig.targetSampleRate);
 
+    // Pause state - works for both AudioWorklet and ScriptProcessor
+    const isPausedRef = useRef(false);
+
     // Session management refs
     const sessionReadyRef = useRef(false);
     const pendingBuffersRef = useRef([]);
@@ -89,8 +94,14 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
     /**
      * Process a single audio frame - resample if needed and send to backend.
      * Buffers audio until the STT session is ready.
+     * Respects pause state.
      */
     const processAudioFrame = useCallback((float32) => {
+        // Check pause state first - drop frames when paused
+        if (isPausedRef.current) {
+            return;
+        }
+
         if (!float32 || float32.length === 0) return;
 
         const inputSampleRate = inputSampleRateRef.current;
@@ -131,12 +142,17 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
         console.log('🎤 releaseMic called');
         sessionReadyRef.current = false;
         pendingBuffersRef.current = [];
+        isPausedRef.current = false;
         setIsCapturing(false);
 
         // Disconnect processor
         if (processorRef.current) {
             if (processorRef.current.port) {
                 processorRef.current.port.onmessage = null;
+            }
+            // Clear ScriptProcessor callback
+            if (processorRef.current.onaudioprocess) {
+                processorRef.current.onaudioprocess = null;
             }
             try {
                 processorRef.current.disconnect();
@@ -175,10 +191,14 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
      *
      * Note: This only sets up the capture - audio won't be sent until
      * handleSessionReady() is called after backend confirms STT session.
+     *
+     * IMPORTANT: Does NOT route to audioContext.destination to prevent
+     * mic→speaker feedback loops.
      */
     const initMic = useCallback(async () => {
         console.log('🎤 initMic called');
         setError(null);
+        isPausedRef.current = false;
 
         // Check if we already have an active capture
         if (streamRef.current && audioContextRef.current) {
@@ -245,6 +265,7 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
                         }
                     };
                     processor = workletNode;
+                    processor._isWorklet = true;
                     console.log('🎤 Using AudioWorklet for capture');
                 } catch (err) {
                     console.warn('🎤 AudioWorklet unavailable, falling back to ScriptProcessor:', err);
@@ -265,15 +286,28 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
                     1, // output channels
                 );
                 scriptNode.onaudioprocess = (e) => {
+                    // Pause check is done inside processAudioFrame
                     processAudioFrame(e.inputBuffer.getChannelData(0));
                 };
                 processor = scriptNode;
+                processor._isWorklet = false;
                 console.log('🎤 Using ScriptProcessor for capture');
             }
 
-            // Connect the audio graph
+            // Connect source -> processor
             source.connect(processor);
-            processor.connect(audioContext.destination);
+
+            // IMPORTANT: Do NOT connect to audioContext.destination
+            // This prevents mic audio from playing through speakers (feedback loop)
+            // ScriptProcessor requires a destination connection to work, use a silent gain node
+            if (!processor._isWorklet) {
+                // Create a silent sink for ScriptProcessor (required for onaudioprocess to fire)
+                const silentGain = audioContext.createGain();
+                silentGain.gain.value = 0;
+                processor.connect(silentGain);
+                silentGain.connect(audioContext.destination);
+            }
+            // AudioWorklet doesn't need destination connection
 
             // Store refs
             streamRef.current = stream;
@@ -281,7 +315,7 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
             processorRef.current = processor;
 
             setIsCapturing(true);
-            console.log('🎤 Mic initialized successfully');
+            console.log('🎤 Mic initialized successfully (no speaker routing)');
             return true;
 
         } catch (err) {
@@ -321,8 +355,13 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
 
     /**
      * Pause audio capture (keeps mic open but stops sending).
+     * Works with both AudioWorklet and ScriptProcessor.
      */
     const pauseCapture = useCallback(() => {
+        console.log('🎤 Pausing audio capture');
+        isPausedRef.current = true;
+
+        // Also notify AudioWorklet if available
         if (processorRef.current?.port) {
             processorRef.current.port.postMessage({ type: 'pause', value: true });
         }
@@ -330,8 +369,13 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
 
     /**
      * Resume audio capture after pause.
+     * Works with both AudioWorklet and ScriptProcessor.
      */
     const resumeCapture = useCallback(() => {
+        console.log('🎤 Resuming audio capture');
+        isPausedRef.current = false;
+
+        // Also notify AudioWorklet if available
         if (processorRef.current?.port) {
             processorRef.current.port.postMessage({ type: 'pause', value: false });
         }

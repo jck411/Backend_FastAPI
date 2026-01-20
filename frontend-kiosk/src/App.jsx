@@ -49,6 +49,10 @@ export default function App() {
     const backendStateRef = useRef("IDLE");
     const isPlayingTtsRef = useRef(false);
 
+    // TTS mic lock - prevents mic from resuming until TTS playback is truly complete
+    // This overrides backend state and is the authoritative signal for mic control
+    const ttsMicLockedRef = useRef(false);
+
     // Web Audio API for streaming TTS playback
     const audioContextRef = useRef(null);
     const nextPlayTimeRef = useRef(0);
@@ -58,6 +62,8 @@ export default function App() {
     const pendingChunksRef = useRef([]);
     const pendingSampleCountRef = useRef(0);
     const ttsStreamEndedRef = useRef(false);
+    // Track the last scheduled audio source for onended callback
+    const lastScheduledSourceRef = useRef(null);
 
     // WebSocket connection
     const {
@@ -162,16 +168,47 @@ export default function App() {
 
         source.start(startTime);
         scheduledSourcesRef.current.push(source);
+        lastScheduledSourceRef.current = source;
         nextPlayTimeRef.current = startTime + audioBuffer.duration;
 
         if (!hasStartedRef.current) {
             hasStartedRef.current = true;
             isPlayingTtsRef.current = true;
-            console.log("🎵 Audio playback started (streaming)");
+            ttsMicLockedRef.current = true; // Lock mic during TTS
+            console.log("🎵 Audio playback started (streaming), mic locked");
             // Pause mic capture during TTS to prevent self-transcription
             pauseCapture();
             sendMessage(JSON.stringify({ type: "tts_playback_start" }));
         }
+    };
+
+    /**
+     * Set up onended callback on the last scheduled source to detect true playback completion.
+     * This replaces timer-based detection for more accurate TTS completion.
+     */
+    const setupTtsCompletionCallback = () => {
+        const lastSource = lastScheduledSourceRef.current;
+        if (!lastSource) {
+            console.warn("No last source to attach onended callback");
+            return;
+        }
+
+        lastSource.onended = () => {
+            console.log("🔊 Last audio source ended (onended event)");
+            // Clear state
+            sendMessage(JSON.stringify({ type: "tts_playback_end" }));
+            isPlayingTtsRef.current = false;
+            hasStartedRef.current = false;
+            scheduledSourcesRef.current = [];
+            lastScheduledSourceRef.current = null;
+
+            // Resume mic after delay to avoid capturing any speaker echo
+            setTimeout(() => {
+                console.log("🎤 Unlocking mic after TTS completion delay");
+                ttsMicLockedRef.current = false;
+                resumeCapture();
+            }, TTS_MIC_RESUME_DELAY_MS);
+        };
     };
 
     const drainPendingAudio = (force = false) => {
@@ -245,6 +282,7 @@ export default function App() {
             }
         }
         scheduledSourcesRef.current = [];
+        lastScheduledSourceRef.current = null;
         pendingChunksRef.current = [];
         pendingSampleCountRef.current = 0;
         ttsStreamEndedRef.current = false;
@@ -257,6 +295,7 @@ export default function App() {
 
         // Reset playback state
         nextPlayTimeRef.current = 0;
+        ttsMicLockedRef.current = false; // Unlock mic on barge-in
 
         // Only send end event if we were playing
         if (isPlayingTtsRef.current || hasStartedRef.current) {
@@ -372,27 +411,16 @@ export default function App() {
                         ttsStreamEndedRef.current = true;
                         drainPendingAudio(true);
 
-                        // Calculate when all audio will finish
-                        if (audioContextRef.current && hasStartedRef.current) {
-                            const timeUntilDone = Math.max(0, nextPlayTimeRef.current - audioContextRef.current.currentTime);
-                            console.log(`All audio scheduled, will complete in ${(timeUntilDone * 1000).toFixed(0)}ms`);
-
-                            // Send playback end event after all audio finishes
-                            setTimeout(() => {
-                                console.log("Audio playback finished");
-                                sendMessage(JSON.stringify({ type: "tts_playback_end" }));
-                                isPlayingTtsRef.current = false;
-                                hasStartedRef.current = false;
-                                scheduledSourcesRef.current = [];
-                                // Resume mic capture after TTS completes (with delay to avoid speaker echo)
-                                setTimeout(() => resumeCapture(), TTS_MIC_RESUME_DELAY_MS);
-                            }, timeUntilDone * 1000 + 50);
+                        // Use onended callback on last source for accurate completion detection
+                        if (lastScheduledSourceRef.current) {
+                            setupTtsCompletionCallback();
                         } else {
                             // No audio was played (maybe TTS was empty or failed)
                             console.log("No audio was played, sending tts_playback_end immediately");
                             sendMessage(JSON.stringify({ type: "tts_playback_end" }));
                             isPlayingTtsRef.current = false;
                             hasStartedRef.current = false;
+                            ttsMicLockedRef.current = false;
                             resumeCapture();
                         }
                     }
@@ -402,27 +430,16 @@ export default function App() {
                     ttsStreamEndedRef.current = true;
                     drainPendingAudio(true);
 
-                    // Calculate when all audio will finish
-                    if (audioContextRef.current && hasStartedRef.current) {
-                        const timeUntilDone = Math.max(0, nextPlayTimeRef.current - audioContextRef.current.currentTime);
-                        console.log(`All audio scheduled, will complete in ${(timeUntilDone * 1000).toFixed(0)}ms`);
-
-                        // Send playback end event after all audio finishes
-                        setTimeout(() => {
-                            console.log("Audio playback finished");
-                            sendMessage(JSON.stringify({ type: "tts_playback_end" }));
-                            isPlayingTtsRef.current = false;
-                            hasStartedRef.current = false;
-                            scheduledSourcesRef.current = [];
-                            // Resume mic capture after TTS completes (with delay to avoid speaker echo)
-                            setTimeout(() => resumeCapture(), TTS_MIC_RESUME_DELAY_MS);
-                        }, timeUntilDone * 1000 + 50);
+                    // Use onended callback on last source for accurate completion detection
+                    if (lastScheduledSourceRef.current) {
+                        setupTtsCompletionCallback();
                     } else {
                         // No audio was played (maybe TTS was empty or failed)
                         console.log("No audio was played, sending tts_playback_end immediately");
                         sendMessage(JSON.stringify({ type: "tts_playback_end" }));
                         isPlayingTtsRef.current = false;
                         hasStartedRef.current = false;
+                        ttsMicLockedRef.current = false;
                         resumeCapture();
                     }
                 } else if (data.type === 'tts_audio_cancelled') {
@@ -447,9 +464,13 @@ export default function App() {
 
                     // Handle state transitions for mic control
                     if (newState === 'LISTENING' && prevState !== 'LISTENING') {
-                        // Backend ready to receive audio - resume capture if paused
-                        console.log('Backend listening - resuming audio capture');
-                        resumeCapture();
+                        // Backend ready to receive audio - resume capture if NOT locked by TTS
+                        if (ttsMicLockedRef.current) {
+                            console.log('Backend listening - but mic locked by TTS, will resume after playback');
+                        } else {
+                            console.log('Backend listening - resuming audio capture');
+                            resumeCapture();
+                        }
                     } else if (newState === 'IDLE') {
                         // Conversation ended - release mic
                         console.log('Backend idle - releasing microphone');

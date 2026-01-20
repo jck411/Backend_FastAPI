@@ -209,23 +209,6 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
         }
     }, [audioConfig, processAudioFrame, releaseMic]);
 
-    // Start a NEW conversation (clears history on backend)
-    const startNewConversation = useCallback(() => {
-        console.log('🎤 startNewConversation called');
-
-        if (readyStateRef.current !== ReadyState.OPEN) {
-            console.log('🎤 WebSocket not ready, skipping');
-            return false;
-        }
-
-        sessionReadyRef.current = false;
-        pendingBuffersRef.current = [];
-
-        // This tells backend to clear history and start fresh STT session
-        sendMessage(JSON.stringify({ type: 'wakeword_detected', confidence: 1.0 }));
-        return true;
-    }, [sendMessage]);
-
     // Backend signals STT session is ready
     const handleSessionReady = useCallback(() => {
         console.log('🎤 Session ready, flushing', pendingBuffersRef.current.length, 'pending buffers');
@@ -242,7 +225,6 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
         error,
         initMic,
         releaseMic,
-        startNewConversation,
         handleSessionReady,
     };
 }

@@ -6,7 +6,6 @@ import useAudioCapture from './hooks/useAudioCapture';
 import { buildVoiceWsUrl, createClientId, VOICE_CONFIG } from './voice/config';
 
 const clientId = createClientId();
-const TIMEOUT_COUNTDOWN_SECONDS = VOICE_CONFIG.ui.timeoutCountdownSeconds;
 const MAX_HISTORY_MESSAGES = VOICE_CONFIG.history.maxMessages;
 const DEFAULT_TTS_SAMPLE_RATE = VOICE_CONFIG.tts.defaultSampleRate;
 const STREAM_SPEED_STORAGE_KEY = 'voice_stream_speed_cps';
@@ -19,11 +18,11 @@ const DEFAULT_TTS_SYNC_CPS = 15;
 const TTS_SYNC_CPS_MIN = 8;
 const TTS_SYNC_CPS_MAX = 30;
 
-const deriveAppState = (sessionActive, backend, responseActive = false) => {
-  if (!sessionActive) return 'IDLE';
+const deriveAppState = (backend, responseActive = false) => {
   if (responseActive) return 'SPEAKING';
   if (backend === 'PROCESSING' || backend === 'SPEAKING') return 'SPEAKING';
-  return 'LISTENING';
+  if (backend === 'LISTENING') return 'LISTENING';
+  return 'IDLE';
 };
 
 function App() {
@@ -34,12 +33,10 @@ function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [latestExchange, setLatestExchange] = useState(null);
-  const [textVisible, setTextVisible] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [sttDraft, setSttDraft] = useState({
     eot_timeout_ms: 5000,
     eot_threshold: 0.7,
-    pause_timeout_seconds: 30,
     listen_timeout_seconds: 15,
   });
   const [ttsDraft, setTtsDraft] = useState({
@@ -48,7 +45,6 @@ function App() {
   const [settingsError, setSettingsError] = useState(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
-  const [timeoutCountdown, setTimeoutCountdown] = useState(null);
   const [streamSpeedCps, setStreamSpeedCps] = useState(() => {
     if (typeof window === 'undefined') return DEFAULT_STREAM_SPEED_CPS;
     try {
@@ -73,35 +69,25 @@ function App() {
   // Backend states: IDLE, LISTENING, PROCESSING, SPEAKING
   const [backendState, setBackendStateState] = useState('IDLE');
   const backendStateRef = useRef('IDLE');
-  const [sessionActive, setSessionActiveState] = useState(false);
-  const sessionActiveRef = useRef(false);
 
   const responseRef = useRef('');
   const displayedResponseRef = useRef('');
   const responseInterruptedRef = useRef(false);
   const responseCompleteRef = useRef(false);
   const responseActiveRef = useRef(false);
-  const responseActivePrevRef = useRef(false);
   const streamAnimationRef = useRef(null);
   const streamLastTickRef = useRef(0);
   const streamCarryRef = useRef(0);
-  const fadeTimeoutRef = useRef(null);
-  const pendingFadeRef = useRef(false);
   const audioContextRef = useRef(null);
   const nextPlayTimeRef = useRef(0);
   const ttsSampleRateRef = useRef(DEFAULT_TTS_SAMPLE_RATE);
   const hasTtsPlaybackStartedRef = useRef(false);
   const ttsEndTimeoutRef = useRef(null);
   const scheduledSourcesRef = useRef([]);
-  const countdownTimeoutRef = useRef(null);
-  const countdownIntervalRef = useRef(null);
   const backgroundedRef = useRef(false);
   const floatingTextRef = useRef(null);
   const autoScrollRef = useRef(true);
 
-  // Inactivity timeout refs
-  const listenTimeoutRef = useRef(null);
-  const sttDraftRef = useRef(sttDraft);  // Keep ref in sync for use in callbacks
   const streamSpeedRef = useRef(streamSpeedCps);
   const syncToTtsRef = useRef(syncToTts);
   const ttsTextLengthRef = useRef(0);  // Track response text length for TTS sync
@@ -124,18 +110,12 @@ function App() {
     error,
     initMic,
     releaseMic,
-    startNewConversation,
     handleSessionReady,
   } = useAudioCapture(sendMessage, readyState, VOICE_CONFIG.audio);
 
   const setBackendState = (nextState) => {
     backendStateRef.current = nextState;
     setBackendStateState(nextState);
-  };
-
-  const setSessionActive = (nextState) => {
-    sessionActiveRef.current = nextState;
-    setSessionActiveState(nextState);
   };
 
   const setResponseActive = useCallback((nextActive) => {
@@ -338,31 +318,8 @@ function App() {
     }
   }, [getAudioContext, sendMessage]);
 
-  const appState = deriveAppState(sessionActive, backendState, isResponseActive);
-
-  const scheduleFade = useCallback(() => {
-    if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
-    const isStreaming = responseRef.current
-      && displayedResponseRef.current.length < responseRef.current.length;
-    if (isStreaming) {
-      pendingFadeRef.current = true;
-      return;
-    }
-    pendingFadeRef.current = false;
-    fadeTimeoutRef.current = setTimeout(() => {
-      setTextVisible(false);
-      // Clear the old exchange data so it doesn't reappear on next transcript
-      setLatestExchange(null);
-    }, 4000);
-  }, []);
-
-  const cancelFade = useCallback(() => {
-    if (fadeTimeoutRef.current) {
-      clearTimeout(fadeTimeoutRef.current);
-      fadeTimeoutRef.current = null;
-    }
-    pendingFadeRef.current = false;
-  }, []);
+  const appState = deriveAppState(backendState, isResponseActive);
+  const textVisible = appState !== 'IDLE' || textItems.length > 0;
 
   const clearTranscriptForListening = useCallback(() => {
     // Only clear the live transcript, NOT the finalized user text in latestExchange
@@ -394,10 +351,7 @@ function App() {
     responseCompleteRef.current = false;
     setResponseActive(false);
     setDisplayedResponse('');
-    // Always schedule the fade after streaming completes.
-    pendingFadeRef.current = false;
-    scheduleFade();
-  }, [pushMessage, scheduleFade, setDisplayedResponse, setLatestExchange, setResponseActive]);
+  }, [pushMessage, setDisplayedResponse, setLatestExchange, setResponseActive]);
 
   const streamResponseTick = useCallback((timestamp) => {
     const targetText = responseRef.current || '';
@@ -472,11 +426,6 @@ function App() {
     streamAnimationRef.current = requestAnimationFrame(streamResponseTick);
   }, [streamResponseTick]);
 
-  // Keep sttDraftRef in sync with sttDraft state
-  useEffect(() => {
-    sttDraftRef.current = sttDraft;
-  }, [sttDraft]);
-
   useEffect(() => {
     streamSpeedRef.current = streamSpeedCps;
     if (typeof window === 'undefined') return;
@@ -526,51 +475,6 @@ function App() {
     autoScrollRef.current = distanceFromBottom < 12;
   };
 
-  // Clear all inactivity timeouts
-  const clearTimeoutCountdown = useCallback(() => {
-    if (countdownTimeoutRef.current) {
-      clearTimeout(countdownTimeoutRef.current);
-      countdownTimeoutRef.current = null;
-    }
-    if (countdownIntervalRef.current) {
-      clearInterval(countdownIntervalRef.current);
-      countdownIntervalRef.current = null;
-    }
-    setTimeoutCountdown(null);
-  }, []);
-
-  const clearInactivityTimeouts = useCallback(() => {
-    if (listenTimeoutRef.current) {
-      clearTimeout(listenTimeoutRef.current);
-      listenTimeoutRef.current = null;
-    }
-    clearTimeoutCountdown();
-  }, [clearTimeoutCountdown]);
-
-  const startTimeoutCountdown = useCallback((seconds) => {
-    clearTimeoutCountdown();
-    const totalSeconds = Number(seconds);
-    if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return;
-
-    const startDelayMs = Math.max(0, (totalSeconds - TIMEOUT_COUNTDOWN_SECONDS) * 1000);
-    const startValue = totalSeconds >= TIMEOUT_COUNTDOWN_SECONDS
-      ? TIMEOUT_COUNTDOWN_SECONDS
-      : Math.max(1, Math.floor(totalSeconds));
-
-    countdownTimeoutRef.current = setTimeout(() => {
-      let remaining = startValue;
-      setTimeoutCountdown(remaining);
-      countdownIntervalRef.current = setInterval(() => {
-        remaining -= 1;
-        if (remaining <= 0) {
-          clearTimeoutCountdown();
-        } else {
-          setTimeoutCountdown(remaining);
-        }
-      }, 1000);
-    }, startDelayMs);
-  }, [clearTimeoutCountdown]);
-
   const finalizePartialResponse = useCallback(() => {
     const partial = displayedResponseRef.current;
     if (partial) {
@@ -586,19 +490,16 @@ function App() {
 
   const interruptResponse = useCallback(() => {
     responseInterruptedRef.current = true;
-    clearInactivityTimeouts();
     stopTtsPlayback();
     finalizePartialResponse();
 
     if (readyState === 1) {
       sendMessage(JSON.stringify({ type: 'wakeword_barge_in', manual: true }));
     }
-  }, [clearInactivityTimeouts, finalizePartialResponse, readyState, sendMessage, stopTtsPlayback]);
+  }, [finalizePartialResponse, readyState, sendMessage, stopTtsPlayback]);
 
   const resetSession = useCallback((options = {}) => {
-    const { clearMessages = false, fadeText = false } = options;
-    clearInactivityTimeouts();
-    cancelFade();
+    const { clearMessages = false } = options;
 
     if (readyState === 1) {
       sendMessage(JSON.stringify({ type: 'clear_session' }));
@@ -606,7 +507,6 @@ function App() {
 
     stopTtsPlayback();
     releaseMic();
-    setSessionActive(false);
     setBackendState('IDLE');
     setCurrentTranscript('');
     setDisplayedResponse('');
@@ -614,66 +514,21 @@ function App() {
     responseCompleteRef.current = false;
     setResponseActive(false);
     responseInterruptedRef.current = false;
-    pendingFadeRef.current = false;
     stopResponseStreaming();
 
     if (clearMessages) {
       setMessages([]);
       setLatestExchange(null);
     }
-
-    if (fadeText) {
-      scheduleFade();
-    } else {
-      setTextVisible(false);
-    }
   }, [
-    cancelFade,
-    clearInactivityTimeouts,
     readyState,
     releaseMic,
     sendMessage,
     stopTtsPlayback,
-    scheduleFade,
     setDisplayedResponse,
     setResponseActive,
     stopResponseStreaming,
   ]);
-
-  // Handle inactivity timeout - close session but preserve context
-  const handleInactivityTimeout = useCallback(() => {
-    console.log('⏰ Inactivity timeout triggered');
-    resetSession({ fadeText: true });
-  }, [resetSession]);
-
-  // Schedule listen timeout (when listening with no speech)
-  const scheduleListenTimeout = useCallback((options = {}) => {
-    if (!sessionActiveRef.current) return;
-    if (responseActiveRef.current) return;
-    clearInactivityTimeouts();
-    const seconds = sttDraftRef.current.listen_timeout_seconds;
-    if (seconds <= 0) return; // Disabled
-    const { shouldLog = true } = options;
-
-    if (shouldLog) {
-      console.log(`⏱️ Starting listen timeout: ${seconds}s`);
-    }
-    startTimeoutCountdown(seconds);
-    listenTimeoutRef.current = setTimeout(() => {
-      console.log('⏰ Listen timeout expired');
-      handleInactivityTimeout();
-    }, seconds * 1000);
-  }, [clearInactivityTimeouts, handleInactivityTimeout, startTimeoutCountdown]);
-
-  useEffect(() => {
-    const wasActive = responseActivePrevRef.current;
-    responseActivePrevRef.current = isResponseActive;
-    if (!wasActive || isResponseActive) return;
-    const backend = backendStateRef.current;
-    if (backend === 'LISTENING' || backend === 'IDLE') {
-      scheduleListenTimeout();
-    }
-  }, [isResponseActive, scheduleListenTimeout]);
 
   // Handle backend messages
   useEffect(() => {
@@ -729,34 +584,20 @@ function App() {
         const previousBackendState = backendStateRef.current;
         setBackendState(s);
 
-        if (s === 'LISTENING') {
-          setSessionActive(true);
-          if (previousBackendState !== 'LISTENING') {
-            clearTranscriptForListening();
-          }
-          cancelFade();
-          setTextVisible(true);
-          scheduleListenTimeout();
-        } else if (s === 'PROCESSING' || s === 'SPEAKING') {
-          // Clear timeouts while processing/speaking - don't timeout during activity
-          clearInactivityTimeouts();
-          setSessionActive(true);
-        } else if (s === 'IDLE') {
-          // Keep UI mode as-is; just fade the transcript after idle.
-          scheduleFade();
-          if (sessionActiveRef.current && previousBackendState !== 'LISTENING') {
-            scheduleListenTimeout();
-          }
+        if (s === 'LISTENING' && previousBackendState !== 'LISTENING') {
+          clearTranscriptForListening();
+        }
+
+        if (s === 'IDLE') {
+          releaseMic();
         }
       }
 
       if (msg.type === 'transcript') {
-        // Reset listen timeout on any transcript (user is speaking)
-        if (sessionActiveRef.current && backendStateRef.current === 'LISTENING') {
-          scheduleListenTimeout({ shouldLog: false });
+        if (msg.text) {
+          setLatestExchange(null);
         }
         setCurrentTranscript(msg.text || '');
-        setTextVisible(true);
         if (msg.is_final && msg.text) {
           pushMessage({ role: 'user', content: msg.text });
           // Store finalized user text but keep it displayed (don't clear currentTranscript)
@@ -771,12 +612,9 @@ function App() {
         responseRef.current = '';
         ttsTextLengthRef.current = 0;
         ttsCpsUpdatedRef.current = false;
-        pendingFadeRef.current = false;
         setResponseActive(true);
-        clearInactivityTimeouts();
         stopResponseStreaming();
         setDisplayedResponse('');
-        setTextVisible(true);
       } else if (msg.type === 'assistant_response_chunk') {
         if (!responseInterruptedRef.current) {
           responseRef.current += (msg.text || '');
@@ -811,15 +649,14 @@ function App() {
       console.error('Parse error:', e);
     }
   }, [
-    clearInactivityTimeouts,
+    clearTranscriptForListening,
     finalizeStreamingResponse,
     handleSessionReady,
     lastMessage,
     playTtsChunk,
     pushMessage,
+    releaseMic,
     resetTtsPlayback,
-    scheduleFade,
-    scheduleListenTimeout,
     scheduleTtsPlaybackEnd,
     setDisplayedResponse,
     setResponseActive,
@@ -827,8 +664,6 @@ function App() {
     stopResponseStreaming,
     stopTtsPlayback,
     updateTtsCpsEstimate,
-    cancelFade,
-    clearTranscriptForListening,
   ]);
 
   // Load STT settings when opening settings panel
@@ -852,7 +687,6 @@ function App() {
             const normalized = {
               eot_timeout_ms: Number(data.eot_timeout_ms ?? 5000),
               eot_threshold: Number(data.eot_threshold ?? 0.7),
-              pause_timeout_seconds: Number(data.pause_timeout_seconds ?? 30),
               listen_timeout_seconds: Number(data.listen_timeout_seconds ?? 15),
             };
             setSttDraft(normalized);
@@ -898,7 +732,6 @@ function App() {
     primeAudioContext();
     if (showHistory || showSettings) return;
     const currentAppState = deriveAppState(
-      sessionActiveRef.current,
       backendStateRef.current,
       responseActiveRef.current,
     );
@@ -909,17 +742,24 @@ function App() {
       return;
     }
 
-    if (currentAppState === 'IDLE') {
-      console.log('🎤 TAP: FIRST START');
-      clearInactivityTimeouts();
-      cancelFade();
-      clearTranscriptForListening();
+    if (currentAppState === 'LISTENING') {
+      console.log('🎤 TAP: STOP LISTENING');
+      if (readyState === 1) {
+        sendMessage(JSON.stringify({ type: 'pause_listening' }));
+      }
+      releaseMic();
+      setCurrentTranscript('');
       setBackendState('IDLE');
-      setSessionActive(true);
-      setTextVisible(true);
+      return;
+    }
+
+    if (currentAppState === 'IDLE') {
+      console.log('🎤 TAP: START LISTENING');
+      clearTranscriptForListening();
       initMic().then(ok => {
-        if (ok) {
-          startNewConversation();
+        if (ok && readyState === 1) {
+          sendMessage(JSON.stringify({ type: 'resume_listening' }));
+          setBackendState('LISTENING');
         }
       });
     }
@@ -984,22 +824,6 @@ function App() {
 
   useEffect(() => {
     return () => {
-      if (fadeTimeoutRef.current) {
-        clearTimeout(fadeTimeoutRef.current);
-        fadeTimeoutRef.current = null;
-      }
-      if (listenTimeoutRef.current) {
-        clearTimeout(listenTimeoutRef.current);
-        listenTimeoutRef.current = null;
-      }
-      if (countdownTimeoutRef.current) {
-        clearTimeout(countdownTimeoutRef.current);
-        countdownTimeoutRef.current = null;
-      }
-      if (countdownIntervalRef.current) {
-        clearInterval(countdownIntervalRef.current);
-        countdownIntervalRef.current = null;
-      }
       if (streamAnimationRef.current) {
         cancelAnimationFrame(streamAnimationRef.current);
         streamAnimationRef.current = null;
@@ -1013,7 +837,6 @@ function App() {
   const defaultSettings = {
     eot_timeout_ms: 1000,  // 1 second - natural conversation pace
     eot_threshold: 0.7,    // balanced confidence threshold
-    pause_timeout_seconds: 30,
     listen_timeout_seconds: 15,  // 15 seconds of no speech
   };
 
@@ -1044,7 +867,6 @@ function App() {
       const payload = {
         eot_timeout_ms: Number(sttDraft.eot_timeout_ms),
         eot_threshold: Number(sttDraft.eot_threshold),
-        pause_timeout_seconds: Number(sttDraft.pause_timeout_seconds),
         listen_timeout_seconds: Number(sttDraft.listen_timeout_seconds),
       };
 
@@ -1063,7 +885,6 @@ function App() {
         const normalized = {
           eot_timeout_ms: Number(data.eot_timeout_ms ?? payload.eot_timeout_ms),
           eot_threshold: Number(data.eot_threshold ?? payload.eot_threshold),
-          pause_timeout_seconds: Number(data.pause_timeout_seconds ?? payload.pause_timeout_seconds),
           listen_timeout_seconds: Number(data.listen_timeout_seconds ?? payload.listen_timeout_seconds),
         };
         setSttDraft(normalized);
@@ -1155,29 +976,6 @@ function App() {
 
         <div className={`status-text ${appState !== 'IDLE' ? 'active' : ''}`}>
           {getStatusText()}
-        </div>
-
-        <div
-          className={`timeout-countdown${timeoutCountdown ? ' visible' : ''}`}
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          {timeoutCountdown && (
-            <>
-              <div className="timeout-banner">
-                <span className="timeout-label">No speech</span>
-                <span className="timeout-sep">|</span>
-                <span className="timeout-text">Session ends in</span>
-              </div>
-              <div className="timeout-ticker">
-                <span key={timeoutCountdown} className="timeout-digit">
-                  {timeoutCountdown}
-                </span>
-                <span className="timeout-unit">s</span>
-              </div>
-            </>
-          )}
         </div>
 
         <ScrollFadeText

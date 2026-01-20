@@ -249,7 +249,7 @@ class DeepgramSession:
                 try:
                     import json
 
-                    self._socket.send_text(json.dumps({"type": "KeepAlive"}))
+                    self._socket.send(json.dumps({"type": "KeepAlive"}))
                     logger.debug(f"Sent KeepAlive for {self.session_id}")
                 except Exception as e:
                     logger.warning(f"KeepAlive failed for {self.session_id}: {e}")

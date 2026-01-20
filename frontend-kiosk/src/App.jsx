@@ -73,9 +73,10 @@ export default function App() {
     const getAudioContext = () => {
         if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
             audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({
-                sampleRate: ttsSampleRateRef.current
+                sampleRate: ttsSampleRateRef.current,
+                latencyHint: 'playback'  // Prioritize smooth playback over low latency
             });
-            console.log(`Created AudioContext with sample rate: ${ttsSampleRateRef.current}`);
+            console.log(`Created AudioContext with sample rate: ${ttsSampleRateRef.current}, latencyHint: playback`);
         }
         // Resume if suspended (required after user interaction in some browsers)
         if (audioContextRef.current.state === 'suspended') {
@@ -323,6 +324,17 @@ export default function App() {
                         setShowTranscription(true);
                     }
 
+                    // Auto-start recording when backend enters LISTENING state (for conversation mode)
+                    if (data.state === 'LISTENING') {
+                        console.log('Backend listening - auto-starting microphone');
+                        // Use a small timeout to ensure state updates propagate
+                        setTimeout(() => {
+                            if (!isRecordingRef.current) {
+                                startRecording();
+                            }
+                        }, 100);
+                    }
+
                     // Clear tool status when transitioning to IDLE
                     if (data.state === 'IDLE') {
                         setToolStatus(null);
@@ -426,15 +438,29 @@ export default function App() {
     };
 
     /**
-     * Close transcription overlay manually.
+     * Close transcription overlay and abort current process.
      */
     const handleCloseTranscription = () => {
-        setShowTranscription(false);
-        setMessages([]);
+        console.log('Closing transcription overlay - aborting process');
+
+        // Stop TTS audio playback
+        stopAudio();
+
         // Stop recording if active
         if (isRecording) {
             stopRecording();
         }
+
+        // Clear backend session (stops LLM, TTS, etc.)
+        if (readyState === ReadyState.OPEN) {
+            sendMessage(JSON.stringify({ type: "clear_session" }));
+        }
+
+        // Reset UI state
+        setShowTranscription(false);
+        setMessages([]);
+        setLiveTranscript("");
+        setToolStatus(null);
     };
 
     return (

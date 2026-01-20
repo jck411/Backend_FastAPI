@@ -4,6 +4,6 @@
     "temperature": 1.0,
     "max_tokens": 500,
     "supports_tools": null,
-    "conversation_mode": false,
+    "conversation_mode": true,
     "conversation_timeout_seconds": 30.0
 }

@@ -51,27 +51,17 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
     const inputSampleRateRef = useRef(audioConfig.targetSampleRate);
     const sessionReadyRef = useRef(false);
     const pendingBuffersRef = useRef([]);
-    const pausedRef = useRef(false);
     const readyStateRef = useRef(readyState);
 
     useEffect(() => {
         readyStateRef.current = readyState;
     }, [readyState]);
 
-    const setProcessorPaused = useCallback((nextPaused) => {
-        const node = processorRef.current;
-        if (node && node.port && typeof node.port.postMessage === 'function') {
-            node.port.postMessage({ type: 'pause', value: nextPaused });
-        }
-    }, []);
-
     // Release microphone completely
     const releaseMic = useCallback(() => {
         console.log('🎤 releaseMic called');
         sessionReadyRef.current = false;
-        pausedRef.current = false;
         pendingBuffersRef.current = [];
-        setProcessorPaused(false);
 
         if (processorRef.current) {
             if (processorRef.current.port) {
@@ -88,10 +78,9 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
             streamRef.current.getTracks().forEach(t => t.stop());
             streamRef.current = null;
         }
-    }, [setProcessorPaused]);
+    }, []);
 
     const processAudioFrame = useCallback((float32) => {
-        if (pausedRef.current) return;
         if (!float32 || float32.length === 0) return;
 
         const inputSampleRate = inputSampleRateRef.current;
@@ -181,7 +170,6 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
                         }
                     };
                     processor = workletNode;
-                    workletNode.port.postMessage({ type: 'pause', value: pausedRef.current });
                 } catch (err) {
                     console.warn('🎤 AudioWorklet unavailable, falling back to ScriptProcessor:', err);
                 }
@@ -231,57 +219,15 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
         }
 
         sessionReadyRef.current = false;
-        pausedRef.current = false;
         pendingBuffersRef.current = [];
-        setProcessorPaused(false);
 
         // This tells backend to clear history and start fresh STT session
         sendMessage(JSON.stringify({ type: 'wakeword_detected', confidence: 1.0 }));
         return true;
-    }, [sendMessage, setProcessorPaused]);
-
-    // Resume listening (keeps history on backend)
-    const resumeListening = useCallback(() => {
-        console.log('🎤 resumeListening called');
-
-        if (readyStateRef.current !== ReadyState.OPEN) {
-            console.log('🎤 WebSocket not ready, skipping');
-            return false;
-        }
-
-        pausedRef.current = false;
-        sessionReadyRef.current = false;
-        setProcessorPaused(false);
-
-        // Resume existing session without clearing history
-        sendMessage(JSON.stringify({ type: 'resume_listening' }));
-        return true;
-    }, [sendMessage, setProcessorPaused]);
-
-    // Pause listening (keeps session alive on backend with KeepAlive)
-    const pauseListening = useCallback(() => {
-        console.log('🎤 pauseListening called');
-
-        if (readyStateRef.current !== ReadyState.OPEN) {
-            console.log('🎤 WebSocket not ready, skipping');
-            return false;
-        }
-
-        pausedRef.current = true;
-        sessionReadyRef.current = false;
-        pendingBuffersRef.current = [];
-        setProcessorPaused(true);
-        sendMessage(JSON.stringify({ type: 'pause_listening' }));
-        return true;
-    }, [sendMessage, setProcessorPaused]);
+    }, [sendMessage]);
 
     // Backend signals STT session is ready
     const handleSessionReady = useCallback(() => {
-        if (pausedRef.current) {
-            console.log('🎤 Session ready while paused, waiting for resume');
-            return;
-        }
-
         console.log('🎤 Session ready, flushing', pendingBuffersRef.current.length, 'pending buffers');
         sessionReadyRef.current = true;
 
@@ -297,8 +243,6 @@ export default function useAudioCapture(sendMessage, readyState, options = {}) {
         initMic,
         releaseMic,
         startNewConversation,
-        resumeListening,
-        pauseListening,
         handleSessionReady,
     };
 }

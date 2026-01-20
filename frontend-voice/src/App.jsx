@@ -998,9 +998,9 @@ function App() {
       {showHistory && (
         <div className="history-overlay" onClick={handleCloseHistory}>
           <div className="history-panel" onClick={e => e.stopPropagation()}>
-            <div className="history-header">
-              <span>Conversation</span>
-              <button onClick={handleCloseHistory}>Done</button>
+            <div className="panel-header">
+              <span className="panel-header-title">Conversation</span>
+              <button className="panel-header-btn" onClick={handleCloseHistory}>Close</button>
             </div>
             <div className="history-scroll">
               {messages.map((msg, i) => (
@@ -1017,17 +1017,17 @@ function App() {
       {showSettings && (
         <div className="settings-overlay" onClick={handleCloseSettings}>
           <div className="settings-panel" onClick={e => e.stopPropagation()}>
-            <div className="settings-header">
-              <span>Voice Settings</span>
+            <div className="panel-header">
+              <span className="panel-header-title">Voice Settings</span>
               <div className="settings-header-actions">
                 <button
-                  className="settings-header-save"
+                  className="panel-header-btn settings-header-save"
                   onClick={handleSaveSettings}
                   disabled={settingsLoading || settingsSaving}
                 >
                   {settingsSaving ? 'Saving...' : 'Save'}
                 </button>
-                <button onClick={handleCloseSettings}>Close</button>
+                <button className="panel-header-btn" onClick={handleCloseSettings}>Close</button>
               </div>
             </div>
 

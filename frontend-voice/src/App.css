@@ -607,7 +607,10 @@
   padding: 16px;
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   animation: slideUp 0.3s ease;
-  max-height: 75%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 @keyframes slideUp {
@@ -620,33 +623,47 @@
   }
 }
 
-.history-header {
+/* Shared panel header styles */
+.panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 8px 0 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
   margin-bottom: 16px;
+  flex-shrink: 0;
 }
 
-.history-header span {
+.panel-header-title {
   font-size: 1rem;
   font-weight: 500;
   color: rgba(255, 255, 255, 0.9);
 }
 
-.history-header button {
-  background: none;
-  border: none;
-  color: #60a5fa;
-  font-size: 0.9rem;
-  font-weight: 500;
+.panel-header-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: rgba(255, 255, 255, 0.7);
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
   cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.panel-header-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.25);
 }
 
 .history-scroll {
-  max-height: calc(75vh - 100px);
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -743,54 +760,19 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-.settings-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 0 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  margin-bottom: 16px;
-  flex-shrink: 0;
-}
-
-.settings-header span {
-  font-size: 1rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.9);
-}
-
 .settings-header-actions {
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
-.settings-header button {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: rgba(255, 255, 255, 0.7);
-  padding: 6px 14px;
-  border-radius: 16px;
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.settings-header button:hover {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.25);
-}
-
-.settings-header .settings-header-save {
+.settings-header-save {
   background: rgba(59, 130, 246, 0.2);
   border-color: rgba(59, 130, 246, 0.35);
   color: #93c5fd;
 }
 
-.settings-header .settings-header-save:hover {
+.settings-header-save:hover {
   background: rgba(59, 130, 246, 0.3);
   border-color: rgba(59, 130, 246, 0.5);
 }

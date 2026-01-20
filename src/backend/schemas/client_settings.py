@@ -155,6 +155,12 @@ class TtsSettings(BaseModel):
         le=48000,
         description="Audio sample rate in Hz (24000 for OpenAI)",
     )
+    stream_chunk_bytes: int = Field(
+        default=4096,
+        ge=512,
+        le=65536,
+        description="Streaming TTS chunk size in bytes (larger reduces overhead)",
+    )
     # Segmentation pipeline options
     use_segmentation: bool = Field(
         default=True,
@@ -182,6 +188,7 @@ class TtsSettingsUpdate(BaseModel):
     speed: Optional[float] = Field(default=None, ge=0.25, le=4.0)
     response_format: Optional[str] = None
     sample_rate: Optional[int] = Field(default=None, ge=8000, le=48000)
+    stream_chunk_bytes: Optional[int] = Field(default=None, ge=512, le=65536)
     use_segmentation: Optional[bool] = None
     delimiters: Optional[list[str]] = None
     character_maximum: Optional[int] = Field(default=None, ge=0, le=500)

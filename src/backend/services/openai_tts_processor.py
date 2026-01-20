@@ -47,7 +47,7 @@ async def openai_text_to_speech_processor(
         openai_client = openai.AsyncOpenAI(api_key=api_key)
         logger.info("OpenAI TTS: Client created successfully")
 
-    chunk_size = 1024  # Bytes per audio chunk
+    chunk_size = settings.stream_chunk_bytes  # Bytes per audio chunk
 
     logger.info(f"OpenAI TTS processor started (model={settings.model}, voice={settings.voice})")
     logger.info("OpenAI TTS: Entering main while loop")

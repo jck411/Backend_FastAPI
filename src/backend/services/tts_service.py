@@ -92,7 +92,7 @@ class TTSService:
         if stop_event is None:
             stop_event = asyncio.Event()
 
-        chunk_size = 1024
+        chunk_size = settings.stream_chunk_bytes
 
         try:
             async with self.openai_client.audio.speech.with_streaming_response.create(

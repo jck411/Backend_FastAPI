@@ -1,57 +1,65 @@
 import { AnimatePresence } from 'framer-motion';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
 import AlarmOverlay from './components/AlarmOverlay';
 import Clock from './components/Clock';
 import MicButton from './components/MicButton';
 import TranscriptionOverlay from './components/TranscriptionOverlay';
 import { useConfig } from './context/ConfigContext';
-import { useAudioCapture } from './hooks/useAudioCapture';
+import useAudioCapture from './hooks/useAudioCapture';
+import { buildVoiceWsUrl, createClientId, VOICE_CONFIG } from './voice/config';
+
+// TTS buffering tuning for smoother playback on low-power devices.
+const TTS_INITIAL_BUFFER_SEC = VOICE_CONFIG.tts.initialBufferSec;
+const TTS_MIN_CHUNK_SEC = VOICE_CONFIG.tts.minChunkSec;
+const TTS_MAX_AHEAD_SEC = VOICE_CONFIG.tts.maxAheadSec;
+const TTS_STARTUP_DELAY_SEC = VOICE_CONFIG.tts.startupDelaySec;
+// Delay before resuming mic after TTS ends to avoid capturing speaker echo/reverb
+const TTS_MIC_RESUME_DELAY_MS = 500;
 
 /**
- * Generate a unique client ID for this frontend instance.
- * Uses crypto.randomUUID() with a fallback for older browsers.
+ * Derive the UI application state from backend state and response status.
+ * This ensures consistent state handling across the app.
  */
-function generateClientId() {
-    const uuid = typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-            const r = Math.random() * 16 | 0;
-            const v = c === 'x' ? r : (r & 0x3 | 0x8);
-            return v.toString(16);
-        });
-    return `kiosk_${uuid}`;
-}
+const deriveAppState = (backendState, isPlayingTts = false) => {
+    if (isPlayingTts) return 'SPEAKING';
+    if (backendState === 'PROCESSING' || backendState === 'SPEAKING') return 'SPEAKING';
+    if (backendState === 'LISTENING') return 'LISTENING';
+    return 'IDLE';
+};
 
 export default function App() {
     // Get config from context (includes display timezone, idle delay, etc.)
     const { idleReturnDelayMs } = useConfig();
 
     // Generate a unique client ID for this frontend instance (stable across re-renders)
-    const clientId = useMemo(() => generateClientId(), []);
+    const clientId = useMemo(() => createClientId(), []);
+    const wsUrl = useMemo(() => buildVoiceWsUrl(clientId), [clientId]);
 
-    // WebSocket Connection - connects to backend with unique client ID
-    // Auto-detect secure WebSocket (wss://) when page is served over HTTPS
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${wsProtocol}//${window.location.hostname}:8000/api/voice/connect?client_id=${clientId}`;
-
+    // UI State
     const [messages, setMessages] = useState([]);
     const [liveTranscript, setLiveTranscript] = useState("");
-    const [agentState, setAgentState] = useState("IDLE");
-    const [toolStatus, setToolStatus] = useState(null);  // { name: string, status: 'started' | 'finished' | 'error' }
-    const [activeAlarm, setActiveAlarm] = useState(null); // Currently firing alarm
-    const [showTranscription, setShowTranscription] = useState(false); // Transcription overlay visibility
+    const [backendState, setBackendState] = useState("IDLE");
+    const [toolStatus, setToolStatus] = useState(null);
+    const [activeAlarm, setActiveAlarm] = useState(null);
+    const [showTranscription, setShowTranscription] = useState(false);
     const messagesEndRef = useRef(null);
 
+    // Refs for state machine (to avoid stale closures)
+    const backendStateRef = useRef("IDLE");
+    const isPlayingTtsRef = useRef(false);
+
     // Web Audio API for streaming TTS playback
-    // Using refs to persist across re-renders without triggering updates
     const audioContextRef = useRef(null);
     const nextPlayTimeRef = useRef(0);
-    const ttsSampleRateRef = useRef(24000); // Default to 24kHz (OpenAI default)
-    const isPlayingRef = useRef(false);
+    const ttsSampleRateRef = useRef(VOICE_CONFIG.tts.defaultSampleRate);
     const hasStartedRef = useRef(false);
-    const scheduledSourcesRef = useRef([]); // Track scheduled audio sources for cancellation
+    const scheduledSourcesRef = useRef([]);
+    const pendingChunksRef = useRef([]);
+    const pendingSampleCountRef = useRef(0);
+    const ttsStreamEndedRef = useRef(false);
 
+    // WebSocket connection
     const {
         sendMessage,
         lastMessage,
@@ -63,8 +71,24 @@ export default function App() {
         reconnectInterval: 3000,
     });
 
-    // Audio capture hook for tap-to-talk
-    const { isRecording, startRecording, stopRecording, error: audioError } = useAudioCapture(sendMessage, readyState);
+    // Audio capture hook - use new pattern with session readiness
+    const {
+        isCapturing,
+        error: audioError,
+        initMic,
+        releaseMic,
+        handleSessionReady,
+        pauseCapture,
+        resumeCapture,
+    } = useAudioCapture(sendMessage, readyState, VOICE_CONFIG.audio);
+
+    /**
+     * Update backend state and ref together.
+     */
+    const updateBackendState = useCallback((newState) => {
+        backendStateRef.current = newState;
+        setBackendState(newState);
+    }, []);
 
     /**
      * Initialize or get the AudioContext.
@@ -85,67 +109,131 @@ export default function App() {
         return audioContextRef.current;
     };
 
-    /**
-     * Play a PCM audio chunk immediately using Web Audio API.
-     * Schedules the audio buffer for gapless playback.
-     */
-    const playAudioChunk = (base64Audio) => {
+    const decodeBase64Pcm = (base64Audio) => {
+        const binaryString = atob(base64Audio);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+        }
+
+        const samples = new Int16Array(bytes.buffer);
+        const floatSamples = new Float32Array(samples.length);
+        for (let i = 0; i < samples.length; i++) {
+            floatSamples[i] = samples[i] / 32768.0;
+        }
+
+        return floatSamples;
+    };
+
+    const consumePendingSamples = (sampleCount) => {
+        const output = new Float32Array(sampleCount);
+        let offset = 0;
+
+        while (offset < sampleCount && pendingChunksRef.current.length > 0) {
+            const chunk = pendingChunksRef.current[0];
+            const remaining = sampleCount - offset;
+
+            if (chunk.length <= remaining) {
+                output.set(chunk, offset);
+                offset += chunk.length;
+                pendingChunksRef.current.shift();
+            } else {
+                output.set(chunk.subarray(0, remaining), offset);
+                pendingChunksRef.current[0] = chunk.subarray(remaining);
+                offset += remaining;
+            }
+        }
+
+        pendingSampleCountRef.current = Math.max(0, pendingSampleCountRef.current - sampleCount);
+        return output;
+    };
+
+    const schedulePcmSamples = (floatSamples, ctx) => {
+        const audioBuffer = ctx.createBuffer(1, floatSamples.length, ttsSampleRateRef.current);
+        audioBuffer.getChannelData(0).set(floatSamples);
+
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(ctx.destination);
+
+        const currentTime = ctx.currentTime;
+        const startupDelay = hasStartedRef.current ? 0 : TTS_STARTUP_DELAY_SEC;
+        const startTime = Math.max(nextPlayTimeRef.current, currentTime + startupDelay);
+
+        source.start(startTime);
+        scheduledSourcesRef.current.push(source);
+        nextPlayTimeRef.current = startTime + audioBuffer.duration;
+
+        if (!hasStartedRef.current) {
+            hasStartedRef.current = true;
+            isPlayingTtsRef.current = true;
+            console.log("🎵 Audio playback started (streaming)");
+            // Pause mic capture during TTS to prevent self-transcription
+            pauseCapture();
+            sendMessage(JSON.stringify({ type: "tts_playback_start" }));
+        }
+    };
+
+    const drainPendingAudio = (force = false) => {
+        const pendingSamples = pendingSampleCountRef.current;
+        if (!pendingSamples) {
+            return;
+        }
+
+        const sampleRate = ttsSampleRateRef.current;
+        const minInitialSamples = Math.floor(sampleRate * TTS_INITIAL_BUFFER_SEC);
+        const minChunkSamples = Math.floor(sampleRate * TTS_MIN_CHUNK_SEC);
+
+        if (!hasStartedRef.current && !force && pendingSamples < minInitialSamples) {
+            return;
+        }
+
+        const ctx = getAudioContext();
+
+        while (pendingSampleCountRef.current > 0) {
+            if (hasStartedRef.current) {
+                const aheadSeconds = nextPlayTimeRef.current - ctx.currentTime;
+                if (!force && aheadSeconds > TTS_MAX_AHEAD_SEC) {
+                    break;
+                }
+            }
+
+            const targetSamples = (ttsStreamEndedRef.current || force)
+                ? pendingSampleCountRef.current
+                : Math.min(pendingSampleCountRef.current, minChunkSamples);
+
+            if (!force && targetSamples < minChunkSamples && !ttsStreamEndedRef.current) {
+                break;
+            }
+
+            if (targetSamples <= 0) {
+                break;
+            }
+
+            schedulePcmSamples(consumePendingSamples(targetSamples), ctx);
+        }
+    };
+
+    const enqueueAudioChunk = (base64Audio, force = false) => {
         try {
-            const ctx = getAudioContext();
-
-            // Decode base64 to binary
-            const binaryString = atob(base64Audio);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
+            const floatSamples = decodeBase64Pcm(base64Audio);
+            if (!floatSamples.length) {
+                return;
             }
 
-            // Convert 16-bit PCM to Float32 for Web Audio API
-            const samples = new Int16Array(bytes.buffer);
-            const floatSamples = new Float32Array(samples.length);
-            for (let i = 0; i < samples.length; i++) {
-                floatSamples[i] = samples[i] / 32768.0; // Normalize to [-1, 1]
-            }
-
-            // Create audio buffer
-            const audioBuffer = ctx.createBuffer(1, floatSamples.length, ttsSampleRateRef.current);
-            audioBuffer.getChannelData(0).set(floatSamples);
-
-            // Create source node
-            const source = ctx.createBufferSource();
-            source.buffer = audioBuffer;
-            source.connect(ctx.destination);
-
-            // Calculate when to play this chunk (gapless scheduling)
-            const currentTime = ctx.currentTime;
-            // Add latency buffer on first chunk for slower devices (prevents underruns)
-            const latencyBuffer = hasStartedRef.current ? 0 : 0.15; // 150ms buffer on first chunk
-            const startTime = Math.max(nextPlayTimeRef.current, currentTime + latencyBuffer);
-
-            // Schedule playback
-            source.start(startTime);
-            scheduledSourcesRef.current.push(source);
-
-            // Update next play time for gapless playback
-            nextPlayTimeRef.current = startTime + audioBuffer.duration;
-
-            // Send playback start event on first chunk
-            if (!hasStartedRef.current) {
-                hasStartedRef.current = true;
-                isPlayingRef.current = true;
-                console.log("🎵 Audio playback started (streaming)");
-                sendMessage(JSON.stringify({ type: "tts_playback_start" }));
-            }
+            pendingChunksRef.current.push(floatSamples);
+            pendingSampleCountRef.current += floatSamples.length;
+            drainPendingAudio(force);
         } catch (e) {
-            console.error("Failed to play audio chunk:", e);
+            console.error("Failed to queue audio chunk:", e);
         }
     };
 
     /**
      * Stop all audio playback immediately (for barge-in).
-     * Stops all scheduled sources and resets state.
+     * Stops all scheduled sources, resets state, and notifies backend.
      */
-    const stopAudio = () => {
+    const stopAudio = useCallback(() => {
         console.log("🛑 Stopping TTS audio (barge-in)");
 
         // Stop all scheduled audio sources
@@ -157,6 +245,9 @@ export default function App() {
             }
         }
         scheduledSourcesRef.current = [];
+        pendingChunksRef.current = [];
+        pendingSampleCountRef.current = 0;
+        ttsStreamEndedRef.current = false;
 
         // Close and recreate audio context for clean slate
         if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
@@ -168,12 +259,12 @@ export default function App() {
         nextPlayTimeRef.current = 0;
 
         // Only send end event if we were playing
-        if (isPlayingRef.current || hasStartedRef.current) {
+        if (isPlayingTtsRef.current || hasStartedRef.current) {
             sendMessage(JSON.stringify({ type: "tts_playback_end" }));
-            isPlayingRef.current = false;
+            isPlayingTtsRef.current = false;
             hasStartedRef.current = false;
         }
-    };
+    }, [sendMessage]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -187,6 +278,18 @@ export default function App() {
         if (lastMessage !== null) {
             try {
                 const data = JSON.parse(lastMessage.data);
+
+                // Handle STT session ready - flush buffered audio
+                if (data.type === 'stt_session_ready') {
+                    console.log('🎤 STT session ready');
+                    handleSessionReady();
+                }
+
+                // Handle STT session error
+                if (data.type === 'stt_session_error') {
+                    console.warn('STT session error:', data.error);
+                }
+
                 if (data.type === 'transcript') {
                     if (data.is_final) {
                         setMessages(prev => [...prev, { role: 'user', text: data.text }]);
@@ -230,21 +333,28 @@ export default function App() {
                     console.log('Received assistant_response:', data.text);
                     setMessages(prev => [...prev, { role: 'assistant', text: data.text }]);
                 } else if (data.type === 'interrupt_tts') {
-                    // Barge-in: stop TTS immediately
+                    // Barge-in: stop TTS immediately and resume mic
                     console.log('🛑 Received interrupt_tts - stopping audio playback');
                     stopAudio();
+                    resumeCapture();
                 } else if (data.type === 'tts_audio_start') {
                     // Start of TTS audio stream - reset state and store sample rate
                     console.log('🎵 TTS stream starting, sample_rate:', data.sample_rate);
 
+                    // Pause mic capture during TTS to prevent self-transcription
+                    pauseCapture();
+
                     // Reset state for new audio stream
                     nextPlayTimeRef.current = 0;
                     hasStartedRef.current = false;
-                    isPlayingRef.current = false;
+                    isPlayingTtsRef.current = false;
                     scheduledSourcesRef.current = [];
+                    pendingChunksRef.current = [];
+                    pendingSampleCountRef.current = 0;
+                    ttsStreamEndedRef.current = false;
 
                     // Store sample rate for AudioContext creation
-                    ttsSampleRateRef.current = data.sample_rate || 24000;
+                    ttsSampleRateRef.current = data.sample_rate || VOICE_CONFIG.tts.defaultSampleRate;
 
                     // Close existing context if sample rate changed
                     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
@@ -254,11 +364,13 @@ export default function App() {
                 } else if (data.type === 'tts_audio_chunk') {
                     // Play audio chunk IMMEDIATELY using Web Audio API
                     if (data.data) {
-                        playAudioChunk(data.data);
+                        enqueueAudioChunk(data.data);
                     }
                     // Check for last chunk - schedule playback end when all audio finishes
                     if (data.is_last) {
                         console.log('TTS stream complete (is_last received)');
+                        ttsStreamEndedRef.current = true;
+                        drainPendingAudio(true);
 
                         // Calculate when all audio will finish
                         if (audioContextRef.current && hasStartedRef.current) {
@@ -269,22 +381,26 @@ export default function App() {
                             setTimeout(() => {
                                 console.log("Audio playback finished");
                                 sendMessage(JSON.stringify({ type: "tts_playback_end" }));
-                                isPlayingRef.current = false;
+                                isPlayingTtsRef.current = false;
                                 hasStartedRef.current = false;
                                 scheduledSourcesRef.current = [];
-                            }, timeUntilDone * 1000 + 100); // +100ms buffer
+                                // Resume mic capture after TTS completes (with delay to avoid speaker echo)
+                                setTimeout(() => resumeCapture(), TTS_MIC_RESUME_DELAY_MS);
+                            }, timeUntilDone * 1000 + 50);
                         } else {
                             // No audio was played (maybe TTS was empty or failed)
-                            // Send end message immediately to unblock state machine
                             console.log("No audio was played, sending tts_playback_end immediately");
                             sendMessage(JSON.stringify({ type: "tts_playback_end" }));
-                            isPlayingRef.current = false;
+                            isPlayingTtsRef.current = false;
                             hasStartedRef.current = false;
+                            resumeCapture();
                         }
                     }
                 } else if (data.type === 'tts_audio_end') {
                     // Legacy: explicit end message (backward compatibility)
                     console.log('TTS stream complete (tts_audio_end)');
+                    ttsStreamEndedRef.current = true;
+                    drainPendingAudio(true);
 
                     // Calculate when all audio will finish
                     if (audioContextRef.current && hasStartedRef.current) {
@@ -295,53 +411,49 @@ export default function App() {
                         setTimeout(() => {
                             console.log("Audio playback finished");
                             sendMessage(JSON.stringify({ type: "tts_playback_end" }));
-                            isPlayingRef.current = false;
+                            isPlayingTtsRef.current = false;
                             hasStartedRef.current = false;
                             scheduledSourcesRef.current = [];
-                        }, timeUntilDone * 1000 + 100); // +100ms buffer
+                            // Resume mic capture after TTS completes (with delay to avoid speaker echo)
+                            setTimeout(() => resumeCapture(), TTS_MIC_RESUME_DELAY_MS);
+                        }, timeUntilDone * 1000 + 50);
                     } else {
                         // No audio was played (maybe TTS was empty or failed)
-                        // Send end message immediately to unblock state machine
                         console.log("No audio was played, sending tts_playback_end immediately");
                         sendMessage(JSON.stringify({ type: "tts_playback_end" }));
-                        isPlayingRef.current = false;
+                        isPlayingTtsRef.current = false;
                         hasStartedRef.current = false;
+                        resumeCapture();
                     }
                 } else if (data.type === 'tts_audio_cancelled') {
                     // TTS was cancelled on backend - clean up
                     console.log('TTS cancelled by backend');
                     stopAudio();
+                    resumeCapture();
                 } else if (data.type === 'tts_audio') {
                     // Legacy: single audio message (backward compatibility)
-                    // Play it as a single chunk
                     console.log('Received TTS audio (legacy), playing immediately');
-                    playAudioChunk(data.data);
+                    pauseCapture();
+                    enqueueAudioChunk(data.data, true);
                 } else if (data.type === 'state') {
-                    setAgentState(data.state);
+                    const newState = data.state;
+                    const prevState = backendStateRef.current;
+                    updateBackendState(newState);
 
                     // Show transcription overlay when active
-                    if (data.state === 'LISTENING' || data.state === 'THINKING' || data.state === 'SPEAKING') {
+                    if (newState === 'LISTENING' || newState === 'THINKING' || newState === 'SPEAKING') {
                         setShowTranscription(true);
                     }
 
-                    // Auto-start recording when backend enters LISTENING state
-                    if (data.state === 'LISTENING') {
-                        console.log('Backend listening - auto-starting microphone');
-                        setTimeout(() => {
-                            if (!isRecordingRef.current) {
-                                startRecording();
-                            }
-                        }, 100);
-                    } else if (data.state === 'SPEAKING' || data.state === 'THINKING' || data.state === 'IDLE') {
-                        // Stop recording to prevent self-transcription during TTS
-                        if (isRecording) {
-                            console.log('Backend ' + data.state + ' - stopping microphone');
-                            stopRecording();
-                        }
-                    }
-
-                    // Clear tool status when transitioning to IDLE
-                    if (data.state === 'IDLE') {
+                    // Handle state transitions for mic control
+                    if (newState === 'LISTENING' && prevState !== 'LISTENING') {
+                        // Backend ready to receive audio - resume capture if paused
+                        console.log('Backend listening - resuming audio capture');
+                        resumeCapture();
+                    } else if (newState === 'IDLE') {
+                        // Conversation ended - release mic
+                        console.log('Backend idle - releasing microphone');
+                        releaseMic();
                         setToolStatus(null);
                     }
                 } else if (data.type === 'tool_status') {
@@ -378,11 +490,11 @@ export default function App() {
                 console.error("Failed to parse WS message", e);
             }
         }
-    }, [lastMessage, activeAlarm]);
+    }, [lastMessage, activeAlarm, handleSessionReady, pauseCapture, resumeCapture, releaseMic, stopAudio, updateBackendState, sendMessage]);
 
     // Idle Timeout Logic - Close transcription overlay after delay
     useEffect(() => {
-        if (agentState === 'IDLE' && showTranscription) {
+        if (backendState === 'IDLE' && showTranscription) {
             const timer = setTimeout(() => {
                 setShowTranscription(false);
                 setMessages([]);
@@ -391,25 +503,36 @@ export default function App() {
             // Cleanup: cancel timer if state changes before delay completes
             return () => clearTimeout(timer);
         }
-    }, [agentState, showTranscription, idleReturnDelayMs]);
+    }, [backendState, showTranscription, idleReturnDelayMs]);
 
     /**
-     * Manually activate listening mode (simulates wake word detection).
-     * Sends a wakeword_detected event to the backend to start STT processing.
+     * Start a new voice interaction.
+     * Initializes mic and sends wakeword to backend.
      */
-    const handleActivateListening = () => {
-        if (readyState === ReadyState.OPEN) {
-            console.log('Manual activation - sending wakeword_detected');
-            sendMessage(JSON.stringify({
-                type: "wakeword_detected",
-                confidence: 1.0,
-                manual: true
-            }));
-            setShowTranscription(true);
-        } else {
-            console.warn('Cannot activate listening - WebSocket not connected');
+    const handleStartListening = useCallback(async () => {
+        if (readyState !== ReadyState.OPEN) {
+            console.warn('Cannot start listening - WebSocket not connected');
+            return;
         }
-    };
+
+        console.log('Starting voice interaction');
+        setShowTranscription(true);
+        setLiveTranscript("");
+
+        // Initialize mic first
+        const micReady = await initMic();
+        if (!micReady) {
+            console.error('Failed to initialize microphone');
+            return;
+        }
+
+        // Send wakeword to trigger backend STT session
+        sendMessage(JSON.stringify({
+            type: "wakeword_detected",
+            confidence: 1.0,
+            manual: true
+        }));
+    }, [readyState, initMic, sendMessage]);
 
     /**
      * Dismiss a firing alarm.
@@ -445,16 +568,14 @@ export default function App() {
     /**
      * Close transcription overlay and abort current process.
      */
-    const handleCloseTranscription = () => {
+    const handleCloseTranscription = useCallback(() => {
         console.log('Closing transcription overlay - aborting process');
 
         // Stop TTS audio playback
         stopAudio();
 
-        // Stop recording if active
-        if (isRecording) {
-            stopRecording();
-        }
+        // Release microphone
+        releaseMic();
 
         // Clear backend session (stops LLM, TTS, etc.)
         if (readyState === ReadyState.OPEN) {
@@ -466,7 +587,10 @@ export default function App() {
         setMessages([]);
         setLiveTranscript("");
         setToolStatus(null);
-    };
+    }, [stopAudio, releaseMic, readyState, sendMessage]);
+
+    // Derive app state for UI display
+    const appState = deriveAppState(backendState, isPlayingTtsRef.current);
 
     return (
         <div className="w-screen h-screen bg-black overflow-hidden relative font-sans text-white select-none">
@@ -478,13 +602,10 @@ export default function App() {
             {/* Microphone Button - hidden when overlay is showing */}
             {!showTranscription && (
                 <MicButton
-                    isRecording={isRecording}
-                    onStart={() => {
-                        startRecording();
-                        handleActivateListening();
-                    }}
-                    onStop={stopRecording}
-                    disabled={readyState !== ReadyState.OPEN || agentState === 'PROCESSING'}
+                    isRecording={isCapturing}
+                    onStart={handleStartListening}
+                    onStop={releaseMic}
+                    disabled={readyState !== ReadyState.OPEN || backendState === 'PROCESSING'}
                     error={audioError}
                 />
             )}
@@ -495,8 +616,8 @@ export default function App() {
                     <TranscriptionOverlay
                         messages={messages}
                         liveTranscript={liveTranscript}
-                        isListening={agentState === 'LISTENING'}
-                        agentState={agentState}
+                        isListening={backendState === 'LISTENING'}
+                        agentState={appState}
                         toolStatus={toolStatus}
                         messagesEndRef={messagesEndRef}
                         onClose={handleCloseTranscription}

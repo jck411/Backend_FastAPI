@@ -1,11 +1,10 @@
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
 import AlarmOverlay from './components/AlarmOverlay';
-import CalendarScreen from './components/CalendarScreen';
 import Clock from './components/Clock';
 import MicButton from './components/MicButton';
-import TranscriptionScreen from './components/TranscriptionScreen';
+import TranscriptionOverlay from './components/TranscriptionOverlay';
 import { useConfig } from './context/ConfigContext';
 import { useAudioCapture } from './hooks/useAudioCapture';
 
@@ -25,10 +24,6 @@ function generateClientId() {
 }
 
 export default function App() {
-    // 0 = Clock, 1 = Chat, 2 = Calendar
-    const [currentScreen, setCurrentScreen] = useState(0);
-    const SCREEN_COUNT = 3;
-
     // Get config from context (includes display timezone, idle delay, etc.)
     const { idleReturnDelayMs } = useConfig();
 
@@ -45,6 +40,7 @@ export default function App() {
     const [agentState, setAgentState] = useState("IDLE");
     const [toolStatus, setToolStatus] = useState(null);  // { name: string, status: 'started' | 'finished' | 'error' }
     const [activeAlarm, setActiveAlarm] = useState(null); // Currently firing alarm
+    const [showTranscription, setShowTranscription] = useState(false); // Transcription overlay visibility
     const messagesEndRef = useRef(null);
 
     // Web Audio API for streaming TTS playback
@@ -121,7 +117,9 @@ export default function App() {
 
             // Calculate when to play this chunk (gapless scheduling)
             const currentTime = ctx.currentTime;
-            const startTime = Math.max(nextPlayTimeRef.current, currentTime);
+            // Add latency buffer on first chunk for slower devices (prevents underruns)
+            const latencyBuffer = hasStartedRef.current ? 0 : 0.15; // 150ms buffer on first chunk
+            const startTime = Math.max(nextPlayTimeRef.current, currentTime + latencyBuffer);
 
             // Schedule playback
             source.start(startTime);
@@ -254,10 +252,38 @@ export default function App() {
                     }
                 } else if (data.type === 'tts_audio_chunk') {
                     // Play audio chunk IMMEDIATELY using Web Audio API
-                    playAudioChunk(data.data);
+                    if (data.data) {
+                        playAudioChunk(data.data);
+                    }
+                    // Check for last chunk - schedule playback end when all audio finishes
+                    if (data.is_last) {
+                        console.log('TTS stream complete (is_last received)');
+
+                        // Calculate when all audio will finish
+                        if (audioContextRef.current && hasStartedRef.current) {
+                            const timeUntilDone = Math.max(0, nextPlayTimeRef.current - audioContextRef.current.currentTime);
+                            console.log(`All audio scheduled, will complete in ${(timeUntilDone * 1000).toFixed(0)}ms`);
+
+                            // Send playback end event after all audio finishes
+                            setTimeout(() => {
+                                console.log("Audio playback finished");
+                                sendMessage(JSON.stringify({ type: "tts_playback_end" }));
+                                isPlayingRef.current = false;
+                                hasStartedRef.current = false;
+                                scheduledSourcesRef.current = [];
+                            }, timeUntilDone * 1000 + 100); // +100ms buffer
+                        } else {
+                            // No audio was played (maybe TTS was empty or failed)
+                            // Send end message immediately to unblock state machine
+                            console.log("No audio was played, sending tts_playback_end immediately");
+                            sendMessage(JSON.stringify({ type: "tts_playback_end" }));
+                            isPlayingRef.current = false;
+                            hasStartedRef.current = false;
+                        }
+                    }
                 } else if (data.type === 'tts_audio_end') {
-                    // Audio stream complete - send playback end after all scheduled audio finishes
-                    console.log('TTS stream complete');
+                    // Legacy: explicit end message (backward compatibility)
+                    console.log('TTS stream complete (tts_audio_end)');
 
                     // Calculate when all audio will finish
                     if (audioContextRef.current && hasStartedRef.current) {
@@ -272,6 +298,13 @@ export default function App() {
                             hasStartedRef.current = false;
                             scheduledSourcesRef.current = [];
                         }, timeUntilDone * 1000 + 100); // +100ms buffer
+                    } else {
+                        // No audio was played (maybe TTS was empty or failed)
+                        // Send end message immediately to unblock state machine
+                        console.log("No audio was played, sending tts_playback_end immediately");
+                        sendMessage(JSON.stringify({ type: "tts_playback_end" }));
+                        isPlayingRef.current = false;
+                        hasStartedRef.current = false;
                     }
                 } else if (data.type === 'tts_audio_cancelled') {
                     // TTS was cancelled on backend - clean up
@@ -285,8 +318,9 @@ export default function App() {
                 } else if (data.type === 'state') {
                     setAgentState(data.state);
 
+                    // Show transcription overlay when active
                     if (data.state === 'LISTENING' || data.state === 'THINKING' || data.state === 'SPEAKING') {
-                        setCurrentScreen(1); // Auto-jump to chat screen
+                        setShowTranscription(true);
                     }
 
                     // Clear tool status when transitioning to IDLE
@@ -329,30 +363,18 @@ export default function App() {
         }
     }, [lastMessage, activeAlarm]);
 
-    // Idle Timeout Logic - Return to clock after delay
+    // Idle Timeout Logic - Close transcription overlay after delay
     useEffect(() => {
-        if (agentState === 'IDLE') {
+        if (agentState === 'IDLE' && showTranscription) {
             const timer = setTimeout(() => {
-                setCurrentScreen(0);
+                setShowTranscription(false);
                 setMessages([]);
             }, idleReturnDelayMs);
 
             // Cleanup: cancel timer if state changes before delay completes
             return () => clearTimeout(timer);
         }
-    }, [agentState, idleReturnDelayMs]);
-
-    const handleSwipe = (direction) => {
-        setCurrentScreen((prev) => {
-            if (direction > 0) {
-                // Swipe right -> previous screen (wrap to last)
-                return prev === 0 ? SCREEN_COUNT - 1 : prev - 1;
-            } else {
-                // Swipe left -> next screen (wrap to first)
-                return (prev + 1) % SCREEN_COUNT;
-            }
-        });
-    };
+    }, [agentState, showTranscription, idleReturnDelayMs]);
 
     /**
      * Manually activate listening mode (simulates wake word detection).
@@ -366,6 +388,7 @@ export default function App() {
                 confidence: 1.0,
                 manual: true
             }));
+            setShowTranscription(true);
         } else {
             console.warn('Cannot activate listening - WebSocket not connected');
         }
@@ -402,24 +425,53 @@ export default function App() {
         }
     };
 
-    const screens = [
-        <Clock key="clock" />,
-        <TranscriptionScreen
-            key="chat"
-            messages={messages}
-            liveTranscript={liveTranscript}
-            isListening={agentState === 'LISTENING'}
-            agentState={agentState}
-            toolStatus={toolStatus}
-            messagesEndRef={messagesEndRef}
-            onActivateListening={handleActivateListening}
-        />,
-        <CalendarScreen key="calendar" />
-    ];
+    /**
+     * Close transcription overlay manually.
+     */
+    const handleCloseTranscription = () => {
+        setShowTranscription(false);
+        setMessages([]);
+        // Stop recording if active
+        if (isRecording) {
+            stopRecording();
+        }
+    };
 
     return (
         <div className="w-screen h-screen bg-black overflow-hidden relative font-sans text-white select-none">
             {/* Web Audio API is used for TTS playback - no HTML audio element needed */}
+
+            {/* Main Screen: Clock with weather and photo slideshow */}
+            <Clock />
+
+            {/* Microphone Button - hidden when overlay is showing */}
+            {!showTranscription && (
+                <MicButton
+                    isRecording={isRecording}
+                    onStart={() => {
+                        startRecording();
+                        handleActivateListening();
+                    }}
+                    onStop={stopRecording}
+                    disabled={readyState !== ReadyState.OPEN || agentState === 'PROCESSING'}
+                    error={audioError}
+                />
+            )}
+
+            {/* Transcription Overlay - appears when mic is tapped */}
+            <AnimatePresence>
+                {showTranscription && (
+                    <TranscriptionOverlay
+                        messages={messages}
+                        liveTranscript={liveTranscript}
+                        isListening={agentState === 'LISTENING'}
+                        agentState={agentState}
+                        toolStatus={toolStatus}
+                        messagesEndRef={messagesEndRef}
+                        onClose={handleCloseTranscription}
+                    />
+                )}
+            </AnimatePresence>
 
             {/* Alarm Overlay - appears on top of everything when alarm fires */}
             <AlarmOverlay
@@ -428,70 +480,6 @@ export default function App() {
                 onSnooze={handleAlarmSnooze}
                 snoozeMinutes={5}
             />
-
-            <AnimatePresence mode="popLayout" initial={false}>
-                <motion.div
-                    key={currentScreen}
-                    className="absolute inset-0 w-full h-full"
-                    initial={{ x: 300, opacity: 0 }}
-                    animate={{ x: 0, opacity: 1 }}
-                    exit={{ x: -300, opacity: 0 }}
-                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                    drag="x"
-                    dragConstraints={{ left: 0, right: 0 }}
-                    dragElastic={0.3}
-                    onDragEnd={(event, info) => {
-                        const threshold = 30; // Lower threshold for easier swipe
-                        if (info.offset.x < -threshold) {
-                            handleSwipe(-1);  // Swipe left -> next screen
-                        } else if (info.offset.x > threshold) {
-                            handleSwipe(1); // Swipe right -> previous screen
-                        }
-                    }}
-                >
-                    {screens[currentScreen]}
-                </motion.div>
-            </AnimatePresence>
-
-            {/* Tap zones for navigation - right side only (left reserved for Fully Kiosk menu) */}
-            {/* Tap right edge to go forward */}
-            <div
-                className="absolute right-0 top-0 w-16 h-full z-40 cursor-pointer"
-                onClick={() => handleSwipe(-1)}
-                style={{ touchAction: 'manipulation' }}
-            />
-            {/* Tap left-center area to go back (avoiding left edge for Fully Kiosk) */}
-            <div
-                className="absolute left-20 top-0 w-16 h-full z-40 cursor-pointer"
-                onClick={() => handleSwipe(1)}
-                style={{ touchAction: 'manipulation' }}
-            />
-
-            {/* Page Indicators - subtle but tappable */}
-            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex space-x-4 z-50">
-                {Array.from({ length: SCREEN_COUNT }, (_, i) => (
-                    <div
-                        key={i}
-                        onClick={() => setCurrentScreen(i)}
-                        className={`w-4 h-4 rounded-full transition-all duration-300 cursor-pointer ${i === currentScreen
-                            ? 'bg-white/50'
-                            : 'bg-white/15'
-                            }`}
-                        style={{ touchAction: 'manipulation' }}
-                    />
-                ))}
-            </div>
-
-            {/* Microphone Button - shows on clock screen */}
-            {currentScreen === 0 && (
-                <MicButton
-                    isRecording={isRecording}
-                    onStart={startRecording}
-                    onStop={stopRecording}
-                    disabled={readyState !== ReadyState.OPEN || agentState === 'PROCESSING'}
-                    error={audioError}
-                />
-            )}
 
             {/* Connection Indicator */}
             <div

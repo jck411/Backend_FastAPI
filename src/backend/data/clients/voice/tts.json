@@ -1,5 +1,5 @@
 {
-  "enabled": false,
+  "enabled": true,
   "provider": "openai",
   "model": "tts-1",
   "voice": "alloy",
@@ -16,5 +16,5 @@
     ", ",
     ": "
   ],
-  "character_maximum": 50
+  "character_maximum": 150
 }

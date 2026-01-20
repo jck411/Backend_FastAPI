@@ -645,7 +645,7 @@ export default function Clock() {
                                 </div>
 
                                 {/* Weather icon */}
-                                <div className="text-xl my-0.5 drop-shadow-lg">
+                                <div className="text-5xl my-0.5 drop-shadow-lg">
                                     {getWeatherIcon(day.icon)}
                                 </div>
 

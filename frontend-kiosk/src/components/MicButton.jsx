@@ -6,7 +6,7 @@ import { motion } from 'framer-motion';
  */
 export default function MicButton({ isRecording, onStart, onStop, disabled, error }) {
     return (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center">
+        <div className="absolute top-4 left-4 z-50 flex flex-col items-center">
             {/* Error message */}
             {error && (
                 <div className="mb-2 px-3 py-1 bg-red-500/80 rounded-lg text-xs text-white">

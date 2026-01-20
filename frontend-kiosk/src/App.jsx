@@ -324,15 +324,20 @@ export default function App() {
                         setShowTranscription(true);
                     }
 
-                    // Auto-start recording when backend enters LISTENING state (for conversation mode)
+                    // Auto-start recording when backend enters LISTENING state
                     if (data.state === 'LISTENING') {
                         console.log('Backend listening - auto-starting microphone');
-                        // Use a small timeout to ensure state updates propagate
                         setTimeout(() => {
                             if (!isRecordingRef.current) {
                                 startRecording();
                             }
                         }, 100);
+                    } else if (data.state === 'SPEAKING' || data.state === 'THINKING' || data.state === 'IDLE') {
+                        // Stop recording to prevent self-transcription during TTS
+                        if (isRecording) {
+                            console.log('Backend ' + data.state + ' - stopping microphone');
+                            stopRecording();
+                        }
                     }
 
                     // Clear tool status when transitioning to IDLE

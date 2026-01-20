@@ -19,11 +19,10 @@ const DEFAULT_TTS_SYNC_CPS = 15;
 const TTS_SYNC_CPS_MIN = 8;
 const TTS_SYNC_CPS_MAX = 30;
 
-const deriveAppState = (mode, backend, responseActive = false) => {
+const deriveAppState = (sessionActive, backend, responseActive = false) => {
+  if (!sessionActive) return 'IDLE';
   if (responseActive) return 'SPEAKING';
-  if (backend === 'PROCESSING' || backend === 'SPEAKING') return backend;
-  if (mode === 'PAUSED') return 'PAUSED';
-  if (mode === 'FRESH') return 'FRESH';
+  if (backend === 'PROCESSING' || backend === 'SPEAKING') return 'SPEAKING';
   return 'LISTENING';
 };
 
@@ -71,13 +70,11 @@ function App() {
     }
   });
 
-  // UI modes: FRESH (never started), ACTIVE (listening/processing/speaking), PAUSED (user paused)
-  const [uiMode, setUiModeState] = useState('FRESH');
-  const uiModeRef = useRef('FRESH');
-
   // Backend states: IDLE, LISTENING, PROCESSING, SPEAKING
   const [backendState, setBackendStateState] = useState('IDLE');
   const backendStateRef = useRef('IDLE');
+  const [sessionActive, setSessionActiveState] = useState(false);
+  const sessionActiveRef = useRef(false);
 
   const responseRef = useRef('');
   const displayedResponseRef = useRef('');
@@ -90,7 +87,6 @@ function App() {
   const streamCarryRef = useRef(0);
   const fadeTimeoutRef = useRef(null);
   const pendingFadeRef = useRef(false);
-  const hasAutoStartedRef = useRef(false);
   const audioContextRef = useRef(null);
   const nextPlayTimeRef = useRef(0);
   const ttsSampleRateRef = useRef(DEFAULT_TTS_SAMPLE_RATE);
@@ -104,7 +100,6 @@ function App() {
   const autoScrollRef = useRef(true);
 
   // Inactivity timeout refs
-  const pauseTimeoutRef = useRef(null);
   const listenTimeoutRef = useRef(null);
   const sttDraftRef = useRef(sttDraft);  // Keep ref in sync for use in callbacks
   const streamSpeedRef = useRef(streamSpeedCps);
@@ -130,19 +125,17 @@ function App() {
     initMic,
     releaseMic,
     startNewConversation,
-    resumeListening,
-    pauseListening,
     handleSessionReady,
   } = useAudioCapture(sendMessage, readyState, VOICE_CONFIG.audio);
-
-  const setUiMode = (nextMode) => {
-    uiModeRef.current = nextMode;
-    setUiModeState(nextMode);
-  };
 
   const setBackendState = (nextState) => {
     backendStateRef.current = nextState;
     setBackendStateState(nextState);
+  };
+
+  const setSessionActive = (nextState) => {
+    sessionActiveRef.current = nextState;
+    setSessionActiveState(nextState);
   };
 
   const setResponseActive = useCallback((nextActive) => {
@@ -345,34 +338,10 @@ function App() {
     }
   }, [getAudioContext, sendMessage]);
 
-  const appState = deriveAppState(uiMode, backendState, isResponseActive);
-
-  // Auto-start on first connect - run only ONCE
-  useEffect(() => {
-    if (document.visibilityState === 'hidden') return;
-    if (readyState === 1 && !hasAutoStartedRef.current) {
-      hasAutoStartedRef.current = true;
-      console.log('🎤 Auto-starting (one-time)...');
-      initMic().then(ok => {
-        if (ok) {
-          setUiMode('ACTIVE');
-          setBackendState('IDLE');
-          setTextVisible(true);
-          startNewConversation();
-        }
-      });
-    }
-    // Intentionally minimal deps - this should only run once
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readyState]);
+  const appState = deriveAppState(sessionActive, backendState, isResponseActive);
 
   const scheduleFade = useCallback(() => {
     if (fadeTimeoutRef.current) clearTimeout(fadeTimeoutRef.current);
-    // Don't fade if paused - user may want to read the text
-    if (uiModeRef.current === 'PAUSED') {
-      pendingFadeRef.current = false;
-      return;
-    }
     const isStreaming = responseRef.current
       && displayedResponseRef.current.length < responseRef.current.length;
     if (isStreaming) {
@@ -425,7 +394,7 @@ function App() {
     responseCompleteRef.current = false;
     setResponseActive(false);
     setDisplayedResponse('');
-    // Always schedule the fade after streaming completes (3 seconds, unless paused)
+    // Always schedule the fade after streaming completes.
     pendingFadeRef.current = false;
     scheduleFade();
   }, [pushMessage, scheduleFade, setDisplayedResponse, setLatestExchange, setResponseActive]);
@@ -571,10 +540,6 @@ function App() {
   }, []);
 
   const clearInactivityTimeouts = useCallback(() => {
-    if (pauseTimeoutRef.current) {
-      clearTimeout(pauseTimeoutRef.current);
-      pauseTimeoutRef.current = null;
-    }
     if (listenTimeoutRef.current) {
       clearTimeout(listenTimeoutRef.current);
       listenTimeoutRef.current = null;
@@ -582,7 +547,7 @@ function App() {
     clearTimeoutCountdown();
   }, [clearTimeoutCountdown]);
 
-  const startTimeoutCountdown = useCallback((seconds, mode) => {
+  const startTimeoutCountdown = useCallback((seconds) => {
     clearTimeoutCountdown();
     const totalSeconds = Number(seconds);
     if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return;
@@ -594,13 +559,13 @@ function App() {
 
     countdownTimeoutRef.current = setTimeout(() => {
       let remaining = startValue;
-      setTimeoutCountdown({ remaining, mode });
+      setTimeoutCountdown(remaining);
       countdownIntervalRef.current = setInterval(() => {
         remaining -= 1;
         if (remaining <= 0) {
           clearTimeoutCountdown();
         } else {
-          setTimeoutCountdown({ remaining, mode });
+          setTimeoutCountdown(remaining);
         }
       }, 1000);
     }, startDelayMs);
@@ -631,7 +596,7 @@ function App() {
   }, [clearInactivityTimeouts, finalizePartialResponse, readyState, sendMessage, stopTtsPlayback]);
 
   const resetSession = useCallback((options = {}) => {
-    const { clearMessages = false, fadeText = false, resetAutoStart = true } = options;
+    const { clearMessages = false, fadeText = false } = options;
     clearInactivityTimeouts();
     cancelFade();
 
@@ -641,11 +606,7 @@ function App() {
 
     stopTtsPlayback();
     releaseMic();
-    if (resetAutoStart) {
-      hasAutoStartedRef.current = false;
-    }
-
-    setUiMode('FRESH');
+    setSessionActive(false);
     setBackendState('IDLE');
     setCurrentTranscript('');
     setDisplayedResponse('');
@@ -687,6 +648,7 @@ function App() {
 
   // Schedule listen timeout (when listening with no speech)
   const scheduleListenTimeout = useCallback((options = {}) => {
+    if (!sessionActiveRef.current) return;
     if (responseActiveRef.current) return;
     clearInactivityTimeouts();
     const seconds = sttDraftRef.current.listen_timeout_seconds;
@@ -696,23 +658,9 @@ function App() {
     if (shouldLog) {
       console.log(`⏱️ Starting listen timeout: ${seconds}s`);
     }
-    startTimeoutCountdown(seconds, 'listen');
+    startTimeoutCountdown(seconds);
     listenTimeoutRef.current = setTimeout(() => {
       console.log('⏰ Listen timeout expired');
-      handleInactivityTimeout();
-    }, seconds * 1000);
-  }, [clearInactivityTimeouts, handleInactivityTimeout, startTimeoutCountdown]);
-
-  // Schedule pause timeout (when paused)
-  const schedulePauseTimeout = useCallback(() => {
-    clearInactivityTimeouts();
-    const seconds = sttDraftRef.current.pause_timeout_seconds;
-    if (seconds <= 0) return; // Disabled
-
-    console.log(`⏱️ Starting pause timeout: ${seconds}s`);
-    startTimeoutCountdown(seconds, 'pause');
-    pauseTimeoutRef.current = setTimeout(() => {
-      console.log('⏰ Pause timeout expired');
       handleInactivityTimeout();
     }, seconds * 1000);
   }, [clearInactivityTimeouts, handleInactivityTimeout, startTimeoutCountdown]);
@@ -721,7 +669,6 @@ function App() {
     const wasActive = responseActivePrevRef.current;
     responseActivePrevRef.current = isResponseActive;
     if (!wasActive || isResponseActive) return;
-    if (uiModeRef.current !== 'ACTIVE') return;
     const backend = backendStateRef.current;
     if (backend === 'LISTENING' || backend === 'IDLE') {
       scheduleListenTimeout();
@@ -780,41 +727,24 @@ function App() {
       if (msg.type === 'state') {
         const s = msg.state;
         const previousBackendState = backendStateRef.current;
-        const currentAppState = deriveAppState(
-          uiModeRef.current,
-          backendStateRef.current,
-          responseActiveRef.current,
-        );
-        console.log('Backend state:', s, '| appState:', currentAppState);
         setBackendState(s);
 
         if (s === 'LISTENING') {
-          // Only update UI if not paused
-          if (uiModeRef.current !== 'PAUSED') {
-            if (uiModeRef.current === 'FRESH') {
-              setUiMode('ACTIVE');
-            }
-            if (previousBackendState !== 'LISTENING') {
-              clearTranscriptForListening();
-            }
-            cancelFade();
-            setTextVisible(true);
-            scheduleListenTimeout();
+          setSessionActive(true);
+          if (previousBackendState !== 'LISTENING') {
+            clearTranscriptForListening();
           }
-          // DON'T send any messages to backend - just update UI
+          cancelFade();
+          setTextVisible(true);
+          scheduleListenTimeout();
         } else if (s === 'PROCESSING' || s === 'SPEAKING') {
           // Clear timeouts while processing/speaking - don't timeout during activity
           clearInactivityTimeouts();
-          if (uiModeRef.current !== 'ACTIVE') {
-            setUiMode('ACTIVE');
-          }
+          setSessionActive(true);
         } else if (s === 'IDLE') {
           // Keep UI mode as-is; just fade the transcript after idle.
-          if (uiModeRef.current !== 'PAUSED') {
-            scheduleFade();
-          }
-          // If ACTIVE (not paused/fresh), schedule listen timeout
-          if (uiModeRef.current === 'ACTIVE' && previousBackendState !== 'LISTENING') {
+          scheduleFade();
+          if (sessionActiveRef.current && previousBackendState !== 'LISTENING') {
             scheduleListenTimeout();
           }
         }
@@ -822,7 +752,7 @@ function App() {
 
       if (msg.type === 'transcript') {
         // Reset listen timeout on any transcript (user is speaking)
-        if (uiModeRef.current === 'ACTIVE' && backendStateRef.current === 'LISTENING') {
+        if (sessionActiveRef.current && backendStateRef.current === 'LISTENING') {
           scheduleListenTimeout({ shouldLog: false });
         }
         setCurrentTranscript(msg.text || '');
@@ -963,50 +893,29 @@ function App() {
     };
   }, [showSettings]);
 
-  // Handle tap - pause/resume
+  // Handle tap
   const handleTap = () => {
     primeAudioContext();
     if (showHistory || showSettings) return;
     const currentAppState = deriveAppState(
-      uiModeRef.current,
+      sessionActiveRef.current,
       backendStateRef.current,
       responseActiveRef.current,
     );
 
-    if (currentAppState === 'PROCESSING' || currentAppState === 'SPEAKING') {
+    if (currentAppState === 'SPEAKING') {
       console.log('🎤 TAP: INTERRUPT');
       interruptResponse();
       return;
     }
 
-    if (currentAppState === 'LISTENING') {
-      console.log('🎤 TAP: PAUSE');
-      clearInactivityTimeouts();
-      cancelFade();
-      setUiMode('PAUSED');
-      pauseListening();
-      // Schedule pause timeout
-      schedulePauseTimeout();
-    } else if (currentAppState === 'PAUSED') {
-      console.log('🎤 TAP: RESUME');
-      clearInactivityTimeouts();
-      cancelFade();
-      clearTranscriptForListening();
-      setUiMode('ACTIVE');
-      setBackendState('IDLE');
-      setTextVisible(true);
-      initMic().then(ok => {
-        if (ok) {
-          resumeListening();
-        }
-      });
-    } else if (currentAppState === 'FRESH') {
+    if (currentAppState === 'IDLE') {
       console.log('🎤 TAP: FIRST START');
       clearInactivityTimeouts();
       cancelFade();
       clearTranscriptForListening();
-      setUiMode('ACTIVE');
       setBackendState('IDLE');
+      setSessionActive(true);
       setTextVisible(true);
       initMic().then(ok => {
         if (ok) {
@@ -1048,7 +957,7 @@ function App() {
     backgroundedRef.current = true;
     setShowHistory(false);
     setShowSettings(false);
-    resetSession({ resetAutoStart: false });
+    resetSession();
   }, [resetSession]);
 
   useEffect(() => {
@@ -1079,10 +988,6 @@ function App() {
         clearTimeout(fadeTimeoutRef.current);
         fadeTimeoutRef.current = null;
       }
-      if (pauseTimeoutRef.current) {
-        clearTimeout(pauseTimeoutRef.current);
-        pauseTimeoutRef.current = null;
-      }
       if (listenTimeoutRef.current) {
         clearTimeout(listenTimeoutRef.current);
         listenTimeoutRef.current = null;
@@ -1108,7 +1013,7 @@ function App() {
   const defaultSettings = {
     eot_timeout_ms: 1000,  // 1 second - natural conversation pace
     eot_threshold: 0.7,    // balanced confidence threshold
-    pause_timeout_seconds: 30,   // 30 seconds when paused
+    pause_timeout_seconds: 30,
     listen_timeout_seconds: 15,  // 15 seconds of no speech
   };
 
@@ -1197,18 +1102,14 @@ function App() {
 
   const getOrbClass = () => {
     if (appState === 'LISTENING') return 'listening';
-    if (appState === 'PROCESSING') return 'processing';
     if (appState === 'SPEAKING') return 'speaking';
-    if (appState === 'PAUSED') return 'paused';
     return 'idle';
   };
 
   const getStatusText = () => {
     if (!isConnected) return 'Connecting...';
     if (appState === 'LISTENING') return 'Listening...';
-    if (appState === 'PROCESSING') return 'Thinking...';
     if (appState === 'SPEAKING') return '';
-    if (appState === 'PAUSED') return 'Paused';
     return 'Tap to start';
   };
 
@@ -1252,12 +1153,12 @@ function App() {
           <div className="ripple-ring" />
         </div>
 
-        <div className={`status-text ${appState !== 'FRESH' ? 'active' : ''}`}>
+        <div className={`status-text ${appState !== 'IDLE' ? 'active' : ''}`}>
           {getStatusText()}
         </div>
 
         <div
-          className={`timeout-countdown${timeoutCountdown ? ` visible ${timeoutCountdown.mode}` : ''}`}
+          className={`timeout-countdown${timeoutCountdown ? ' visible' : ''}`}
           role="status"
           aria-live="polite"
           aria-atomic="true"
@@ -1265,15 +1166,13 @@ function App() {
           {timeoutCountdown && (
             <>
               <div className="timeout-banner">
-                <span className="timeout-label">
-                  {timeoutCountdown.mode === 'pause' ? 'Paused' : 'No speech'}
-                </span>
+                <span className="timeout-label">No speech</span>
                 <span className="timeout-sep">|</span>
                 <span className="timeout-text">Session ends in</span>
               </div>
               <div className="timeout-ticker">
-                <span key={timeoutCountdown.remaining} className="timeout-digit">
-                  {timeoutCountdown.remaining}
+                <span key={timeoutCountdown} className="timeout-digit">
+                  {timeoutCountdown}
                 </span>
                 <span className="timeout-unit">s</span>
               </div>
@@ -1421,25 +1320,6 @@ function App() {
                       onChange={(e) => setSttDraft(prev => ({
                         ...prev,
                         eot_threshold: Number(e.target.value),
-                      }))}
-                    />
-                  </div>
-
-                  <div className="settings-row">
-                    <div className="settings-label">Pause timeout</div>
-                    <div className="settings-value">
-                      {sttDraft.pause_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.pause_timeout_seconds}s`}
-                    </div>
-                    <input
-                      className="settings-slider"
-                      type="range"
-                      min="0"
-                      max="60"
-                      step="5"
-                      value={sttDraft.pause_timeout_seconds}
-                      onChange={(e) => setSttDraft(prev => ({
-                        ...prev,
-                        pause_timeout_seconds: Number(e.target.value),
                       }))}
                     />
                   </div>

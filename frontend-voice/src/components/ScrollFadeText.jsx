@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useMemo, useRef } from 'react';
+import { normalizeMarkdownText, parseHeading, parseInlineRuns } from '../utils/markdown';
 
 const DEFAULT_FADE_ZONE_PX = 140;
 const DEFAULT_SLIDE_DIST_PX = 10;
@@ -29,20 +30,47 @@ const chunkText = (text, maxChars) => {
 
 const splitText = (text, maxChars) => {
   if (!text) return [];
-  const normalized = text.replace(/\r\n/g, '\n').trim();
+  const normalized = normalizeMarkdownText(text).trim();
   if (!normalized) return [];
 
   const paragraphs = normalized.split(/\n+/);
   const segments = [];
 
   paragraphs.forEach((paragraph, index) => {
-    chunkText(paragraph, maxChars).forEach(chunk => segments.push(chunk));
+    const trimmed = paragraph.trim();
+    if (!trimmed) return;
+    const { text: content, level } = parseHeading(trimmed);
+    chunkText(content, maxChars).forEach(chunk => {
+      segments.push({
+        text: chunk,
+        runs: parseInlineRuns(chunk),
+        headingLevel: level,
+      });
+    });
     if (index < paragraphs.length - 1) {
-      segments.push('');
+      segments.push({ isGap: true, gapType: 'paragraph' });
     }
   });
 
   return segments;
+};
+
+const renderInlineRuns = (runs, keyPrefix) => {
+  if (!runs || !runs.length) return null;
+  return runs.map((run, index) => {
+    if (!run.text) return null;
+    if (!run.bold && !run.italic) return run.text;
+    const key = `${keyPrefix}-md-${index}`;
+    if (run.bold && run.italic) {
+      return (
+        <strong key={key}>
+          <em>{run.text}</em>
+        </strong>
+      );
+    }
+    if (run.bold) return <strong key={key}>{run.text}</strong>;
+    return <em key={key}>{run.text}</em>;
+  });
 };
 
 const ScrollFadeText = forwardRef(({
@@ -72,17 +100,18 @@ const ScrollFadeText = forwardRef(({
     items.forEach((item, itemIndex) => {
       const pieces = splitText(item.text, item.maxChars || MAX_CHUNK_CHARS);
       pieces.forEach((piece, pieceIndex) => {
-        if (!piece) {
+        if (piece.isGap) {
           nextSegments.push({
             key: `${item.id || itemIndex}-gap-${pieceIndex}`,
             isGap: true,
-            gapType: 'paragraph',
+            gapType: piece.gapType || 'paragraph',
           });
           return;
         }
         nextSegments.push({
           key: `${item.id || itemIndex}-${pieceIndex}`,
-          text: piece,
+          runs: piece.runs,
+          headingLevel: piece.headingLevel || 0,
           className: item.className,
         });
       });
@@ -154,9 +183,15 @@ const ScrollFadeText = forwardRef(({
           const gapClass = segment.gapType === 'group' ? 'text-gap text-gap-group' : 'text-gap';
           return <div key={segment.key} className={gapClass} aria-hidden="true" />;
         }
+        const headingClass = segment.headingLevel
+          ? `text-heading text-heading-${segment.headingLevel}`
+          : '';
         return (
-          <p key={segment.key} className={`text-chunk fade-in-section ${segment.className}`}>
-            {segment.text}
+          <p
+            key={segment.key}
+            className={`text-chunk fade-in-section ${segment.className} ${headingClass}`.trim()}
+          >
+            {renderInlineRuns(segment.runs, segment.key)}
           </p>
         );
       })}

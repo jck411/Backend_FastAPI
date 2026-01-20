@@ -3,6 +3,7 @@ import useWebSocket from 'react-use-websocket';
 import './App.css';
 import ScrollFadeText from './components/ScrollFadeText';
 import useAudioCapture from './hooks/useAudioCapture';
+import { normalizeMarkdownText, parseHeading, parseInlineRuns } from './utils/markdown';
 import { buildVoiceWsUrl, createClientId, VOICE_CONFIG } from './voice/config';
 
 const clientId = createClientId();
@@ -17,6 +18,40 @@ const STREAM_SPEED_STEP = 5;
 const DEFAULT_TTS_SYNC_CPS = 15;
 const TTS_SYNC_CPS_MIN = 8;
 const TTS_SYNC_CPS_MAX = 30;
+
+const renderInlineRuns = (runs, keyPrefix) => {
+  if (!runs || !runs.length) return null;
+  return runs.map((run, index) => {
+    if (!run.text) return null;
+    if (!run.bold && !run.italic) return run.text;
+    const key = `${keyPrefix}-md-${index}`;
+    if (run.bold && run.italic) {
+      return (
+        <strong key={key}>
+          <em>{run.text}</em>
+        </strong>
+      );
+    }
+    if (run.bold) return <strong key={key}>{run.text}</strong>;
+    return <em key={key}>{run.text}</em>;
+  });
+};
+
+const buildHistoryLines = (text) => {
+  const normalized = normalizeMarkdownText(text);
+  if (!normalized.trim()) return [];
+  return normalized.split('\n').map((line, index) => {
+    if (!line.trim()) {
+      return { key: `gap-${index}`, isGap: true };
+    }
+    const { text: content, level } = parseHeading(line.trim());
+    return {
+      key: `line-${index}`,
+      headingLevel: level,
+      runs: parseInlineRuns(content),
+    };
+  });
+};
 
 const deriveAppState = (backend, responseActive = false) => {
   if (responseActive) return 'SPEAKING';
@@ -1006,7 +1041,27 @@ function App() {
               {messages.map((msg, i) => (
                 <div key={i} className={`history-message ${msg.role}`}>
                   <span className="history-label">{msg.role === 'user' ? 'You' : 'Assistant'}</span>
-                  <p>{msg.content}</p>
+                  <div className="history-markdown">
+                    {buildHistoryLines(msg.content).map(line => {
+                      if (line.isGap) {
+                        return (
+                          <div
+                            key={`history-${i}-${line.key}`}
+                            className="history-markdown-gap"
+                            aria-hidden="true"
+                          />
+                        );
+                      }
+                      const headingClass = line.headingLevel
+                        ? `history-markdown-line heading-${line.headingLevel}`
+                        : 'history-markdown-line';
+                      return (
+                        <div key={`history-${i}-${line.key}`} className={headingClass}>
+                          {renderInlineRuns(line.runs, `history-${i}-${line.key}`)}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               ))}
             </div>

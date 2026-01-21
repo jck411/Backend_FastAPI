@@ -67,8 +67,8 @@ export const VOICE_CONFIG = {
     },
     tts: {
         defaultSampleRate: toNumber(import.meta.env.VITE_VOICE_TTS_SAMPLE_RATE, 24000),
-        initialBufferSec: 0.2,
-        minChunkSec: 0.08,
+        initialBufferSec: 0.3,
+        minChunkSec: 0.1,
         maxAheadSec: 1.5,
         startupDelaySec: 0.06,
         micResumeDelayMs: toNumber(import.meta.env.VITE_VOICE_TTS_MIC_RESUME_DELAY_MS, 800),

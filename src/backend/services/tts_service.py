@@ -156,6 +156,7 @@ class TTSService:
                 use_segmentation=settings.use_segmentation,
                 first_phrase_min_chars=settings.first_phrase_min_chars,
                 stop_event=stop_event,
+                log_enabled=settings.segmentation_logging_enabled,
             )
         )
 

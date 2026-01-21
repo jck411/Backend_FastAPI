@@ -77,6 +77,7 @@ export interface KioskTtsSettings {
     stream_chunk_bytes: number;
     use_segmentation: boolean;
     delimiters: string[];
+    segmentation_logging_enabled: boolean;
     first_phrase_min_chars: number;
 }
 
@@ -91,6 +92,7 @@ export interface KioskTtsSettingsUpdate {
     stream_chunk_bytes?: number;
     use_segmentation?: boolean;
     delimiters?: string[];
+    segmentation_logging_enabled?: boolean;
     first_phrase_min_chars?: number;
 }
 

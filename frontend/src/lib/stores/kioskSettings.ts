@@ -45,6 +45,8 @@ export interface KioskSettings {
     stream_chunk_bytes: number;
     use_segmentation: boolean;
     delimiters: string[];
+    segmentation_logging_enabled: boolean;
+    first_phrase_min_chars: number;
     // UI settings
     idle_return_delay_ms: number;
     // LLM settings
@@ -75,6 +77,8 @@ export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
     stream_chunk_bytes: 4096,
     use_segmentation: true,
     delimiters: ['\n', '. ', '.', '? ', '?', '! ', '!', '* ', '*', ', ', ',', ': ', ':'],
+    segmentation_logging_enabled: false,
+    first_phrase_min_chars: 60,
     // UI
     idle_return_delay_ms: 10000,
     // LLM
@@ -128,6 +132,8 @@ function createKioskSettingsStore() {
                 stream_chunk_bytes: ttsSettings.stream_chunk_bytes,
                 use_segmentation: ttsSettings.use_segmentation,
                 delimiters: ttsSettings.delimiters,
+                segmentation_logging_enabled: ttsSettings.segmentation_logging_enabled,
+                first_phrase_min_chars: ttsSettings.first_phrase_min_chars,
                 // UI
                 idle_return_delay_ms: uiSettings.idle_return_delay_ms,
                 // LLM
@@ -173,6 +179,12 @@ function createKioskSettingsStore() {
             if (update.stream_chunk_bytes !== undefined) ttsUpdate.stream_chunk_bytes = update.stream_chunk_bytes;
             if (update.use_segmentation !== undefined) ttsUpdate.use_segmentation = update.use_segmentation;
             if (update.delimiters !== undefined) ttsUpdate.delimiters = update.delimiters;
+            if (update.first_phrase_min_chars !== undefined) {
+                ttsUpdate.first_phrase_min_chars = update.first_phrase_min_chars;
+            }
+            if (update.segmentation_logging_enabled !== undefined) {
+                ttsUpdate.segmentation_logging_enabled = update.segmentation_logging_enabled;
+            }
 
             // UI fields
             if (update.idle_return_delay_ms !== undefined) uiUpdate.idle_return_delay_ms = update.idle_return_delay_ms;
@@ -233,6 +245,8 @@ function createKioskSettingsStore() {
                 stream_chunk_bytes: ttsSettings.stream_chunk_bytes,
                 use_segmentation: ttsSettings.use_segmentation,
                 delimiters: ttsSettings.delimiters,
+                segmentation_logging_enabled: ttsSettings.segmentation_logging_enabled,
+                first_phrase_min_chars: ttsSettings.first_phrase_min_chars,
                 // UI (keep current)
                 idle_return_delay_ms: current.idle_return_delay_ms,
                 // LLM

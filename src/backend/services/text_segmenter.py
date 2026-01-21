@@ -29,6 +29,7 @@ async def process_text_chunks(
     use_segmentation: bool,
     first_phrase_min_chars: int,
     stop_event: Optional[asyncio.Event] = None,
+    log_enabled: bool = False,
 ) -> None:
     """
     Process text chunks and segment them into phrases for TTS.
@@ -46,6 +47,7 @@ async def process_text_chunks(
         use_segmentation: Whether to enable segmentation
         first_phrase_min_chars: Minimum characters before emitting the first segmented phrase
         stop_event: Optional event to signal early stop
+        log_enabled: Whether to log when the fallback timer forces an emit
     """
     working_string = ""
     chars_processed = 0
@@ -87,9 +89,13 @@ async def process_text_chunks(
             split_candidates.append(whitespace_match.end())
 
         split_idx = min(split_candidates) if split_candidates else None
+        fallback_due_to_timer = False
+        elapsed_since_ready: Optional[float] = None
         if split_idx is None and min_ready_at is not None:
-            if loop.time() - min_ready_at >= max_wait_seconds:
+            elapsed_since_ready = loop.time() - min_ready_at
+            if elapsed_since_ready >= max_wait_seconds:
                 split_idx = len(working_string)
+                fallback_due_to_timer = True
 
         if split_idx is None:
             return
@@ -103,6 +109,13 @@ async def process_text_chunks(
 
         if len(raw_phrase) < first_phrase_min_chars:
             return
+
+        if log_enabled and fallback_due_to_timer and elapsed_since_ready is not None:
+            logger.info(
+                "Text segmenter fallback after %.3fs without a delimiter; emitting %d chars",
+                elapsed_since_ready,
+                len(phrase),
+            )
 
         await phrase_queue.put(phrase)
         chars_processed += len(phrase)

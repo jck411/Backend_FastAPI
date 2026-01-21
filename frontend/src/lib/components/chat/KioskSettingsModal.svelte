@@ -961,6 +961,65 @@
                 <span>Enable text segmentation</span>
               </label>
 
+              <div
+                class="reasoning-field"
+                class:disabled-field={!draft.use_segmentation}
+                style="grid-column: 1 / -1;"
+              >
+                <div class="setting-header">
+                  <span class="setting-label"
+                    title="Minimum characters to accumulate before the first segmented phrase is emitted."
+                    >Minimum first phrase length</span
+                  >
+                  <span class="setting-hint"
+                    >Set a floor so the first spoken chunk feels complete.</span
+                  >
+                </div>
+                <input
+                  class="select-input"
+                  type="number"
+                  min="0"
+                  max="500"
+                  step="1"
+                  value={draft.first_phrase_min_chars}
+                  disabled={saving || !draft.use_segmentation}
+                  on:input={(e) => {
+                    const next = parseInt(
+                      (e.target as HTMLInputElement).value,
+                      10,
+                    );
+                    if (!Number.isFinite(next)) return;
+                    draft = {
+                      ...draft,
+                      first_phrase_min_chars: Math.max(0, Math.min(500, next)),
+                    };
+                    markDirty();
+                  }}
+                />
+              </div>
+
+              <label
+                class="setting-boolean"
+                title="Log when segmentation waits for delimiters longer than expected."
+                class:disabled-field={!draft.use_segmentation}
+                style="grid-column: 1 / -1;"
+              >
+                <input
+                  type="checkbox"
+                  checked={draft.segmentation_logging_enabled}
+                  disabled={saving || !draft.use_segmentation}
+                  on:change={(e) => {
+                    draft = {
+                      ...draft,
+                      segmentation_logging_enabled: (e.target as HTMLInputElement)
+                        .checked,
+                    };
+                    markDirty();
+                  }}
+                />
+                <span>Log segmentation boundary decisions</span>
+              </label>
+
               <!-- Delimiters -->
               <div
                 class="reasoning-field"

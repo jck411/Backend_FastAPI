@@ -6,7 +6,7 @@
   "speed": 1.0,
   "response_format": "pcm",
   "sample_rate": 24000,
-  "stream_chunk_bytes": 4096,
+  "stream_chunk_bytes": 20224,
   "use_segmentation": true,
   "delimiters": [
     "\n",
@@ -15,13 +15,8 @@
     "? ",
     "?",
     "! ",
-    "!",
-    "* ",
-    "*",
-    ", ",
-    ",",
-    ": ",
-    ":"
+    "!"
   ],
-  "first_phrase_min_chars": 60
+  "first_phrase_min_chars": 60,
+  "segmentation_logging_enabled": true
 }

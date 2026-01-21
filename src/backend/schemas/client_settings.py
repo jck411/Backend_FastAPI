@@ -179,6 +179,10 @@ class TtsSettings(BaseModel):
             "(0 = emit immediately)."
         ),
     )
+    segmentation_logging_enabled: bool = Field(
+        default=False,
+        description="Emit logs when segmentation waits for delimiters before pushing the first phrase",
+    )
 
 
 class TtsSettingsUpdate(BaseModel):
@@ -199,6 +203,7 @@ class TtsSettingsUpdate(BaseModel):
         ge=0,
         le=500,
     )
+    segmentation_logging_enabled: Optional[bool] = None
 
 
 # =============================================================================

@@ -43,6 +43,7 @@
           ": ",
           ":"
         ],
+        "segmentation_logging_enabled": false,
         "first_phrase_min_chars": 60
       },
       "model_filters": null,
@@ -92,6 +93,7 @@
           ": ",
           ":"
         ],
+        "segmentation_logging_enabled": false,
         "first_phrase_min_chars": 60
       },
       "model_filters": null,

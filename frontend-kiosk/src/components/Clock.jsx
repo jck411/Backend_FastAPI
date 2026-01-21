@@ -329,9 +329,9 @@ export default function Clock() {
     // Analyze hourly forecast for rain alerts (uses real API data)
     const rainAlert = weather?.hourly ? analyzeRainForecast(weather.hourly) : null;
 
-    // Clock update every second
+    // Clock update every 30 seconds (minute precision is sufficient for display)
     useEffect(() => {
-        const timer = setInterval(() => setTime(new Date()), 1000);
+        const timer = setInterval(() => setTime(new Date()), 30000);
         return () => clearInterval(timer);
     }, []);
 

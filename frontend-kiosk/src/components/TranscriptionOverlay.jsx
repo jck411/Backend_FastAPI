@@ -1,10 +1,12 @@
-import { motion } from 'framer-motion';
 import { useEffect } from 'react';
 
 /**
  * Transcription Overlay - Modal overlay for voice interaction.
  * Appears when mic is tapped, shows live transcript and AI responses.
  * Auto-closes after idle timeout (handled by parent).
+ *
+ * PERFORMANCE: Uses CSS transitions instead of Framer Motion to reduce CPU load
+ * during TTS playback on low-power devices.
  */
 export default function TranscriptionOverlay({
     messages,
@@ -23,12 +25,8 @@ export default function TranscriptionOverlay({
     }, [messages, liveTranscript]);
 
     return (
-        <motion.div
-            className="fixed inset-0 z-40 bg-black/90 backdrop-blur-md font-sans"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
+        <div
+            className="fixed inset-0 z-40 bg-black/90 backdrop-blur-md font-sans animate-fade-in"
         >
             {/* Close Button (top-left, avoiding Fully Kiosk swipe area) */}
             <button
@@ -82,21 +80,17 @@ export default function TranscriptionOverlay({
                 )}
             </div>
 
-            {/* Content Area */}
+            {/* Content Area - no mask to avoid clipping bottom text */}
             <div
-                className="h-full w-full max-w-5xl mx-auto flex flex-col justify-end py-8 sm:py-10 px-5 sm:px-8 z-10 overflow-y-auto no-scrollbar"
-                style={{ maskImage: 'linear-gradient(to bottom, transparent, black 12%, black 88%, transparent)', WebkitMaskImage: 'linear-gradient(to bottom, transparent, black 12%, black 88%, transparent)' }}
+                className="h-full w-full max-w-5xl mx-auto flex flex-col justify-end pt-16 pb-12 px-6 sm:px-10 z-10 overflow-y-auto no-scrollbar"
             >
                 <div className="flex-1" />
 
                 <div className="space-y-6 flex flex-col min-h-0">
                     {messages.map((msg, idx) => (
-                        <motion.div
+                        <div
                             key={idx}
-                            className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} w-full`}
-                            initial={{ opacity: 0, y: 20 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.3 }}
+                            className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} w-full animate-slide-up`}
                         >
                             <div className={`max-w-[85%] ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
                                 <p className={`${msg.role === 'user'
@@ -107,43 +101,35 @@ export default function TranscriptionOverlay({
                                     {msg.pending && <span className="animate-pulse">▋</span>}
                                 </p>
                             </div>
-                        </motion.div>
+                        </div>
                     ))}
 
                     {liveTranscript && (
-                        <motion.div
-                            className="flex flex-col items-end w-full"
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                        >
+                        <div className="flex flex-col items-end w-full animate-fade-in">
                             <div className="max-w-[90%] text-right">
                                 <p className="text-[clamp(1.2rem,4.8vw,1.6rem)] text-white italic opacity-80 break-words leading-[1.35]">
                                     {liveTranscript}
                                 </p>
                             </div>
-                        </motion.div>
+                        </div>
                     )}
 
-                    <div ref={messagesEndRef} className="h-8 w-full" />
+                    <div ref={messagesEndRef} className="h-16 w-full" />
                 </div>
             </div>
 
             {/* Empty State - only show when listening with no activity */}
             {messages.length === 0 && !liveTranscript && isListening && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center z-0 pointer-events-none p-10 text-center">
-                    <motion.div
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="space-y-4"
-                    >
+                    <div className="space-y-4 animate-fade-in">
                         <div className="w-16 h-16 mx-auto rounded-full bg-red-500/20 border-2 border-red-400/50 flex items-center justify-center">
                             <div className="w-4 h-4 bg-red-400 rounded-full animate-pulse" />
                         </div>
                         <h1 className="text-[clamp(1.8rem,7vw,2.5rem)] font-bold text-white">Listening...</h1>
                         <p className="text-[clamp(1rem,4vw,1.3rem)] text-white/60 font-light">Speak now</p>
-                    </motion.div>
+                    </div>
                 </div>
             )}
-        </motion.div>
+        </div>
     );
 }

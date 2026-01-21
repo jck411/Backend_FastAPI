@@ -1,4 +1,3 @@
-import { AnimatePresence } from 'framer-motion';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useWebSocket, { ReadyState } from 'react-use-websocket';
 import AlarmOverlay from './components/AlarmOverlay';
@@ -672,19 +671,17 @@ export default function App() {
             )}
 
             {/* Transcription Overlay - appears when mic is tapped */}
-            <AnimatePresence>
-                {showTranscription && (
-                    <TranscriptionOverlay
-                        messages={messages}
-                        liveTranscript={liveTranscript}
-                        isListening={backendState === 'LISTENING'}
-                        agentState={appState}
-                        toolStatus={toolStatus}
-                        messagesEndRef={messagesEndRef}
-                        onClose={handleCloseTranscription}
-                    />
-                )}
-            </AnimatePresence>
+            {showTranscription && (
+                <TranscriptionOverlay
+                    messages={messages}
+                    liveTranscript={liveTranscript}
+                    isListening={backendState === 'LISTENING'}
+                    agentState={appState}
+                    toolStatus={toolStatus}
+                    messagesEndRef={messagesEndRef}
+                    onClose={handleCloseTranscription}
+                />
+            )}
 
             {/* Alarm Overlay - appears on top of everything when alarm fires */}
             <AlarmOverlay

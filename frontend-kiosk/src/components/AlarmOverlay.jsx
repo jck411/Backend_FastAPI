@@ -1,4 +1,3 @@
-import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useRef, useState } from 'react';
 import { useDisplayTimezone } from '../context/ConfigContext';
 
@@ -198,125 +197,83 @@ export default function AlarmOverlay({
     const timeUntil = getTimeUntilAlarm(alarm.alarm_time);
 
     return (
-        <AnimatePresence>
-            <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden"
-                style={{
-                    backgroundImage: `
-                        radial-gradient(circle at 20% 20%, rgba(56, 189, 248, ${flashOn ? 0.24 : 0.14}), transparent 35%),
-                        radial-gradient(circle at 80% 0%, rgba(236, 72, 153, ${flashOn ? 0.22 : 0.12}), transparent 38%),
-                        radial-gradient(circle at 50% 80%, rgba(248, 113, 113, ${flashOn ? 0.20 : 0.12}), transparent 32%),
-                        linear-gradient(135deg, #05070d 0%, #0a0f1f 45%, #05070d 100%)
-                    `
-                }}
-            >
-                <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/70" />
-                <div
-                    className="absolute inset-0 opacity-25 mix-blend-screen"
-                    style={{
-                        backgroundImage: 'radial-gradient(circle at 30% 40%, rgba(255,255,255,0.12), transparent 32%), radial-gradient(circle at 70% 70%, rgba(255,255,255,0.08), transparent 28%)'
-                    }}
-                />
-                <div
-                    className="absolute inset-0 opacity-30"
-                    style={{
-                        backgroundImage: `
-                            linear-gradient(120deg, rgba(255,255,255,0.04) 1px, transparent 1px),
-                            linear-gradient(300deg, rgba(255,255,255,0.04) 1px, transparent 1px)
-                        `,
-                        backgroundSize: '120px 120px'
-                    }}
-                />
-                <motion.div
-                    initial={{ y: 30, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    transition={{ type: 'spring', stiffness: 260, damping: 24 }}
-                    className="relative z-10 w-full max-w-4xl px-4 sm:px-10"
-                >
-                    <div className="flex flex-col items-center gap-6 sm:gap-10">
-                        <div className="flex items-center gap-3 text-cyan-200/80 text-xs tracking-[0.3em] uppercase">
-                            <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_0_8px_rgba(34,211,238,0.12)] animate-pulse" />
-                            <span>Alarm active</span>
-                        </div>
+        <div
+            className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden animate-fade-in"
+            style={{
+                backgroundImage: `
+                    radial-gradient(circle at 20% 20%, rgba(56, 189, 248, ${flashOn ? 0.24 : 0.14}), transparent 35%),
+                    radial-gradient(circle at 80% 0%, rgba(236, 72, 153, ${flashOn ? 0.22 : 0.12}), transparent 38%),
+                    radial-gradient(circle at 50% 80%, rgba(248, 113, 113, ${flashOn ? 0.20 : 0.12}), transparent 32%),
+                    linear-gradient(135deg, #05070d 0%, #0a0f1f 45%, #05070d 100%)
+                `
+            }}
+        >
+            <div className="absolute inset-0 bg-gradient-to-b from-white/5 via-transparent to-black/70" />
 
-                        <div className="relative">
-                            <div className="absolute inset-[-28%] rounded-full bg-cyan-400/10 blur-3xl" />
-                            <motion.div
-                                animate={{ scale: flashOn ? 1.08 : 1, rotate: flashOn ? 3 : -3 }}
-                                transition={{ duration: 0.4, ease: 'easeInOut' }}
-                                className="relative flex items-center justify-center w-36 h-36 sm:w-48 sm:h-48 rounded-full bg-white/5 backdrop-blur-2xl border border-white/10 shadow-[0_20px_80px_rgba(0,0,0,0.45)]"
-                            >
-                                <div className="absolute inset-3 rounded-full border border-cyan-300/30" />
-                                <div className="absolute inset-6 rounded-full border border-white/10" />
-                                <BellIcon className="w-12 h-12 sm:w-16 sm:h-16 text-white drop-shadow-[0_15px_35px_rgba(34,211,238,0.45)]" />
-                            </motion.div>
-                            <motion.div
-                                animate={{ opacity: flashOn ? 0.7 : 0.35, scale: flashOn ? 1.3 : 1.1 }}
-                                transition={{ duration: 0.5 }}
-                                className="absolute inset-0 rounded-full bg-gradient-to-br from-cyan-400/25 via-fuchsia-500/10 to-rose-500/20 blur-3xl"
-                            />
-                        </div>
+            <div className="relative z-10 w-full max-w-4xl px-4 sm:px-10">
+                <div className="flex flex-col items-center gap-6 sm:gap-10">
+                    <div className="flex items-center gap-3 text-cyan-200/80 text-xs tracking-[0.3em] uppercase">
+                        <span className="h-2 w-2 rounded-full bg-cyan-300 animate-pulse" />
+                        <span>Alarm active</span>
+                    </div>
 
-                        <div className="text-center space-y-4">
-                            <h1 className="text-[clamp(1.8rem,5vw,2.4rem)] sm:text-4xl font-semibold tracking-tight text-white drop-shadow-lg">
-                                {alarm.label || 'Alarm'}
-                            </h1>
-                            <div className="flex items-baseline justify-center gap-3">
-                                <span className="text-[clamp(2.8rem,13vw,4.5rem)] sm:text-7xl font-light tracking-tight text-white drop-shadow-xl">
-                                    {formattedAlarm.time}
-                                </span>
-                                <span className="text-[clamp(1.1rem,4vw,1.6rem)] sm:text-2xl font-semibold text-cyan-200/80">
-                                    {formattedAlarm.ampm}
-                                </span>
-                            </div>
-                            <div className="flex items-center justify-center gap-2.5 text-sm text-white/70">
-                                <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10 backdrop-blur">
-                                    {timeUntil}
-                                </span>
-                                <span className="h-1 w-10 rounded-full bg-gradient-to-r from-cyan-300 via-white/50 to-rose-300 opacity-70" />
-                                <span className="text-cyan-100/80">Snooze: {snoozeMinutes}m</span>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 w-full max-w-2xl">
-                            <motion.button
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={handleSnooze}
-                                className="relative overflow-hidden group rounded-2xl px-6 py-4 bg-gradient-to-r from-cyan-400 to-sky-500 text-slate-950 font-semibold shadow-[0_15px_50px_rgba(56,189,248,0.45)]"
-                            >
-                                <div className="absolute inset-0 opacity-0 group-hover:opacity-20 transition-opacity duration-300 bg-white" />
-                                <div className="flex items-center justify-between">
-                                    <div className="flex flex-col items-start">
-                                        <span className="text-xs uppercase tracking-[0.2em] text-slate-900/70">Snooze</span>
-                                        <span className="text-xl mt-1">Pause for {snoozeMinutes}m</span>
-                                    </div>
-                                    <span className="text-2xl">💤</span>
-                                </div>
-                            </motion.button>
-
-                            <motion.button
-                                whileHover={{ scale: 1.02 }}
-                                whileTap={{ scale: 0.98 }}
-                                onClick={handleDismiss}
-                                className="relative overflow-hidden group rounded-2xl px-6 py-4 bg-gradient-to-r from-rose-500 via-orange-500 to-amber-400 text-white font-semibold shadow-[0_15px_50px_rgba(249,115,22,0.45)] border border-white/10"
-                            >
-                                <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity duration-300 bg-white" />
-                                <div className="flex items-center justify-between">
-                                    <div className="flex flex-col items-start">
-                                        <span className="text-xs uppercase tracking-[0.2em] text-white/70">Dismiss</span>
-                                        <span className="text-xl mt-1">I&apos;m awake</span>
-                                    </div>
-                                    <span className="text-2xl">✓</span>
-                                </div>
-                            </motion.button>
+                    <div className="relative">
+                        <div
+                            className={`relative flex items-center justify-center w-36 h-36 sm:w-48 sm:h-48 rounded-full bg-white/5 border border-white/10 transition-transform duration-300 ${flashOn ? 'scale-105' : 'scale-100'}`}
+                        >
+                            <BellIcon className="w-12 h-12 sm:w-16 sm:h-16 text-white" />
                         </div>
                     </div>
-                </motion.div>
-            </motion.div>
-        </AnimatePresence>
+
+                    <div className="text-center space-y-4">
+                        <h1 className="text-[clamp(1.8rem,5vw,2.4rem)] sm:text-4xl font-semibold tracking-tight text-white">
+                            {alarm.label || 'Alarm'}
+                        </h1>
+                        <div className="flex items-baseline justify-center gap-3">
+                            <span className="text-[clamp(2.8rem,13vw,4.5rem)] sm:text-7xl font-light tracking-tight text-white">
+                                {formattedAlarm.time}
+                            </span>
+                            <span className="text-[clamp(1.1rem,4vw,1.6rem)] sm:text-2xl font-semibold text-cyan-200/80">
+                                {formattedAlarm.ampm}
+                            </span>
+                        </div>
+                        <div className="flex items-center justify-center gap-2.5 text-sm text-white/70">
+                            <span className="px-3 py-1 rounded-full bg-white/5 border border-white/10">
+                                {timeUntil}
+                            </span>
+                            <span className="text-cyan-100/80">Snooze: {snoozeMinutes}m</span>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 w-full max-w-2xl">
+                        <button
+                            onClick={handleSnooze}
+                            className="rounded-2xl px-6 py-4 bg-gradient-to-r from-cyan-400 to-sky-500 text-slate-950 font-semibold active:scale-95 transition-transform"
+                        >
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col items-start">
+                                    <span className="text-xs uppercase tracking-[0.2em] text-slate-900/70">Snooze</span>
+                                    <span className="text-xl mt-1">Pause for {snoozeMinutes}m</span>
+                                </div>
+                                <span className="text-2xl">💤</span>
+                            </div>
+                        </button>
+
+                        <button
+                            onClick={handleDismiss}
+                            className="rounded-2xl px-6 py-4 bg-gradient-to-r from-rose-500 via-orange-500 to-amber-400 text-white font-semibold active:scale-95 transition-transform"
+                        >
+                            <div className="flex items-center justify-between">
+                                <div className="flex flex-col items-start">
+                                    <span className="text-xs uppercase tracking-[0.2em] text-white/70">Dismiss</span>
+                                    <span className="text-xl mt-1">I&apos;m awake</span>
+                                </div>
+                                <span className="text-2xl">✓</span>
+                            </div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     );
 }

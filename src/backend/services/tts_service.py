@@ -34,18 +34,18 @@ class TTSService:
             self._openai_client = openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         return self._openai_client
 
-    def get_settings(self) -> TtsSettings:
-        """Get current TTS settings."""
-        return get_client_settings_service("voice").get_tts()
+    def get_settings(self, settings_client_id: str = "voice") -> TtsSettings:
+        """Get current TTS settings for the specified client."""
+        return get_client_settings_service(settings_client_id).get_tts()
 
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str, settings_client_id: str = "voice") -> bytes:
         """
         Synthesize text to audio (non-streaming).
 
         Returns raw audio bytes in the configured format.
         Returns empty bytes if TTS is disabled.
         """
-        settings = self.get_settings()
+        settings = self.get_settings(settings_client_id)
 
         if not settings.enabled:
             logger.debug("TTS is disabled, skipping synthesis")
@@ -73,6 +73,7 @@ class TTSService:
         self,
         text: str,
         stop_event: Optional[asyncio.Event] = None,
+        settings_client_id: str = "voice",
     ) -> AsyncGenerator[bytes, None]:
         """
         Stream TTS audio for a single text.
@@ -80,7 +81,7 @@ class TTSService:
         Yields audio chunks as they become available.
         Respects stop_event for early termination.
         """
-        settings = self.get_settings()
+        settings = self.get_settings(settings_client_id)
 
         if not settings.enabled:
             logger.debug("TTS is disabled, skipping streaming synthesis")
@@ -114,6 +115,7 @@ class TTSService:
     async def create_streaming_pipeline(
         self,
         stop_event: asyncio.Event,
+        settings_client_id: str = "voice",
     ) -> tuple[asyncio.Queue, asyncio.Queue, asyncio.Task, asyncio.Task]:
         """
         Create a full TTS streaming pipeline with text segmentation.
@@ -139,7 +141,7 @@ class TTSService:
                     break
                 # Send audio to client
         """
-        settings = self.get_settings()
+        settings = self.get_settings(settings_client_id)
 
         chunk_queue: asyncio.Queue = asyncio.Queue()
         phrase_queue: asyncio.Queue = asyncio.Queue()
@@ -152,7 +154,7 @@ class TTSService:
                 phrase_queue=phrase_queue,
                 delimiters=settings.delimiters,
                 use_segmentation=settings.use_segmentation,
-                character_max=settings.character_maximum,
+                first_phrase_min_chars=settings.first_phrase_min_chars,
                 stop_event=stop_event,
             )
         )
@@ -170,6 +172,6 @@ class TTSService:
         logger.debug("Created TTS streaming pipeline")
         return chunk_queue, audio_queue, segmenter_task, tts_task
 
-    def get_sample_rate(self) -> int:
+    def get_sample_rate(self, settings_client_id: str = "voice") -> int:
         """Get the sample rate for the current settings."""
-        return self.get_settings().sample_rate
+        return self.get_settings(settings_client_id).sample_rate

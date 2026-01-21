@@ -490,6 +490,36 @@
                 </div>
               </div>
             </div>
+
+            <!-- Keyterms -->
+            <div class="reasoning-field" style="grid-column: 1 / -1;">
+              <div class="setting-header">
+                <span
+                  class="setting-label"
+                  title="Words or phrases the speech recognition should pay extra attention to. Useful for device names, product terms, or commands specific to your home automation setup."
+                  >Keyterms</span
+                >
+                <span class="setting-hint"
+                  >Words to boost recognition (one per line, up to 100).</span
+                >
+              </div>
+              <textarea
+                class="keyterms-input"
+                rows="3"
+                disabled={saving}
+                placeholder="lights&#10;thermostat&#10;turn on"
+                on:input={(e) => {
+                  const text = (e.target as HTMLTextAreaElement).value;
+                  const terms = text
+                    .split("\n")
+                    .map((t) => t.trim())
+                    .filter((t) => t.length > 0)
+                    .slice(0, 100);
+                  draft = { ...draft, keyterms: terms };
+                  markDirty();
+                }}>{draft.keyterms.join("\n")}</textarea
+              >
+            </div>
           </div>
         </div>
 
@@ -741,6 +771,66 @@
                 </div>
               </div>
 
+              <!-- Model Selection (OpenAI) -->
+              <div class="reasoning-field">
+                <div class="setting-select">
+                  <label
+                    class="setting-label"
+                    for="tts-model"
+                    title="Select the OpenAI TTS model."
+                    >Model</label
+                  >
+                  <select
+                    id="tts-model"
+                    class="select-input"
+                    value={draft.model}
+                    disabled={saving}
+                    on:change={(e) => {
+                      draft = {
+                        ...draft,
+                        model: (e.target as HTMLSelectElement).value,
+                      };
+                      markDirty();
+                    }}
+                  >
+                    <option value="tts-1">tts-1 (faster)</option>
+                    <option value="tts-1-hd">tts-1-hd (higher quality)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Response Format -->
+              <div class="reasoning-field">
+                <div class="setting-select">
+                  <label
+                    class="setting-label"
+                    for="tts-response-format"
+                    title="Audio format returned by the TTS service."
+                    >Response format</label
+                  >
+                  <select
+                    id="tts-response-format"
+                    class="select-input"
+                    value={draft.response_format}
+                    disabled={saving}
+                    on:change={(e) => {
+                      draft = {
+                        ...draft,
+                        response_format: (e.target as HTMLSelectElement).value,
+                      };
+                      markDirty();
+                    }}
+                  >
+                    <option value="pcm">pcm</option>
+                    <option value="mp3">mp3</option>
+                    <option value="opus">opus</option>
+                    <option value="aac">aac</option>
+                    <option value="flac">flac</option>
+                    <option value="wav">wav</option>
+                  </select>
+                </div>
+              </div>
+
               <!-- Speed Slider -->
               <div class="reasoning-field">
                 <div class="setting-range">
@@ -781,39 +871,138 @@
                   </div>
                 </div>
               </div>
+
+              <!-- Sample Rate -->
+              <div class="reasoning-field">
+                <div class="setting-select">
+                  <label
+                    class="setting-label"
+                    for="tts-sample-rate"
+                    title="Sample rate in Hz for TTS audio."
+                    >Sample rate (Hz)</label
+                  >
+                  <input
+                    id="tts-sample-rate"
+                    class="select-input"
+                    type="number"
+                    min="8000"
+                    max="48000"
+                    step="1000"
+                    value={draft.sample_rate}
+                    disabled={saving}
+                    on:input={(e) => {
+                      const next = parseInt(
+                        (e.target as HTMLInputElement).value,
+                        10,
+                      );
+                      if (!Number.isFinite(next)) return;
+                      draft = {
+                        ...draft,
+                        sample_rate: Math.max(8000, Math.min(48000, next)),
+                      };
+                      markDirty();
+                    }}
+                  />
+                </div>
+              </div>
+
+              <!-- Stream Chunk Bytes -->
+              <div class="reasoning-field">
+                <div class="setting-select">
+                  <label
+                    class="setting-label"
+                    for="tts-stream-chunk-bytes"
+                    title="Chunk size (bytes) when streaming TTS audio."
+                    >Stream chunk bytes</label
+                  >
+                  <input
+                    id="tts-stream-chunk-bytes"
+                    class="select-input"
+                    type="number"
+                    min="512"
+                    max="65536"
+                    step="256"
+                    value={draft.stream_chunk_bytes}
+                    disabled={saving}
+                    on:input={(e) => {
+                      const next = parseInt(
+                        (e.target as HTMLInputElement).value,
+                        10,
+                      );
+                      if (!Number.isFinite(next)) return;
+                      draft = {
+                        ...draft,
+                        stream_chunk_bytes: Math.max(512, Math.min(65536, next)),
+                      };
+                      markDirty();
+                    }}
+                  />
+                </div>
+              </div>
+
+              <!-- Segmentation Toggle -->
+              <label
+                class="setting-boolean"
+                title="Split text at delimiters to start audio sooner."
+                style="grid-column: 1 / -1;"
+              >
+                <input
+                  type="checkbox"
+                  checked={draft.use_segmentation}
+                  disabled={saving}
+                  on:change={(e) => {
+                    draft = {
+                      ...draft,
+                      use_segmentation: (e.target as HTMLInputElement).checked,
+                    };
+                    markDirty();
+                  }}
+                />
+                <span>Enable text segmentation</span>
+              </label>
+
+              <!-- Delimiters -->
+              <div
+                class="reasoning-field"
+                class:disabled-field={!draft.use_segmentation}
+                style="grid-column: 1 / -1;"
+              >
+                <div class="setting-header">
+                  <span
+                    class="setting-label"
+                    title="One delimiter per line. Use \\n for newline."
+                    >Delimiters</span
+                  >
+                  <span class="setting-hint"
+                    >Whitespace matters; each line becomes a delimiter.</span
+                  >
+                </div>
+                <textarea
+                  class="keyterms-input"
+                  rows="4"
+                  disabled={saving || !draft.use_segmentation}
+                  placeholder="\\n&#10;. &#10;? &#10;! "
+                  on:input={(e) => {
+                    const text = (e.target as HTMLTextAreaElement).value;
+                    const lines = text
+                      .split("\n")
+                      .map((line) => line.replace(/\r/g, ""))
+                      .map((line) => (line === "\\n" ? "\n" : line))
+                      .filter((line) => line.trim().length > 0);
+                    draft = { ...draft, delimiters: lines };
+                    markDirty();
+                  }}
+                >{draft.delimiters
+                    .map((delimiter) =>
+                      delimiter === "\n" ? "\\n" : delimiter,
+                    )
+                    .join("\n")}</textarea
+                >
+              </div>
             {/if}
           </div>
         </div>
 
-        <!-- Keyterms Section -->
-        <div class="setting">
-          <div class="setting-header">
-            <span
-              class="setting-label"
-              title="Words or phrases the speech recognition should pay extra attention to. Useful for device names, product terms, or commands specific to your home automation setup."
-              >Keyterms</span
-            >
-            <span class="setting-hint"
-              >Words to boost recognition (one per line, up to 100).</span
-            >
-          </div>
-          <textarea
-            class="keyterms-input"
-            rows="3"
-            disabled={saving}
-            placeholder="lights&#10;thermostat&#10;turn on"
-            on:input={(e) => {
-              const text = (e.target as HTMLTextAreaElement).value;
-              const terms = text
-                .split("\n")
-                .map((t) => t.trim())
-                .filter((t) => t.length > 0)
-                .slice(0, 100);
-              draft = { ...draft, keyterms: terms };
-              markDirty();
-            }}>{draft.keyterms.join("\n")}</textarea
-          >
-        </div>
       </div>
     {/if}
 

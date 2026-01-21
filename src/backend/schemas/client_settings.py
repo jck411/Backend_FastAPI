@@ -170,11 +170,14 @@ class TtsSettings(BaseModel):
         default_factory=lambda: ["\n", ". ", "? ", "! ", "* ", ", ", ": "],
         description="Delimiters to split text at for segmentation",
     )
-    character_maximum: int = Field(
+    first_phrase_min_chars: int = Field(
         default=50,
         ge=0,
         le=500,
-        description="Max chars before disabling segmentation",
+        description=(
+            "Minimum characters to accumulate before emitting the first segmented phrase "
+            "(0 = emit immediately)."
+        ),
     )
 
 
@@ -191,7 +194,11 @@ class TtsSettingsUpdate(BaseModel):
     stream_chunk_bytes: Optional[int] = Field(default=None, ge=512, le=65536)
     use_segmentation: Optional[bool] = None
     delimiters: Optional[list[str]] = None
-    character_maximum: Optional[int] = Field(default=None, ge=0, le=500)
+    first_phrase_min_chars: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=500,
+    )
 
 
 # =============================================================================

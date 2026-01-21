@@ -14,14 +14,40 @@
       "stt": {
         "eot_threshold": 0.7,
         "eot_timeout_ms": 5000,
-        "keyterms": []
+        "keyterms": [],
+        "pause_timeout_seconds": 30,
+        "listen_timeout_seconds": 15
       },
       "tts": {
         "enabled": true,
+        "provider": "openai",
         "model": "aura-asteria-en",
-        "sample_rate": 16000
+        "voice": "alloy",
+        "speed": 1.0,
+        "response_format": "pcm",
+        "sample_rate": 16000,
+        "stream_chunk_bytes": 4096,
+        "use_segmentation": true,
+        "delimiters": [
+          "\n",
+          ". ",
+          ".",
+          "? ",
+          "?",
+          "! ",
+          "!",
+          "* ",
+          "*",
+          ", ",
+          ",",
+          ": ",
+          ":"
+        ],
+        "first_phrase_min_chars": 60
       },
-      "mcp_servers": []
+      "model_filters": null,
+      "created_at": null,
+      "updated_at": null
     },
     {
       "name": "Detailed",
@@ -37,15 +63,41 @@
       "stt": {
         "eot_threshold": 0.7,
         "eot_timeout_ms": 5000,
-        "keyterms": []
+        "keyterms": [],
+        "pause_timeout_seconds": 30,
+        "listen_timeout_seconds": 15
       },
       "tts": {
         "enabled": true,
+        "provider": "openai",
         "model": "aura-orpheus-en",
-        "sample_rate": 16000
+        "voice": "alloy",
+        "speed": 1.0,
+        "response_format": "pcm",
+        "sample_rate": 16000,
+        "stream_chunk_bytes": 4096,
+        "use_segmentation": true,
+        "delimiters": [
+          "\n",
+          ". ",
+          ".",
+          "? ",
+          "?",
+          "! ",
+          "!",
+          "* ",
+          "*",
+          ", ",
+          ",",
+          ": ",
+          ":"
+        ],
+        "first_phrase_min_chars": 60
       },
-      "mcp_servers": []
+      "model_filters": null,
+      "created_at": null,
+      "updated_at": null
     }
   ],
-  "active_index": 1
+  "active_index": 0
 }

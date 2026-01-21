@@ -12,6 +12,7 @@ from deepgram import DeepgramClient
 from deepgram.core.events import EventType
 
 from backend.config import get_settings
+from backend.schemas.client_settings import SttSettings
 from backend.services.client_settings_service import get_client_settings_service
 
 logger = logging.getLogger(__name__)
@@ -302,12 +303,17 @@ class STTService:
         self.api_key = api_key
         self.sessions: dict[str, DeepgramSession] = {}
 
+    def get_settings(self, settings_client_id: str = "voice") -> SttSettings:
+        """Get STT settings for the specified client."""
+        return get_client_settings_service(settings_client_id).get_stt()
+
     async def create_session(
         self,
         session_id: str,
         on_transcript: Callable[[str, bool], None],
         on_error: Optional[Callable[[str], None]] = None,
         on_speech_start: Optional[Callable[[], None]] = None,
+        settings_client_id: str = "voice",
     ):
         """
         Start a new live transcription session.
@@ -317,8 +323,8 @@ class STTService:
             if session_id in self.sessions:
                 await self.close_session(session_id)
 
-            # Get current voice STT settings
-            stt_settings = get_client_settings_service("voice").get_stt()
+            # Get current STT settings for the requested client
+            stt_settings = self.get_settings(settings_client_id)
 
             # IMPORTANT: The Deepgram listener runs in a background thread,
             # which has no asyncio event loop. We must capture the main loop

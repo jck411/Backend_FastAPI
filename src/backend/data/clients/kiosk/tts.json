@@ -11,11 +11,17 @@
   "delimiters": [
     "\n",
     ". ",
+    ".",
     "? ",
+    "?",
     "! ",
+    "!",
     "* ",
+    "*",
     ", ",
-    ": "
+    ",",
+    ": ",
+    ":"
   ],
-  "character_maximum": 50
+  "first_phrase_min_chars": 60
 }

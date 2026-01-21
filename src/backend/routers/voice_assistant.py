@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from backend.services.client_settings_service import get_client_settings_service
+from backend.services.kiosk_chat_service import KioskChatService
 from backend.services.stt_service import STTService
 from backend.services.tts_service import TTSService
 from backend.services.voice_chat_service import VoiceChatService
@@ -16,23 +17,38 @@ router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 logger = logging.getLogger(__name__)
 
 
+def resolve_settings_client_id(client_id: str) -> str:
+    if client_id.startswith("kiosk_"):
+        return "kiosk"
+    if client_id.startswith("voice_"):
+        return "voice"
+    return "voice"
+
+
 async def handle_connection(
     websocket: WebSocket,
     client_id: str,
     manager: VoiceConnectionManager,
     stt_service: STTService,
     tts_service: TTSService,
-    voice_chat_service: VoiceChatService,
+    voice_chat_service: Optional[VoiceChatService],
+    kiosk_chat_service: Optional[KioskChatService],
 ):
     """
     Main loop for handling a single client's WebSocket connection.
 
     Uses queue-based TTS pipeline:
-    - TextSegmenter splits LLM chunks into phrases at delimiters (min 25 chars)
+    - TextSegmenter splits LLM chunks into phrases at delimiters (min length from settings)
     - TTSProcessor synthesizes phrases and broadcasts audio chunks via WebSocket
     - Frontend plays audio immediately using Web Audio API
     """
     await manager.connect(websocket, client_id)
+
+    settings_client_id = resolve_settings_client_id(client_id)
+    settings_service = get_client_settings_service(settings_client_id)
+    chat_service = voice_chat_service
+    if settings_client_id == "kiosk" and kiosk_chat_service is not None:
+        chat_service = kiosk_chat_service
 
     tts_cancel_event = asyncio.Event()
     tts_task: Optional[asyncio.Task] = None
@@ -70,7 +86,7 @@ async def handle_connection(
                 full_response = ""
                 response_interrupted = False
 
-                tts_settings = tts_service.get_settings()
+                tts_settings = tts_service.get_settings(settings_client_id)
                 tts_enabled = tts_settings.enabled
 
                 # Create TTS streaming pipeline
@@ -79,7 +95,10 @@ async def handle_connection(
                     audio_queue,
                     segmenter_task,
                     tts_processor_task,
-                ) = await tts_service.create_streaming_pipeline(tts_cancel_event)
+                ) = await tts_service.create_streaming_pipeline(
+                    tts_cancel_event,
+                    settings_client_id=settings_client_id,
+                )
 
                 # Get sample rate for audio playback
                 sample_rate = tts_settings.sample_rate
@@ -136,7 +155,7 @@ async def handle_connection(
                         client_id, {"type": "assistant_response_start"}
                     )
 
-                    async for event in voice_chat_service.generate_response_streaming(
+                    async for event in chat_service.generate_response_streaming(
                         text, client_id
                     ):
                         if tts_cancel_event.is_set():
@@ -219,7 +238,7 @@ async def handle_connection(
                     )
                 else:
                     try:
-                        llm_settings = get_client_settings_service("voice").get_llm()
+                        llm_settings = settings_service.get_llm()
                         if llm_settings.conversation_mode:
                             logger.info(
                                 f"Conversation mode active for {client_id}, listening for reply"
@@ -236,7 +255,10 @@ async def handle_connection(
             await manager.update_state(client_id, "IDLE")
 
         return await stt_service.create_session(
-            client_id, on_transcript_received, on_stt_error
+            client_id,
+            on_transcript_received,
+            on_stt_error,
+            settings_client_id=settings_client_id,
         )
 
     try:
@@ -294,7 +316,7 @@ async def handle_connection(
                 session.last_wakeword_time = now
 
                 # New conversation starts with wake word -> Clear history
-                voice_chat_service.clear_history(client_id)
+                chat_service.clear_history(client_id)
 
                 await manager.update_state(client_id, "LISTENING")
 
@@ -354,7 +376,7 @@ async def handle_connection(
                         # Check for listen timeout (for THIS client only)
                         try:
                             # If we are listening but haven't heard/done anything for X seconds, go to IDLE
-                            stt_settings = get_client_settings_service("voice").get_stt()
+                            stt_settings = settings_service.get_stt()
                             listen_timeout_seconds = stt_settings.listen_timeout_seconds
                             silence_duration_ms = (
                                 datetime.utcnow() - session.last_activity
@@ -401,7 +423,7 @@ async def handle_connection(
                 logger.info(f"TTS playback ended for {client_id}")
                 # Check if conversation mode is active
                 try:
-                    llm_settings = get_client_settings_service("voice").get_llm()
+                    llm_settings = settings_service.get_llm()
                     if llm_settings.conversation_mode:
                         logger.info(
                             f"Conversation mode ON - resuming listening for {client_id}"
@@ -426,7 +448,7 @@ async def handle_connection(
                 # User clicked "New" - clean up everything for fresh start
                 logger.info(f"User clearing session for {client_id}")
                 await stt_service.close_session(client_id)
-                voice_chat_service.clear_history(client_id)
+                chat_service.clear_history(client_id)
                 session = manager.get_session(client_id)
                 if session:
                     session.stt_session_pending = False
@@ -546,12 +568,21 @@ async def voice_connect(websocket: WebSocket):
     stt_service = app_state.stt_service
     tts_service = app_state.tts_service
     voice_chat_service = getattr(app_state, "voice_chat_service", None)
+    kiosk_chat_service = getattr(app_state, "kiosk_chat_service", None)
 
     if voice_chat_service is None:
         # Fallback if service not initialized properly (e.g. startup error)
         # We allow connection but LLM calls will fail individually
         logger.warning("VoiceChatService not found in app state")
+    if kiosk_chat_service is None:
+        logger.warning("KioskChatService not found in app state")
 
     await handle_connection(
-        websocket, client_id, manager, stt_service, tts_service, voice_chat_service
+        websocket,
+        client_id,
+        manager,
+        stt_service,
+        tts_service,
+        voice_chat_service,
+        kiosk_chat_service,
     )

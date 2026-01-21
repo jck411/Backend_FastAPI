@@ -74,9 +74,10 @@ export interface KioskTtsSettings {
     speed: number;
     response_format: string;
     sample_rate: number;
+    stream_chunk_bytes: number;
     use_segmentation: boolean;
     delimiters: string[];
-    character_maximum: number;
+    first_phrase_min_chars: number;
 }
 
 export interface KioskTtsSettingsUpdate {
@@ -87,9 +88,10 @@ export interface KioskTtsSettingsUpdate {
     speed?: number;
     response_format?: string;
     sample_rate?: number;
+    stream_chunk_bytes?: number;
     use_segmentation?: boolean;
     delimiters?: string[];
-    character_maximum?: number;
+    first_phrase_min_chars?: number;
 }
 
 /**

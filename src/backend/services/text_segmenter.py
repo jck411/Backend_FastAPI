@@ -27,29 +27,90 @@ async def process_text_chunks(
     phrase_queue: asyncio.Queue,
     delimiters: list[str],
     use_segmentation: bool,
-    character_max: int,
+    first_phrase_min_chars: int,
     stop_event: Optional[asyncio.Event] = None,
 ) -> None:
     """
     Process text chunks and segment them into phrases for TTS.
 
-    Accumulates text chunks from chunk_queue and splits into phrases
-    at delimiter boundaries. After character_max is reached, segmentation
-    is disabled and remaining text is sent as a single chunk.
+    Accumulates text chunks from chunk_queue and emits the first phrase
+    once a delimiter or whitespace occurs and the minimum character threshold
+    is met. If no boundary appears shortly after the minimum, it emits what is
+    available to minimize latency. The remaining text is sent as a single
+    final chunk to keep the pipeline at most two phrases.
 
     Args:
         chunk_queue: Queue receiving text chunks from LLM
         phrase_queue: Queue to send segmented phrases to TTS
         delimiters: List of delimiter strings to split at
         use_segmentation: Whether to enable segmentation
-        character_max: Max chars before disabling segmentation
+        first_phrase_min_chars: Minimum characters before emitting the first segmented phrase
         stop_event: Optional event to signal early stop
     """
     working_string = ""
     chars_processed = 0
     segmentation_active = use_segmentation
+    first_phrase_emitted = not use_segmentation
+    min_ready_at: Optional[float] = None
 
     delimiter_pattern = compile_delimiter_pattern(delimiters) if use_segmentation else None
+    whitespace_pattern = re.compile(r"\s+")
+    loop = asyncio.get_running_loop()
+    max_wait_seconds = 0.25
+
+    async def maybe_emit_first_phrase() -> None:
+        nonlocal working_string, segmentation_active, first_phrase_emitted, chars_processed, min_ready_at
+
+        if not segmentation_active or first_phrase_emitted:
+            return
+        if not working_string:
+            return
+        if len(working_string) < first_phrase_min_chars:
+            return
+
+        if min_ready_at is None:
+            min_ready_at = loop.time()
+
+        delimiter_match = (
+            delimiter_pattern.search(working_string, first_phrase_min_chars)
+            if delimiter_pattern
+            else None
+        )
+        whitespace_match = whitespace_pattern.search(
+            working_string, first_phrase_min_chars
+        )
+
+        split_candidates = []
+        if delimiter_match:
+            split_candidates.append(delimiter_match.end())
+        if whitespace_match:
+            split_candidates.append(whitespace_match.end())
+
+        split_idx = min(split_candidates) if split_candidates else None
+        if split_idx is None and min_ready_at is not None:
+            if loop.time() - min_ready_at >= max_wait_seconds:
+                split_idx = len(working_string)
+
+        if split_idx is None:
+            return
+
+        raw_phrase = working_string[:split_idx]
+        phrase = raw_phrase.strip()
+        if not phrase:
+            working_string = working_string[split_idx:]
+            min_ready_at = None
+            return
+
+        if len(raw_phrase) < first_phrase_min_chars:
+            return
+
+        await phrase_queue.put(phrase)
+        chars_processed += len(phrase)
+        logger.info(f"Segment ({chars_processed} chars): '{phrase[:80]}...'")
+        working_string = working_string[split_idx:]
+        segmentation_active = False
+        first_phrase_emitted = True
+        min_ready_at = None
 
     try:
         while True:
@@ -62,6 +123,7 @@ async def process_text_chunks(
             try:
                 chunk = await asyncio.wait_for(chunk_queue.get(), timeout=0.1)
             except asyncio.TimeoutError:
+                await maybe_emit_first_phrase()
                 continue
 
             # None signals end of text
@@ -76,26 +138,9 @@ async def process_text_chunks(
             # Accumulate the chunk
             working_string += chunk
 
-            # Segment if enabled and pattern available
-            if segmentation_active and delimiter_pattern:
-                while True:
-                    match = delimiter_pattern.search(working_string)
-                    if match:
-                        end_idx = match.end()
-                        phrase = working_string[:end_idx].strip()
-                        if phrase:
-                            await phrase_queue.put(phrase)
-                            chars_processed += len(phrase)
-                            logger.info(f"Segment ({chars_processed} chars): '{phrase[:80]}...'")
-                        working_string = working_string[end_idx:]
-
-                        # Disable segmentation after character_max
-                        # if chars_processed >= character_max:
-                        #     segmentation_active = False
-                        #     logger.debug(f"Segmentation disabled after {chars_processed} chars")
-                        #     break
-                    else:
-                        break
+            # Segment only until the first phrase is emitted
+            if segmentation_active and not first_phrase_emitted:
+                await maybe_emit_first_phrase()
 
     except Exception as e:
         logger.error(f"Text segmenter error: {e}")

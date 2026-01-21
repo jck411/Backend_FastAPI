@@ -40,7 +40,11 @@ export interface KioskSettings {
     voice: string;     // OpenAI voice: alloy, echo, fable, onyx, nova, shimmer
     model: string;     // tts-1 or tts-1-hd
     speed: number;     // 0.25 to 4.0
+    response_format: string;
     sample_rate: number;
+    stream_chunk_bytes: number;
+    use_segmentation: boolean;
+    delimiters: string[];
     // UI settings
     idle_return_delay_ms: number;
     // LLM settings
@@ -66,7 +70,11 @@ export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
     voice: 'alloy',
     model: 'tts-1',
     speed: 1.0,
+    response_format: 'pcm',
     sample_rate: 24000,
+    stream_chunk_bytes: 4096,
+    use_segmentation: true,
+    delimiters: ['\n', '. ', '.', '? ', '?', '! ', '!', '* ', '*', ', ', ',', ': ', ':'],
     // UI
     idle_return_delay_ms: 10000,
     // LLM
@@ -115,7 +123,11 @@ function createKioskSettingsStore() {
                 voice: ttsSettings.voice,
                 model: ttsSettings.model,
                 speed: ttsSettings.speed,
+                response_format: ttsSettings.response_format,
                 sample_rate: ttsSettings.sample_rate,
+                stream_chunk_bytes: ttsSettings.stream_chunk_bytes,
+                use_segmentation: ttsSettings.use_segmentation,
+                delimiters: ttsSettings.delimiters,
                 // UI
                 idle_return_delay_ms: uiSettings.idle_return_delay_ms,
                 // LLM
@@ -156,7 +168,11 @@ function createKioskSettingsStore() {
             if (update.voice !== undefined) ttsUpdate.voice = update.voice;
             if (update.model !== undefined) ttsUpdate.model = update.model;
             if (update.speed !== undefined) ttsUpdate.speed = update.speed;
+            if (update.response_format !== undefined) ttsUpdate.response_format = update.response_format;
             if (update.sample_rate !== undefined) ttsUpdate.sample_rate = update.sample_rate;
+            if (update.stream_chunk_bytes !== undefined) ttsUpdate.stream_chunk_bytes = update.stream_chunk_bytes;
+            if (update.use_segmentation !== undefined) ttsUpdate.use_segmentation = update.use_segmentation;
+            if (update.delimiters !== undefined) ttsUpdate.delimiters = update.delimiters;
 
             // UI fields
             if (update.idle_return_delay_ms !== undefined) uiUpdate.idle_return_delay_ms = update.idle_return_delay_ms;
@@ -212,7 +228,11 @@ function createKioskSettingsStore() {
                 voice: ttsSettings.voice,
                 model: ttsSettings.model,
                 speed: ttsSettings.speed,
+                response_format: ttsSettings.response_format,
                 sample_rate: ttsSettings.sample_rate,
+                stream_chunk_bytes: ttsSettings.stream_chunk_bytes,
+                use_segmentation: ttsSettings.use_segmentation,
+                delimiters: ttsSettings.delimiters,
                 // UI (keep current)
                 idle_return_delay_ms: current.idle_return_delay_ms,
                 // LLM

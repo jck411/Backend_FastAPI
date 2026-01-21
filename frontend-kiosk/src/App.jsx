@@ -15,7 +15,7 @@ const TTS_MIN_CHUNK_SEC = VOICE_CONFIG.tts.minChunkSec;
 const TTS_MAX_AHEAD_SEC = VOICE_CONFIG.tts.maxAheadSec;
 const TTS_STARTUP_DELAY_SEC = VOICE_CONFIG.tts.startupDelaySec;
 // Delay before resuming mic after TTS ends to avoid capturing speaker echo/reverb
-const TTS_MIC_RESUME_DELAY_MS = 500;
+const TTS_MIC_RESUME_DELAY_MS = VOICE_CONFIG.tts.micResumeDelayMs;
 
 /**
  * Derive the UI application state from backend state and response status.
@@ -64,6 +64,8 @@ export default function App() {
     const ttsStreamEndedRef = useRef(false);
     // Track the last scheduled audio source for onended callback
     const lastScheduledSourceRef = useRef(null);
+    const ttsMicResumeTimeoutRef = useRef(null);
+    const ttsPlaybackTokenRef = useRef(0);
 
     // WebSocket connection
     const {
@@ -182,11 +184,35 @@ export default function App() {
         }
     };
 
+    const getOutputLatencyMs = (ctx) => {
+        if (!ctx) return 0;
+        const latencySeconds = typeof ctx.outputLatency === 'number'
+            ? ctx.outputLatency
+            : typeof ctx.baseLatency === 'number'
+                ? ctx.baseLatency
+                : 0;
+        if (!Number.isFinite(latencySeconds)) return 0;
+        return Math.max(0, Math.round(latencySeconds * 1000));
+    };
+
+    const clearTtsMicResumeTimeout = useCallback(() => {
+        if (ttsMicResumeTimeoutRef.current) {
+            clearTimeout(ttsMicResumeTimeoutRef.current);
+            ttsMicResumeTimeoutRef.current = null;
+        }
+    }, []);
+
+    const resumeCaptureIfListening = useCallback(() => {
+        if (backendStateRef.current === 'LISTENING') {
+            resumeCapture();
+        }
+    }, [resumeCapture]);
+
     /**
      * Set up onended callback on the last scheduled source to detect true playback completion.
      * This replaces timer-based detection for more accurate TTS completion.
      */
-    const setupTtsCompletionCallback = () => {
+    const setupTtsCompletionCallback = (playbackToken) => {
         const lastSource = lastScheduledSourceRef.current;
         if (!lastSource) {
             console.warn("No last source to attach onended callback");
@@ -194,6 +220,9 @@ export default function App() {
         }
 
         lastSource.onended = () => {
+            if (playbackToken !== ttsPlaybackTokenRef.current) {
+                return;
+            }
             console.log("🔊 Last audio source ended (onended event)");
             // Clear state
             sendMessage(JSON.stringify({ type: "tts_playback_end" }));
@@ -203,11 +232,17 @@ export default function App() {
             lastScheduledSourceRef.current = null;
 
             // Resume mic after delay to avoid capturing any speaker echo
-            setTimeout(() => {
+            clearTtsMicResumeTimeout();
+            const outputLatencyMs = getOutputLatencyMs(audioContextRef.current);
+            const resumeDelayMs = Math.max(0, TTS_MIC_RESUME_DELAY_MS + outputLatencyMs);
+            ttsMicResumeTimeoutRef.current = setTimeout(() => {
+                if (playbackToken !== ttsPlaybackTokenRef.current) {
+                    return;
+                }
                 console.log("🎤 Unlocking mic after TTS completion delay");
                 ttsMicLockedRef.current = false;
-                resumeCapture();
-            }, TTS_MIC_RESUME_DELAY_MS);
+                resumeCaptureIfListening();
+            }, resumeDelayMs);
         };
     };
 
@@ -272,6 +307,8 @@ export default function App() {
      */
     const stopAudio = useCallback(() => {
         console.log("🛑 Stopping TTS audio (barge-in)");
+        ttsPlaybackTokenRef.current += 1;
+        clearTtsMicResumeTimeout();
 
         // Stop all scheduled audio sources
         for (const source of scheduledSourcesRef.current) {
@@ -303,7 +340,7 @@ export default function App() {
             isPlayingTtsRef.current = false;
             hasStartedRef.current = false;
         }
-    }, [sendMessage]);
+    }, [clearTtsMicResumeTimeout, sendMessage]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -382,6 +419,9 @@ export default function App() {
 
                     // Pause mic capture during TTS to prevent self-transcription
                     pauseCapture();
+                    ttsPlaybackTokenRef.current += 1;
+                    clearTtsMicResumeTimeout();
+                    ttsMicLockedRef.current = true;
 
                     // Reset state for new audio stream
                     nextPlayTimeRef.current = 0;
@@ -413,7 +453,7 @@ export default function App() {
 
                         // Use onended callback on last source for accurate completion detection
                         if (lastScheduledSourceRef.current) {
-                            setupTtsCompletionCallback();
+                            setupTtsCompletionCallback(ttsPlaybackTokenRef.current);
                         } else {
                             // No audio was played (maybe TTS was empty or failed)
                             console.log("No audio was played, sending tts_playback_end immediately");
@@ -421,7 +461,7 @@ export default function App() {
                             isPlayingTtsRef.current = false;
                             hasStartedRef.current = false;
                             ttsMicLockedRef.current = false;
-                            resumeCapture();
+                            resumeCaptureIfListening();
                         }
                     }
                 } else if (data.type === 'tts_audio_end') {
@@ -432,7 +472,7 @@ export default function App() {
 
                     // Use onended callback on last source for accurate completion detection
                     if (lastScheduledSourceRef.current) {
-                        setupTtsCompletionCallback();
+                        setupTtsCompletionCallback(ttsPlaybackTokenRef.current);
                     } else {
                         // No audio was played (maybe TTS was empty or failed)
                         console.log("No audio was played, sending tts_playback_end immediately");
@@ -440,7 +480,7 @@ export default function App() {
                         isPlayingTtsRef.current = false;
                         hasStartedRef.current = false;
                         ttsMicLockedRef.current = false;
-                        resumeCapture();
+                        resumeCaptureIfListening();
                     }
                 } else if (data.type === 'tts_audio_cancelled') {
                     // TTS was cancelled on backend - clean up
@@ -511,7 +551,7 @@ export default function App() {
                 console.error("Failed to parse WS message", e);
             }
         }
-    }, [lastMessage, activeAlarm, handleSessionReady, pauseCapture, resumeCapture, releaseMic, stopAudio, updateBackendState, sendMessage]);
+    }, [lastMessage, activeAlarm, clearTtsMicResumeTimeout, handleSessionReady, pauseCapture, resumeCapture, resumeCaptureIfListening, releaseMic, stopAudio, updateBackendState, sendMessage]);
 
     // Idle Timeout Logic - Close transcription overlay after delay
     useEffect(() => {

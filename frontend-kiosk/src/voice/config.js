@@ -71,6 +71,7 @@ export const VOICE_CONFIG = {
         minChunkSec: 0.08,
         maxAheadSec: 0.8,
         startupDelaySec: 0.06,
+        micResumeDelayMs: toNumber(import.meta.env.VITE_VOICE_TTS_MIC_RESUME_DELAY_MS, 800),
     },
     ui: {
         idleReturnDelayMs: toNumber(import.meta.env.VITE_KIOSK_IDLE_RETURN_MS, 10000),

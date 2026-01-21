@@ -6,7 +6,7 @@
   "speed": 1.0,
   "response_format": "pcm",
   "sample_rate": 24000,
-  "stream_chunk_bytes": 20224,
+  "stream_chunk_bytes": 32768,
   "use_segmentation": true,
   "delimiters": [
     "\n",

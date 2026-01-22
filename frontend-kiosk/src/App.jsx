@@ -668,8 +668,9 @@ export default function App() {
         <div className="w-screen h-screen bg-black overflow-hidden relative font-sans text-white select-none">
             {/* Web Audio API is used for TTS playback - no HTML audio element needed */}
 
-            {/* Main Screen: Clock with weather and photo slideshow */}
-            <Clock />
+            {/* Main Screen: Clock with weather and photo slideshow
+                Unmounted when transcription is active to free ~24MB of preloaded photo memory */}
+            {!showTranscription && <Clock />}
 
             {/* Microphone Button - hidden when overlay is showing */}
             {!showTranscription && (

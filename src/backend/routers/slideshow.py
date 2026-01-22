@@ -14,6 +14,7 @@ router = APIRouter(prefix="/api/slideshow", tags=["slideshow"])
 
 # Photo cache directory
 PHOTOS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "data" / "slideshow" / "photos"
+UPDATE_FILE = Path(__file__).resolve().parent.parent.parent.parent / "data" / "slideshow_updated.txt"
 
 
 def _get_photos() -> list[str]:
@@ -41,7 +42,47 @@ async def list_photos(daily_seed: bool = False) -> dict:
         rng = random.Random(seed)
         rng.shuffle(photos)
     
-    return {"photos": photos, "count": len(photos)}
+    # Include last update timestamp for cache busting
+    last_updated = 0
+    if UPDATE_FILE.exists():
+        try:
+            last_updated = int(UPDATE_FILE.read_text().strip())
+        except (ValueError, IOError):
+            pass
+    
+    return {
+        "photos": photos, 
+        "count": len(photos),
+        "last_updated": last_updated
+    }
+
+
+@router.get("/status")
+async def slideshow_status() -> dict:
+    """Get slideshow cache status and update information."""
+    photos = _get_photos()
+    
+    last_updated = 0
+    if UPDATE_FILE.exists():
+        try:
+            last_updated = int(UPDATE_FILE.read_text().strip())
+        except (ValueError, IOError):
+            pass
+    
+    # Calculate total cache size
+    total_size = 0
+    if PHOTOS_DIR.exists():
+        for f in PHOTOS_DIR.iterdir():
+            if f.is_file():
+                total_size += f.stat().st_size
+    
+    return {
+        "photo_count": len(photos),
+        "cache_size_mb": round(total_size / (1024 * 1024), 1),
+        "last_updated": last_updated,
+        "cache_dir": str(PHOTOS_DIR),
+        "estimated_memory_mb": f"{len(photos) * 0.8:.0f}-{len(photos) * 1.2:.0f}"
+    }
 
 
 @router.get("/photo/{filename}")

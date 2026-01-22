@@ -109,7 +109,7 @@ else
     echo -e "  ${CYAN}3${NC} - Frontend       (Svelte chat UI on :5173)"
     echo -e "  ${CYAN}4${NC} - Frontend-Kiosk (Kiosk UI on :5174)"
     echo -e "  ${CYAN}5${NC} - Frontend-CLI   (Terminal chat client)"
-    echo -e "  ${CYAN}6${NC} - Slideshow Sync (Download photos from Google Photos)"
+    echo -e "  ${CYAN}6${NC} - Slideshow Sync (Download & preload photos from Google Photos)"
     echo -e "  ${CYAN}7${NC} - Voice PWA      (Voice UI on :5175)"
     echo ""
     echo -e "  ${CYAN}all${NC} - Start 1, 2, 3, 4, 6, and 7 (full web stack + slideshow)"
@@ -154,9 +154,9 @@ START_VOICE=false
 [[ "$selection" == *"6"* ]] && START_SLIDESHOW=true
 [[ "$selection" == *"7"* ]] && START_VOICE=true
 
-# Sync Slideshow Photos (option 6) - run first so photos are ready
+# Sync Slideshow Photos (option 6) - run first so photos are ready for preload
 if $START_SLIDESHOW; then
-    echo -e "${GREEN}[6/6] Syncing Slideshow Photos...${NC}"
+    echo -e "${GREEN}[6/6] Syncing & Preparing Slideshow Photos...${NC}"
     uv run python scripts/sync_slideshow.py
     echo ""
 fi

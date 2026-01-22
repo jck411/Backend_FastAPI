@@ -31,5 +31,29 @@ export default defineConfig({
     build: {
         outDir: '../src/backend/static',
         emptyOutDir: true,
+        // Memory optimization for local-only kiosk
+        rollupOptions: {
+            output: {
+                manualChunks: undefined, // Single bundle for faster loading & less memory
+                entryFileNames: 'assets/[name]-[hash].js',
+                chunkFileNames: 'assets/[name]-[hash].js',
+            }
+        },
+        target: 'es2020', // Modern target for smaller bundle
+        minify: 'terser',
+        terserOptions: {
+            compress: {
+                drop_console: true,    // Remove console.logs in production
+                drop_debugger: true,   // Remove debugger statements
+                pure_funcs: ['console.log', 'console.warn'], // Remove specific console calls
+                reduce_vars: true,     // Reduce variable declarations
+                dead_code: true,       // Remove unreachable code
+            },
+            mangle: {
+                reserved: ['React', 'ReactDOM'], // Keep React globals
+            }
+        },
+        // Reduce chunk size for better memory usage
+        chunkSizeWarningLimit: 500,
     },
 })

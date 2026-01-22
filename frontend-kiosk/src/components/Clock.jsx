@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDisplayTimezone } from '../context/ConfigContext';
+import { usePreloadedPhotos } from '../hooks/usePreloadedPhotos.js';
 
 /** API base URL - auto-detect protocol based on page */
 const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
@@ -170,67 +171,37 @@ export default function Clock() {
     // Pending alarms state
     const [pendingAlarms, setPendingAlarms] = useState([]);
 
-    // Slideshow state
-    const [photos, setPhotos] = useState([]);
-    const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+    // Slideshow state - using preloaded photos hook
+    const {
+        isReady: photosReady,
+        isLoading: photosLoading,
+        getCurrentPhotoData,
+        nextPhoto,
+        totalCount: photoCount,
+        loadedCount
+    } = usePreloadedPhotos();
+    
     const [isTransitioning, setIsTransitioning] = useState(false);
-    const preloadRef = useRef(null);
     const slideshowTimerRef = useRef(null);
 
     /**
      * Skip to next photo (used for tap-to-skip).
      */
     const skipToNextPhoto = useCallback(() => {
-        if (photos.length <= 1 || isTransitioning) return;
+        if (!photosReady || photoCount <= 1 || isTransitioning) return;
 
         // Clear existing timer to reset the 30s countdown
         if (slideshowTimerRef.current) {
             clearInterval(slideshowTimerRef.current);
         }
 
-        // Preload and transition to next photo
-        const nextIndex = (currentPhotoIndex + 1) % photos.length;
-        const nextPhoto = photos[nextIndex];
-        const img = new Image();
-        img.src = `${API_BASE_URL}/api/slideshow/photo/${nextPhoto}`;
-        preloadRef.current = img;
-
+        // Transition to next photo (instant since preloaded)
         setIsTransitioning(true);
         setTimeout(() => {
-            setCurrentPhotoIndex(nextIndex);
+            nextPhoto();
             setIsTransitioning(false);
         }, SLIDESHOW_TRANSITION_DURATION);
-    }, [photos, currentPhotoIndex, isTransitioning]);
-
-    /**
-     * Fetch slideshow photos from backend API.
-     * Returns a shuffled list that's consistent for the day.
-     */
-    const fetchPhotos = useCallback(async () => {
-        try {
-            const response = await fetch(
-                `${API_BASE_URL}/api/slideshow/photos?daily_seed=true`
-            );
-            if (!response.ok) {
-                console.warn('Slideshow photos not available');
-                return;
-            }
-            const data = await response.json();
-            if (data.photos && data.photos.length > 0) {
-                setPhotos(data.photos);
-                console.log(`Loaded ${data.photos.length} slideshow photos`);
-            }
-        } catch (err) {
-            console.warn('Failed to fetch slideshow photos:', err);
-        }
-    }, []);
-
-    // Fetch photos on mount and periodically refresh
-    useEffect(() => {
-        fetchPhotos();
-        const photosTimer = setInterval(fetchPhotos, SLIDESHOW_REFRESH_INTERVAL);
-        return () => clearInterval(photosTimer);
-    }, [fetchPhotos]);
+    }, [photosReady, photoCount, isTransitioning, nextPhoto]);
 
     /**
      * Fetch pending alarms from backend API.
@@ -258,24 +229,17 @@ export default function Clock() {
         return () => clearInterval(alarmsTimer);
     }, [fetchAlarms]);
 
-    // Slideshow rotation (auto-advance every 30 seconds)
+    // Slideshow rotation (auto-advance every 30 seconds) - using preloaded photos
     useEffect(() => {
-        if (photos.length <= 1) return;
+        if (!photosReady || photoCount <= 1) return;
 
         const rotatePhoto = () => {
-            // Preload next image before transition
-            const nextIndex = (currentPhotoIndex + 1) % photos.length;
-            const nextPhoto = photos[nextIndex];
-            const img = new Image();
-            img.src = `${API_BASE_URL}/api/slideshow/photo/${nextPhoto}`;
-            preloadRef.current = img;
-
-            // Start transition
+            // Start transition (photos already preloaded)
             setIsTransitioning(true);
 
-            // After transition completes, update index
+            // After transition completes, advance to next photo
             setTimeout(() => {
-                setCurrentPhotoIndex(nextIndex);
+                nextPhoto();
                 setIsTransitioning(false);
             }, SLIDESHOW_TRANSITION_DURATION);
         };
@@ -286,16 +250,10 @@ export default function Clock() {
                 clearInterval(slideshowTimerRef.current);
             }
         };
-    }, [photos, currentPhotoIndex]);
+    }, [photosReady, photoCount, nextPhoto]);
 
-    // Get photo URLs
-    const currentPhotoUrl = photos.length > 0
-        ? `${API_BASE_URL}/api/slideshow/photo/${photos[currentPhotoIndex]}`
-        : null;
-    const nextPhotoIndex = (currentPhotoIndex + 1) % Math.max(photos.length, 1);
-    const nextPhotoUrl = photos.length > 1
-        ? `${API_BASE_URL}/api/slideshow/photo/${photos[nextPhotoIndex]}`
-        : null;
+    // Get photo URLs from preloaded photos
+    const { currentUrl: currentPhotoUrl, nextUrl: nextPhotoUrl } = getCurrentPhotoData();
 
     /**
      * Fetch weather data from backend API.

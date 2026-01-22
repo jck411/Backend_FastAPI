@@ -112,7 +112,21 @@ def cleanup_old_photos(keep_count: int):
             print(f"  Removed old: {photo.name}")
 
 
+def trigger_frontend_preload():
+    """Notify frontend to preload the new photos."""
+    print("\nTriggering frontend preload...")
+    
+    # Create a timestamp file to signal frontend refresh
+    timestamp_file = CACHE_DIR.parent / "slideshow_updated.txt"
+    timestamp_file.write_text(f"{int(time.time())}\n")
+    
+    print("✅ Frontend will preload photos on next load")
+    print("📱 Restart kiosk frontend or navigate to force preload")
+
+
 def main():
+    import time
+    
     print("=" * 50)
     print("Google Photos Shared Album Sync")
     print("=" * 50)
@@ -145,6 +159,15 @@ def main():
     # Count total
     total = len(list(CACHE_DIR.glob("*.jpg")))
     print(f"\n✅ Sync complete! {total} photos in cache.")
+    
+    # Signal frontend to preload
+    trigger_frontend_preload()
+    
+    # Memory optimization tip
+    print(f"\n💾 Memory Impact:")
+    print(f"   Photos cached: {total}")
+    print(f"   Estimated memory when preloaded: ~{total * 0.8:.0f}-{total * 1.2:.0f}MB")
+    print(f"   Trade-off: Predictable memory usage for smooth slideshow")
 
 
 if __name__ == "__main__":

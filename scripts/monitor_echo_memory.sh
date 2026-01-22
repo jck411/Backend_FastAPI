@@ -18,11 +18,11 @@ echo ""
 counter=1
 while true; do
     timestamp=$(date '+%H:%M:%S')
-    
+
     # Get memory info
     free_mem=$(adb shell cat /proc/meminfo | grep MemFree | awk '{print $2}')
     free_mb=$((free_mem / 1024))
-    
+
     # Get WebView memory
     webview_rss=$(adb shell "ps -eo rss,comm | grep -E '(webview|chromium|chrome|browser|kiosk)' | awk '{sum += \$1} END {print sum}'" 2>/dev/null)
     if [[ ! -z "$webview_rss" && "$webview_rss" != "0" ]]; then
@@ -30,7 +30,7 @@ while true; do
     else
         webview_mb="N/A"
     fi
-    
+
     # Status indicator
     if [[ $free_mb -lt 100 ]]; then
         status="🔴 LOW"
@@ -39,9 +39,9 @@ while true; do
     else
         status="🟢 OK"
     fi
-    
+
     echo "[$timestamp] #$counter | Free: ${free_mb}MB | WebView: ${webview_mb}MB | Status: $status"
-    
+
     counter=$((counter + 1))
     sleep 10
 done

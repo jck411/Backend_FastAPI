@@ -106,7 +106,9 @@ async def get_photo(filename: str) -> FileResponse:
 
     # Get file stats for ETag
     file_stat = photo_path.stat()
-    etag = hashlib.md5(f"{filename}-{file_stat.st_mtime}-{file_stat.st_size}".encode()).hexdigest()
+    etag = hashlib.md5(
+        f"{filename}-{file_stat.st_mtime}-{file_stat.st_size}".encode()
+    ).hexdigest()
 
     return FileResponse(
         photo_path,

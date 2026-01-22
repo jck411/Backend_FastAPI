@@ -137,7 +137,7 @@ export function usePreloadedPhotos() {
         if (photoList.length > 0) {
             // Simple check: only reload if photo list actually changed
             const photosChanged = JSON.stringify(photoList.sort()) !== JSON.stringify(photos.sort());
-            
+
             if (photosChanged || preloadedImages.size === 0) {
                 console.log(`📸 ${photosChanged ? 'Photo list changed' : 'Cache empty'}, preloading ${photoList.length} photos...`);
                 setPhotos(photoList);
@@ -155,7 +155,7 @@ export function usePreloadedPhotos() {
             console.log('⏰ Hourly photo refresh triggered');
             refreshPhotos();
         }, 60 * 60 * 1000); // 1 hour
-        
+
         return () => clearInterval(refreshInterval);
     }, [refreshPhotos]);
 

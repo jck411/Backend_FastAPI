@@ -23,7 +23,7 @@ adb shell 'pm clear de.ozerov.fully' 2>/dev/null && echo "Warning: This will res
 echo "Setting optimized cache limits..."
 
 # Set WebView cache optimized for preloaded slideshow
-adb shell 'setprop webview.chromium.cache_size 15728640'   # 15MB general cache  
+adb shell 'setprop webview.chromium.cache_size 15728640'   # 15MB general cache
 adb shell 'setprop webview.chromium.disk_cache_size 10485760' # 10MB disk cache
 adb shell 'setprop webview.chromium.image_cache_size 83886080' # 80MB for preloaded photos
 echo "Cache optimized for preloaded slideshow:"
@@ -54,6 +54,6 @@ adb shell dumpsys meminfo | grep -E "(webview|fully)" | head -5
 echo
 echo "=== Cache Settings Applied ==="
 echo "WebView cache size reduced to 10MB"
-echo "Disk cache reduced to 5MB" 
+echo "Disk cache reduced to 5MB"
 echo "Debug features disabled"
 echo "Memory should be lower after cache rebuilds"

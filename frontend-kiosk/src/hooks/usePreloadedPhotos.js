@@ -1,6 +1,6 @@
 /**
  * Optimized Photo Preloader Hook - Loads all photos once for smooth slideshow
- * 
+ *
  * This replaces the on-demand loading with bulk preloading to:
  * - Eliminate jittery loading during transitions
  * - Reduce memory fragmentation from repeated load/unload cycles
@@ -8,7 +8,7 @@
  * - Provide predictable memory usage
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
 
@@ -52,17 +52,17 @@ export function usePreloadedPhotos() {
         const promise = new Promise((resolve, reject) => {
             const img = new Image();
             const url = `${API_BASE_URL}/api/slideshow/photo/${filename}`;
-            
+
             img.onload = () => {
                 console.log(`Preloaded: ${filename} (${Math.round(img.naturalWidth)}x${img.naturalHeight})`);
                 resolve({ filename, img, url });
             };
-            
+
             img.onerror = (err) => {
                 console.warn(`Failed to preload: ${filename}`, err);
                 reject(err);
             };
-            
+
             img.src = url;
         });
 
@@ -75,57 +75,87 @@ export function usePreloadedPhotos() {
      */
     const preloadAllPhotos = useCallback(async (photoList) => {
         if (photoList.length === 0) return;
-        
+
         setIsLoading(true);
         const imageMap = new Map();
-        
-        console.log(`Preloading ${photoList.length} photos for smooth slideshow...`);
-        
-        // Load photos in batches to avoid overwhelming browser
-        const batchSize = 5;
+        let loadedCount = 0;
+
+        console.log(`🖼️  Starting slideshow preload: ${photoList.length} photos to download`);
+        console.log(`📦 Loading in batches of 5 to avoid browser overwhelm...`);
+
+        // Load photos in batches to avoid overwhelming browser (smaller batches for more frequent progress updates)
+        const batchSize = 2;
+        const totalBatches = Math.ceil(photoList.length / batchSize);
+
         for (let i = 0; i < photoList.length; i += batchSize) {
             const batch = photoList.slice(i, i + batchSize);
             const batchPromises = batch.map(filename => preloadPhoto(filename));
-            
+            const currentBatch = Math.floor(i / batchSize) + 1;
+
+            console.log(`⬇️  Batch ${currentBatch}/${totalBatches}: downloading ${batch.length} photos...`);
+
             try {
                 const results = await Promise.allSettled(batchPromises);
                 results.forEach((result, index) => {
                     if (result.status === 'fulfilled') {
                         const { filename, img, url } = result.value;
                         imageMap.set(filename, { img, url });
+                        loadedCount++;
+
+                        // Update state immediately for real-time progress bar
+                        setPreloadedImages(new Map(imageMap));
+
+                        // Show countdown progress for each photo
+                        const remaining = photoList.length - loadedCount;
+                        console.log(`✅ ${filename} loaded (${loadedCount}/${photoList.length}) - ${remaining} remaining`);
                     } else {
-                        console.warn(`Failed to load photo in batch: ${batch[index]}`);
+                        console.warn(`❌ Failed to load: ${batch[index]}`);
                     }
                 });
-                
-                console.log(`Loaded batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(photoList.length/batchSize)}`);
+
+                console.log(`📊 Batch ${currentBatch} complete: ${loadedCount}/${photoList.length} total photos loaded`);
             } catch (err) {
                 console.warn('Error in batch loading:', err);
             }
         }
-        
+
         setPreloadedImages(imageMap);
         setIsLoading(false);
-        
-        console.log(`Slideshow ready: ${imageMap.size}/${photoList.length} photos loaded`);
-        console.log(`Estimated memory usage: ${Math.round(imageMap.size * 0.8)}MB`); // ~800KB average per photo
+
+        const successRate = Math.round((imageMap.size / photoList.length) * 100);
+        console.log(`🎉 Slideshow preload complete!`);
+        console.log(`📈 Success rate: ${imageMap.size}/${photoList.length} photos (${successRate}%)`);
+        console.log(`💾 Estimated memory usage: ${Math.round(imageMap.size * 0.8)}MB`); // ~800KB average per photo
+        console.log(`🚀 Slideshow ready for smooth 30-second transitions!`);
     }, [preloadPhoto]);
 
     /**
-     * Initialize and refresh photos
+     * Initialize and refresh photos (simple approach)
      */
     const refreshPhotos = useCallback(async () => {
         const photoList = await fetchPhotoList();
-        if (photoList.length > 0 && JSON.stringify(photoList) !== JSON.stringify(photos)) {
-            setPhotos(photoList);
-            await preloadAllPhotos(photoList);
+        if (photoList.length > 0) {
+            // Simple check: only reload if photo list actually changed
+            const photosChanged = JSON.stringify(photoList.sort()) !== JSON.stringify(photos.sort());
+            
+            if (photosChanged || preloadedImages.size === 0) {
+                console.log(`📸 ${photosChanged ? 'Photo list changed' : 'Cache empty'}, preloading ${photoList.length} photos...`);
+                setPhotos(photoList);
+                await preloadAllPhotos(photoList);
+            } else {
+                console.log('📋 Photo list unchanged, keeping existing preloaded images');
+            }
         }
-    }, [fetchPhotoList, preloadAllPhotos, photos]);
+    }, [fetchPhotoList, preloadAllPhotos, photos, preloadedImages.size]);
 
-    // Load photos on mount and refresh hourly
+    // Load photos on mount and refresh hourly (simplified caching)
     useEffect(() => {
         refreshPhotos();
-        const refreshInterval = setInterval(refreshPhotos, 60 * 60 * 1000); // 1 hour
+        const refreshInterval = setInterval(() => {
+            console.log('⏰ Hourly photo refresh triggered');
+            refreshPhotos();
+        }, 60 * 60 * 1000); // 1 hour
+        
         return () => clearInterval(refreshInterval);
     }, [refreshPhotos]);
 

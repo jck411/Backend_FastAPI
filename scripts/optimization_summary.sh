@@ -38,7 +38,7 @@ echo "  4. Photos stay cached until next manual sync"
 echo
 echo "🎯 EXPECTED TOTAL MEMORY SAVINGS:"
 echo "  WebView cache optimization:     20-30MB"
-echo "  Unused feature removal:        8-15MB" 
+echo "  Unused feature removal:        8-15MB"
 echo "  Slideshow becomes predictable: +35MB (eliminates fragmentation)"
 echo "  NET IMPACT: Memory becomes predictable and jitter-free"
 

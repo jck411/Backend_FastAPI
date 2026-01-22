@@ -48,7 +48,7 @@ adb shell 'settings put system haptic_feedback_enabled 0'
 # Disable key sounds (saves ~1MB)
 adb shell 'settings put system sound_effects_enabled 0'
 
-# Disable screen lock sounds  
+# Disable screen lock sounds
 adb shell 'settings put system lockscreen_sounds_enabled 0'
 
 # Disable animation scales to reduce memory (cosmetic)
@@ -64,7 +64,7 @@ adb shell free -h
 echo
 echo "=== Features Disabled ==="
 echo "✓ NFC disabled"
-echo "✓ Bluetooth disabled" 
+echo "✓ Bluetooth disabled"
 echo "✓ Camera background processing stopped"
 echo "✓ Sensor background processing disabled"
 echo "✓ Haptic feedback disabled"

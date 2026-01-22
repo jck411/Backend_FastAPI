@@ -178,30 +178,62 @@ export default function Clock() {
         getCurrentPhotoData,
         nextPhoto,
         totalCount: photoCount,
-        loadedCount
+        loadedCount,
+        currentPhotoIndex
     } = usePreloadedPhotos();
-    
-    const [isTransitioning, setIsTransitioning] = useState(false);
+
     const slideshowTimerRef = useRef(null);
+
+    // Track previous photo URL for crossfade (store the URL that was showing before the transition)
+    const [displayedUrl, setDisplayedUrl] = useState(null);
+    const [fadingOutUrl, setFadingOutUrl] = useState(null);
+    const [isFading, setIsFading] = useState(false);
+
+    /**
+     * Handle photo transitions with proper crossfade.
+     * When index changes, the old photo fades out while new one is revealed underneath.
+     */
+    const triggerTransition = useCallback(() => {
+        const { currentUrl } = getCurrentPhotoData();
+        if (!currentUrl || currentUrl === displayedUrl) return;
+
+        // Start fade: old photo fades out, new one underneath
+        setFadingOutUrl(displayedUrl);
+        setDisplayedUrl(currentUrl);
+        setIsFading(true);
+
+        // After transition completes, clear the fading layer
+        setTimeout(() => {
+            setIsFading(false);
+            setFadingOutUrl(null);
+        }, SLIDESHOW_TRANSITION_DURATION);
+    }, [getCurrentPhotoData, displayedUrl]);
+
+    // Trigger transition when photo index changes or photos first load
+    useEffect(() => {
+        triggerTransition();
+    }, [currentPhotoIndex, photosReady, triggerTransition]);
 
     /**
      * Skip to next photo (used for tap-to-skip).
+     * Resets the 30-second timer so the next auto-advance happens 30s after tap.
      */
     const skipToNextPhoto = useCallback(() => {
-        if (!photosReady || photoCount <= 1 || isTransitioning) return;
+        if (!photosReady || photoCount <= 1) return;
 
-        // Clear existing timer to reset the 30s countdown
+        // Clear existing timer
         if (slideshowTimerRef.current) {
             clearInterval(slideshowTimerRef.current);
         }
 
-        // Transition to next photo (instant since preloaded)
-        setIsTransitioning(true);
-        setTimeout(() => {
+        // Advance to next photo
+        nextPhoto();
+
+        // Restart timer for next auto-advance in 30s
+        slideshowTimerRef.current = setInterval(() => {
             nextPhoto();
-            setIsTransitioning(false);
-        }, SLIDESHOW_TRANSITION_DURATION);
-    }, [photosReady, photoCount, isTransitioning, nextPhoto]);
+        }, SLIDESHOW_INTERVAL);
+    }, [photosReady, photoCount, nextPhoto]);
 
     /**
      * Fetch pending alarms from backend API.
@@ -233,27 +265,17 @@ export default function Clock() {
     useEffect(() => {
         if (!photosReady || photoCount <= 1) return;
 
-        const rotatePhoto = () => {
-            // Start transition (photos already preloaded)
-            setIsTransitioning(true);
+        // Simple interval - just advance the index, CSS handles transition
+        slideshowTimerRef.current = setInterval(() => {
+            nextPhoto();
+        }, SLIDESHOW_INTERVAL);
 
-            // After transition completes, advance to next photo
-            setTimeout(() => {
-                nextPhoto();
-                setIsTransitioning(false);
-            }, SLIDESHOW_TRANSITION_DURATION);
-        };
-
-        slideshowTimerRef.current = setInterval(rotatePhoto, SLIDESHOW_INTERVAL);
         return () => {
             if (slideshowTimerRef.current) {
                 clearInterval(slideshowTimerRef.current);
             }
         };
     }, [photosReady, photoCount, nextPhoto]);
-
-    // Get photo URLs from preloaded photos
-    const { currentUrl: currentPhotoUrl, nextUrl: nextPhotoUrl } = getCurrentPhotoData();
 
     /**
      * Fetch weather data from backend API.
@@ -480,24 +502,53 @@ export default function Clock() {
                         </div>
                     </div>
                 </div>
-            ) : photos.length > 0 ? (
+            ) : photosLoading ? (
+                /* Photo Loading Screen - Show download progress */
+                <div className="absolute inset-0 bg-black flex flex-col items-center justify-center text-white">
+                    <div className="text-center space-y-4">
+                        {/* Loading icon */}
+                        <div className="w-16 h-16 mx-auto mb-4">
+                            <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
+                        </div>
+
+                        {/* Progress text */}
+                        <div className="text-2xl font-semibold">Loading Photos...</div>
+                        <div className="text-lg text-white/70">
+                            {loadedCount}/{photoCount} photos downloaded
+                        </div>
+
+                        {/* Progress bar */}
+                        {photoCount > 0 && (
+                            <div className="w-80 h-3 bg-white/20 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-white transition-all duration-300 ease-out"
+                                    style={{ width: `${(loadedCount / photoCount) * 100}%` }}
+                                ></div>
+                            </div>
+                        )}
+
+                        <div className="text-sm text-white/50 mt-4">
+                            Please wait while photos load into memory...
+                        </div>
+                    </div>
+                </div>
+            ) : photoCount > 0 ? (
+                /* Two-layer crossfade: new photo underneath, old photo fades out on top */
                 <>
-                    {/* Current photo */}
-                    <div
-                        className="absolute inset-0 bg-cover bg-center transition-opacity"
-                        style={{
-                            backgroundImage: `url(${currentPhotoUrl})`,
-                            opacity: isTransitioning ? 0 : 1,
-                            transitionDuration: `${SLIDESHOW_TRANSITION_DURATION}ms`,
-                        }}
-                    />
-                    {/* Next photo (fades in during transition) */}
-                    {nextPhotoUrl && (
+                    {/* Current photo (always visible underneath) */}
+                    {displayedUrl && (
                         <div
-                            className="absolute inset-0 bg-cover bg-center transition-opacity"
+                            className="absolute inset-0 bg-cover bg-center"
+                            style={{ backgroundImage: `url(${displayedUrl})` }}
+                        />
+                    )}
+                    {/* Fading out photo (on top, fades to transparent) */}
+                    {fadingOutUrl && (
+                        <div
+                            className="absolute inset-0 bg-cover bg-center transition-opacity ease-in-out"
                             style={{
-                                backgroundImage: `url(${nextPhotoUrl})`,
-                                opacity: isTransitioning ? 1 : 0,
+                                backgroundImage: `url(${fadingOutUrl})`,
+                                opacity: isFading ? 0 : 1,
                                 transitionDuration: `${SLIDESHOW_TRANSITION_DURATION}ms`,
                             }}
                         />

@@ -49,6 +49,8 @@ export interface KioskSettings {
     first_phrase_min_chars: number;
     // Buffer settings for audio playback
     buffering_enabled: boolean;
+    startup_delay_enabled: boolean;
+    low_latency_audio: boolean;
     initial_buffer_sec: number;
     max_ahead_sec: number;
     min_chunk_sec: number;
@@ -87,6 +89,8 @@ export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
     first_phrase_min_chars: 60,
     // Buffer settings
     buffering_enabled: true,
+    startup_delay_enabled: true,
+    low_latency_audio: false,
     initial_buffer_sec: 0.3,
     max_ahead_sec: 1.5,
     min_chunk_sec: 0.1,
@@ -147,6 +151,8 @@ function createKioskSettingsStore() {
                 segmentation_logging_enabled: ttsSettings.segmentation_logging_enabled,
                 first_phrase_min_chars: ttsSettings.first_phrase_min_chars,
                 buffering_enabled: ttsSettings.buffering_enabled,
+                startup_delay_enabled: ttsSettings.startup_delay_enabled,
+                low_latency_audio: ttsSettings.low_latency_audio,
                 initial_buffer_sec: ttsSettings.initial_buffer_sec,
                 max_ahead_sec: ttsSettings.max_ahead_sec,
                 min_chunk_sec: ttsSettings.min_chunk_sec,
@@ -204,9 +210,14 @@ function createKioskSettingsStore() {
             }
             if (update.buffering_enabled !== undefined) {
                 ttsUpdate.buffering_enabled = update.buffering_enabled;
-            } if (update.buffering_enabled !== undefined) {
-                ttsUpdate.buffering_enabled = update.buffering_enabled;
-            } if (update.initial_buffer_sec !== undefined) {
+            }
+            if (update.startup_delay_enabled !== undefined) {
+                ttsUpdate.startup_delay_enabled = update.startup_delay_enabled;
+            }
+            if (update.low_latency_audio !== undefined) {
+                ttsUpdate.low_latency_audio = update.low_latency_audio;
+            }
+            if (update.initial_buffer_sec !== undefined) {
                 ttsUpdate.initial_buffer_sec = update.initial_buffer_sec;
             }
             if (update.max_ahead_sec !== undefined) {
@@ -279,6 +290,8 @@ function createKioskSettingsStore() {
                 segmentation_logging_enabled: ttsSettings.segmentation_logging_enabled,
                 first_phrase_min_chars: ttsSettings.first_phrase_min_chars,
                 buffering_enabled: ttsSettings.buffering_enabled,
+                startup_delay_enabled: ttsSettings.startup_delay_enabled,
+                low_latency_audio: ttsSettings.low_latency_audio,
                 initial_buffer_sec: ttsSettings.initial_buffer_sec,
                 max_ahead_sec: ttsSettings.max_ahead_sec,
                 min_chunk_sec: ttsSettings.min_chunk_sec,

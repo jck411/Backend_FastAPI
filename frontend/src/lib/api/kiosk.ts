@@ -81,6 +81,8 @@ export interface KioskTtsSettings {
     first_phrase_min_chars: number;
     // Buffer settings for audio playback
     buffering_enabled: boolean;
+    startup_delay_enabled: boolean;
+    low_latency_audio: boolean;
     initial_buffer_sec: number;
     max_ahead_sec: number;
     min_chunk_sec: number;
@@ -101,6 +103,8 @@ export interface KioskTtsSettingsUpdate {
     first_phrase_min_chars?: number;
     // Buffer settings for audio playback
     buffering_enabled?: boolean;
+    startup_delay_enabled?: boolean;
+    low_latency_audio?: boolean;
     initial_buffer_sec?: number;
     max_ahead_sec?: number;
     min_chunk_sec?: number;

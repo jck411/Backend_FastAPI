@@ -188,6 +188,14 @@ class TtsSettings(BaseModel):
         default=True,
         description="Enable audio buffering for smoother playback. Disable for lowest latency on fast devices.",
     )
+    startup_delay_enabled: bool = Field(
+        default=True,
+        description="Add 60ms startup delay before first audio. Disable for instant playback on fast devices.",
+    )
+    low_latency_audio: bool = Field(
+        default=False,
+        description="Use low-latency audio mode (interactive). May cause stuttering on slow devices.",
+    )
     initial_buffer_sec: float = Field(
         default=0.3,
         ge=0.0,
@@ -228,6 +236,8 @@ class TtsSettingsUpdate(BaseModel):
     )
     segmentation_logging_enabled: Optional[bool] = None
     buffering_enabled: Optional[bool] = None
+    startup_delay_enabled: Optional[bool] = None
+    low_latency_audio: Optional[bool] = None
     initial_buffer_sec: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     max_ahead_sec: Optional[float] = Field(default=None, ge=0.3, le=5.0)
     min_chunk_sec: Optional[float] = Field(default=None, ge=0.02, le=0.5)

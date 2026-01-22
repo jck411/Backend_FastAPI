@@ -55,6 +55,8 @@ export default function App() {
     const ttsSampleRateRef = useRef(VOICE_CONFIG.tts.defaultSampleRate);
     // Dynamic buffer settings (updated from backend via tts_audio_start message)
     const ttsBufferingEnabledRef = useRef(true);
+    const ttsStartupDelayEnabledRef = useRef(true);
+    const ttsLowLatencyAudioRef = useRef(false);
     const ttsInitialBufferSecRef = useRef(VOICE_CONFIG.tts.initialBufferSec);
     const ttsMaxAheadSecRef = useRef(VOICE_CONFIG.tts.maxAheadSec);
     const ttsMinChunkSecRef = useRef(VOICE_CONFIG.tts.minChunkSec);
@@ -105,11 +107,12 @@ export default function App() {
      */
     const getAudioContext = () => {
         if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+            const latencyHint = ttsLowLatencyAudioRef.current ? 'interactive' : 'playback';
             audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({
                 sampleRate: ttsSampleRateRef.current,
-                latencyHint: 'playback'  // Prioritize smooth playback over low latency
+                latencyHint: latencyHint
             });
-            console.log(`Created AudioContext with sample rate: ${ttsSampleRateRef.current}, latencyHint: playback`);
+            console.log(`Created AudioContext with sample rate: ${ttsSampleRateRef.current}, latencyHint: ${latencyHint}`);
         }
         // Resume if suspended (required after user interaction in some browsers)
         if (audioContextRef.current.state === 'suspended') {
@@ -166,7 +169,8 @@ export default function App() {
         source.connect(ctx.destination);
 
         const currentTime = ctx.currentTime;
-        const startupDelay = hasStartedRef.current ? 0 : TTS_STARTUP_DELAY_SEC;
+        // Use startup delay only if enabled and this is the first chunk
+        const startupDelay = (hasStartedRef.current || !ttsStartupDelayEnabledRef.current) ? 0 : TTS_STARTUP_DELAY_SEC;
         const startTime = Math.max(nextPlayTimeRef.current, currentTime + startupDelay);
 
         source.start(startTime);
@@ -445,6 +449,12 @@ export default function App() {
                     if (data.buffering_enabled !== undefined) {
                         ttsBufferingEnabledRef.current = data.buffering_enabled;
                     }
+                    if (data.startup_delay_enabled !== undefined) {
+                        ttsStartupDelayEnabledRef.current = data.startup_delay_enabled;
+                    }
+                    if (data.low_latency_audio !== undefined) {
+                        ttsLowLatencyAudioRef.current = data.low_latency_audio;
+                    }
                     if (data.initial_buffer_sec !== undefined) {
                         ttsInitialBufferSecRef.current = data.initial_buffer_sec;
                     }
@@ -455,7 +465,7 @@ export default function App() {
                         ttsMinChunkSecRef.current = data.min_chunk_sec;
                     }
 
-                    // Close existing context if sample rate changed
+                    // Close existing context if sample rate or latency mode changed
                     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
                         audioContextRef.current.close();
                         audioContextRef.current = null;

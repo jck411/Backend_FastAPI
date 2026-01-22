@@ -1156,6 +1156,70 @@
               </div>
             </div>
 
+            <!-- Startup Delay Toggle -->
+            <div class="reasoning-field">
+              <div class="setting-toggle">
+                <label class="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={!draft.startup_delay_enabled}
+                    disabled={saving}
+                    on:change={(e) => {
+                      draft = {
+                        ...draft,
+                        startup_delay_enabled: !(e.target as HTMLInputElement)
+                          .checked,
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <span class="toggle-slider"></span>
+                </label>
+                <span
+                  class="setting-label"
+                  title="Skip 60ms startup delay before first audio. Faster but may cause glitches on slow devices."
+                  >Skip Startup Delay</span
+                >
+                <span class="toggle-value"
+                  >{draft.startup_delay_enabled
+                    ? "Off (60ms delay)"
+                    : "On (instant start)"}</span
+                >
+              </div>
+            </div>
+
+            <!-- Low Latency Audio Toggle -->
+            <div class="reasoning-field">
+              <div class="setting-toggle">
+                <label class="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={draft.low_latency_audio}
+                    disabled={saving}
+                    on:change={(e) => {
+                      draft = {
+                        ...draft,
+                        low_latency_audio: (e.target as HTMLInputElement)
+                          .checked,
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <span class="toggle-slider"></span>
+                </label>
+                <span
+                  class="setting-label"
+                  title="Use low-latency audio mode (interactive). Faster response but may cause stuttering on slow devices."
+                  >Low Latency Audio</span
+                >
+                <span class="toggle-value"
+                  >{draft.low_latency_audio
+                    ? "On (interactive)"
+                    : "Off (smooth playback)"}</span
+                >
+              </div>
+            </div>
+
             <!-- Initial Buffer Slider (only shown when buffering enabled) -->
             {#if draft.buffering_enabled}
               <div class="reasoning-field">

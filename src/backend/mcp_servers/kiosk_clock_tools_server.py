@@ -20,7 +20,8 @@ from backend.services.time_context import (
 DEFAULT_HTTP_PORT = 9012
 
 # Backend API URL (configurable via env)
-BACKEND_API_URL = os.environ.get("BACKEND_API_URL", "http://127.0.0.1:8000")
+# Default to HTTPS since backend uses SSL in production
+BACKEND_API_URL = os.environ.get("BACKEND_API_URL", "https://127.0.0.1:8000")
 
 mcp = FastMCP("kiosk-clock-tools")
 
@@ -144,7 +145,7 @@ async def set_alarm(
 
     # Call the backend API to create the alarm
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.post(
                 f"{BACKEND_API_URL}/api/alarms",
                 json={
@@ -194,9 +195,13 @@ async def set_alarm(
             "error": "Request to backend timed out.",
         }
     except Exception as exc:
+        import traceback
+
+        error_msg = str(exc) or type(exc).__name__
         return {
             "success": False,
-            "error": f"Unexpected error: {exc}",
+            "error": f"Unexpected error: {error_msg}",
+            "traceback": traceback.format_exc(),
         }
 
 
@@ -207,7 +212,7 @@ async def set_alarm(
 async def list_alarms() -> dict[str, Any]:
     """List all pending alarms."""
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.get(f"{BACKEND_API_URL}/api/alarms")
 
             if response.status_code == 200:
@@ -257,7 +262,7 @@ async def cancel_alarm(alarm_id: str) -> dict[str, Any]:
         Confirmation of cancellation or error.
     """
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=False) as client:
             response = await client.delete(f"{BACKEND_API_URL}/api/alarms/{alarm_id}")
 
             if response.status_code == 200:

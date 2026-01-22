@@ -33,7 +33,7 @@
     {
       "client_enabled": {
         "cli": true,
-        "kiosk": true,
+        "kiosk": false,
         "svelte": true
       },
       "contexts": [],
@@ -168,7 +168,7 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "http_port": 9012,
       "id": "kiosk-clock-tools",

@@ -130,17 +130,17 @@ return (
     <div>
         {/* Clock unmounts during alarm OR transcription */}
         {!showTranscription && !activeAlarm && <Clock />}
-        
+
         {/* Mic button also hidden during alarms */}
         {!showTranscription && !activeAlarm && (
             <MicButton ... />
         )}
-        
+
         {/* Transcription overlay */}
         {showTranscription && <TranscriptionOverlay ... />}
-        
+
         {/* Alarm overlay - separate from Clock */}
-        <AlarmOverlay 
+        <AlarmOverlay
             alarm={activeAlarm}
             onDismiss={(id) => {
                 // Send acknowledge to backend
@@ -153,7 +153,7 @@ return (
             onSnooze={(id, minutes) => {
                 // Send snooze to backend
                 sendMessage(JSON.stringify({
-                    type: "alarm_snooze", 
+                    type: "alarm_snooze",
                     alarm_id: id,
                     snooze_minutes: minutes
                 }));
@@ -177,7 +177,7 @@ return (
 ```jsx
 export default function AlarmOverlay({ alarm, onDismiss, onSnooze }) {
     if (!alarm) return null;
-    
+
     try {
         return (
             <div className="fixed inset-0 z-[100] bg-gradient-to-br from-gray-900 to-black">
@@ -425,5 +425,5 @@ Everything else is optional (audio, fancy animations, etc). But Clock unmounting
 
 ---
 
-**Last Updated**: January 22, 2026  
+**Last Updated**: January 22, 2026
 **Status**: Ready for reimplementation after git reset

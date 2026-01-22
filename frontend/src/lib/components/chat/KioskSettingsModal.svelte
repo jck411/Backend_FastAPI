@@ -1000,7 +1000,7 @@
 
               <label
                 class="setting-boolean"
-                title="Log when segmentation waits for delimiters longer than expected."
+                title="Log when segmentation is waiting for a delimiter after the minimum is reached."
                 class:disabled-field={!draft.use_segmentation}
                 style="grid-column: 1 / -1;"
               >

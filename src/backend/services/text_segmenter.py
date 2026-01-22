@@ -35,10 +35,9 @@ async def process_text_chunks(
     Process text chunks and segment them into phrases for TTS.
 
     Accumulates text chunks from chunk_queue and emits the first phrase
-    once a delimiter or whitespace occurs and the minimum character threshold
-    is met. If no boundary appears shortly after the minimum, it emits what is
-    available to minimize latency. The remaining text is sent as a single
-    final chunk to keep the pipeline at most two phrases.
+    once a delimiter occurs after the minimum character threshold is met.
+    The remaining text is sent as a single final chunk to keep the pipeline
+    at most two phrases.
 
     Args:
         chunk_queue: Queue receiving text chunks from LLM
@@ -47,83 +46,43 @@ async def process_text_chunks(
         use_segmentation: Whether to enable segmentation
         first_phrase_min_chars: Minimum characters before emitting the first segmented phrase
         stop_event: Optional event to signal early stop
-        log_enabled: Whether to log when the fallback timer forces an emit
+        log_enabled: Whether to log when waiting for a delimiter after reaching the minimum
     """
     working_string = ""
-    chars_processed = 0
-    segmentation_active = use_segmentation
-    first_phrase_emitted = not use_segmentation
-    min_ready_at: Optional[float] = None
-
     delimiter_pattern = compile_delimiter_pattern(delimiters) if use_segmentation else None
-    whitespace_pattern = re.compile(r"\s+")
-    loop = asyncio.get_running_loop()
-    max_wait_seconds = 0.25
+    segmentation_active = use_segmentation and delimiter_pattern is not None
+    waiting_logged = False
 
     async def maybe_emit_first_phrase() -> None:
-        nonlocal working_string, segmentation_active, first_phrase_emitted, chars_processed, min_ready_at
+        nonlocal working_string, segmentation_active, waiting_logged
 
-        if not segmentation_active or first_phrase_emitted:
+        if not segmentation_active:
             return
         if not working_string:
             return
         if len(working_string) < first_phrase_min_chars:
             return
 
-        if min_ready_at is None:
-            min_ready_at = loop.time()
-
-        delimiter_match = (
-            delimiter_pattern.search(working_string, first_phrase_min_chars)
-            if delimiter_pattern
-            else None
-        )
-        whitespace_match = whitespace_pattern.search(
-            working_string, first_phrase_min_chars
-        )
-
-        split_candidates = []
-        if delimiter_match:
-            split_candidates.append(delimiter_match.end())
-        if whitespace_match:
-            split_candidates.append(whitespace_match.end())
-
-        split_idx = min(split_candidates) if split_candidates else None
-        fallback_due_to_timer = False
-        elapsed_since_ready: Optional[float] = None
-        if split_idx is None and min_ready_at is not None:
-            elapsed_since_ready = loop.time() - min_ready_at
-            if elapsed_since_ready >= max_wait_seconds:
-                split_idx = len(working_string)
-                fallback_due_to_timer = True
-
-        if split_idx is None:
+        delimiter_match = delimiter_pattern.search(working_string, first_phrase_min_chars)
+        if not delimiter_match:
+            if log_enabled and not waiting_logged:
+                logger.info(
+                    "Text segmenter: minimum reached, waiting for delimiter to emit first phrase"
+                )
+                waiting_logged = True
             return
 
-        raw_phrase = working_string[:split_idx]
-        phrase = raw_phrase.strip()
+        split_idx = delimiter_match.end()
+        phrase = working_string[:split_idx].strip()
         if not phrase:
             working_string = working_string[split_idx:]
-            min_ready_at = None
             return
-
-        if len(raw_phrase) < first_phrase_min_chars:
-            return
-
-        if log_enabled and fallback_due_to_timer and elapsed_since_ready is not None:
-            logger.info(
-                "Text segmenter fallback after %.3fs without a delimiter; emitting %d chars",
-                elapsed_since_ready,
-                len(phrase),
-            )
 
         await phrase_queue.put(phrase)
-        chars_processed += len(phrase)
-        logger.info(f"Segment ({chars_processed} chars): '{phrase[:80]}...'")
+        logger.info(f"Segment ({len(phrase)} chars): '{phrase[:80]}...'")
         working_string = working_string[split_idx:]
         segmentation_active = False
-        first_phrase_emitted = True
-        min_ready_at = None
+        waiting_logged = False
 
     try:
         while True:
@@ -136,7 +95,6 @@ async def process_text_chunks(
             try:
                 chunk = await asyncio.wait_for(chunk_queue.get(), timeout=0.1)
             except asyncio.TimeoutError:
-                await maybe_emit_first_phrase()
                 continue
 
             # None signals end of text
@@ -152,7 +110,7 @@ async def process_text_chunks(
             working_string += chunk
 
             # Segment only until the first phrase is emitted
-            if segmentation_active and not first_phrase_emitted:
+            if segmentation_active:
                 await maybe_emit_first_phrase()
 
     except Exception as e:

@@ -69,18 +69,17 @@ adb -s SERIAL reverse tcp:8000 tcp:8000
 The kiosk UI now exposes the minimum first-phrase length and segmentation logging toggle. These settings live in `src/backend/data/clients/kiosk/tts.json` and are editable in the kiosk settings modal:
 
 - **Minimum first phrase length** (`first_phrase_min_chars`): floor before the first phrase can emit.
-- **Segmentation logging** (`segmentation_logging_enabled`): logs when the 0.25s fallback timer triggers.
+- **Segmentation logging** (`segmentation_logging_enabled`): logs when the minimum is met and the segmenter is waiting for a delimiter.
 
 Segmentation behavior:
 
 - Waits until `first_phrase_min_chars` is reached.
-- Tries to split on delimiters or whitespace.
-- If no boundary appears within 0.25s, it emits the buffered phrase to minimize latency.
+- Splits on the first delimiter after the minimum is met.
+- If no delimiter arrives, it emits everything at the end as a single phrase.
 
 ## What works
 
 - Kiosk TTS segmentation settings in the UI (including minimum first phrase length).
-- Logging toggle for segmentation fallback events.
+- Logging toggle for waiting-on-delimiter events.
 - Echo setup via `scripts/setup_echo.sh` for brightness/lock/updates/bloatware/permissions.
 - Auto-launch of Fully Kiosk and kiosk URL after setup.
-

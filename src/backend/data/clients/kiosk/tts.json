@@ -17,6 +17,6 @@
     "! ",
     "!"
   ],
-  "first_phrase_min_chars": 60,
+  "first_phrase_min_chars": 10,
   "segmentation_logging_enabled": true
 }

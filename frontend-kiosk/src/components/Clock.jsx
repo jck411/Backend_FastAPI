@@ -580,7 +580,7 @@ export default function Clock() {
                         ${getAlertStyle(rainAlert.severity)}
                     `}>
                         <span className="text-base">{rainAlert.icon}</span>
-                        <span className="text-sm font-medium">{rainAlert.text}</span>
+                        <span className="text-lg max-[520px]:text-base font-medium">{rainAlert.text}</span>
                     </div>
                 )}
 

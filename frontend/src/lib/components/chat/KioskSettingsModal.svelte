@@ -1120,48 +1120,86 @@
           </div>
 
           <div class="reasoning-controls">
-            <!-- Initial Buffer Slider -->
+            <!-- Buffering Enabled Toggle -->
             <div class="reasoning-field">
-              <div class="setting-range">
-                <div class="setting-range-header">
-                  <span
-                    class="setting-label"
-                    title="Minimum audio (seconds) to buffer before playback starts."
-                    >Initial Buffer</span
-                  >
-                  <span class="range-value"
-                    >{draft.initial_buffer_sec.toFixed(2)}s</span
-                  >
-                </div>
-                <input
-                  type="range"
-                  class="range-input"
-                  min="0.05"
-                  max="2.0"
-                  step="0.05"
-                  value={draft.initial_buffer_sec}
-                  disabled={saving}
-                  style="--slider-fill: {getSliderFill(
-                    draft.initial_buffer_sec,
-                    0.05,
-                    2.0,
-                  )}"
-                  on:input={(e) => {
-                    draft = {
-                      ...draft,
-                      initial_buffer_sec: parseFloat(
-                        (e.target as HTMLInputElement).value,
-                      ),
-                    };
-                    markDirty();
-                  }}
-                />
-                <div class="range-extents">
-                  <span>0.05s (fast start)</span>
-                  <span>2.0s (smooth)</span>
-                </div>
+              <div class="setting-toggle">
+                <label class="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={draft.buffering_enabled}
+                    disabled={saving}
+                    on:change={(e) => {
+                      const enabled = (e.target as HTMLInputElement).checked;
+                      draft = {
+                        ...draft,
+                        buffering_enabled: enabled,
+                        // When disabled, set initial_buffer to 0 for instant playback
+                        initial_buffer_sec: enabled
+                          ? draft.initial_buffer_sec || 0.3
+                          : 0,
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <span class="toggle-slider"></span>
+                </label>
+                <span
+                  class="setting-label"
+                  title="When disabled, audio plays immediately without buffering. Best for low-latency on fast devices/networks."
+                  >Enable Buffering</span
+                >
+                <span class="toggle-value"
+                  >{draft.buffering_enabled
+                    ? "On"
+                    : "Off (instant playback)"}</span
+                >
               </div>
             </div>
+
+            <!-- Initial Buffer Slider (only shown when buffering enabled) -->
+            {#if draft.buffering_enabled}
+              <div class="reasoning-field">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="Minimum audio (seconds) to buffer before playback starts."
+                      >Initial Buffer</span
+                    >
+                    <span class="range-value"
+                      >{draft.initial_buffer_sec.toFixed(2)}s</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="0.05"
+                    max="2.0"
+                    step="0.05"
+                    value={draft.initial_buffer_sec}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.initial_buffer_sec,
+                      0.05,
+                      2.0,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        initial_buffer_sec: parseFloat(
+                          (e.target as HTMLInputElement).value,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>0.05s (fast start)</span>
+                    <span>2.0s (smooth)</span>
+                  </div>
+                </div>
+              </div>
+            {/if}
 
             <!-- Max Ahead Slider -->
             <div class="reasoning-field">

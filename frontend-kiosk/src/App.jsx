@@ -54,6 +54,7 @@ export default function App() {
     const nextPlayTimeRef = useRef(0);
     const ttsSampleRateRef = useRef(VOICE_CONFIG.tts.defaultSampleRate);
     // Dynamic buffer settings (updated from backend via tts_audio_start message)
+    const ttsBufferingEnabledRef = useRef(true);
     const ttsInitialBufferSecRef = useRef(VOICE_CONFIG.tts.initialBufferSec);
     const ttsMaxAheadSecRef = useRef(VOICE_CONFIG.tts.maxAheadSec);
     const ttsMinChunkSecRef = useRef(VOICE_CONFIG.tts.minChunkSec);
@@ -253,7 +254,12 @@ export default function App() {
         }
 
         const sampleRate = ttsSampleRateRef.current;
-        const minInitialSamples = Math.floor(sampleRate * ttsInitialBufferSecRef.current);
+        const bufferingEnabled = ttsBufferingEnabledRef.current;
+
+        // When buffering is disabled, play audio immediately (no initial buffer wait)
+        const minInitialSamples = bufferingEnabled
+            ? Math.floor(sampleRate * ttsInitialBufferSecRef.current)
+            : 0;
         const minChunkSamples = Math.floor(sampleRate * ttsMinChunkSecRef.current);
 
         if (!hasStartedRef.current && !force && pendingSamples < minInitialSamples) {
@@ -263,18 +269,18 @@ export default function App() {
         const ctx = getAudioContext();
 
         while (pendingSampleCountRef.current > 0) {
-            if (hasStartedRef.current) {
+            if (hasStartedRef.current && bufferingEnabled) {
                 const aheadSeconds = nextPlayTimeRef.current - ctx.currentTime;
                 if (!force && aheadSeconds > ttsMaxAheadSecRef.current) {
                     break;
                 }
             }
 
-            const targetSamples = (ttsStreamEndedRef.current || force)
+            const targetSamples = (ttsStreamEndedRef.current || force || !bufferingEnabled)
                 ? pendingSampleCountRef.current
                 : Math.min(pendingSampleCountRef.current, minChunkSamples);
 
-            if (!force && targetSamples < minChunkSamples && !ttsStreamEndedRef.current) {
+            if (!force && bufferingEnabled && targetSamples < minChunkSamples && !ttsStreamEndedRef.current) {
                 break;
             }
 
@@ -436,6 +442,9 @@ export default function App() {
                     ttsSampleRateRef.current = data.sample_rate || VOICE_CONFIG.tts.defaultSampleRate;
 
                     // Update buffer settings from backend (allows runtime tuning)
+                    if (data.buffering_enabled !== undefined) {
+                        ttsBufferingEnabledRef.current = data.buffering_enabled;
+                    }
                     if (data.initial_buffer_sec !== undefined) {
                         ttsInitialBufferSecRef.current = data.initial_buffer_sec;
                     }

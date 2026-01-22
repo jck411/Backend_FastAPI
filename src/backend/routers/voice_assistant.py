@@ -113,6 +113,7 @@ async def handle_connection(
                         "type": "tts_audio_start",
                         "sample_rate": sample_rate,
                         "streaming": True,
+                        "buffering_enabled": tts_settings.buffering_enabled,
                         "initial_buffer_sec": tts_settings.initial_buffer_sec,
                         "max_ahead_sec": tts_settings.max_ahead_sec,
                         "min_chunk_sec": tts_settings.min_chunk_sec,

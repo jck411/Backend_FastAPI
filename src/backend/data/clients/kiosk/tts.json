@@ -17,12 +17,12 @@
     ", ",
     ": "
   ],
-  "first_phrase_min_chars": 50,
+  "first_phrase_min_chars": 10,
   "segmentation_logging_enabled": false,
-  "buffering_enabled": true,
-  "startup_delay_enabled": true,
-  "low_latency_audio": false,
-  "initial_buffer_sec": 0.3,
+  "buffering_enabled": false,
+  "startup_delay_enabled": false,
+  "low_latency_audio": true,
+  "initial_buffer_sec": 0.0,
   "max_ahead_sec": 1.5,
   "min_chunk_sec": 0.1
 }

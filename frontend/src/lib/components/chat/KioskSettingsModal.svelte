@@ -951,7 +951,7 @@
                   <label
                     class="setting-label"
                     for="tts-stream-chunk-bytes"
-                    title="Chunk size (bytes) when streaming TTS audio."
+                    title="Chunk size (bytes) when streaming TTS audio from OpenAI. At 24kHz 16-bit PCM: 2048 bytes = ~43ms, 4096 bytes = ~85ms (recommended), 8192 bytes = ~170ms, 32768 bytes = ~683ms. Smaller = lower latency but more network overhead."
                     >Stream chunk bytes</label
                   >
                   <input
@@ -1111,32 +1111,33 @@
           <div class="setting-header">
             <span
               class="setting-label"
-              title="Controls how audio chunks are queued before playback. Larger buffers reduce stuttering on slow devices but add latency. Smaller buffers feel more responsive but may cause gaps if the network or device can't keep up."
-              >Audio Buffering</span
+              title="Low latency mode optimizes for fastest time-to-first-audio. Enable all toggles for maximum speed on fast devices. Disable for smoother playback on slow devices/networks."
+              >Low Latency Mode</span
             >
             <span class="setting-hint"
-              >Buffer timing for smoother playback on slower devices.</span
+              >Enable all toggles for fastest response. Disable for smoother
+              playback.</span
             >
           </div>
 
           <div class="reasoning-controls">
-            <!-- Buffering Enabled Toggle -->
+            <!-- Disable Buffering Toggle (inverted for intuitive UX) -->
             <div class="reasoning-field">
               <div class="setting-toggle">
                 <label class="toggle-label">
                   <input
                     type="checkbox"
-                    checked={draft.buffering_enabled}
+                    checked={!draft.buffering_enabled}
                     disabled={saving}
                     on:change={(e) => {
-                      const enabled = (e.target as HTMLInputElement).checked;
+                      const disabled = (e.target as HTMLInputElement).checked;
                       draft = {
                         ...draft,
-                        buffering_enabled: enabled,
+                        buffering_enabled: !disabled,
                         // When disabled, set initial_buffer to 0 for instant playback
-                        initial_buffer_sec: enabled
-                          ? draft.initial_buffer_sec || 0.3
-                          : 0,
+                        initial_buffer_sec: disabled
+                          ? 0
+                          : draft.initial_buffer_sec || 0.3,
                       };
                       markDirty();
                     }}
@@ -1145,18 +1146,18 @@
                 </label>
                 <span
                   class="setting-label"
-                  title="When disabled, audio plays immediately without buffering. Best for low-latency on fast devices/networks."
-                  >Enable Buffering</span
+                  title="Skip audio buffering - plays immediately as chunks arrive. Best for fast devices/networks."
+                  >Disable Buffering</span
                 >
                 <span class="toggle-value"
                   >{draft.buffering_enabled
-                    ? "On"
-                    : "Off (instant playback)"}</span
+                    ? "Off (buffered)"
+                    : "On (instant)"}</span
                 >
               </div>
             </div>
 
-            <!-- Startup Delay Toggle -->
+            <!-- Skip Startup Delay Toggle -->
             <div class="reasoning-field">
               <div class="setting-toggle">
                 <label class="toggle-label">
@@ -1183,7 +1184,7 @@
                 <span class="toggle-value"
                   >{draft.startup_delay_enabled
                     ? "Off (60ms delay)"
-                    : "On (instant start)"}</span
+                    : "On (instant)"}</span
                 >
               </div>
             </div>
@@ -1215,7 +1216,7 @@
                 <span class="toggle-value"
                   >{draft.low_latency_audio
                     ? "On (interactive)"
-                    : "Off (smooth playback)"}</span
+                    : "Off (smooth)"}</span
                 >
               </div>
             </div>
@@ -1263,93 +1264,93 @@
                   </div>
                 </div>
               </div>
+
+              <!-- Max Ahead Slider -->
+              <div class="reasoning-field">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="Maximum audio (seconds) to schedule ahead of current time."
+                      >Max Ahead</span
+                    >
+                    <span class="range-value"
+                      >{draft.max_ahead_sec.toFixed(1)}s</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="0.3"
+                    max="5.0"
+                    step="0.1"
+                    value={draft.max_ahead_sec}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.max_ahead_sec,
+                      0.3,
+                      5.0,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        max_ahead_sec: parseFloat(
+                          (e.target as HTMLInputElement).value,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>0.3s (tight)</span>
+                    <span>5.0s (buffered)</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Min Chunk Slider -->
+              <div class="reasoning-field">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="Minimum duration (seconds) for each audio chunk."
+                      >Min Chunk Duration</span
+                    >
+                    <span class="range-value"
+                      >{draft.min_chunk_sec.toFixed(2)}s</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="0.02"
+                    max="0.5"
+                    step="0.01"
+                    value={draft.min_chunk_sec}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.min_chunk_sec,
+                      0.02,
+                      0.5,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        min_chunk_sec: parseFloat(
+                          (e.target as HTMLInputElement).value,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>0.02s (responsive)</span>
+                    <span>0.5s (chunky)</span>
+                  </div>
+                </div>
+              </div>
             {/if}
-
-            <!-- Max Ahead Slider -->
-            <div class="reasoning-field">
-              <div class="setting-range">
-                <div class="setting-range-header">
-                  <span
-                    class="setting-label"
-                    title="Maximum audio (seconds) to schedule ahead of current time."
-                    >Max Ahead</span
-                  >
-                  <span class="range-value"
-                    >{draft.max_ahead_sec.toFixed(1)}s</span
-                  >
-                </div>
-                <input
-                  type="range"
-                  class="range-input"
-                  min="0.3"
-                  max="5.0"
-                  step="0.1"
-                  value={draft.max_ahead_sec}
-                  disabled={saving}
-                  style="--slider-fill: {getSliderFill(
-                    draft.max_ahead_sec,
-                    0.3,
-                    5.0,
-                  )}"
-                  on:input={(e) => {
-                    draft = {
-                      ...draft,
-                      max_ahead_sec: parseFloat(
-                        (e.target as HTMLInputElement).value,
-                      ),
-                    };
-                    markDirty();
-                  }}
-                />
-                <div class="range-extents">
-                  <span>0.3s (tight)</span>
-                  <span>5.0s (buffered)</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Min Chunk Slider -->
-            <div class="reasoning-field">
-              <div class="setting-range">
-                <div class="setting-range-header">
-                  <span
-                    class="setting-label"
-                    title="Minimum duration (seconds) for each audio chunk."
-                    >Min Chunk Duration</span
-                  >
-                  <span class="range-value"
-                    >{draft.min_chunk_sec.toFixed(2)}s</span
-                  >
-                </div>
-                <input
-                  type="range"
-                  class="range-input"
-                  min="0.02"
-                  max="0.5"
-                  step="0.01"
-                  value={draft.min_chunk_sec}
-                  disabled={saving}
-                  style="--slider-fill: {getSliderFill(
-                    draft.min_chunk_sec,
-                    0.02,
-                    0.5,
-                  )}"
-                  on:input={(e) => {
-                    draft = {
-                      ...draft,
-                      min_chunk_sec: parseFloat(
-                        (e.target as HTMLInputElement).value,
-                      ),
-                    };
-                    markDirty();
-                  }}
-                />
-                <div class="range-extents">
-                  <span>0.02s (responsive)</span>
-                  <span>0.5s (chunky)</span>
-                </div>
-              </div>
-            </div>
           </div>
         </div>
       </div>

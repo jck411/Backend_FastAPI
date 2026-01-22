@@ -84,14 +84,14 @@ export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
     sample_rate: 24000,
     stream_chunk_bytes: 4096,
     use_segmentation: true,
-    delimiters: ['\n', '. ', '.', '? ', '?', '! ', '!', '* ', '*', ', ', ',', ': ', ':'],
+    delimiters: ['\n', '. ', '? ', '! ', '* ', ', ', ': '],
     segmentation_logging_enabled: false,
-    first_phrase_min_chars: 60,
-    // Buffer settings
-    buffering_enabled: true,
-    startup_delay_enabled: true,
-    low_latency_audio: false,
-    initial_buffer_sec: 0.3,
+    first_phrase_min_chars: 10,
+    // Buffer settings (optimized for low latency)
+    buffering_enabled: false,
+    startup_delay_enabled: false,
+    low_latency_audio: true,
+    initial_buffer_sec: 0.0,
     max_ahead_sec: 1.5,
     min_chunk_sec: 0.1,
     // UI

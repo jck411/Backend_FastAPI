@@ -6,6 +6,7 @@ Downloads the latest N photos directly from the share link.
 
 import argparse
 import hashlib
+import json
 import re
 import sys
 import time
@@ -15,11 +16,31 @@ import httpx
 
 # Configuration
 SHARED_ALBUM_URL = "https://photos.app.goo.gl/n1VAf2qghCxX3FEr8"
-MAX_PHOTOS = 40  # Limited for Echo device memory constraints (54MB free)
+DEFAULT_MAX_PHOTOS = 30  # Default for Echo device memory constraints
 CACHE_DIR = Path(__file__).parent.parent / "data" / "slideshow" / "photos"
+KIOSK_UI_SETTINGS_PATH = (
+    Path(__file__).parent.parent
+    / "src"
+    / "backend"
+    / "data"
+    / "clients"
+    / "kiosk"
+    / "ui.json"
+)
 
 # Ensure cache directory exists
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def get_max_photos_from_settings() -> int:
+    """Read slideshow_max_photos from kiosk UI settings, fallback to default."""
+    try:
+        if KIOSK_UI_SETTINGS_PATH.exists():
+            data = json.loads(KIOSK_UI_SETTINGS_PATH.read_text())
+            return data.get("slideshow_max_photos", DEFAULT_MAX_PHOTOS)
+    except Exception as e:
+        print(f"  Note: Could not read settings ({e}), using default")
+    return DEFAULT_MAX_PHOTOS
 
 
 def get_album_data(url: str) -> list[dict]:
@@ -177,13 +198,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "--max-photos",
         type=int,
-        default=MAX_PHOTOS,
-        help=f"Maximum number of photos to sync (default: {MAX_PHOTOS})",
+        default=None,
+        help=f"Maximum number of photos to sync (default: from settings or {DEFAULT_MAX_PHOTOS})",
     )
     args = parser.parse_args()
 
-    # Override MAX_PHOTOS with command line argument
-    MAX_PHOTOS = args.max_photos
+    # Determine max photos: CLI arg > settings > default
+    if args.max_photos is not None:
+        MAX_PHOTOS = args.max_photos
+    else:
+        MAX_PHOTOS = get_max_photos_from_settings()
+
     print(f"🖼️  Limiting to {MAX_PHOTOS} photos for optimal memory usage")
 
     main()

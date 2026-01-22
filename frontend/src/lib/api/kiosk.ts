@@ -170,10 +170,12 @@ export async function fetchTtsVoices(provider: string = 'openai'): Promise<TtsVo
 
 export interface KioskUiSettings {
     idle_return_delay_ms: number;
+    slideshow_max_photos: number;
 }
 
 export interface KioskUiSettingsUpdate {
     idle_return_delay_ms?: number;
+    slideshow_max_photos?: number;
 }
 
 /**

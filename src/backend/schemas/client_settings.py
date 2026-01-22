@@ -321,6 +321,12 @@ class UiSettings(BaseModel):
         default=EASTERN_TIMEZONE_NAME,
         description="IANA timezone name for displaying times (e.g., 'America/New_York')",
     )
+    slideshow_max_photos: int = Field(
+        default=30,
+        ge=5,
+        le=100,
+        description="Maximum photos to sync for slideshow (lower = less memory usage)",
+    )
 
 
 class UiSettingsUpdate(BaseModel):
@@ -330,6 +336,12 @@ class UiSettingsUpdate(BaseModel):
     display_timezone: Optional[str] = Field(
         default=None,
         description="IANA timezone name for displaying times",
+    )
+    slideshow_max_photos: Optional[int] = Field(
+        default=None,
+        ge=5,
+        le=100,
+        description="Maximum photos to sync for slideshow",
     )
 
 

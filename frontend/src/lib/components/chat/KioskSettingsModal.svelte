@@ -708,6 +708,48 @@
                 </div>
               </div>
             </div>
+
+            <!-- Slideshow Max Photos slider -->
+            <div class="reasoning-field">
+              <div class="setting-range">
+                <div class="setting-range-header">
+                  <span
+                    class="setting-label"
+                    title="Maximum number of photos to sync for the slideshow. Lower values reduce memory usage on the Echo device. Changes apply on next sync."
+                    >Slideshow Photos</span
+                  >
+                  <span class="range-value">{draft.slideshow_max_photos}</span>
+                </div>
+                <input
+                  type="range"
+                  class="range-input"
+                  min="5"
+                  max="100"
+                  step="5"
+                  value={draft.slideshow_max_photos}
+                  disabled={saving}
+                  style="--slider-fill: {getSliderFill(
+                    draft.slideshow_max_photos,
+                    5,
+                    100,
+                  )}"
+                  on:input={(e) => {
+                    draft = {
+                      ...draft,
+                      slideshow_max_photos: parseInt(
+                        (e.target as HTMLInputElement).value,
+                        10,
+                      ),
+                    };
+                    markDirty();
+                  }}
+                />
+                <div class="range-extents">
+                  <span>5 (low memory)</span>
+                  <span>100 (more variety)</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 

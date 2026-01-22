@@ -53,6 +53,7 @@ export interface KioskSettings {
     min_chunk_sec: number;
     // UI settings
     idle_return_delay_ms: number;
+    slideshow_max_photos: number;
     // LLM settings
     llm_model: string;
     system_prompt: string | null;
@@ -89,6 +90,7 @@ export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
     min_chunk_sec: 0.1,
     // UI
     idle_return_delay_ms: 10000,
+    slideshow_max_photos: 30,
     // LLM
     llm_model: 'openai/gpt-4o-mini',
     system_prompt: 'You are a helpful voice assistant who replies succinctly.',
@@ -147,6 +149,7 @@ function createKioskSettingsStore() {
                 min_chunk_sec: ttsSettings.min_chunk_sec,
                 // UI
                 idle_return_delay_ms: uiSettings.idle_return_delay_ms,
+                slideshow_max_photos: uiSettings.slideshow_max_photos,
                 // LLM
                 llm_model: llmSettings.model,
                 system_prompt: llmSettings.system_prompt,
@@ -208,6 +211,7 @@ function createKioskSettingsStore() {
 
             // UI fields
             if (update.idle_return_delay_ms !== undefined) uiUpdate.idle_return_delay_ms = update.idle_return_delay_ms;
+            if (update.slideshow_max_photos !== undefined) uiUpdate.slideshow_max_photos = update.slideshow_max_photos;
 
             // LLM fields
             if (update.llm_model !== undefined) llmUpdate.model = update.llm_model;
@@ -272,6 +276,7 @@ function createKioskSettingsStore() {
                 min_chunk_sec: ttsSettings.min_chunk_sec,
                 // UI (keep current)
                 idle_return_delay_ms: current.idle_return_delay_ms,
+                slideshow_max_photos: current.slideshow_max_photos,
                 // LLM
                 llm_model: llmSettings.model,
                 system_prompt: llmSettings.system_prompt,

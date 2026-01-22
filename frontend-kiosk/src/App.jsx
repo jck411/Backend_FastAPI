@@ -8,10 +8,7 @@ import { useConfig } from './context/ConfigContext';
 import useAudioCapture from './hooks/useAudioCapture';
 import { buildVoiceWsUrl, createClientId, VOICE_CONFIG } from './voice/config';
 
-// TTS buffering tuning for smoother playback on low-power devices.
-const TTS_INITIAL_BUFFER_SEC = VOICE_CONFIG.tts.initialBufferSec;
-const TTS_MIN_CHUNK_SEC = VOICE_CONFIG.tts.minChunkSec;
-const TTS_MAX_AHEAD_SEC = VOICE_CONFIG.tts.maxAheadSec;
+// TTS buffering defaults (can be overridden by backend settings via tts_audio_start message)
 const TTS_STARTUP_DELAY_SEC = VOICE_CONFIG.tts.startupDelaySec;
 // Delay before resuming mic after TTS ends to avoid capturing speaker echo/reverb
 const TTS_MIC_RESUME_DELAY_MS = VOICE_CONFIG.tts.micResumeDelayMs;
@@ -56,6 +53,10 @@ export default function App() {
     const audioContextRef = useRef(null);
     const nextPlayTimeRef = useRef(0);
     const ttsSampleRateRef = useRef(VOICE_CONFIG.tts.defaultSampleRate);
+    // Dynamic buffer settings (updated from backend via tts_audio_start message)
+    const ttsInitialBufferSecRef = useRef(VOICE_CONFIG.tts.initialBufferSec);
+    const ttsMaxAheadSecRef = useRef(VOICE_CONFIG.tts.maxAheadSec);
+    const ttsMinChunkSecRef = useRef(VOICE_CONFIG.tts.minChunkSec);
     const hasStartedRef = useRef(false);
     const scheduledSourcesRef = useRef([]);
     const pendingChunksRef = useRef([]);
@@ -252,8 +253,8 @@ export default function App() {
         }
 
         const sampleRate = ttsSampleRateRef.current;
-        const minInitialSamples = Math.floor(sampleRate * TTS_INITIAL_BUFFER_SEC);
-        const minChunkSamples = Math.floor(sampleRate * TTS_MIN_CHUNK_SEC);
+        const minInitialSamples = Math.floor(sampleRate * ttsInitialBufferSecRef.current);
+        const minChunkSamples = Math.floor(sampleRate * ttsMinChunkSecRef.current);
 
         if (!hasStartedRef.current && !force && pendingSamples < minInitialSamples) {
             return;
@@ -264,7 +265,7 @@ export default function App() {
         while (pendingSampleCountRef.current > 0) {
             if (hasStartedRef.current) {
                 const aheadSeconds = nextPlayTimeRef.current - ctx.currentTime;
-                if (!force && aheadSeconds > TTS_MAX_AHEAD_SEC) {
+                if (!force && aheadSeconds > ttsMaxAheadSecRef.current) {
                     break;
                 }
             }
@@ -433,6 +434,17 @@ export default function App() {
 
                     // Store sample rate for AudioContext creation
                     ttsSampleRateRef.current = data.sample_rate || VOICE_CONFIG.tts.defaultSampleRate;
+
+                    // Update buffer settings from backend (allows runtime tuning)
+                    if (data.initial_buffer_sec !== undefined) {
+                        ttsInitialBufferSecRef.current = data.initial_buffer_sec;
+                    }
+                    if (data.max_ahead_sec !== undefined) {
+                        ttsMaxAheadSecRef.current = data.max_ahead_sec;
+                    }
+                    if (data.min_chunk_sec !== undefined) {
+                        ttsMinChunkSecRef.current = data.min_chunk_sec;
+                    }
 
                     // Close existing context if sample rate changed
                     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {

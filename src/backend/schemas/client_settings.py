@@ -183,6 +183,25 @@ class TtsSettings(BaseModel):
         default=False,
         description="Emit logs when segmentation waits for delimiters before pushing the first phrase",
     )
+    # Frontend audio buffer settings
+    initial_buffer_sec: float = Field(
+        default=0.3,
+        ge=0.05,
+        le=2.0,
+        description="Seconds of audio to buffer before playback starts (higher = smoother, slower start)",
+    )
+    max_ahead_sec: float = Field(
+        default=1.5,
+        ge=0.3,
+        le=5.0,
+        description="Maximum seconds of audio to buffer ahead during playback",
+    )
+    min_chunk_sec: float = Field(
+        default=0.1,
+        ge=0.02,
+        le=0.5,
+        description="Minimum seconds per scheduled audio chunk",
+    )
 
 
 class TtsSettingsUpdate(BaseModel):
@@ -204,6 +223,9 @@ class TtsSettingsUpdate(BaseModel):
         le=500,
     )
     segmentation_logging_enabled: Optional[bool] = None
+    initial_buffer_sec: Optional[float] = Field(default=None, ge=0.05, le=2.0)
+    max_ahead_sec: Optional[float] = Field(default=None, ge=0.3, le=5.0)
+    min_chunk_sec: Optional[float] = Field(default=None, ge=0.02, le=0.5)
 
 
 # =============================================================================

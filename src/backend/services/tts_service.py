@@ -2,15 +2,15 @@
 
 import asyncio
 import logging
+import os
 from typing import AsyncGenerator, Optional
 
 import openai
-import os
 
-from backend.services.client_settings_service import get_client_settings_service
 from backend.schemas.client_settings import TtsSettings
-from backend.services.text_segmenter import process_text_chunks
+from backend.services.client_settings_service import get_client_settings_service
 from backend.services.openai_tts_processor import process_tts_streams
+from backend.services.text_segmenter import process_text_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -25,14 +25,43 @@ class TTSService:
 
     def __init__(self):
         self._openai_client: Optional[openai.AsyncOpenAI] = None
+        self._connection_warmed: bool = False
         logger.info("TTSService initialized")
 
     @property
     def openai_client(self) -> openai.AsyncOpenAI:
         """Lazy-initialize OpenAI client."""
         if self._openai_client is None:
-            self._openai_client = openai.AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+            self._openai_client = openai.AsyncOpenAI(
+                api_key=os.getenv("OPENAI_API_KEY")
+            )
         return self._openai_client
+
+    async def warm_connection(self, settings_client_id: str = "voice") -> None:
+        """
+        Pre-warm the OpenAI TTS connection by establishing TLS handshake.
+
+        Call this when a voice session connects (if TTS is enabled) to save
+        ~100-300ms on the first TTS request. Safe to call multiple times.
+        """
+        if self._connection_warmed:
+            return
+
+        settings = self.get_settings(settings_client_id)
+        if not settings.enabled:
+            return
+
+        try:
+            # Access the client to ensure it's created
+            client = self.openai_client
+            # Make a minimal request to establish the connection
+            # We use models.list() as it's fast and doesn't cost tokens
+            # The httpx client will keep the connection alive for reuse
+            await client.models.list()
+            self._connection_warmed = True
+            logger.info("TTS connection pre-warmed successfully")
+        except Exception as e:
+            logger.warning(f"TTS connection pre-warm failed (non-fatal): {e}")
 
     def get_settings(self, settings_client_id: str = "voice") -> TtsSettings:
         """Get current TTS settings for the specified client."""
@@ -160,13 +189,14 @@ class TTSService:
             )
         )
 
-        # Create TTS processor task
+        # Create TTS processor task with pre-warmed client
         tts_task = asyncio.create_task(
             process_tts_streams(
                 phrase_queue=phrase_queue,
                 audio_queue=audio_queue,
                 stop_event=stop_event,
                 settings=settings,
+                openai_client=self._openai_client,
             )
         )
 

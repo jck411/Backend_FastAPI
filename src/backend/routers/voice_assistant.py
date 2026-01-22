@@ -50,6 +50,9 @@ async def handle_connection(
     if settings_client_id == "kiosk" and kiosk_chat_service is not None:
         chat_service = kiosk_chat_service
 
+    # Pre-warm TTS connection for faster first response (runs in background)
+    asyncio.create_task(tts_service.warm_connection(settings_client_id))
+
     tts_cancel_event = asyncio.Event()
     tts_task: Optional[asyncio.Task] = None
 
@@ -110,6 +113,9 @@ async def handle_connection(
                         "type": "tts_audio_start",
                         "sample_rate": sample_rate,
                         "streaming": True,
+                        "initial_buffer_sec": tts_settings.initial_buffer_sec,
+                        "max_ahead_sec": tts_settings.max_ahead_sec,
+                        "min_chunk_sec": tts_settings.min_chunk_sec,
                     },
                 )
 
@@ -361,7 +367,11 @@ async def handle_connection(
                     if payload is None:
                         payload = data.get("audio")
                     if payload:
-                        audio_b64 = payload.get("audio") if isinstance(payload, dict) else payload
+                        audio_b64 = (
+                            payload.get("audio")
+                            if isinstance(payload, dict)
+                            else payload
+                        )
                         if not audio_b64:
                             logger.warning(
                                 f"Received {event_type} event without audio for {client_id}"
@@ -387,7 +397,10 @@ async def handle_connection(
                             else:
                                 silence_timeout_ms = None
 
-                            if silence_timeout_ms and silence_duration_ms > silence_timeout_ms:
+                            if (
+                                silence_timeout_ms
+                                and silence_duration_ms > silence_timeout_ms
+                            ):
                                 logger.info(
                                     "Listen timeout for %s (%.0fms > %.0fms) - Returning to IDLE",
                                     client_id,

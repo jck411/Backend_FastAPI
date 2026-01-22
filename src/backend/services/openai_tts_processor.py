@@ -5,8 +5,8 @@ import logging
 import os
 from typing import Optional
 
-from dotenv import load_dotenv
 import openai
+from dotenv import load_dotenv
 
 from backend.schemas.client_settings import TtsSettings
 
@@ -49,7 +49,9 @@ async def openai_text_to_speech_processor(
 
     chunk_size = settings.stream_chunk_bytes  # Bytes per audio chunk
 
-    logger.info(f"OpenAI TTS processor started (model={settings.model}, voice={settings.voice})")
+    logger.info(
+        f"OpenAI TTS processor started (model={settings.model}, voice={settings.voice})"
+    )
     logger.info("OpenAI TTS: Entering main while loop")
 
     try:
@@ -77,7 +79,9 @@ async def openai_text_to_speech_processor(
             if not stripped_phrase:
                 continue
 
-            logger.info(f"OpenAI TTS: synthesizing phrase ({len(stripped_phrase)} chars): '{stripped_phrase[:80]}...'")
+            logger.info(
+                f"OpenAI TTS: synthesizing phrase ({len(stripped_phrase)} chars): '{stripped_phrase[:80]}...'"
+            )
 
             try:
                 # Use streaming response for low latency
@@ -98,8 +102,8 @@ async def openai_text_to_speech_processor(
                         await audio_queue.put(audio_chunk)
 
                 # Add a small silence buffer between phrases (prevents audio glitches)
-                await audio_queue.put(b'\x00' * 512)
-                logger.info(f"OpenAI TTS: phrase synthesis completed, sent audio chunks")
+                await audio_queue.put(b"\x00" * 512)
+                logger.info("OpenAI TTS: phrase synthesis completed, sent audio chunks")
 
             except openai.APIError as e:
                 logger.error(f"OpenAI TTS API error: {e}")
@@ -121,6 +125,7 @@ async def process_tts_streams(
     audio_queue: asyncio.Queue,
     stop_event: asyncio.Event,
     settings: TtsSettings,
+    openai_client: Optional[openai.AsyncOpenAI] = None,
 ) -> None:
     """
     Orchestrate TTS processing. Currently only supports OpenAI.
@@ -130,6 +135,7 @@ async def process_tts_streams(
         audio_queue: Queue to send audio chunks to
         stop_event: Event to signal early stop
         settings: TTS settings
+        openai_client: Optional pre-warmed OpenAI client for faster first request
     """
     if not settings.enabled:
         # TTS disabled - drain phrase queue
@@ -142,11 +148,13 @@ async def process_tts_streams(
         return
 
     provider = settings.provider.lower()
-    logger.info(f"process_tts_streams started (provider={provider}, enabled={settings.enabled})")
+    logger.info(
+        f"process_tts_streams started (provider={provider}, enabled={settings.enabled})"
+    )
 
     if provider == "openai":
         await openai_text_to_speech_processor(
-            phrase_queue, audio_queue, stop_event, settings
+            phrase_queue, audio_queue, stop_event, settings, openai_client
         )
     else:
         logger.error(f"Unsupported TTS provider: {provider}")

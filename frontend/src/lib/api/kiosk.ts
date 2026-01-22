@@ -79,6 +79,10 @@ export interface KioskTtsSettings {
     delimiters: string[];
     segmentation_logging_enabled: boolean;
     first_phrase_min_chars: number;
+    // Buffer settings for audio playback
+    initial_buffer_sec: number;
+    max_ahead_sec: number;
+    min_chunk_sec: number;
 }
 
 export interface KioskTtsSettingsUpdate {
@@ -94,6 +98,10 @@ export interface KioskTtsSettingsUpdate {
     delimiters?: string[];
     segmentation_logging_enabled?: boolean;
     first_phrase_min_chars?: number;
+    // Buffer settings for audio playback
+    initial_buffer_sec?: number;
+    max_ahead_sec?: number;
+    min_chunk_sec?: number;
 }
 
 /**

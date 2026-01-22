@@ -47,6 +47,10 @@ export interface KioskSettings {
     delimiters: string[];
     segmentation_logging_enabled: boolean;
     first_phrase_min_chars: number;
+    // Buffer settings for audio playback
+    initial_buffer_sec: number;
+    max_ahead_sec: number;
+    min_chunk_sec: number;
     // UI settings
     idle_return_delay_ms: number;
     // LLM settings
@@ -79,6 +83,10 @@ export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
     delimiters: ['\n', '. ', '.', '? ', '?', '! ', '!', '* ', '*', ', ', ',', ': ', ':'],
     segmentation_logging_enabled: false,
     first_phrase_min_chars: 60,
+    // Buffer settings
+    initial_buffer_sec: 0.3,
+    max_ahead_sec: 1.5,
+    min_chunk_sec: 0.1,
     // UI
     idle_return_delay_ms: 10000,
     // LLM
@@ -134,6 +142,9 @@ function createKioskSettingsStore() {
                 delimiters: ttsSettings.delimiters,
                 segmentation_logging_enabled: ttsSettings.segmentation_logging_enabled,
                 first_phrase_min_chars: ttsSettings.first_phrase_min_chars,
+                initial_buffer_sec: ttsSettings.initial_buffer_sec,
+                max_ahead_sec: ttsSettings.max_ahead_sec,
+                min_chunk_sec: ttsSettings.min_chunk_sec,
                 // UI
                 idle_return_delay_ms: uiSettings.idle_return_delay_ms,
                 // LLM
@@ -184,6 +195,15 @@ function createKioskSettingsStore() {
             }
             if (update.segmentation_logging_enabled !== undefined) {
                 ttsUpdate.segmentation_logging_enabled = update.segmentation_logging_enabled;
+            }
+            if (update.initial_buffer_sec !== undefined) {
+                ttsUpdate.initial_buffer_sec = update.initial_buffer_sec;
+            }
+            if (update.max_ahead_sec !== undefined) {
+                ttsUpdate.max_ahead_sec = update.max_ahead_sec;
+            }
+            if (update.min_chunk_sec !== undefined) {
+                ttsUpdate.min_chunk_sec = update.min_chunk_sec;
             }
 
             // UI fields
@@ -247,6 +267,9 @@ function createKioskSettingsStore() {
                 delimiters: ttsSettings.delimiters,
                 segmentation_logging_enabled: ttsSettings.segmentation_logging_enabled,
                 first_phrase_min_chars: ttsSettings.first_phrase_min_chars,
+                initial_buffer_sec: ttsSettings.initial_buffer_sec,
+                max_ahead_sec: ttsSettings.max_ahead_sec,
+                min_chunk_sec: ttsSettings.min_chunk_sec,
                 // UI (keep current)
                 idle_return_delay_ms: current.idle_return_delay_ms,
                 // LLM

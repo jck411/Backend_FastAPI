@@ -63,7 +63,7 @@
       ]);
       draft = { ...settings };
       // Always load OpenAI voices
-      ttsVoices = await fetchTtsVoices('openai');
+      ttsVoices = await fetchTtsVoices("openai");
       presets = presetsData;
     } catch (error) {
       statusMessage = "Failed to load settings";
@@ -777,8 +777,7 @@
                   <label
                     class="setting-label"
                     for="tts-model"
-                    title="Select the OpenAI TTS model."
-                    >Model</label
+                    title="Select the OpenAI TTS model.">Model</label
                   >
                   <select
                     id="tts-model"
@@ -858,9 +857,7 @@
                     on:input={(e) => {
                       draft = {
                         ...draft,
-                        speed: parseFloat(
-                          (e.target as HTMLInputElement).value,
-                        ),
+                        speed: parseFloat((e.target as HTMLInputElement).value),
                       };
                       markDirty();
                     }}
@@ -932,7 +929,10 @@
                       if (!Number.isFinite(next)) return;
                       draft = {
                         ...draft,
-                        stream_chunk_bytes: Math.max(512, Math.min(65536, next)),
+                        stream_chunk_bytes: Math.max(
+                          512,
+                          Math.min(65536, next),
+                        ),
                       };
                       markDirty();
                     }}
@@ -967,7 +967,8 @@
                 style="grid-column: 1 / -1;"
               >
                 <div class="setting-header">
-                  <span class="setting-label"
+                  <span
+                    class="setting-label"
                     title="Minimum characters to accumulate before the first segmented phrase is emitted."
                     >Minimum first phrase length</span
                   >
@@ -1011,8 +1012,9 @@
                   on:change={(e) => {
                     draft = {
                       ...draft,
-                      segmentation_logging_enabled: (e.target as HTMLInputElement)
-                        .checked,
+                      segmentation_logging_enabled: (
+                        e.target as HTMLInputElement
+                      ).checked,
                     };
                     markDirty();
                   }}
@@ -1051,7 +1053,7 @@
                     draft = { ...draft, delimiters: lines };
                     markDirty();
                   }}
-                >{draft.delimiters
+                  >{draft.delimiters
                     .map((delimiter) =>
                       delimiter === "\n" ? "\\n" : delimiter,
                     )
@@ -1062,6 +1064,150 @@
           </div>
         </div>
 
+        <!-- Audio Buffer Settings Section -->
+        <div class="setting reasoning">
+          <div class="setting-header">
+            <span
+              class="setting-label"
+              title="Controls how audio chunks are queued before playback. Larger buffers reduce stuttering on slow devices but add latency. Smaller buffers feel more responsive but may cause gaps if the network or device can't keep up."
+              >Audio Buffering</span
+            >
+            <span class="setting-hint"
+              >Buffer timing for smoother playback on slower devices.</span
+            >
+          </div>
+
+          <div class="reasoning-controls">
+            <!-- Initial Buffer Slider -->
+            <div class="reasoning-field">
+              <div class="setting-range">
+                <div class="setting-range-header">
+                  <span
+                    class="setting-label"
+                    title="Minimum audio (seconds) to buffer before playback starts."
+                    >Initial Buffer</span
+                  >
+                  <span class="range-value"
+                    >{draft.initial_buffer_sec.toFixed(2)}s</span
+                  >
+                </div>
+                <input
+                  type="range"
+                  class="range-input"
+                  min="0.05"
+                  max="2.0"
+                  step="0.05"
+                  value={draft.initial_buffer_sec}
+                  disabled={saving}
+                  style="--slider-fill: {getSliderFill(
+                    draft.initial_buffer_sec,
+                    0.05,
+                    2.0,
+                  )}"
+                  on:input={(e) => {
+                    draft = {
+                      ...draft,
+                      initial_buffer_sec: parseFloat(
+                        (e.target as HTMLInputElement).value,
+                      ),
+                    };
+                    markDirty();
+                  }}
+                />
+                <div class="range-extents">
+                  <span>0.05s (fast start)</span>
+                  <span>2.0s (smooth)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Max Ahead Slider -->
+            <div class="reasoning-field">
+              <div class="setting-range">
+                <div class="setting-range-header">
+                  <span
+                    class="setting-label"
+                    title="Maximum audio (seconds) to schedule ahead of current time."
+                    >Max Ahead</span
+                  >
+                  <span class="range-value"
+                    >{draft.max_ahead_sec.toFixed(1)}s</span
+                  >
+                </div>
+                <input
+                  type="range"
+                  class="range-input"
+                  min="0.3"
+                  max="5.0"
+                  step="0.1"
+                  value={draft.max_ahead_sec}
+                  disabled={saving}
+                  style="--slider-fill: {getSliderFill(
+                    draft.max_ahead_sec,
+                    0.3,
+                    5.0,
+                  )}"
+                  on:input={(e) => {
+                    draft = {
+                      ...draft,
+                      max_ahead_sec: parseFloat(
+                        (e.target as HTMLInputElement).value,
+                      ),
+                    };
+                    markDirty();
+                  }}
+                />
+                <div class="range-extents">
+                  <span>0.3s (tight)</span>
+                  <span>5.0s (buffered)</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Min Chunk Slider -->
+            <div class="reasoning-field">
+              <div class="setting-range">
+                <div class="setting-range-header">
+                  <span
+                    class="setting-label"
+                    title="Minimum duration (seconds) for each audio chunk."
+                    >Min Chunk Duration</span
+                  >
+                  <span class="range-value"
+                    >{draft.min_chunk_sec.toFixed(2)}s</span
+                  >
+                </div>
+                <input
+                  type="range"
+                  class="range-input"
+                  min="0.02"
+                  max="0.5"
+                  step="0.01"
+                  value={draft.min_chunk_sec}
+                  disabled={saving}
+                  style="--slider-fill: {getSliderFill(
+                    draft.min_chunk_sec,
+                    0.02,
+                    0.5,
+                  )}"
+                  on:input={(e) => {
+                    draft = {
+                      ...draft,
+                      min_chunk_sec: parseFloat(
+                        (e.target as HTMLInputElement).value,
+                      ),
+                    };
+                    markDirty();
+                  }}
+                />
+                <div class="range-extents">
+                  <span>0.02s (responsive)</span>
+                  <span>0.5s (chunky)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     {/if}
 

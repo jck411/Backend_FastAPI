@@ -46,7 +46,7 @@ echo "✅ Connected to device: $SERIAL"
 # DISPLAY SETTINGS
 # ============================================
 echo ""
-echo "[1/8] Setting display brightness to 100%..."
+echo "[1/11] Setting display brightness to 100%..."
 $ADB_CMD shell settings put system screen_brightness 255
 $ADB_CMD shell settings put system screen_brightness_mode 0  # Disable auto-brightness
 echo "✅ Brightness set to maximum (255)"
@@ -55,7 +55,7 @@ echo "✅ Brightness set to maximum (255)"
 # DISABLE LOCK SCREEN
 # ============================================
 echo ""
-echo "[2/8] Disabling lock screen..."
+echo "[2/11] Disabling lock screen..."
 $ADB_CMD shell settings put secure lockscreen.disabled 1
 $ADB_CMD shell settings put global device_provisioned 1
 echo "✅ Lock screen disabled"
@@ -64,7 +64,7 @@ echo "✅ Lock screen disabled"
 # KEEP SCREEN ON FOREVER
 # ============================================
 echo ""
-echo "[3/8] Disabling screen timeout..."
+echo "[3/11] Disabling screen timeout..."
 # Stay awake while charging (USB + AC + Wireless = 7)
 $ADB_CMD shell settings put global stay_on_while_plugged_in 7
 # Set screen timeout to max (won't matter if stay_on is set, but just in case)
@@ -75,7 +75,7 @@ echo "✅ Screen will stay on indefinitely"
 # DISABLE UPDATES & BACKGROUND SERVICES
 # ============================================
 echo ""
-echo "[4/8] Disabling updates and background services..."
+echo "[4/11] Disabling updates and background services..."
 
 # Disable package verifier (speeds up installs, no Google checks)
 $ADB_CMD shell settings put global package_verifier_enable 0
@@ -95,10 +95,22 @@ $ADB_CMD shell settings put global animator_duration_scale 0.5
 echo "✅ Background services and updates disabled"
 
 # ============================================
+# CLEAR RECOVERY BOOT FLAGS
+# ============================================
+echo ""
+echo "[5/11] Clearing recovery boot flags (prevents update/recovery loops)..."
+$ADB_CMD shell 'if [ -d /cache/recovery ]; then rm -f /cache/recovery/command /cache/recovery/last_log /cache/recovery/last_install; fi' || true
+$ADB_CMD shell 'if [ -d /data/cache/recovery ]; then rm -f /data/cache/recovery/command /data/cache/recovery/last_log /data/cache/recovery/last_install; fi' || true
+if $ADB_CMD shell 'command -v su >/dev/null 2>&1'; then
+    $ADB_CMD shell 'su -c "if [ -f /system/etc/install-recovery.sh ]; then mount -o rw,remount /system && mv /system/etc/install-recovery.sh /system/etc/install-recovery.sh.disabled; fi"' || true
+fi
+echo "✅ Recovery flags cleared (when present)"
+
+# ============================================
 # DISABLE BLOATWARE APPS
 # ============================================
 echo ""
-echo "[5/8] Disabling unnecessary apps..."
+echo "[6/11] Disabling unnecessary apps..."
 
 # Apps to disable - these waste RAM and CPU
 BLOATWARE=(
@@ -162,7 +174,7 @@ echo "✅ Disabled $DISABLED_COUNT bloatware apps"
 # KILL BACKGROUND PROCESSES
 # ============================================
 echo ""
-echo "[6/8] Killing unnecessary background processes..."
+echo "[7/11] Killing unnecessary background processes..."
 
 # Force stop apps that might be running
 PROCESSES_TO_KILL=(
@@ -180,7 +192,7 @@ echo "✅ Background processes terminated"
 # ADB REVERSE PORT FORWARDING
 # ============================================
 echo ""
-echo "[7/8] Setting up ADB reverse port forwarding..."
+echo "[8/11] Setting up ADB reverse port forwarding..."
 $ADB_CMD reverse tcp:5174 tcp:5174  # Kiosk UI
 $ADB_CMD reverse tcp:8000 tcp:8000  # Backend API
 echo "✅ Port forwarding established:"
@@ -191,17 +203,26 @@ echo "   - localhost:8000 → Backend API"
 # GRANT FULLY KIOSK PERMISSIONS
 # ============================================
 echo ""
-echo "[8/9] Granting Fully Kiosk permissions..."
+echo "[9/11] Granting Fully Kiosk permissions..."
 $ADB_CMD shell pm grant de.ozerov.fully android.permission.RECORD_AUDIO
 $ADB_CMD shell pm grant de.ozerov.fully android.permission.CAMERA 2>/dev/null || true
 $ADB_CMD shell pm grant de.ozerov.fully android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
 echo "✅ Microphone and other permissions granted"
 
 # ============================================
+# SET FULLY KIOSK AS HOME (WHEN SUPPORTED)
+# ============================================
+echo ""
+echo "[10/11] Setting Fully Kiosk as HOME activity (best effort)..."
+$ADB_CMD shell cmd package set-home-activity de.ozerov.fully/.MainActivity 2>/dev/null || true
+$ADB_CMD shell cmd package set-home-activity --user 0 de.ozerov.fully/.MainActivity 2>/dev/null || true
+echo "✅ HOME activity set (if supported)"
+
+# ============================================
 # LAUNCH FULLY KIOSK
 # ============================================
 echo ""
-echo "[9/9] Launching Fully Kiosk Browser..."
+echo "[11/11] Launching Fully Kiosk Browser..."
 $ADB_CMD shell am start -n de.ozerov.fully/.MainActivity \
     -a android.intent.action.VIEW \
     -d "https://localhost:5174"
@@ -222,9 +243,11 @@ echo "  • Brightness: 100% (auto-brightness OFF)"
 echo "  • Lock screen: Disabled"
 echo "  • Screen timeout: Disabled (stays on forever)"
 echo "  • System updates: Disabled"
+echo "  • Recovery flags: Cleared"
 echo "  • Bloatware: $DISABLED_COUNT apps disabled"
 echo "  • Animations: Reduced for performance"
 echo "  • Microphone: Permission granted"
+echo "  • Home activity: Fully Kiosk (best effort)"
 echo "  • ADB reverse: 5174, 8000"
 echo "  • Fully Kiosk: https://localhost:5174"
 echo ""

@@ -19,10 +19,10 @@
   ],
   "first_phrase_min_chars": 10,
   "segmentation_logging_enabled": false,
-  "buffering_enabled": false,
+  "buffering_enabled": true,
   "startup_delay_enabled": false,
   "low_latency_audio": true,
-  "initial_buffer_sec": 0.0,
+  "initial_buffer_sec": 0.1,
   "max_ahead_sec": 1.5,
   "min_chunk_sec": 0.1
 }

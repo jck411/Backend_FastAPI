@@ -18,8 +18,8 @@
     {
       "client_enabled": {
         "backend": false,
-        "cli": true,
-        "kiosk": true,
+        "cli": false,
+        "kiosk": false,
         "svelte": true
       },
       "contexts": [],
@@ -37,7 +37,7 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "http_port": 9004,
       "id": "custom-calendar",
@@ -60,12 +60,12 @@
     },
     {
       "client_enabled": {
-        "cli": true,
-        "kiosk": true,
+        "cli": false,
+        "kiosk": false,
         "svelte": true
       },
       "contexts": [],
-      "enabled": false,
+      "enabled": true,
       "env": {},
       "http_port": 9006,
       "id": "custom-gdrive",
@@ -102,8 +102,8 @@
     },
     {
       "client_enabled": {
-        "cli": true,
-        "kiosk": true,
+        "cli": false,
+        "kiosk": false,
         "svelte": true
       },
       "contexts": [],
@@ -139,7 +139,7 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "http_port": 9010,
       "id": "spotify",
@@ -168,7 +168,7 @@
         "svelte": true
       },
       "contexts": [],
-      "enabled": true,
+      "enabled": false,
       "env": {},
       "http_port": 9012,
       "id": "kiosk-clock-tools",

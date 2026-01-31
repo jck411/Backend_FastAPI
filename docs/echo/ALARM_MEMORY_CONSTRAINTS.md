@@ -1,15 +1,12 @@
 # Alarm System Development Guide - Memory Constraints
 
-## Critical Context for Building Alarm Features
+Development guide for building alarm features on memory-constrained Echo Show 5 kiosks. For device specs and general optimization, see [ECHO_DEVICE_SETUP.md](ECHO_DEVICE_SETUP.md).
 
-### Hardware Environment
+## Critical Constraints
 
-**Device Specifications:**
-- **Model**: Amazon Echo Show 5 running LineageOS
-- **Total RAM**: 974 MB (extremely constrained)
-- **Browser**: Fully Kiosk Browser with Chromium WebView
+- **Available RAM**: ~250-350 MB under normal operation
 - **Critical Threshold**: < 200 MB MemAvailable triggers OOM crashes
-- **WebView Process**: Typically 150-200 MB, can balloon to 500+ MB
+- **WebView typical**: 150-200 MB, can balloon to 500+ MB under stress
 
 ### Memory Management Architecture
 
@@ -18,8 +15,8 @@
 **Location**: `frontend-kiosk/src/components/Clock.jsx`
 
 **Memory Usage:**
-- Preloads 30-40 photos into browser memory
-- ~24-30 MB total (decoded bitmap data)
+- Preloads 30 photos into browser memory
+- ~24 MB total (decoded bitmap data, ~0.8 MB per photo)
 - Uses `usePreloadedPhotos` hook from `frontend-kiosk/src/hooks/usePreloadedPhotos.js`
 - Photos stored as: `Map<filename, {url: blob URL, image: Image object}>`
 - Blob URLs created via `URL.createObjectURL()`
@@ -226,38 +223,11 @@ export default function AlarmOverlay({ alarm, onDismiss, onSnooze }) {
 
 ---
 
-## Backend Alarm System (Already Implemented)
+## Backend Integration
 
-### Architecture Overview
+Backend alarm system is already implemented. Key integration points:
 
-**Database**: `data/alarms.db` (SQLite)
-- Table: `alarms` with columns: alarm_id, alarm_time, label, status, etc.
-- Status values: PENDING, FIRING, ACKNOWLEDGED, SNOOZED, CANCELLED
-
-**Service Layer**: `src/backend/services/alarm_scheduler.py`
-- Uses asyncio tasks to schedule alarms
-- Fires alarm at specified time
-- Re-fires every 60 seconds if not acknowledged
-- Handles snooze (creates new alarm)
-
-**REST API**: `src/backend/routers/alarms.py`
-- `POST /api/alarms` - Create alarm
-- `GET /api/alarms` - List pending alarms
-- `GET /api/alarms/{id}` - Get specific alarm
-- `POST /api/alarms/{id}/acknowledge` - Dismiss alarm
-- `POST /api/alarms/{id}/snooze` - Snooze alarm
-- `DELETE /api/alarms/{id}` - Cancel alarm
-
-**MCP Tool**: `src/backend/mcp_servers/kiosk_clock_tools_server.py`
-- `set_alarm(alarm_time, label)` - Voice-activated alarm creation
-- Parses natural language times: "7:30 AM", "14:30", "in 5 minutes"
-- Uses Eastern timezone by default
-
-**WebSocket Protocol**: `src/backend/services/voice_session.py`
-- Frontend → Backend: `alarm_acknowledge`, `alarm_snooze`
-- Backend → Frontend: `alarm_trigger`, `alarm_acknowledged`, `alarm_snoozed`
-
-### WebSocket Message Examples
+**WebSocket messages:**
 
 **Alarm Fires:**
 ```json
@@ -288,62 +258,21 @@ export default function AlarmOverlay({ alarm, onDismiss, onSnooze }) {
 
 ---
 
-## Testing & Debugging Tools
+## Testing & Debugging
 
-### Memory Monitoring
-
-**Real-time crash monitoring:**
+**Memory monitoring** (run before testing alarms):
 ```bash
-./scripts/monitor_alarm_crash.sh
-```
-- Shows memory state before/during/after crashes
-- Tracks WebView process size
-- Captures FATAL EXCEPTION logs
-- **Run this BEFORE testing alarms**
-
-**Quick memory snapshot:**
-```bash
-./scripts/check_echo_memory.sh
+./scripts/monitor_alarm_crash.sh  # Real-time crash tracking
+./scripts/echo/check_echo_memory.sh     # Quick snapshot
 ```
 
-**Continuous monitoring:**
+**Alarm management:**
 ```bash
-./scripts/monitor_echo_memory.sh
+uv run python scripts/clear_all_alarms.py  # Clear stuck alarms
+sqlite3 data/alarms.db "SELECT * FROM alarms;"  # View database
 ```
 
-### Alarm Management
-
-**Clear stuck alarms:**
-```bash
-uv run python scripts/clear_all_alarms.py
-```
-
-**View alarm database:**
-```bash
-sqlite3 data/alarms.db "SELECT * FROM alarms;"
-```
-
-### Browser Debugging
-
-**Chrome DevTools:**
-1. Connect Echo via USB
-2. Run: `./scripts/monitor_browser_console.sh`
-3. Open Chrome → `chrome://inspect`
-4. Click "inspect" on Echo Show device
-5. See console logs, errors, memory profiler
-
-**Fully Kiosk Remote Admin:**
-```bash
-# Clear cache
-curl "http://<echo-ip>:2323/?cmd=clearCache&password=1234"
-
-# Reload page
-curl "http://<echo-ip>:2323/?cmd=loadStartUrl&password=1234"
-
-# Restart browser
-adb shell am force-stop de.ozerov.fully
-adb shell am start -n de.ozerov.fully/.MainActivity
-```
+For detailed device debugging, see [ECHO_DEVICE_SETUP.md](ECHO_DEVICE_SETUP.md#troubleshooting).
 
 ---
 
@@ -415,15 +344,8 @@ Everything else is optional (audio, fancy animations, etc). But Clock unmounting
 
 ---
 
-## Additional Resources
+## References
 
-- [ECHO_DEVICE_SETUP.md](./ECHO_DEVICE_SETUP.md) - Hardware optimization guide
-- [ECHO_MEMORY_NEXT_STEPS.md](./ECHO_MEMORY_NEXT_STEPS.md) - Memory tuning strategies
-- Backend alarm code: `src/backend/services/alarm_scheduler.py`
-- Frontend hook: `frontend-kiosk/src/hooks/usePreloadedPhotos.js`
-- Existing overlay: `frontend-kiosk/src/components/TranscriptionOverlay.jsx` (reference)
-
----
-
-**Last Updated**: January 22, 2026
-**Status**: Ready for reimplementation after git reset
+- [ECHO_DEVICE_SETUP.md](ECHO_DEVICE_SETUP.md) - Device setup and optimization
+- Backend: `src/backend/services/alarm_scheduler.py`, `src/backend/routers/alarms.py`
+- Frontend: `frontend-kiosk/src/hooks/usePreloadedPhotos.js`, `TranscriptionOverlay.jsx`

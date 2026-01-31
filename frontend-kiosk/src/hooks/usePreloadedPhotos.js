@@ -125,7 +125,7 @@ export function usePreloadedPhotos() {
         const successRate = Math.round((imageMap.size / photoList.length) * 100);
         console.log(`🎉 Slideshow preload complete!`);
         console.log(`📈 Success rate: ${imageMap.size}/${photoList.length} photos (${successRate}%)`);
-        console.log(`💾 Estimated memory usage: ${Math.round(imageMap.size * 0.8)}MB`); // ~800KB average per photo
+        console.log(`💾 Estimated memory usage: ${Math.round(imageMap.size * 0.8)}MB`); // ~0.8MB average per photo decoded
         console.log(`🚀 Slideshow ready for smooth 30-second transitions!`);
     }, [preloadPhoto]);
 

@@ -2,6 +2,8 @@
 
 Complete guide for setting up an Echo Show device as a memory-optimized kiosk running Fully Kiosk Browser with LineageOS.
 
+**Scope**: This document focuses on **memory optimization** and performance tuning. For initial device setup, boot configuration, and TTS settings, see [ECHO_KIOSK_SETUP.md](ECHO_KIOSK_SETUP.md).
+
 ## Prerequisites
 
 - Echo Show device (tested on Echo Show 5)
@@ -9,20 +11,6 @@ Complete guide for setting up an Echo Show device as a memory-optimized kiosk ru
 - Fully Kiosk Browser installed
 - USB debugging enabled
 - ADB access from host machine
-
-## Quick Start
-
-Run the automated optimization script:
-
-```bash
-./scripts/apply_echo_optimizations.sh --reboot
-```
-
-After reboot, run again to apply kernel parameters:
-
-```bash
-./scripts/apply_echo_optimizations.sh
-```
 
 ## Manual Setup Steps
 
@@ -81,6 +69,11 @@ To re-enable a package:
 adb shell pm enable org.lineageos.audiofx
 ```
 
+**Automated script:** For additional hardware features (NFC, Bluetooth, haptic feedback, sensors):
+```bash
+./scripts/echo/disable_unused_features.sh
+```
+
 ### 4. Kernel Memory Parameters
 
 These require root access and reset on reboot:
@@ -115,6 +108,21 @@ adb shell setprop debug.hwui.renderer skiagl
 adb shell setprop debug.hwui.profile false
 ```
 
+### 6. ADB Reverse Port Forwarding
+
+**Critical**: ADB reverse port forwarding does NOT persist across reboots. The device uses `localhost:5174` and `localhost:8000` which must be forwarded from the host machine.
+
+After each reboot:
+```bash
+adb reverse tcp:5174 tcp:5174  # Kiosk frontend
+adb reverse tcp:8000 tcp:8000  # Backend API
+```
+
+Or re-run the full setup script:
+```bash
+./scripts/echo/setup_echo.sh SERIAL
+```
+
 ## Fully Kiosk Browser Settings
 
 Access via: `http://<device-ip>:2323` (password: 1234)
@@ -123,7 +131,7 @@ Access via: `http://<device-ip>:2323` (password: 1234)
 
 | Setting | Value | Reason |
 |---------|-------|--------|
-| **Start URL** | `http://<backend-ip>:5173/` | Your kiosk frontend |
+| **Start URL** | `https://localhost:5174` | Your kiosk frontend (via ADB reverse) |
 | **Enable JavaScript** | ON | Required for app |
 | **Enable Web SQL** | OFF | Not needed |
 | **Enable App Cache** | OFF | Manual caching |
@@ -172,24 +180,29 @@ cat src/backend/data/clients/kiosk/ui.json
 
 Photo sync respects this setting:
 ```bash
-./scripts/sync_slideshow.py  # Uses setting
-./scripts/sync_slideshow.py --max-photos 20  # Override
+./scripts/echo/sync_slideshow.py  # Uses setting
+./scripts/echo/sync_slideshow.py --max-photos 20  # Override
 ```
 
-**Memory impact:** ~1MB per photo when decoded. 30 photos ≈ 30MB decoded bitmap memory.
+**Memory impact:** ~0.8 MB per photo when decoded. 30 photos ≈ 24 MB decoded bitmap memory.
+
+**Diagnostic tool:** Check current photo memory allocation:
+```bash
+./scripts/echo/optimize_photo_memory.py
+```
 
 ## Memory Monitoring
 
 ### Quick Check
 
 ```bash
-./scripts/check_echo_memory.sh
+./scripts/echo/check_echo_memory.sh
 ```
 
 ### Continuous Monitoring
 
 ```bash
-./scripts/monitor_echo_memory.sh
+./scripts/echo/monitor_echo_memory.sh
 ```
 
 ### Manual Memory Check
@@ -201,15 +214,14 @@ adb shell "ps -A -o RSS,NAME --sort=-rss | head -15"
 
 ## Expected Memory Usage
 
-After optimization on Echo Show 5 (1GB RAM):
+After optimization on Echo Show 5 (974 MB usable RAM):
 
 | Metric | Target | Notes |
 |--------|--------|-------|
 | **MemFree** | 70-100 MB | Raw free memory |
-| **MemAvailable** | 300-400 MB | Including reclaimable |
+| **MemAvailable** | 250-350 MB | Including reclaimable |
 | **Swap Used** | < 100 MB | zRAM compressed |
-| **Fully Kiosk** | 150-200 MB | Main browser process |
-| **WebView** | 75-100 MB | Rendering process |
+| **Fully Kiosk** | 150-200 MB | WebView main process |
 | **System UI** | 150-170 MB | Android overhead |
 
 ## Troubleshooting
@@ -236,7 +248,7 @@ After optimization on Echo Show 5 (1GB RAM):
    ```bash
    adb reboot
    # After boot:
-   ./scripts/apply_echo_optimizations.sh
+   ./scripts/echo/apply_echo_optimizations.sh
    ```
 
 ### WebView Crashes
@@ -245,6 +257,10 @@ If WebView keeps crashing, try:
 1. Reduce `slideshow_max_photos` to 20 or less
 2. Ensure "Don't keep activities" is ON
 3. Check if swap is full: `adb shell free -m`
+4. Clear and optimize WebView cache:
+   ```bash
+   ./scripts/echo/optimize_webview_cache.sh
+   ```
 
 ### ADB Root Access Denied
 
@@ -269,8 +285,18 @@ adb shell pm path <package>
 Add to your backend startup script:
 ```bash
 # In start.sh
-./scripts/apply_echo_optimizations.sh &
+./scripts/echo/apply_echo_optimizations.sh &
 ```
+
+### Scheduled Slideshow Sync
+
+Automate photo syncing with a cron job:
+```bash
+# Daily at 3 AM
+0 3 * * * /path/to/scripts/echo/sync_slideshow.sh >> /path/to/logs/slideshow.log 2>&1
+```
+
+The shell wrapper (`sync_slideshow.sh`) handles venv activation and runs the Python sync script.
 
 ### Scheduled Cache Clear
 

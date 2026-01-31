@@ -90,15 +90,15 @@ def get_album_data(url: str) -> list[dict]:
 def download_photo(url: str, index: int) -> Path | None:
     """Download a photo and save it to the cache."""
 
-    # Echo Show 5 screen is 960x480 - use 1024x576 (2x for quality, 16:9 aspect)
-    # This reduces decoded bitmap memory by ~50% vs 2048x2048
-    # =w1024-h576 requests exact size, Google Photos will scale/crop appropriately
+    # Echo Show 5 screen is 960x480 (2:1 aspect) - use 1024x512 to match screen aspect
+    # This matches screen aspect ratio perfectly and optimizes memory usage
+    # =w1024-h512 requests exact size, Google Photos will scale/crop appropriately
     if "=" not in url:
-        download_url = f"{url}=w1024-h576"
+        download_url = f"{url}=w1024-h512"
     else:
         # Replace any existing size params
         base = url.split("=")[0]
-        download_url = f"{base}=w1024-h576"
+        download_url = f"{base}=w1024-h512"
 
     # Generate filename from URL hash
     url_hash = hashlib.md5(url.encode()).hexdigest()[:16]
@@ -186,7 +186,7 @@ def main():
     # Memory optimization tip
     print("\n💾 Memory Impact:")
     print(f"   Photos cached: {total}")
-    print(f"   Estimated memory when preloaded: ~{total * 0.8:.0f}-{total * 1.2:.0f}MB")
+    print(f"   Estimated memory when preloaded: ~{total * 0.8:.0f}MB (decoded bitmaps)")
     print("   Trade-off: Predictable memory usage for smooth slideshow")
 
 

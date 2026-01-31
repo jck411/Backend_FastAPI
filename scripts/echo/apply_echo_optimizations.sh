@@ -2,7 +2,7 @@
 # Apply memory optimizations to Echo device via ADB
 # Run this after device boot or when setting up a new Echo
 #
-# Usage: ./scripts/apply_echo_optimizations.sh [--reboot]
+# Usage: ./scripts/echo/apply_echo_optimizations.sh [--reboot]
 
 set -e
 

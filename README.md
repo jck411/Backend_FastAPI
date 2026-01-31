@@ -271,6 +271,7 @@ Tests use isolated SQLite databases in `tests/data/` and clean up automatically.
 
 - **[REFERENCE.md](docs/REFERENCE.md)** — Operations guide, system details, troubleshooting
 - **[GCS_STORAGE.md](docs/GCS_STORAGE.md)** — GCS attachment storage implementation
+- **[echo/](docs/echo/)** — Echo Show kiosk setup, memory optimization, and troubleshooting
 
 ## Development Guidelines
 

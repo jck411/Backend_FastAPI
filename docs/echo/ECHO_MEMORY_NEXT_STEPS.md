@@ -1,11 +1,6 @@
-# Echo Show 5 Memory Optimization - Next Steps
+# Echo Show 5 Memory Optimization - Experimental Improvements
 
-## Current State (January 2026)
-- **Total RAM**: 997MB
-- **Free Memory**: 69MB (288MB available with cache)
-- **WebView Total**: ~207MB RSS across 3 processes
-- **Photos**: 40 photos, 34MB on disk
-- **Status**: 🟡 Stable but tight
+Experimental and future optimizations to further reduce memory usage. For current baseline configuration and monitoring, see [ECHO_DEVICE_SETUP.md](ECHO_DEVICE_SETUP.md).
 
 ---
 
@@ -37,30 +32,38 @@ adb shell setprop debug.hwui.renderer skiagl
   - Disable "Enable App Cache" (we use HTTP cache instead)
   - Set "WebView Cache Mode" to "LOAD_CACHE_ELSE_NETWORK"
 
+### 1.4 Aggressive Local-Only Optimizations (Home Network)
+**Experimental** - Disables location services and Google services:
+```bash
+./scripts/echo/optimize_echo_local_when_home.sh
+```
+**Warning**: Only for home network use. Disables location, Google services, and background sync.
+
 ---
 
 ## Priority 2: Photo Optimization (~10-15MB savings)
 
 ### 2.1 Reduce Photo Resolution
-Current: 2048x2048 max → Echo screen: 960x480
-Recommended: **1024x576** (16:9 aspect, 2x screen resolution)
+Current: 1024x576 (16:9) → Echo screen: 960×480 (2:1 aspect)
+Recommended: **1024×512** (2:1 aspect, matches screen, ~2x resolution for quality)
 
 ```python
 # In sync_slideshow.py, change:
-download_url = f"{base}=w2048-h2048"
-# To:
 download_url = f"{base}=w1024-h576"
+# To:
+download_url = f"{base}=w1024-h512"
 ```
 
-**Impact**: ~50% reduction in decoded bitmap memory per photo.
+**Impact**: ~10% memory reduction per photo + eliminates letterboxing/cropping from aspect mismatch.
 
 ### 2.2 Reduce Photo Count Further
+Current: 30 photos (confirmed in ui.json)
 If memory is still tight after 2.1:
 ```bash
-./scripts/sync_slideshow.py --max-photos 30
+./scripts/echo/sync_slideshow.py --max-photos 20
 ```
 
-Memory formula: `(photo_count * avg_bitmap_size)` where avg_bitmap_size ≈ 0.5-1MB decoded.
+Memory formula: `(photo_count * avg_bitmap_size)` where avg_bitmap_size ≈ 0.8 MB decoded.
 
 ### 2.3 JPEG Quality Optimization
 Add compression during sync (requires pillow):
@@ -170,21 +173,9 @@ Pre-render the clock page server-side, serve as static HTML.
 
 ---
 
-## Monitoring Commands
+## Testing & Monitoring
 
-```bash
-# Quick memory check
-./scripts/check_echo_memory.sh
-
-# Continuous monitoring
-./scripts/monitor_echo_memory.sh
-
-# Detailed WebView memory
-adb shell dumpsys meminfo de.ozerov.fully
-
-# Current photo cache
-ls -la data/slideshow/photos/*.jpg | wc -l && du -sh data/slideshow/photos/
-```
+For monitoring commands and memory baselines, see [ECHO_DEVICE_SETUP.md](ECHO_DEVICE_SETUP.md#memory-monitoring).
 
 ---
 
@@ -195,14 +186,4 @@ ls -la data/slideshow/photos/*.jpg | wc -l && du -sh data/slideshow/photos/
 3. **This week**: Fully Kiosk settings optimization
 4. **Later**: Frontend code optimizations if still needed
 
----
 
-## Success Metrics
-
-| Metric | Current | Target |
-|--------|---------|--------|
-| Free Memory | 69MB | 100MB+ |
-| Available Memory | 288MB | 350MB+ |
-| WebView PSS | 207MB | 180MB |
-| Photo Preload Time | ~30s | ~15s |
-| Slideshow Smoothness | Smooth | Smooth |

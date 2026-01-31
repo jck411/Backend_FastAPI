@@ -157,7 +157,7 @@ START_VOICE=false
 # Sync Slideshow Photos (option 6) - run first so photos are ready for preload
 if $START_SLIDESHOW; then
     echo -e "${GREEN}[6/6] Syncing & Preparing Slideshow Photos (40 max)...${NC}"
-    uv run python scripts/sync_slideshow.py --max-photos 40
+    uv run python scripts/echo/sync_slideshow.py --max-photos 40
     echo ""
 fi
 

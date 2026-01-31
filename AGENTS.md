@@ -19,4 +19,4 @@ These guidelines help Copilot generate code consistent with this repo.
 - Async for blocking I/O; always set timeouts
 - Minimal changes over rewrites; shrink codebase when possible
 
-See [docs/AI_PLAYBOOK.md](../docs/AI_PLAYBOOK.md) for full details.
+See [docs/AI_PLAYBOOK.md](docs/AI_PLAYBOOK.md) for full details.

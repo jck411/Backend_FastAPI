@@ -169,6 +169,23 @@
                 "-y",
                 "@anaisbetts/mcp-server-chrome"
             ]
+        },
+        "sqlite": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-sqlite",
+                "--db-path",
+                "${workspaceFolder}/data/chat_sessions.db"
+            ]
+        },
+        "filesystem": {
+            "command": "npx",
+            "args": [
+                "-y",
+                "@modelcontextprotocol/server-filesystem",
+                "${workspaceFolder}"
+            ]
         }
     }
 }

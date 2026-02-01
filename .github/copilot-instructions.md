@@ -19,7 +19,6 @@ The following MCP servers are configured and available:
 - **Context7**: Query up-to-date library docs (FastAPI, Pydantic, Svelte, etc.). Use before adding dependencies or changing architectures.
 - **SQLite**: Query `data/chat_sessions.db` for conversation history, debugging data issues, analyzing chat patterns.
 - **Filesystem**: Read/write files in workspace. Use for logs, data files, credentials, uploads, client profiles.
-- **GitHub**: Search repos, read files, list issues. Use for code research and repo operations.
 - **Playwright**: Browser automation, web scraping, E2E testing. Use for testing frontend or web interactions.
 - **Chrome DevTools**: Performance analysis, network monitoring, debugging. Use for frontend performance issues.
 

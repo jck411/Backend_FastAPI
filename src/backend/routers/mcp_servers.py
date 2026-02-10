@@ -90,7 +90,6 @@ async def read_mcp_servers(
     settings: MCPServerSettingsService = Depends(get_mcp_settings_service),
 ) -> MCPServerStatusResponse:
     """List all configured MCP servers with connection status and tools."""
-    await mgmt.discover_local()
     return await _build_status_response(mgmt, settings)
 
 
@@ -138,11 +137,12 @@ async def discover_mcp_servers(
     mgmt: MCPManagementService = Depends(get_mcp_management),
     settings: MCPServerSettingsService = Depends(get_mcp_settings_service),
 ) -> MCPServerStatusResponse:
-    """Scan for MCP servers on a network host (or local ports)."""
+    """Scan for MCP servers on a network host (or reconnect configured servers)."""
     if payload and payload.ports:
         await mgmt.discover_servers(payload.host, payload.ports)
     else:
-        await mgmt.discover_local()
+        # No payload = reconnect all configured servers
+        await mgmt.reconnect_all()
     return await _build_status_response(mgmt, settings)
 
 
@@ -184,8 +184,8 @@ async def refresh_mcp_servers(
     mgmt: MCPManagementService = Depends(get_mcp_management),
     settings: MCPServerSettingsService = Depends(get_mcp_settings_service),
 ) -> MCPServerStatusResponse:
-    """Re-list tools from all connected servers."""
-    await mgmt.refresh()
+    """Reconnect configured servers, discover new ones on known hosts, and re-list tools."""
+    await mgmt.reconnect_all()
     return await _build_status_response(mgmt, settings)
 
 

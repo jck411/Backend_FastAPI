@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from ..services.attachments import AttachmentService
     from ..services.client_profiles import ClientProfileService
     from ..services.client_tool_preferences import ClientToolPreferences
+    from ..services.mcp_management import MCPManagementService
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,7 @@ class ChatOrchestrator:
         self._ready = asyncio.Event()
         self._profile_service: ClientProfileService | None = None
         self._tool_preferences: ClientToolPreferences | None = None
+        self._mcp_management: MCPManagementService | None = None
 
     def set_profile_service(self, service: "ClientProfileService | None") -> None:
         """Inject the profile service after application startup wiring."""
@@ -120,16 +122,37 @@ class ChatOrchestrator:
         """Inject the client tool preferences after application startup wiring."""
         self._tool_preferences = service
 
+    def set_mcp_management(self, service: "MCPManagementService | None") -> None:
+        """Inject the MCP management service for auto-discovery."""
+        self._mcp_management = service
+
     async def initialize(self) -> None:
-        """Initialize database only. MCP configs are loaded lazily on first discovery."""
+        """Initialize database and connect to configured MCP servers."""
 
         async with self._init_lock:
             if self._ready.is_set():
                 return
 
             await self._repo.initialize()
-            # Skip MCP config loading at startup - will be loaded on first discovery
-            # This makes startup instant with 0 MCP overhead
+
+            # Connect to configured MCP servers and discover new ones
+            # on known hosts. Servers are external (always-on).
+            try:
+                configs = await self._mcp_settings.get_configs()
+                await self._mcp_client.apply_configs(configs)
+
+                # Auto-discover additional servers on known hosts
+                mgmt = self._mcp_management
+                if mgmt is not None:
+                    discovered = await mgmt.discover_known_hosts()
+                    if discovered:
+                        logger.info(
+                            "Auto-discovered %d new MCP server(s)",
+                            len(discovered),
+                        )
+            except Exception as exc:
+                logger.warning("MCP startup connect failed (non-fatal): %s", exc)
+
             self._ready.set()
             logger.info(
                 "Chat orchestrator ready: %d tool(s) available",
@@ -303,9 +326,14 @@ class ChatOrchestrator:
             ttl=self._settings.attachment_signed_url_ttl,
         )
 
-        # Auto-discover MCP servers if none connected yet
+        # Reconnect configured MCP servers if none connected yet
         if not self._mcp_client.tools:
-            await self.discover_mcp()
+            try:
+                configs = await self._mcp_settings.get_configs()
+                if configs:
+                    await self._mcp_client.apply_configs(configs)
+            except Exception as exc:
+                logger.warning("MCP reconnect attempt failed: %s", exc)
 
         # Determine allowed servers based on profile or client preferences
         profile_id: str | None = None
@@ -411,23 +439,6 @@ class ChatOrchestrator:
         """Expose the underlying MCP aggregator for shared services."""
 
         return self._mcp_client
-
-    async def discover_mcp(self) -> dict[str, bool]:
-        """Scan local ports for running MCP servers and connect to enabled ones.
-
-        Returns a dict mapping port -> is_running.
-        This loads configs on first call (lazy initialisation).
-        """
-        if not self._mcp_client.has_configs:
-            configs = await self._mcp_settings.get_configs()
-            await self._mcp_client.apply_configs(configs)
-
-        discovered = await self._mcp_client.discover_and_connect()
-        logger.info(
-            "MCP discovery triggered: %d tool(s) now available",
-            len(self._mcp_client.tools),
-        )
-        return discovered
 
 
 __all__ = ["ChatOrchestrator"]

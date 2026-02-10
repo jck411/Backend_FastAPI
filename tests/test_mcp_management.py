@@ -203,9 +203,10 @@ async def test_get_status(tmp_path: Path) -> None:
     )
     settings = MCPServerSettingsService(settings_path)
     agg = StubAggregator()
-    # Trigger config loading through discover_local
     mgmt = MCPManagementService(agg, settings)  # type: ignore[arg-type]
-    await mgmt.discover_local()
+    # Load configs via apply_configs (simpler than reconnect_all which scans ports)
+    configs = await settings.get_configs()
+    await agg.apply_configs(configs)
 
     status = await mgmt.get_status()
     assert len(status) == 1

@@ -9,7 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..chat.mcp_registry import MCPServerConfig, MCPToolAggregator
+from ..chat.mcp_registry import (
+    MCP_DISCOVERY_PORTS,
+    MCPServerConfig,
+    MCPToolAggregator,
+)
 from ..services.mcp_server_settings import MCPServerSettingsService
 
 logger = logging.getLogger(__name__)
@@ -88,16 +92,71 @@ class MCPManagementService:
 
         return results
 
-    async def discover_local(self) -> dict[str, bool]:
-        """Scan local MCP discovery ports and connect.
+    async def discover_known_hosts(self) -> list[dict[str, Any]]:
+        """Scan hosts derived from configured server URLs (+ explicit discovery_hosts).
 
-        Loads configs on first call (lazy initialisation).
+        For each host, scans MCP_DISCOVERY_PORTS. Any responding server
+        is auto-connected and persisted to the registry.
+        Returns status dicts for newly discovered servers.
         """
-        if not self._aggregator.has_configs:
-            configs = await self._settings.get_configs()
-            await self._aggregator.apply_configs(configs)
+        configs = await self._settings.get_configs()
+        explicit_hosts = await self._settings.get_discovery_hosts()
 
-        return await self._aggregator.discover_and_connect()
+        # Derive hosts from existing server URLs
+        hosts: set[str] = set(explicit_hosts)
+        for cfg in configs:
+            try:
+                from urllib.parse import urlparse
+
+                parsed = urlparse(cfg.url)
+                if parsed.hostname:
+                    hosts.add(parsed.hostname)
+            except Exception:
+                continue
+
+        if not hosts:
+            return []
+
+        # Build set of already-known URLs to skip
+        known_urls: set[str] = {cfg.url for cfg in configs}
+
+        all_discovered: list[dict[str, Any]] = []
+        ports = list(MCP_DISCOVERY_PORTS)
+
+        for host in sorted(hosts):
+            for port in ports:
+                url = f"http://{host}:{port}/mcp"
+                if url in known_urls:
+                    continue  # Already configured, skip
+                is_running = await self._aggregator.is_server_running(host, port)
+                if not is_running:
+                    continue
+                try:
+                    server_id = await self._aggregator.connect_to_url(url)
+                    # Persist if not already in settings
+                    existing = await self._settings.get_configs()
+                    if not any(c.id == server_id for c in existing):
+                        new_cfg = MCPServerConfig(id=server_id, url=url)
+                        await self._settings.add_server(new_cfg)
+                        logger.info(
+                            "Auto-discovered MCP server '%s' at %s", server_id, url
+                        )
+                    for entry in self._aggregator.describe_servers():
+                        if entry["id"] == server_id:
+                            all_discovered.append(entry)
+                            break
+                except Exception:
+                    logger.debug(
+                        "Port %d on %s responded but MCP connect failed", port, host
+                    )
+
+        return all_discovered
+
+    async def reconnect_all(self) -> None:
+        """Reload configs from disk, reconnect all, and discover new servers."""
+        configs = await self._settings.get_configs()
+        await self._aggregator.apply_configs(configs)
+        await self.discover_known_hosts()
 
     # ------------------------------------------------------------------
     # Status & toggles

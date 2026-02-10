@@ -39,6 +39,7 @@ class MCPServerSettingsService:
         self._fallback = [dict(item) for item in fallback or []]
         self._lock = asyncio.Lock()
         self._configs: list[MCPServerConfig] = []
+        self._discovery_hosts: list[str] = []
         self._updated_at: datetime | None = None
         self._loaded = False
 
@@ -57,6 +58,18 @@ class MCPServerSettingsService:
             )
             configs = [MCPServerConfig.model_validate(item) for item in self._fallback]
         self._configs = [cfg.model_copy(deep=True) for cfg in configs]
+
+        # Load discovery_hosts from the same JSON file
+        self._discovery_hosts = []
+        try:
+            payload = json.loads(self._path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                hosts = payload.get("discovery_hosts", [])
+                if isinstance(hosts, list):
+                    self._discovery_hosts = [str(h) for h in hosts if h]
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+
         try:
             stat = self._path.stat()
             self._updated_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
@@ -65,7 +78,10 @@ class MCPServerSettingsService:
         self._loaded = True
 
     def _save_to_disk(self) -> None:
-        payload = {"servers": [_config_to_payload(cfg) for cfg in self._configs]}
+        payload: dict[str, Any] = {}
+        if self._discovery_hosts:
+            payload["discovery_hosts"] = self._discovery_hosts
+        payload["servers"] = [_config_to_payload(cfg) for cfg in self._configs]
         self._path.parent.mkdir(parents=True, exist_ok=True)
         serialised = json.dumps(payload, indent=2, sort_keys=True)
         self._path.write_text(serialised + "\n", encoding="utf-8")
@@ -163,6 +179,12 @@ class MCPServerSettingsService:
                 self._save_to_disk()
                 return updated.model_copy(deep=True)
         raise KeyError(f"Unknown MCP server id: {server_id}")
+
+    async def get_discovery_hosts(self) -> list[str]:
+        """Return the list of configured discovery hosts."""
+        async with self._lock:
+            self._load_from_disk()
+            return list(self._discovery_hosts)
 
     async def updated_at(self) -> datetime | None:
         async with self._lock:

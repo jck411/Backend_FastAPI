@@ -312,10 +312,10 @@ class MCPToolAggregator:
                     logger.exception("Failed to probe MCP server at %s", url)
                     raise
 
-                # Try to use the server's self-reported name
-                session = getattr(temp_client, "_session", None)
-                if session is not None:
-                    server_info = getattr(session, "server_info", None)
+                # Try to use the server's self-reported name from InitializeResult
+                init_result = getattr(temp_client, "_init_result", None)
+                if init_result is not None:
+                    server_info = getattr(init_result, "serverInfo", None)
                     if server_info is not None:
                         name = getattr(server_info, "name", None)
                         if isinstance(name, str) and name.strip():
@@ -347,16 +347,17 @@ class MCPToolAggregator:
             return server_id
 
     async def apply_configs(self, configs: Sequence[MCPServerConfig]) -> None:
-        """Apply a new configuration set, reconnecting as needed."""
+        """Apply a new configuration set, reconnecting as needed.
+
+        This always attempts to connect to enabled servers — it works on both
+        first call (startup) and subsequent calls (config changes).
+        """
         async with self._lock:
             new_configs = list(configs)
             new_map: dict[str, MCPServerConfig] = {c.id: c for c in new_configs}
             old_map = self._config_map
             self._configs = new_configs
             self._config_map = new_map
-
-            if not self._connected:
-                return
 
             # Disconnect servers that were removed or disabled.
             for server_id, client in list(self._clients.items()):
@@ -378,6 +379,13 @@ class MCPToolAggregator:
                 await self._launch_server(config)
 
             await self._refresh_locked()
+            self._connected = True
+
+            logger.info(
+                "MCP config applied: %d server(s) connected, %d tool(s)",
+                len(self._clients),
+                len(self._binding_order),
+            )
 
     async def refresh(self) -> None:
         """Refresh tool catalogues for all running servers."""

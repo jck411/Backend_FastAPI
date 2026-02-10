@@ -148,6 +148,7 @@ def create_app() -> FastAPI:
     )
     client_tool_preferences = ClientToolPreferences(tool_preferences_path)
     orchestrator.set_tool_preferences(client_tool_preferences)
+    orchestrator.set_mcp_management(mcp_management_service)
 
     attachment_service = AttachmentService(
         orchestrator.repository,

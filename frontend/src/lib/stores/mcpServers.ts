@@ -271,10 +271,32 @@ export function createMcpServersStore() {
       const server = await connectMcpServer(url);
       // Reload the full list to get consistent state
       const response = await fetchMcpServers();
-      store.update((state) => ({
-        ...mergeResponse(state, response),
-        saving: false,
-      }));
+
+      // Auto-enable the new server in client preferences ("Use in chat")
+      const snapshot = get(store);
+      const current = snapshot.enabledServers ?? response.servers.map((s) => s.id);
+      if (!current.includes(server.id)) {
+        const updated = [...current, server.id];
+        try {
+          const prefs = await updateClientPreferences(CLIENT_ID, updated);
+          store.update((state) => ({
+            ...mergeResponse(state, response),
+            enabledServers: prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null,
+            saving: false,
+          }));
+        } catch {
+          // Preference update failed, but server is still connected
+          store.update((state) => ({
+            ...mergeResponse(state, response),
+            saving: false,
+          }));
+        }
+      } else {
+        store.update((state) => ({
+          ...mergeResponse(state, response),
+          saving: false,
+        }));
+      }
       return server;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to connect to MCP server.';

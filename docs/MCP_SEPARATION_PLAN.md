@@ -4,7 +4,30 @@
 **Created:** February 9, 2026
 **Goal:** Decouple MCP servers from the chat application. Backend becomes a pure MCP client (consumer). MCP servers become standalone always-on services deployed to Proxmox.
 
-**Status:** Stage 1 + Stage 1.5 complete. Ready for Stage 2.
+**Status:** Stage 1 + Stage 1.5 complete. Start scripts updated. Ready for Stage 2.
+
+---
+
+## Start Script Changes
+
+After Stage 1, the backend is a pure MCP client. MCP servers are always-on external services — they are **not** launched by `start.sh`.
+
+**Removed from `start.sh`:**
+- Option 2 (MCP Servers) — servers are external, always running
+- `pkill` commands for `start_mcp_servers.py` and `mcp_registry`
+- Port cleanup for 9001-9012
+
+**Renumbered options:**
+| # | Component |
+|---|-----------|
+| 1 | Backend (FastAPI on :8000) |
+| 2 | Frontend (Svelte chat UI on :5173) |
+| 3 | Frontend-Kiosk (Kiosk UI on :5174) |
+| 4 | Frontend-CLI (Terminal chat client) |
+| 5 | Slideshow Sync (Google Photos) |
+| 6 | Voice PWA (Voice UI on :5175) |
+
+**Deleted:** `scripts/start_mcp_servers.py` — was dead code (depended on removed `module`/`http_port` config fields).
 
 ---
 

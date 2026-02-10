@@ -30,6 +30,7 @@ class MCPToolClient:
         self._server_id = server_id or url
         self._exit_stack: AsyncExitStack | None = None
         self._session: ClientSession | None = None
+        self._init_result: Any | None = None  # InitializeResult from MCP handshake
         self._tools: list[Tool] = []
         self._lock = asyncio.Lock()
         self._lifecycle_task: asyncio.Task | None = None
@@ -76,11 +77,12 @@ class MCPToolClient:
 
             session = ClientSession(read_stream, write_stream)
             await exit_stack.enter_async_context(session)
-            await session.initialize()
+            init_result = await session.initialize()
 
             async with self._lock:
                 self._exit_stack = exit_stack
                 self._session = session
+                self._init_result = init_result
                 self._last_connection_error = None
 
             await self.refresh_tools()

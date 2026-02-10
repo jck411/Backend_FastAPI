@@ -5,18 +5,22 @@
 # ============================================================
 # Starts selected components of the stack:
 #   1 - Backend        (FastAPI on :8000)
-#   2 - MCP Servers    (Standalone MCP pool on :9001-9012)
-#   3 - Frontend       (Svelte chat UI on :5173)
-#   4 - Frontend-Kiosk (Kiosk UI on :5174)
-#   5 - Frontend-CLI   (Terminal chat client)
-#   6 - Slideshow Sync (Download photos from Google Photos)
+#   2 - Frontend       (Svelte chat UI on :5173)
+#   3 - Frontend-Kiosk (Kiosk UI on :5174)
+#   4 - Frontend-CLI   (Terminal chat client)
+#   5 - Slideshow Sync (Download photos from Google Photos)
+#   6 - Voice PWA      (Voice UI on :5175)
+#
+# MCP servers are always-on external services (deployed to
+# Proxmox). The backend connects to them automatically —
+# they do NOT need to be launched from this script.
 #
 # Usage:
 #   ./start.sh         # Interactive menu
-#   ./start.sh 21      # Start MCP + Backend
-#   ./start.sh 213     # Start MCP + Backend + Frontend
-#   ./start.sh all     # Start MCP + Backend + Frontend + Kiosk + Slideshow
-#   ./start.sh 6       # Just sync slideshow photos
+#   ./start.sh 1       # Start Backend only
+#   ./start.sh 12      # Start Backend + Frontend
+#   ./start.sh all     # Start Backend + Frontend + Kiosk + Slideshow + Voice
+#   ./start.sh 5       # Just sync slideshow photos
 # ============================================================
 
 set -e
@@ -57,10 +61,6 @@ kill_existing() {
 
     # Kill uvicorn processes for this project
     pkill -f "uvicorn backend.app:create_app" 2>/dev/null || true
-
-    # Kill MCP server processes
-    pkill -f "start_mcp_servers.py" 2>/dev/null || true
-    pkill -f "mcp_registry" 2>/dev/null || true
 
     # Kill node/npm processes for frontends
     pkill -f "node.*frontend" 2>/dev/null || true
@@ -105,22 +105,23 @@ else
     echo -e "${BOLD}╚════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "  ${CYAN}1${NC} - Backend        (FastAPI on :8000)"
-    echo -e "  ${CYAN}2${NC} - MCP Servers    (Standalone pool on :9001-9012)"
-    echo -e "  ${CYAN}3${NC} - Frontend       (Svelte chat UI on :5173)"
-    echo -e "  ${CYAN}4${NC} - Frontend-Kiosk (Kiosk UI on :5174)"
-    echo -e "  ${CYAN}5${NC} - Frontend-CLI   (Terminal chat client)"
-    echo -e "  ${CYAN}6${NC} - Slideshow Sync (Download & preload photos from Google Photos)"
-    echo -e "  ${CYAN}7${NC} - Voice PWA      (Voice UI on :5175)"
+    echo -e "  ${CYAN}2${NC} - Frontend       (Svelte chat UI on :5173)"
+    echo -e "  ${CYAN}3${NC} - Frontend-Kiosk (Kiosk UI on :5174)"
+    echo -e "  ${CYAN}4${NC} - Frontend-CLI   (Terminal chat client)"
+    echo -e "  ${CYAN}5${NC} - Slideshow Sync (Download & preload photos from Google Photos)"
+    echo -e "  ${CYAN}6${NC} - Voice PWA      (Voice UI on :5175)"
     echo ""
-    echo -e "  ${CYAN}all${NC} - Start 1, 2, 3, 4, 6, and 7 (full web stack + slideshow)"
+    echo -e "  ${YELLOW}MCP servers are always-on (external). No launch needed.${NC}"
     echo ""
-    echo -e "${BOLD}Enter selection (e.g., '12' or '146' or 'all'):${NC} "
+    echo -e "  ${CYAN}all${NC} - Start 1, 2, 3, 5, and 6 (full web stack + slideshow)"
+    echo ""
+    echo -e "${BOLD}Enter selection (e.g., '12' or '135' or 'all'):${NC} "
     read -r selection
 fi
 
 # Handle 'all' shortcut
 if [[ "$selection" == "all" ]]; then
-    selection="123467"
+    selection="12356"
 fi
 
 # Validate input
@@ -129,8 +130,8 @@ if [[ -z "$selection" ]]; then
     exit 1
 fi
 
-if [[ ! "$selection" =~ ^[1-7]+$ ]]; then
-    echo -e "${RED}Invalid selection. Use only numbers 1-7 or 'all'.${NC}"
+if [[ ! "$selection" =~ ^[1-6]+$ ]]; then
+    echo -e "${RED}Invalid selection. Use only numbers 1-6 or 'all'.${NC}"
     exit 1
 fi
 
@@ -138,7 +139,6 @@ echo ""
 
 # Track what we're starting
 START_BACKEND=false
-START_MCP=false
 START_FRONTEND=false
 START_KIOSK=false
 START_CLI=false
@@ -147,34 +147,22 @@ START_VOICE=false
 
 # Parse selection
 [[ "$selection" == *"1"* ]] && START_BACKEND=true
-[[ "$selection" == *"2"* ]] && START_MCP=true
-[[ "$selection" == *"3"* ]] && START_FRONTEND=true
-[[ "$selection" == *"4"* ]] && START_KIOSK=true
-[[ "$selection" == *"5"* ]] && START_CLI=true
-[[ "$selection" == *"6"* ]] && START_SLIDESHOW=true
-[[ "$selection" == *"7"* ]] && START_VOICE=true
+[[ "$selection" == *"2"* ]] && START_FRONTEND=true
+[[ "$selection" == *"3"* ]] && START_KIOSK=true
+[[ "$selection" == *"4"* ]] && START_CLI=true
+[[ "$selection" == *"5"* ]] && START_SLIDESHOW=true
+[[ "$selection" == *"6"* ]] && START_VOICE=true
 
-# Sync Slideshow Photos (option 6) - run first so photos are ready for preload
+# Sync Slideshow Photos (option 5) - run first so photos are ready for preload
 if $START_SLIDESHOW; then
-    echo -e "${GREEN}[6/6] Syncing & Preparing Slideshow Photos (40 max)...${NC}"
+    echo -e "${GREEN}[5] Syncing & Preparing Slideshow Photos (40 max)...${NC}"
     uv run python scripts/echo/sync_slideshow.py --max-photos 40
     echo ""
 fi
 
-# Start MCP Servers (option 2) - start first so backend can connect
-if $START_MCP; then
-    echo -e "${GREEN}[2/6] Starting MCP Servers...${NC}"
-    for port in {9001..9012}; do
-        uv run python scripts/kill_port.py "$port"
-    done
-    uv run python scripts/start_mcp_servers.py &
-    PIDS+=($!)
-    sleep 3  # Give MCP servers time to start
-fi
-
 # Start Backend (option 1)
 if $START_BACKEND; then
-    echo -e "${GREEN}[1/6] Starting Backend...${NC}"
+    echo -e "${GREEN}[1] Starting Backend...${NC}"
     uv run python scripts/kill_port.py 8000
     uv run uvicorn backend.app:create_app \
         --factory \
@@ -191,27 +179,27 @@ if $START_BACKEND && ($START_FRONTEND || $START_KIOSK || $START_VOICE); then
     wait_for_backend
 fi
 
-# Start Frontend (option 3)
+# Start Frontend (option 2)
 if $START_FRONTEND; then
-    echo -e "${GREEN}[3/6] Starting Frontend (Svelte)...${NC}"
+    echo -e "${GREEN}[2] Starting Frontend (Svelte)...${NC}"
     uv run python scripts/kill_port.py 5173
     cd frontend && npm run dev &
     PIDS+=($!)
     cd "$SCRIPT_DIR"
 fi
 
-# Start Kiosk (option 4)
+# Start Kiosk (option 3)
 if $START_KIOSK; then
-    echo -e "${GREEN}[4/6] Starting Frontend-Kiosk...${NC}"
+    echo -e "${GREEN}[3] Starting Frontend-Kiosk...${NC}"
     uv run python scripts/kill_port.py 5174
     cd frontend-kiosk && npm run dev &
     PIDS+=($!)
     cd "$SCRIPT_DIR"
 fi
 
-# Start Voice PWA (option 7)
+# Start Voice PWA (option 6)
 if $START_VOICE; then
-    echo -e "${GREEN}[7/7] Starting Voice PWA...${NC}"
+    echo -e "${GREEN}[6] Starting Voice PWA...${NC}"
     uv run python scripts/kill_port.py 5175
     cd frontend-voice && npm run dev &
     PIDS+=($!)
@@ -219,11 +207,11 @@ if $START_VOICE; then
 fi
 
 
-# Start CLI (option 5) - interactive, runs in foreground
+# Start CLI (option 4) - interactive, runs in foreground
 if $START_CLI; then
-    if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK || $START_VOICE; then
+    if $START_BACKEND || $START_FRONTEND || $START_KIOSK || $START_VOICE; then
         # Other services running, start CLI after them
-        echo -e "${GREEN}[5/6] Starting Frontend-CLI...${NC}"
+        echo -e "${GREEN}[4] Starting Frontend-CLI...${NC}"
         echo ""
         sleep 1
         source .venv/bin/activate && shell-chat
@@ -233,8 +221,8 @@ if $START_CLI; then
         echo -e "Press ${RED}Ctrl+C${NC} to stop all servers"
     else
         # CLI is the only selection
-        echo -e "${GREEN}[5/6] Starting Frontend-CLI...${NC}"
-        echo -e "${YELLOW}Note: Backend is not running. Start with './start.sh 125' to run both.${NC}"
+        echo -e "${GREEN}[4] Starting Frontend-CLI...${NC}"
+        echo -e "${YELLOW}Note: Backend is not running. Start with './start.sh 14' to run both.${NC}"
         echo ""
         source .venv/bin/activate && shell-chat
         exit 0
@@ -242,16 +230,13 @@ if $START_CLI; then
 fi
 
 # Show status (only if we have background services)
-if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK || $START_VOICE; then
+if $START_BACKEND || $START_FRONTEND || $START_KIOSK || $START_VOICE; then
     echo ""
     echo -e "${BOLD}═══════════════════════════════════════════════${NC}"
     echo -e "${BOLD}Running Services:${NC}"
 
     if $START_SLIDESHOW; then
         echo -e "  ${GREEN}✓${NC} Slideshow:      Photos synced"
-    fi
-    if $START_MCP; then
-        echo -e "  ${GREEN}✓${NC} MCP Servers:    http://localhost:9001-9012"
     fi
     if $START_BACKEND; then
         echo -e "  ${GREEN}✓${NC} Backend:        https://localhost:8000"
@@ -266,6 +251,8 @@ if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK || $START_VOI
         echo -e "  ${GREEN}✓${NC} Voice PWA:      http://localhost:5175"
     fi
 
+    echo -e "  ${CYAN}ℹ${NC} MCP Servers:    Always-on (external)"
+
     # Show network access info
     LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
     if [ -z "$LOCAL_IP" ]; then
@@ -275,9 +262,6 @@ if $START_MCP || $START_BACKEND || $START_FRONTEND || $START_KIOSK || $START_VOI
     if [ -n "$LOCAL_IP" ]; then
         echo ""
         echo -e "${BOLD}Network Access (from other machines):${NC}"
-        if $START_MCP; then
-            echo -e "  MCP Servers:    http://${LOCAL_IP}:9001-9012"
-        fi
         if $START_BACKEND; then
             echo -e "  Backend:        https://${LOCAL_IP}:8000"
         fi

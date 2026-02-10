@@ -43,7 +43,7 @@ class StubMCPManagement:
 
     def __init__(self, servers: list[dict[str, Any]] | None = None) -> None:
         self._servers = list(servers or [])
-        self.discover_local_calls = 0
+        self.reconnect_all_calls = 0
         self.refresh_calls = 0
         self.toggle_server_calls: list[tuple[str, bool]] = []
         self.toggle_tool_calls: list[tuple[str, str, bool]] = []
@@ -71,14 +71,13 @@ class StubMCPManagement:
         if len(self._servers) == before:
             raise KeyError(server_id)
 
-    async def discover_local(self) -> dict[str, bool]:
-        self.discover_local_calls += 1
-        return {}
-
     async def discover_servers(
         self, host: str, ports: list[int]
     ) -> list[dict[str, Any]]:
         return []
+
+    async def reconnect_all(self) -> None:
+        self.reconnect_all_calls += 1
 
     async def toggle_server(self, server_id: str, enabled: bool) -> None:
         self.toggle_server_calls.append((server_id, enabled))
@@ -348,7 +347,7 @@ async def test_router_refresh() -> None:
         resp = await client.post("/api/mcp/servers/refresh")
 
     assert resp.status_code == 200
-    assert mgmt.refresh_calls == 1
+    assert mgmt.reconnect_all_calls == 1
 
 
 # ------------------------------------------------------------------

@@ -55,9 +55,7 @@ class MCPServerSettingsService:
             logger.warning(
                 "Failed to load MCP server configs from %s: %s", self._path, exc
             )
-            configs = [
-                MCPServerConfig.model_validate(item) for item in self._fallback
-            ]
+            configs = [MCPServerConfig.model_validate(item) for item in self._fallback]
         self._configs = [cfg.model_copy(deep=True) for cfg in configs]
         try:
             stat = self._path.stat()
@@ -124,17 +122,13 @@ class MCPServerSettingsService:
         *,
         enabled: bool | None = None,
         disabled_tools: Iterable[str] | None = None,
-        overrides: dict[str, Any] | None = None,
     ) -> MCPServerConfig:
         """Apply targeted updates to an individual server configuration."""
-        overrides = overrides or {}
-        patch_data = dict(overrides)
+        patch_data: dict[str, Any] = {}
         if enabled is not None:
             patch_data["enabled"] = enabled
         if disabled_tools is not None:
             patch_data["disabled_tools"] = list(disabled_tools)
-        if "id" in patch_data and patch_data["id"] != server_id:
-            raise ValueError("Server id cannot be changed")
 
         async with self._lock:
             self._load_from_disk()

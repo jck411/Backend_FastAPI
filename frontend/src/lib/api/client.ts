@@ -6,14 +6,19 @@ import type {
   AttachmentUploadResponse,
   ChatCompletionChunk,
   ChatCompletionRequest,
+  ClientPreferences,
+  ClientPreferencesUpdate,
   DeepgramTokenResponse,
   GenerationDetailsResponse,
   GoogleAuthAuthorizeRequest,
   GoogleAuthAuthorizeResponse,
   GoogleAuthStatusResponse,
-  McpServersCollectionPayload,
+  McpServerConnectPayload,
+  McpServerDiscoverPayload,
   McpServersResponse,
+  McpServerStatus,
   McpServerUpdatePayload,
+  McpToolTogglePayload,
   ModelListResponse,
   MonarchCredentials,
   MonarchStatusResponse,
@@ -148,13 +153,18 @@ export async function fetchMcpServers(): Promise<McpServersResponse> {
   return requestJson<McpServersResponse>(resolveApiPath('/api/mcp/servers/'));
 }
 
-export async function replaceMcpServers(
-  payload: McpServersCollectionPayload,
-): Promise<McpServersResponse> {
-  return requestJson<McpServersResponse>(resolveApiPath('/api/mcp/servers/'), {
-    method: 'PUT',
-    body: JSON.stringify(payload),
+export async function connectMcpServer(url: string): Promise<McpServerStatus> {
+  return requestJson<McpServerStatus>(resolveApiPath('/api/mcp/servers/connect'), {
+    method: 'POST',
+    body: JSON.stringify({ url } satisfies McpServerConnectPayload),
   });
+}
+
+export async function removeMcpServer(serverId: string): Promise<void> {
+  await requestVoid(
+    resolveApiPath(`/api/mcp/servers/${encodeURIComponent(serverId)}`),
+    { method: 'DELETE' },
+  );
 }
 
 export async function patchMcpServer(
@@ -168,6 +178,18 @@ export async function patchMcpServer(
   });
 }
 
+export async function toggleMcpTool(
+  serverId: string,
+  toolName: string,
+  enabled: boolean,
+): Promise<McpServersResponse> {
+  const path = `/api/mcp/servers/${encodeURIComponent(serverId)}/tools`;
+  return requestJson<McpServersResponse>(resolveApiPath(path), {
+    method: 'POST',
+    body: JSON.stringify({ tool_name: toolName, enabled } satisfies McpToolTogglePayload),
+  });
+}
+
 export async function refreshMcpServers(): Promise<McpServersResponse> {
   return requestJson<McpServersResponse>(resolveApiPath('/api/mcp/servers/refresh'), {
     method: 'POST',
@@ -175,15 +197,34 @@ export async function refreshMcpServers(): Promise<McpServersResponse> {
   });
 }
 
-export async function setMcpServerClientEnabled(
-  serverId: string,
-  clientId: string,
-  enabled: boolean,
+export async function discoverMcpServers(
+  payload?: McpServerDiscoverPayload,
 ): Promise<McpServersResponse> {
-  const path = `/api/mcp/servers/${encodeURIComponent(serverId)}/clients/${encodeURIComponent(clientId)}?enabled=${enabled}`;
-  return requestJson<McpServersResponse>(resolveApiPath(path), {
-    method: 'PATCH',
+  return requestJson<McpServersResponse>(resolveApiPath('/api/mcp/servers/discover'), {
+    method: 'POST',
+    body: JSON.stringify(payload ?? {}),
   });
+}
+
+export async function fetchClientPreferences(
+  clientId: string,
+): Promise<ClientPreferences> {
+  return requestJson<ClientPreferences>(
+    resolveApiPath(`/api/mcp/preferences/${encodeURIComponent(clientId)}`),
+  );
+}
+
+export async function updateClientPreferences(
+  clientId: string,
+  enabledServers: string[],
+): Promise<ClientPreferences> {
+  return requestJson<ClientPreferences>(
+    resolveApiPath(`/api/mcp/preferences/${encodeURIComponent(clientId)}`),
+    {
+      method: 'PUT',
+      body: JSON.stringify({ enabled_servers: enabledServers } satisfies ClientPreferencesUpdate),
+    },
+  );
 }
 
 export async function fetchGoogleAuthStatus(): Promise<GoogleAuthStatusResponse> {

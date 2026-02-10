@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from backend.chat.mcp_registry import MCPServerConfig, MCPToolAggregator
+from backend.chat.mcp_registry import MCPServerConfig
 from backend.services.mcp_management import MCPManagementService
 from backend.services.mcp_server_settings import MCPServerSettingsService
 
@@ -34,9 +34,7 @@ class StubAggregator:
         self.refresh_calls = 0
         self.apply_configs_calls = 0
 
-    async def connect_to_url(
-        self, url: str, server_id: str | None = None
-    ) -> str:
+    async def connect_to_url(self, url: str, server_id: str | None = None) -> str:
         sid = server_id or url.rstrip("/").rsplit("/", 1)[0].rsplit(":", 1)[-1]
         self._connected[sid] = url
         return sid
@@ -46,9 +44,7 @@ class StubAggregator:
         self._configs = list(configs)
         # Remove clients whose server was removed or disabled
         new_ids = {c.id for c in configs if c.enabled}
-        self._connected = {
-            k: v for k, v in self._connected.items() if k in new_ids
-        }
+        self._connected = {k: v for k, v in self._connected.items() if k in new_ids}
 
     async def refresh(self) -> None:
         self.refresh_calls += 1
@@ -56,8 +52,15 @@ class StubAggregator:
     async def discover_and_connect(self) -> dict[str, bool]:
         return {}
 
-    async def _is_server_running(self, host: str, port: int) -> bool:
+    async def is_server_running(self, host: str, port: int) -> bool:
         return False
+
+    def get_configs(self) -> list[MCPServerConfig]:
+        return list(self._configs)
+
+    @property
+    def has_configs(self) -> bool:
+        return bool(self._configs)
 
     def describe_servers(self) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
@@ -98,13 +101,7 @@ async def test_connect_server(tmp_path: Path) -> None:
 async def test_connect_server_already_known(tmp_path: Path) -> None:
     settings_path = tmp_path / "servers.json"
     settings_path.write_text(
-        json.dumps(
-            {
-                "servers": [
-                    {"id": "9001", "url": "http://127.0.0.1:9001/mcp"}
-                ]
-            }
-        ),
+        json.dumps({"servers": [{"id": "9001", "url": "http://127.0.0.1:9001/mcp"}]}),
         encoding="utf-8",
     )
     settings = MCPServerSettingsService(settings_path)
@@ -155,13 +152,7 @@ async def test_remove_unknown_raises(tmp_path: Path) -> None:
 async def test_toggle_server(tmp_path: Path) -> None:
     settings_path = tmp_path / "servers.json"
     settings_path.write_text(
-        json.dumps(
-            {
-                "servers": [
-                    {"id": "alpha", "url": "http://127.0.0.1:9001/mcp"}
-                ]
-            }
-        ),
+        json.dumps({"servers": [{"id": "alpha", "url": "http://127.0.0.1:9001/mcp"}]}),
         encoding="utf-8",
     )
     settings = MCPServerSettingsService(settings_path)
@@ -177,13 +168,7 @@ async def test_toggle_server(tmp_path: Path) -> None:
 async def test_toggle_tool(tmp_path: Path) -> None:
     settings_path = tmp_path / "servers.json"
     settings_path.write_text(
-        json.dumps(
-            {
-                "servers": [
-                    {"id": "alpha", "url": "http://127.0.0.1:9001/mcp"}
-                ]
-            }
-        ),
+        json.dumps({"servers": [{"id": "alpha", "url": "http://127.0.0.1:9001/mcp"}]}),
         encoding="utf-8",
     )
     settings = MCPServerSettingsService(settings_path)
@@ -213,13 +198,7 @@ async def test_refresh(tmp_path: Path) -> None:
 async def test_get_status(tmp_path: Path) -> None:
     settings_path = tmp_path / "servers.json"
     settings_path.write_text(
-        json.dumps(
-            {
-                "servers": [
-                    {"id": "alpha", "url": "http://127.0.0.1:9001/mcp"}
-                ]
-            }
-        ),
+        json.dumps({"servers": [{"id": "alpha", "url": "http://127.0.0.1:9001/mcp"}]}),
         encoding="utf-8",
     )
     settings = MCPServerSettingsService(settings_path)

@@ -22,7 +22,6 @@ from pydantic import (
     Field,
     ValidationError,
     field_validator,
-    model_validator,
 )
 
 from .mcp_client import MCPToolClient
@@ -51,30 +50,6 @@ class MCPServerConfig(BaseModel):
     disabled_tools: set[str] = Field(
         default_factory=set, description="Tool names to hide from LLM"
     )
-
-    # ------------------------------------------------------------------
-    # Migration helpers — read legacy ``http_port`` / ``http_url`` fields
-    # and convert them to the canonical ``url`` field.
-    # ------------------------------------------------------------------
-
-    @model_validator(mode="before")
-    @classmethod
-    def _migrate_legacy_format(cls, data: Any) -> Any:
-        """Convert legacy http_port/http_url config entries to ``url``."""
-        if not isinstance(data, dict):
-            return data
-        if "url" in data:
-            return data
-        # Legacy http_url field
-        if data.get("http_url"):
-            data["url"] = data["http_url"]
-            return data
-        # Legacy http_port field
-        http_port = data.get("http_port")
-        if http_port is not None:
-            data["url"] = f"http://127.0.0.1:{http_port}/mcp"
-            return data
-        return data
 
     @field_validator("disabled_tools", mode="before")
     @classmethod
@@ -237,6 +212,11 @@ class MCPToolAggregator:
         """Return the raw MCP tool descriptors across all servers."""
         return [b.tool for b in self._binding_order]
 
+    @property
+    def has_configs(self) -> bool:
+        """Whether any server configurations have been loaded."""
+        return bool(self._configs)
+
     # ------------------------------------------------------------------
     # Connection lifecycle
     # ------------------------------------------------------------------
@@ -280,7 +260,7 @@ class MCPToolAggregator:
             discovered: dict[str, bool] = {}
 
             for port in MCP_DISCOVERY_PORTS:
-                is_running = await self._is_server_running("127.0.0.1", port)
+                is_running = await self.is_server_running("127.0.0.1", port)
                 discovered[str(port)] = is_running
 
                 if not is_running:
@@ -290,9 +270,7 @@ class MCPToolAggregator:
                 config = self._config_for_url_or_port(url, port)
 
                 if config is None:
-                    logger.info(
-                        "MCP server on port %d has no config, skipping", port
-                    )
+                    logger.info("MCP server on port %d has no config, skipping", port)
                     continue
                 if config.id in self._clients:
                     continue
@@ -319,12 +297,34 @@ class MCPToolAggregator:
     async def connect_to_url(self, url: str, server_id: str | None = None) -> str:
         """Connect to a specific MCP server by URL.
 
-        If *server_id* is ``None`` it is derived from the URL. Returns the
-        server id actually used.
+        If *server_id* is ``None`` it is derived from the MCP server's
+        self-reported name, falling back to ``host-port``.
+        Returns the server id actually used.
         """
         async with self._lock:
+            # Connect first to discover server name when no ID is given
+            temp_client: MCPToolClient | None = None
             if server_id is None:
-                server_id = url.rstrip("/").rsplit("/", 1)[0].rsplit(":", 1)[-1]
+                temp_client = MCPToolClient(url=url, server_id=url)
+                try:
+                    await temp_client.connect()
+                except Exception:
+                    logger.exception("Failed to probe MCP server at %s", url)
+                    raise
+
+                # Try to use the server's self-reported name
+                session = getattr(temp_client, "_session", None)
+                if session is not None:
+                    server_info = getattr(session, "server_info", None)
+                    if server_info is not None:
+                        name = getattr(server_info, "name", None)
+                        if isinstance(name, str) and name.strip():
+                            server_id = name.strip().lower().replace(" ", "-")
+                if server_id is None:
+                    from urllib.parse import urlparse
+
+                    parsed = urlparse(url)
+                    server_id = f"{parsed.hostname or 'unknown'}-{parsed.port or 0}"
 
             config = self._config_map.get(server_id)
             if config is None:
@@ -333,7 +333,13 @@ class MCPToolAggregator:
                 self._config_map[server_id] = config
 
             if config.id in self._clients:
+                # Already connected — close the temp client if we opened one
+                if temp_client is not None:
+                    await temp_client.close()
                 logger.info("Server '%s' already connected", config.id)
+            elif temp_client is not None:
+                # Re-use the already-connected temp client
+                self._clients[config.id] = temp_client
             else:
                 await self._launch_server(config)
 
@@ -345,6 +351,7 @@ class MCPToolAggregator:
         async with self._lock:
             new_configs = list(configs)
             new_map: dict[str, MCPServerConfig] = {c.id: c for c in new_configs}
+            old_map = self._config_map
             self._configs = new_configs
             self._config_map = new_map
 
@@ -359,7 +366,7 @@ class MCPToolAggregator:
                     self._clients.pop(server_id, None)
                     continue
                 # If the URL changed, reconnect.
-                old_cfg = self._config_map.get(server_id)
+                old_cfg = old_map.get(server_id)
                 if old_cfg and old_cfg.url != new_cfg.url:
                     await client.close()
                     self._clients.pop(server_id, None)
@@ -423,12 +430,12 @@ class MCPToolAggregator:
         binding = self._bindings.get(name)
         if binding is None:
             raise ValueError(f"Unknown tool: {name}")
-        logger.info(
-            "[MCP] Dispatching '%s' to server '%s'", name, binding.config.id
-        )
+        logger.info("[MCP] Dispatching '%s' to server '%s'", name, binding.config.id)
         try:
             result = await binding.client.call_tool(name, arguments)
-            logger.info("[MCP] Tool '%s' completed (server '%s')", name, binding.config.id)
+            logger.info(
+                "[MCP] Tool '%s' completed (server '%s')", name, binding.config.id
+            )
             return result
         except Exception as exc:
             logger.error("[MCP] Tool '%s' FAILED: %s", name, exc)
@@ -487,19 +494,16 @@ class MCPToolAggregator:
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _config_for_url_or_port(
-        self, url: str, port: int
-    ) -> MCPServerConfig | None:
-        """Find a config matching the given URL or legacy port."""
+    def _config_for_url_or_port(self, url: str, port: int) -> MCPServerConfig | None:
+        """Find a config matching the given URL or port."""
         for cfg in self._configs:
             if cfg.url == url:
                 return cfg
-            # Legacy check — url might contain the port
-            if f":{port}/mcp" in cfg.url or f":{port}/" in cfg.url:
+            if f":{port}/mcp" in cfg.url:
                 return cfg
         return None
 
-    async def _is_server_running(self, host: str, port: int) -> bool:
+    async def is_server_running(self, host: str, port: int) -> bool:
         """Check if a server is accepting connections on the given port."""
         try:
             reader, writer = await asyncio.wait_for(

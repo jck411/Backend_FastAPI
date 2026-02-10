@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -88,9 +88,7 @@ class StubMCPManagement:
                 return
         raise KeyError(server_id)
 
-    async def toggle_tool(
-        self, server_id: str, tool_name: str, enabled: bool
-    ) -> None:
+    async def toggle_tool(self, server_id: str, tool_name: str, enabled: bool) -> None:
         self.toggle_tool_calls.append((server_id, tool_name, enabled))
 
     async def refresh(self) -> None:
@@ -138,9 +136,7 @@ class StubToolPreferences:
     async def get_enabled_servers(self, client_id: str) -> list[str] | None:
         return self._data.get(client_id)
 
-    async def set_enabled_servers(
-        self, client_id: str, server_ids: list[str]
-    ) -> None:
+    async def set_enabled_servers(self, client_id: str, server_ids: list[str]) -> None:
         self._data[client_id] = server_ids
 
 
@@ -172,7 +168,7 @@ def _make_app(
 
 async def test_service_loads_fallback_and_persists(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"
-    fallback = [{"id": "alpha", "http_port": 9101}]
+    fallback = [{"id": "alpha", "url": "http://127.0.0.1:9101/mcp"}]
 
     service = MCPServerSettingsService(path, fallback=fallback)
     configs = await service.get_configs()
@@ -229,9 +225,7 @@ async def test_service_remove_unknown_raises(tmp_path: Path) -> None:
 async def test_service_patch_and_toggle_tool(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"
     path.write_text(
-        json.dumps(
-            {"servers": [{"id": "alpha", "url": "http://127.0.0.1:9001/mcp"}]}
-        ),
+        json.dumps({"servers": [{"id": "alpha", "url": "http://127.0.0.1:9001/mcp"}]}),
         encoding="utf-8",
     )
 
@@ -319,9 +313,7 @@ async def test_router_patch_toggles_server() -> None:
     app = _make_app(mgmt=mgmt, settings=settings)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.patch(
-            "/api/mcp/servers/alpha", json={"enabled": False}
-        )
+        resp = await client.patch("/api/mcp/servers/alpha", json={"enabled": False})
 
     assert resp.status_code == 200
     assert mgmt.toggle_server_calls == [("alpha", False)]

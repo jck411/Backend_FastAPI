@@ -15,31 +15,30 @@ from .chat.orchestrator import ChatOrchestrator
 from .config import get_settings
 from .logging_handlers import DateStampedFileHandler, cleanup_old_logs
 from .logging_settings import parse_logging_settings
+from .routers.alarms import router as alarms_router
 from .routers.chat import router as chat_router
+from .routers.clients import router as clients_router
 from .routers.google_auth import router as google_auth_router
+from .routers.kiosk_calendar import router as kiosk_calendar_router
 from .routers.mcp_servers import router as mcp_router
 from .routers.monarch_auth import router as monarch_auth_router
+from .routers.profiles import router as profiles_router
+from .routers.slideshow import router as slideshow_router
 from .routers.spotify_auth import router as spotify_auth_router
 from .routers.stt import router as stt_router
-from .routers.clients import router as clients_router
 from .routers.suggestions import router as suggestions_router
 from .routers.uploads import router as uploads_router
 from .routers.weather import router as weather_router
-from .routers.slideshow import router as slideshow_router
-from .routers.kiosk_calendar import router as kiosk_calendar_router
-from .routers.alarms import router as alarms_router
+from .services.alarm_repository import AlarmRepository
+from .services.alarm_scheduler import AlarmSchedulerService
 from .services.attachments import AttachmentService
 from .services.attachments_cleanup import cleanup_expired_attachments
-from .services.client_tool_preferences import ClientToolPreferences
 from .services.client_profiles import ClientProfileService
+from .services.client_tool_preferences import ClientToolPreferences
 from .services.mcp_management import MCPManagementService
 from .services.mcp_server_settings import MCPServerSettingsService
 from .services.model_settings import ModelSettingsService
 from .services.suggestions import SuggestionsService
-from .services.alarm_repository import AlarmRepository
-from .services.alarm_scheduler import AlarmSchedulerService
-from .routers.profiles import router as profiles_router
-
 
 
 def _configure_logging() -> None:
@@ -274,11 +273,11 @@ def create_app() -> FastAPI:
     # helper for voice assistant imports to avoid circular deps if any,
     # though here it should be fine.
     from .routers import voice_assistant
-    from .services.voice_session import VoiceConnectionManager
+    from .services.kiosk_chat_service import KioskChatService
     from .services.stt_service import STTService
     from .services.tts_service import TTSService
-    from .services.kiosk_chat_service import KioskChatService
     from .services.voice_chat_service import VoiceChatService
+    from .services.voice_session import VoiceConnectionManager
 
     try:
         app.state.voice_manager = VoiceConnectionManager()
@@ -336,7 +335,6 @@ def create_app() -> FastAPI:
 
     from fastapi.staticfiles import StaticFiles
     from starlette.responses import FileResponse
-    import os
 
     # Serve Static Files (Vite Frontend)
     # Check if static directory exists (it should after build)
@@ -344,14 +342,20 @@ def create_app() -> FastAPI:
 
     if static_dir.exists():
         # Mount the assets folder specifically
-        app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
+        app.mount(
+            "/assets", StaticFiles(directory=static_dir / "assets"), name="assets"
+        )
 
         # Mount Voice PWA assets if they exist
         voice_dir = static_dir / "voice"
         if voice_dir.exists():
             # Mount assets for voice app (Vite puts them in assets/)
             if (voice_dir / "assets").exists():
-                 app.mount("/voice/assets", StaticFiles(directory=voice_dir / "assets"), name="voice_assets")
+                app.mount(
+                    "/voice/assets",
+                    StaticFiles(directory=voice_dir / "assets"),
+                    name="voice_assets",
+                )
 
             # Serve Voice PWA index.html for /voice and subpaths
             @app.get("/voice/{full_path:path}")
@@ -368,14 +372,15 @@ def create_app() -> FastAPI:
                         "Cache-Control": "no-cache, no-store, must-revalidate",
                         "Pragma": "no-cache",
                         "Expires": "0",
-                    }
+                    },
                 )
 
             # Redirect /voice to /voice/ (trailing slash important for relative assets)
             @app.get("/voice")
             async def redirect_voice():
-                 from starlette.responses import RedirectResponse
-                 return RedirectResponse(url="/voice/")
+                from starlette.responses import RedirectResponse
+
+                return RedirectResponse(url="/voice/")
 
         # Serve index.html for root and any other SPA routes (catch-all)
         @app.get("/{full_path:path}")
@@ -398,10 +403,12 @@ def create_app() -> FastAPI:
                     "Cache-Control": "no-cache, no-store, must-revalidate",
                     "Pragma": "no-cache",
                     "Expires": "0",
-                }
+                },
             )
     else:
-        logging.warning(f"Static directory not found at {static_dir}. Frontend will not be served.")
+        logging.warning(
+            f"Static directory not found at {static_dir}. Frontend will not be served."
+        )
 
     return app
 

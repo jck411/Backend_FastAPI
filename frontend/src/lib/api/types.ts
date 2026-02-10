@@ -328,25 +328,17 @@ export interface SystemPromptPayload {
 
 export interface McpServerToolStatus {
   name: string;
-  qualified_name: string;
   enabled: boolean;
 }
 
 export interface McpServerStatus {
   id: string;
+  url: string;
   enabled: boolean;
   connected: boolean;
-  module?: string | null;
-  command?: string[] | null;
-  http_url?: string | null;
-  http_port?: number | null;
-  cwd?: string | null;
-  env?: Record<string, string>;
-  tool_prefix?: string | null;
-  disabled_tools: string[];
   tool_count: number;
   tools: McpServerToolStatus[];
-  client_enabled?: Record<string, boolean>;
+  disabled_tools: string[];
 }
 
 export interface McpServersResponse {
@@ -354,34 +346,32 @@ export interface McpServersResponse {
   updated_at?: string | null;
 }
 
-export interface McpServerDefinition {
-  id: string;
-  enabled?: boolean;
-  module?: string | null;
-  command?: string[] | null;
-  http_url?: string | null;
-  http_port?: number | null;
-  cwd?: string | null;
-  env?: Record<string, string>;
-  tool_prefix?: string | null;
-  disabled_tools?: string[];
-}
-
-export interface McpServersCollectionPayload {
-  servers: McpServerDefinition[];
-}
-
 export interface McpServerUpdatePayload {
   enabled?: boolean;
   disabled_tools?: string[];
-  module?: string | null;
-  command?: string[] | null;
-  http_url?: string | null;
-  http_port?: number | null;
-  cwd?: string | null;
-  env?: Record<string, string> | null;
-  tool_prefix?: string | null;
-  client_enabled?: Record<string, boolean>;
+}
+
+export interface McpServerConnectPayload {
+  url: string;
+}
+
+export interface McpServerDiscoverPayload {
+  host?: string;
+  ports?: number[];
+}
+
+export interface McpToolTogglePayload {
+  tool_name: string;
+  enabled: boolean;
+}
+
+export interface ClientPreferences {
+  client_id: string;
+  enabled_servers: string[];
+}
+
+export interface ClientPreferencesUpdate {
+  enabled_servers: string[];
 }
 
 /* Suggestions */

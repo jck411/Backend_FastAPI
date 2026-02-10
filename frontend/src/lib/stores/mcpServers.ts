@@ -1,9 +1,12 @@
 import { get, writable } from 'svelte/store';
 import {
+  connectMcpServer,
+  fetchClientPreferences,
   fetchMcpServers,
   patchMcpServer,
   refreshMcpServers,
-  setMcpServerClientEnabled,
+  removeMcpServer,
+  updateClientPreferences,
 } from '../api/client';
 import type {
   McpServerStatus,
@@ -22,7 +25,13 @@ interface McpServersState {
   updatedAt: string | null;
   pending: Record<string, boolean>;
   pendingChanges: Record<string, McpServerUpdatePayload>;
+  /** Server IDs enabled for the current client (null = all allowed). */
+  enabledServers: string[] | null;
+  /** Whether preferences have been loaded. */
+  prefsLoaded: boolean;
 }
+
+const CLIENT_ID = 'svelte';
 
 const INITIAL_STATE: McpServersState = {
   loading: false,
@@ -35,6 +44,8 @@ const INITIAL_STATE: McpServersState = {
   updatedAt: null,
   pending: {},
   pendingChanges: {},
+  enabledServers: null,
+  prefsLoaded: false,
 };
 
 function mergeResponse(state: McpServersState, payload: McpServersResponse): McpServersState {
@@ -53,11 +64,16 @@ export function createMcpServersStore() {
   async function load(): Promise<void> {
     store.set({ ...INITIAL_STATE, loading: true });
     try {
-      const response = await fetchMcpServers();
+      const [response, prefs] = await Promise.all([
+        fetchMcpServers(),
+        fetchClientPreferences(CLIENT_ID),
+      ]);
       store.set({
         ...INITIAL_STATE,
         servers: response.servers,
         updatedAt: response.updated_at ?? null,
+        enabledServers: prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null,
+        prefsLoaded: true,
         loading: false,
       });
     } catch (error) {
@@ -92,65 +108,6 @@ export function createMcpServersStore() {
     });
   }
 
-  async function setClientEnabled(serverId: string, clientId: string, enabled: boolean): Promise<void> {
-    // Update local state immediately for responsive UI
-    store.update((state) => {
-      const servers = state.servers.map((server) => {
-        if (server.id !== serverId) return server;
-        // Update the client_enabled map if it exists
-        const clientEnabled = { ...(server.client_enabled ?? {}) };
-        clientEnabled[clientId] = enabled;
-        return { ...server, client_enabled: clientEnabled };
-      });
-      return {
-        ...state,
-        servers,
-        pending: { ...state.pending, [serverId]: true },
-        saveError: null,
-      };
-    });
-
-    try {
-      // Call the backend to persist the change
-      const response = await setMcpServerClientEnabled(serverId, clientId, enabled);
-      store.update((state) => {
-        const nextPending = { ...state.pending };
-        delete nextPending[serverId];
-        return {
-          ...state,
-          servers: response.servers ?? state.servers,
-          updatedAt: response.updated_at ?? state.updatedAt,
-          pending: nextPending,
-        };
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update MCP server client enabled.';
-      store.update((state) => {
-        const nextPending = { ...state.pending };
-        delete nextPending[serverId];
-        return {
-          ...state,
-          pending: nextPending,
-          saveError: message,
-        };
-      });
-    }
-  }
-
-  // Legacy wrappers for backwards compatibility with existing UI components
-  function setKioskEnabled(serverId: string, kioskEnabled: boolean): void {
-    setClientEnabled(serverId, 'kiosk', kioskEnabled);
-  }
-
-  function setFrontendEnabled(serverId: string, frontendEnabled: boolean): void {
-    setClientEnabled(serverId, 'svelte', frontendEnabled);
-  }
-
-  function setCliEnabled(serverId: string, cliEnabled: boolean): void {
-    setClientEnabled(serverId, 'cli', cliEnabled);
-  }
-
-
   function setToolEnabled(serverId: string, tool: string, enabled: boolean): void {
     store.update((state) => {
       const target = state.servers.find((item) => item.id === serverId);
@@ -184,42 +141,6 @@ export function createMcpServersStore() {
         [serverId]: {
           ...(state.pendingChanges[serverId] ?? {}),
           disabled_tools: disabledList,
-        },
-      };
-
-      return {
-        ...state,
-        servers,
-        dirty: true,
-        saveError: null,
-        pendingChanges,
-      };
-    });
-  }
-
-  function setServerEnv(serverId: string, key: string, value: string): void {
-    store.update((state) => {
-      const target = state.servers.find((item) => item.id === serverId);
-      if (!target) {
-        return state;
-      }
-
-      const baseEnv = {
-        ...(target.env ?? {}),
-        ...(state.pendingChanges[serverId]?.env ?? {}),
-      };
-
-      baseEnv[key] = value;
-
-      const servers = state.servers.map((server) =>
-        server.id === serverId ? { ...server, env: baseEnv } : server,
-      );
-
-      const pendingChanges = {
-        ...state.pendingChanges,
-        [serverId]: {
-          ...(state.pendingChanges[serverId] ?? {}),
-          env: baseEnv,
         },
       };
 
@@ -344,17 +265,109 @@ export function createMcpServersStore() {
     return false;
   }
 
+  async function connectServer(url: string): Promise<McpServerStatus | null> {
+    store.update((state) => ({ ...state, saving: true, saveError: null }));
+    try {
+      const server = await connectMcpServer(url);
+      // Reload the full list to get consistent state
+      const response = await fetchMcpServers();
+      store.update((state) => ({
+        ...mergeResponse(state, response),
+        saving: false,
+      }));
+      return server;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to connect to MCP server.';
+      store.update((state) => ({ ...state, saving: false, saveError: message }));
+      return null;
+    }
+  }
+
+  async function removeServer(serverId: string): Promise<boolean> {
+    store.update((state) => ({
+      ...state,
+      saving: true,
+      saveError: null,
+      pending: { ...state.pending, [serverId]: true },
+    }));
+    try {
+      await removeMcpServer(serverId);
+      const response = await fetchMcpServers();
+      store.update((state) => {
+        const nextPending = { ...state.pending };
+        delete nextPending[serverId];
+        return {
+          ...mergeResponse(state, response),
+          saving: false,
+          pending: nextPending,
+        };
+      });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to remove MCP server.';
+      store.update((state) => {
+        const nextPending = { ...state.pending };
+        delete nextPending[serverId];
+        return { ...state, saving: false, saveError: message, pending: nextPending };
+      });
+      return false;
+    }
+  }
+
+  /** Toggle whether a server is enabled for this frontend (client preferences). */
+  async function setClientServerEnabled(serverId: string, enabled: boolean): Promise<void> {
+    const snapshot = get(store);
+    const current = snapshot.enabledServers ?? snapshot.servers.map((s) => s.id);
+    let updated: string[];
+    if (enabled) {
+      updated = current.includes(serverId) ? current : [...current, serverId];
+    } else {
+      updated = current.filter((id) => id !== serverId);
+    }
+
+    store.update((state) => ({
+      ...state,
+      enabledServers: updated,
+      saving: true,
+      saveError: null,
+    }));
+
+    try {
+      const prefs = await updateClientPreferences(CLIENT_ID, updated);
+      store.update((state) => ({
+        ...state,
+        enabledServers: prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null,
+        saving: false,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update preferences.';
+      // Revert optimistic update
+      store.update((state) => ({
+        ...state,
+        enabledServers: current.length > 0 ? current : null,
+        saving: false,
+        saveError: message,
+      }));
+    }
+  }
+
+  /** Check if a server is enabled in client preferences. */
+  function isServerEnabledForClient(serverId: string): boolean {
+    const snapshot = get(store);
+    if (snapshot.enabledServers === null) return true; // null = all allowed
+    return snapshot.enabledServers.includes(serverId);
+  }
+
   return {
     subscribe: store.subscribe,
     load,
     refresh,
     setServerEnabled,
-    setClientEnabled,
-    setKioskEnabled,
-    setFrontendEnabled,
-    setCliEnabled,
     setToolEnabled,
-    setServerEnv,
+    connectServer,
+    removeServer,
+    setClientServerEnabled,
+    isServerEnabledForClient,
     getServer,
     isPending,
     flushPending,

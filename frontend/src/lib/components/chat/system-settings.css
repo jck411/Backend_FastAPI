@@ -135,11 +135,11 @@
 }
 
 .server-toggles {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(80px, 1fr));
-  gap: 0.4rem 0.75rem;
-  justify-items: start;
-  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .running-toggle {
@@ -150,28 +150,12 @@
   accent-color: #34d399;
 }
 
-.frontend-toggle {
+.client-toggle {
   color: #38bdf8;
 }
 
-.frontend-toggle input {
+.client-toggle input {
   accent-color: #38bdf8;
-}
-
-.kiosk-toggle {
-  color: #a78bfa;
-}
-
-.kiosk-toggle input {
-  accent-color: #a78bfa;
-}
-
-.cli-toggle {
-  color: #f59e0b;
-}
-
-.cli-toggle input {
-  accent-color: #f59e0b;
 }
 
 .toggle-disabled {
@@ -179,8 +163,13 @@
   cursor: not-allowed;
 }
 
-.server-toggles .running-toggle {
-  grid-column: 1 / -1;
+.btn-danger {
+  color: #f87171;
+}
+
+.btn-danger:hover:not(:disabled) {
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.1);
 }
 
 .server-heading {
@@ -204,6 +193,25 @@
 
 .server-meta span {
   overflow-wrap: anywhere;
+}
+
+.server-url {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.add-server-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.add-server-row input {
+  flex: 1;
+  min-width: 0;
 }
 
 @media (max-width: 720px) {
@@ -274,37 +282,6 @@
   padding-top: 0.25rem;
 }
 
-.shell-server-settings {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.65rem 0.75rem;
-  border: 1px solid rgba(71, 99, 150, 0.3);
-  border-radius: 0.65rem;
-  background: rgba(10, 16, 28, 0.85);
-}
-
-.shell-setting {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-}
-
-.shell-setting__info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  min-width: 220px;
-  flex: 1;
-}
-
-.shell-setting .password-input-wrapper {
-  width: 100%;
-  max-width: 320px;
-}
-
 .tool-list {
   list-style: none;
   padding: 0;
@@ -338,11 +315,6 @@
 .tool-name {
   font-weight: 600;
   font-size: 0.85rem;
-}
-
-.tool-qualified {
-  font-size: 0.7rem;
-  color: #8094bb;
 }
 
 .toggle {
@@ -418,10 +390,4 @@
   box-shadow: none;
 }
 
-/* Shell settings inputs and selects - consistent with model settings */
-.shell-setting input[type="text"],
-.shell-setting input[type="password"],
-.shell-setting select {
-  width: 100%;
-  max-width: 320px;
-}
+/* end */

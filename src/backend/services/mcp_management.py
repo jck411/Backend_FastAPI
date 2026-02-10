@@ -6,9 +6,8 @@ can manage connections, discovery, and registry independently.
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from typing import Any, Sequence
+from typing import Any
 
 from ..chat.mcp_registry import MCPServerConfig, MCPToolAggregator
 from ..services.mcp_server_settings import MCPServerSettingsService
@@ -66,18 +65,19 @@ class MCPManagementService:
         Returns a list of server status dicts for discovered servers.
         """
         results: list[dict[str, Any]] = []
+        known_ids: set[str] = {c.id for c in await self._settings.get_configs()}
         for port in ports:
-            is_running = await self._aggregator._is_server_running(host, port)
+            is_running = await self._aggregator.is_server_running(host, port)
             if not is_running:
                 continue
             url = f"http://{host}:{port}/mcp"
             try:
                 server_id = await self._aggregator.connect_to_url(url)
                 # Persist if not already known
-                configs = await self._settings.get_configs()
-                if not any(c.id == server_id for c in configs):
+                if server_id not in known_ids:
                     new_cfg = MCPServerConfig(id=server_id, url=url)
                     await self._settings.add_server(new_cfg)
+                    known_ids.add(server_id)
 
                 for entry in self._aggregator.describe_servers():
                     if entry["id"] == server_id:
@@ -93,7 +93,7 @@ class MCPManagementService:
 
         Loads configs on first call (lazy initialisation).
         """
-        if not self._aggregator._configs:
+        if not self._aggregator.has_configs:
             configs = await self._settings.get_configs()
             await self._aggregator.apply_configs(configs)
 
@@ -113,9 +113,7 @@ class MCPManagementService:
         configs = await self._settings.get_configs()
         await self._aggregator.apply_configs(configs)
 
-    async def toggle_tool(
-        self, server_id: str, tool_name: str, enabled: bool
-    ) -> None:
+    async def toggle_tool(self, server_id: str, tool_name: str, enabled: bool) -> None:
         """Enable or disable a specific tool."""
         await self._settings.toggle_tool(server_id, tool_name, enabled=enabled)
         configs = await self._settings.get_configs()
@@ -124,6 +122,14 @@ class MCPManagementService:
     async def refresh(self) -> None:
         """Trigger a manual tool catalogue refresh."""
         await self._aggregator.refresh()
+
+    async def update_disabled_tools(
+        self, server_id: str, disabled_tools: list[str]
+    ) -> None:
+        """Update disabled_tools for a server and reload configs."""
+        await self._settings.patch_server(server_id, disabled_tools=disabled_tools)
+        configs = await self._settings.get_configs()
+        await self._aggregator.apply_configs(configs)
 
 
 __all__ = ["MCPManagementService"]

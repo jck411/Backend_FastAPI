@@ -12,7 +12,6 @@ from typing import (
     Any,
     AsyncGenerator,
     Iterable,
-    Sequence,
 )
 
 from ..logging_settings import parse_logging_settings
@@ -24,7 +23,7 @@ from ..services.conversation_logging import ConversationLogWriter
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
 from ..services.time_context import build_prompt_context_block, create_time_snapshot
-from .mcp_registry import MCPServerConfig, MCPToolAggregator
+from .mcp_registry import MCPToolAggregator
 from .streaming import SseEvent, StreamingHandler
 
 if TYPE_CHECKING:
@@ -227,7 +226,9 @@ class ChatOrchestrator:
         existing = await self._repo.session_exists(session_id)
         await self._repo.ensure_session(session_id)
 
-        request_metadata = request.metadata if isinstance(request.metadata, dict) else None
+        request_metadata = (
+            request.metadata if isinstance(request.metadata, dict) else None
+        )
 
         assistant_parent_message_id: str | None = None
         if request_metadata:
@@ -336,15 +337,20 @@ class ChatOrchestrator:
                 allowed_servers = set(pref_servers)
 
         if allowed_servers is not None:
-            tools_payload = self._mcp_client.get_openai_tools_for_servers(allowed_servers)
+            tools_payload = self._mcp_client.get_openai_tools_for_servers(
+                allowed_servers
+            )
         else:
             tools_payload = self._mcp_client.get_openai_tools()
 
         filter_source = f"profile:{profile_id}" if profile_id else f"client:{client_id}"
         logger.info(
             "%s session %s: %d tools (source=%s, servers=%s)",
-            client_id, session_id, len(tools_payload),
-            filter_source, list(allowed_servers) if allowed_servers else "all",
+            client_id,
+            session_id,
+            len(tools_payload),
+            filter_source,
+            list(allowed_servers) if allowed_servers else "all",
         )
 
         if not existing:
@@ -382,7 +388,9 @@ class ChatOrchestrator:
                 )
                 logger.debug("Reset tool '%s' completed", tool_name)
             except asyncio.TimeoutError:
-                logger.debug("Reset tool '%s' timed out (server may not be running)", tool_name)
+                logger.debug(
+                    "Reset tool '%s' timed out (server may not be running)", tool_name
+                )
             except Exception as exc:
                 # Tool may not exist if server not connected - that's fine
                 logger.debug("Reset tool '%s' failed: %s", tool_name, exc)
@@ -410,7 +418,7 @@ class ChatOrchestrator:
         Returns a dict mapping port -> is_running.
         This loads configs on first call (lazy initialisation).
         """
-        if not self._mcp_client._configs:
+        if not self._mcp_client.has_configs:
             configs = await self._mcp_settings.get_configs()
             await self._mcp_client.apply_configs(configs)
 

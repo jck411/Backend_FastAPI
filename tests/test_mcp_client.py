@@ -95,9 +95,7 @@ class TestConnection:
         client = MCPToolClient(url="http://example.com/mcp", server_id="test")
 
         with (
-            patch(
-                "mcp.client.streamable_http.streamablehttp_client"
-            ) as mock_http,
+            patch("mcp.client.streamable_http.streamablehttp_client") as mock_http,
             patch("backend.chat.mcp_client.ClientSession", return_value=mock_session),
         ):
             mock_http.return_value = _make_http_context()
@@ -113,9 +111,7 @@ class TestConnection:
         client = MCPToolClient(url="http://example.com/mcp", server_id="test")
 
         with (
-            patch(
-                "mcp.client.streamable_http.streamablehttp_client"
-            ) as mock_http,
+            patch("mcp.client.streamable_http.streamablehttp_client") as mock_http,
             patch("backend.chat.mcp_client.ClientSession", return_value=mock_session),
         ):
             mock_http.return_value = _make_http_context()
@@ -124,15 +120,11 @@ class TestConnection:
         await client.close()
         assert client.tools == []
 
-    async def test_double_connect_idempotent(
-        self, mock_session: MagicMock
-    ) -> None:
+    async def test_double_connect_idempotent(self, mock_session: MagicMock) -> None:
         client = MCPToolClient(url="http://example.com/mcp", server_id="test")
 
         with (
-            patch(
-                "mcp.client.streamable_http.streamablehttp_client"
-            ) as mock_http,
+            patch("mcp.client.streamable_http.streamablehttp_client") as mock_http,
             patch("backend.chat.mcp_client.ClientSession", return_value=mock_session),
         ):
             mock_http.return_value = _make_http_context()
@@ -152,9 +144,7 @@ class TestErrorHandling:
     async def test_timeout(self) -> None:
         client = MCPToolClient(url="http://example.com/mcp", server_id="test")
 
-        with patch(
-            "mcp.client.streamable_http.streamablehttp_client"
-        ) as mock_http:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_http:
             mock_http.return_value = _make_error_context(
                 asyncio.TimeoutError("Connection timed out")
             )
@@ -165,12 +155,8 @@ class TestErrorHandling:
     async def test_dns_failure(self) -> None:
         client = MCPToolClient(url="http://bad.host/mcp", server_id="test")
 
-        with patch(
-            "mcp.client.streamable_http.streamablehttp_client"
-        ) as mock_http:
-            err = httpx.ConnectError(
-                "Name or service not known", request=MagicMock()
-            )
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_http:
+            err = httpx.ConnectError("Name or service not known", request=MagicMock())
             mock_http.return_value = _make_error_context(err)
             with pytest.raises(ConnectionError) as exc_info:
                 await client.connect()
@@ -179,9 +165,7 @@ class TestErrorHandling:
     async def test_connection_refused(self) -> None:
         client = MCPToolClient(url="http://localhost:9999/mcp", server_id="test")
 
-        with patch(
-            "mcp.client.streamable_http.streamablehttp_client"
-        ) as mock_http:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_http:
             err = httpx.ConnectError(
                 "[Errno 111] Connection refused", request=MagicMock()
             )
@@ -193,9 +177,7 @@ class TestErrorHandling:
     async def test_network_error(self) -> None:
         client = MCPToolClient(url="http://example.com/mcp", server_id="test")
 
-        with patch(
-            "mcp.client.streamable_http.streamablehttp_client"
-        ) as mock_http:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_http:
             err = httpx.NetworkError("Network unreachable", request=MagicMock())
             mock_http.return_value = _make_error_context(err)
             with pytest.raises(ConnectionError) as exc_info:
@@ -205,9 +187,7 @@ class TestErrorHandling:
     async def test_http_401(self) -> None:
         client = MCPToolClient(url="http://example.com/mcp", server_id="test")
 
-        with patch(
-            "mcp.client.streamable_http.streamablehttp_client"
-        ) as mock_http:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_http:
             resp = MagicMock()
             resp.status_code = 401
             resp.reason_phrase = "Unauthorized"
@@ -223,15 +203,11 @@ class TestErrorHandling:
     async def test_http_403(self) -> None:
         client = MCPToolClient(url="http://example.com/mcp", server_id="test")
 
-        with patch(
-            "mcp.client.streamable_http.streamablehttp_client"
-        ) as mock_http:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_http:
             resp = MagicMock()
             resp.status_code = 403
             resp.reason_phrase = "Forbidden"
-            err = httpx.HTTPStatusError(
-                "Forbidden", request=MagicMock(), response=resp
-            )
+            err = httpx.HTTPStatusError("Forbidden", request=MagicMock(), response=resp)
             mock_http.return_value = _make_error_context(err)
             with pytest.raises(ConnectionError) as exc_info:
                 await client.connect()
@@ -241,15 +217,11 @@ class TestErrorHandling:
     async def test_http_404(self) -> None:
         client = MCPToolClient(url="http://example.com/wrong", server_id="test")
 
-        with patch(
-            "mcp.client.streamable_http.streamablehttp_client"
-        ) as mock_http:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_http:
             resp = MagicMock()
             resp.status_code = 404
             resp.reason_phrase = "Not Found"
-            err = httpx.HTTPStatusError(
-                "Not Found", request=MagicMock(), response=resp
-            )
+            err = httpx.HTTPStatusError("Not Found", request=MagicMock(), response=resp)
             mock_http.return_value = _make_error_context(err)
             with pytest.raises(ConnectionError) as exc_info:
                 await client.connect()
@@ -259,9 +231,7 @@ class TestErrorHandling:
     async def test_http_500(self) -> None:
         client = MCPToolClient(url="http://example.com/mcp", server_id="test")
 
-        with patch(
-            "mcp.client.streamable_http.streamablehttp_client"
-        ) as mock_http:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_http:
             resp = MagicMock()
             resp.status_code = 500
             resp.reason_phrase = "Internal Server Error"
@@ -277,9 +247,7 @@ class TestErrorHandling:
     async def test_invalid_stream_format(self) -> None:
         client = MCPToolClient(url="http://example.com/mcp", server_id="test")
 
-        with patch(
-            "mcp.client.streamable_http.streamablehttp_client"
-        ) as mock_http:
+        with patch("mcp.client.streamable_http.streamablehttp_client") as mock_http:
             err = ValueError("Invalid SSE stream format: missing event type")
             mock_http.return_value = _make_error_context(err)
             with pytest.raises(ConnectionError) as exc_info:
@@ -297,9 +265,7 @@ class TestToolExecution:
         client = MCPToolClient(url="http://example.com/mcp", server_id="test")
 
         with (
-            patch(
-                "mcp.client.streamable_http.streamablehttp_client"
-            ) as mock_http,
+            patch("mcp.client.streamable_http.streamablehttp_client") as mock_http,
             patch("backend.chat.mcp_client.ClientSession", return_value=mock_session),
         ):
             mock_http.return_value = _make_http_context()
@@ -317,9 +283,7 @@ class TestToolExecution:
         client = MCPToolClient(url="http://example.com/mcp", server_id="test")
 
         with (
-            patch(
-                "mcp.client.streamable_http.streamablehttp_client"
-            ) as mock_http,
+            patch("mcp.client.streamable_http.streamablehttp_client") as mock_http,
             patch("backend.chat.mcp_client.ClientSession", return_value=mock_session),
         ):
             mock_http.return_value = _make_http_context()

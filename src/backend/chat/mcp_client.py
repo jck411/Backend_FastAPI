@@ -108,9 +108,13 @@ class MCPToolClient:
                 self._last_connection_error = exc
             error_msg = str(exc).lower()
             if "name or service not known" in error_msg or "getaddrinfo" in error_msg:
-                logger.error("DNS resolution failed for MCP server '%s': %s", self._url, exc)
+                logger.error(
+                    "DNS resolution failed for MCP server '%s': %s", self._url, exc
+                )
             elif "connection refused" in error_msg:
-                logger.error("Connection refused to MCP server '%s': %s", self._url, exc)
+                logger.error(
+                    "Connection refused to MCP server '%s': %s", self._url, exc
+                )
             else:
                 logger.error("Connect error for MCP server '%s': %s", self._url, exc)
             if self._ready_event is not None and not self._ready_event.is_set():
@@ -119,7 +123,9 @@ class MCPToolClient:
         except httpx.NetworkError as exc:
             async with self._lock:
                 self._last_connection_error = exc
-            logger.error("Network error connecting to MCP server '%s': %s", self._url, exc)
+            logger.error(
+                "Network error connecting to MCP server '%s': %s", self._url, exc
+            )
             if self._ready_event is not None and not self._ready_event.is_set():
                 self._ready_event.set()
 
@@ -135,23 +141,31 @@ class MCPToolClient:
             elif code == 404:
                 logger.error("MCP endpoint not found '%s'", self._url)
             elif code >= 500:
-                logger.error("Server error from MCP server '%s': %s %s", self._url, code, phrase)
+                logger.error(
+                    "Server error from MCP server '%s': %s %s", self._url, code, phrase
+                )
             else:
-                logger.error("HTTP error from MCP server '%s': %s %s", self._url, code, phrase)
+                logger.error(
+                    "HTTP error from MCP server '%s': %s %s", self._url, code, phrase
+                )
             if self._ready_event is not None and not self._ready_event.is_set():
                 self._ready_event.set()
 
         except ValueError as exc:
             async with self._lock:
                 self._last_connection_error = exc
-            logger.error("Invalid stream format from MCP server '%s': %s", self._url, exc)
+            logger.error(
+                "Invalid stream format from MCP server '%s': %s", self._url, exc
+            )
             if self._ready_event is not None and not self._ready_event.is_set():
                 self._ready_event.set()
 
         except Exception as exc:  # noqa: BLE001
             async with self._lock:
                 self._last_connection_error = exc
-            logger.error("Unexpected error connecting to MCP server '%s': %s", self._url, exc)
+            logger.error(
+                "Unexpected error connecting to MCP server '%s': %s", self._url, exc
+            )
             if self._ready_event is not None and not self._ready_event.is_set():
                 self._ready_event.set()
 
@@ -161,9 +175,15 @@ class MCPToolClient:
             try:
                 await asyncio.wait_for(exit_stack.aclose(), timeout=2.0)
             except asyncio.TimeoutError:
-                logger.warning("MCP session close timed out for server '%s'", self._server_id)
+                logger.warning(
+                    "MCP session close timed out for server '%s'", self._server_id
+                )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("Error closing MCP session for server '%s': %s", self._server_id, exc)
+                logger.warning(
+                    "Error closing MCP session for server '%s': %s",
+                    self._server_id,
+                    exc,
+                )
             async with self._lock:
                 self._exit_stack = None
                 self._session = None
@@ -232,9 +252,13 @@ class MCPToolClient:
         try:
             await asyncio.wait_for(lifecycle, timeout=2.5)
         except asyncio.TimeoutError:
-            logger.warning("MCP session close timed out for server '%s'", self._server_id)
+            logger.warning(
+                "MCP session close timed out for server '%s'", self._server_id
+            )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Error closing MCP session for server '%s': %s", self._server_id, exc)
+            logger.warning(
+                "Error closing MCP session for server '%s': %s", self._server_id, exc
+            )
 
         async with self._lock:
             self._exit_stack = None

@@ -23,15 +23,8 @@
   let monarchPassword = "";
   let monarchMfaSecret = "";
   let showMonarchPassword = false;
-
-  // Hardcoded host profiles - each machine has its own path
-  const HOST_PROFILES = [
-    {
-      id: "xps13",
-      label: "Dell XPS 13",
-      path: "/home/human/GoogleDrive/host_profiles",
-    },
-  ] as const;
+  let newServerUrl = "";
+  let connectingServer = false;
 
   $: {
     if (open && !hasInitialized) {
@@ -42,6 +35,7 @@
       googleAuth.reset();
       spotifyAuth.reset();
       expandedServers = new Set();
+      newServerUrl = "";
     }
   }
 
@@ -71,15 +65,6 @@
     closing = false;
   }
 
-  function handleHostProfileChange(serverId: string, profileId: string): void {
-    const profile = HOST_PROFILES.find((p) => p.id === profileId);
-    if (profile) {
-      // Set both the host ID and the root path for this profile
-      handleShellEnv(serverId, "HOST_PROFILE_ID", profile.id);
-      handleShellEnv(serverId, "HOST_ROOT_PATH", profile.path);
-    }
-  }
-
   function saveMonarch(): void {
     if (!monarchEmail || !monarchPassword) return;
     monarchAuth.save({
@@ -96,28 +81,12 @@
     mcpServers.setServerEnabled(serverId, enabled);
   }
 
-  function toggleKiosk(serverId: string, enabled: boolean): void {
+  function toggleClientServer(serverId: string, enabled: boolean): void {
     if ($mcpServers.saving) {
       return;
     }
-    mcpServers.setKioskEnabled(serverId, enabled);
+    void mcpServers.setClientServerEnabled(serverId, enabled);
   }
-
-  function toggleFrontend(serverId: string, enabled: boolean): void {
-    if ($mcpServers.saving) {
-      return;
-    }
-    mcpServers.setFrontendEnabled(serverId, enabled);
-  }
-
-  function toggleCli(serverId: string, enabled: boolean): void {
-    if ($mcpServers.saving) {
-      return;
-    }
-    mcpServers.setCliEnabled(serverId, enabled);
-  }
-
-
 
   function toggleTool(serverId: string, tool: string, enabled: boolean): void {
     if ($mcpServers.saving) {
@@ -126,11 +95,18 @@
     mcpServers.setToolEnabled(serverId, tool, enabled);
   }
 
-  function handleShellEnv(serverId: string, key: string, value: string): void {
-    if ($mcpServers.saving) {
-      return;
-    }
-    mcpServers.setServerEnv(serverId, key, value);
+  async function handleConnectServer(): Promise<void> {
+    const url = newServerUrl.trim();
+    if (!url || connectingServer) return;
+    connectingServer = true;
+    await mcpServers.connectServer(url);
+    connectingServer = false;
+    newServerUrl = "";
+  }
+
+  async function handleRemoveServer(serverId: string): Promise<void> {
+    if ($mcpServers.saving) return;
+    await mcpServers.removeServer(serverId);
   }
 
   function refreshServers(): void {
@@ -512,6 +488,30 @@
         {:else if $mcpServers.error}
           <p class="status error">{$mcpServers.error}</p>
         {:else}
+          <!-- Add Server -->
+          <div class="add-server-row">
+            <input
+              type="url"
+              class="input-control"
+              placeholder="http://192.168.1.110:9003/mcp"
+              bind:value={newServerUrl}
+              disabled={connectingServer || $mcpServers.saving}
+              on:keydown={(e) => {
+                if (e.key === "Enter") void handleConnectServer();
+              }}
+            />
+            <button
+              type="button"
+              class="btn btn-primary btn-small"
+              on:click={() => void handleConnectServer()}
+              disabled={connectingServer ||
+                !newServerUrl.trim() ||
+                $mcpServers.saving}
+            >
+              {connectingServer ? "Connecting..." : "Connect"}
+            </button>
+          </div>
+
           {#if !$mcpServers.servers.length}
             <p class="status">No MCP servers configured.</p>
           {:else}
@@ -537,23 +537,36 @@
                         >
                           {server.connected ? "Connected" : "Offline"}
                         </span>
-                        {#if server.module}
-                          <span aria-hidden="true">&bull;</span>
-                          <span title={server.module}
-                            >Module: {server.module}</span
-                          >
-                        {:else if server.command?.length}
-                          <span aria-hidden="true">&bull;</span>
-                          <span title={server.command.join(" ")}
-                            >Command: {server.command.join(" ")}</span
-                          >
-                        {/if}
+                        <span aria-hidden="true">&bull;</span>
+                        <span class="server-url" title={server.url}
+                          >{server.url}</span
+                        >
                       </div>
                     </div>
                     <div class="server-toggles">
                       <label
+                        class="toggle client-toggle"
+                        title="Include this server's tools in your chat sessions"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={$mcpServers.enabledServers === null ||
+                            $mcpServers.enabledServers.includes(server.id)}
+                          disabled={!server.enabled ||
+                            !server.connected ||
+                            $mcpServers.pending[server.id] ||
+                            $mcpServers.saving}
+                          on:change={(event) =>
+                            toggleClientServer(
+                              server.id,
+                              (event.target as HTMLInputElement).checked,
+                            )}
+                        />
+                        <span>Use in chat</span>
+                      </label>
+                      <label
                         class="toggle running-toggle"
-                        title="Start/stop the server process"
+                        title="Enable or disable this server globally"
                       >
                         <input
                           type="checkbox"
@@ -566,108 +579,22 @@
                               (event.target as HTMLInputElement).checked,
                             )}
                         />
-                        <span>{server.enabled ? "Running" : "Stopped"}</span>
+                        <span>{server.enabled ? "Enabled" : "Disabled"}</span>
                       </label>
-                      <label
-                        class="toggle frontend-toggle"
-                        class:toggle-disabled={!server.enabled}
-                        title={server.enabled
-                          ? "Enable for main web frontend"
-                          : "Server must be running"}
+                      <button
+                        type="button"
+                        class="btn btn-ghost btn-small btn-danger"
+                        title="Remove this server"
+                        disabled={$mcpServers.pending[server.id] ||
+                          $mcpServers.saving}
+                        on:click={() => void handleRemoveServer(server.id)}
                       >
-                        <input
-                          type="checkbox"
-                          checked={server.client_enabled?.svelte ?? true}
-                          disabled={!server.enabled ||
-                            $mcpServers.pending[server.id] ||
-                            $mcpServers.saving}
-                          on:change={(event) =>
-                            toggleFrontend(
-                              server.id,
-                              (event.target as HTMLInputElement).checked,
-                            )}
-                        />
-                        <span>Frontend</span>
-                      </label>
-                      <label
-                        class="toggle kiosk-toggle"
-                        class:toggle-disabled={!server.enabled}
-                        title={server.enabled
-                          ? "Enable for kiosk voice assistant"
-                          : "Server must be running"}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={server.client_enabled?.kiosk ?? false}
-                          disabled={!server.enabled ||
-                            $mcpServers.pending[server.id] ||
-                            $mcpServers.saving}
-                          on:change={(event) =>
-                            toggleKiosk(
-                              server.id,
-                              (event.target as HTMLInputElement).checked,
-                            )}
-                        />
-                        <span>Kiosk</span>
-                      </label>
-                      <label
-                        class="toggle cli-toggle"
-                        class:toggle-disabled={!server.enabled}
-                        title={server.enabled
-                          ? "Enable for CLI client"
-                          : "Server must be running"}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={server.client_enabled?.cli ?? false}
-                          disabled={!server.enabled ||
-                            $mcpServers.pending[server.id] ||
-                            $mcpServers.saving}
-                          on:change={(event) =>
-                            toggleCli(
-                              server.id,
-                              (event.target as HTMLInputElement).checked,
-                            )}
-                        />
-                        <span>CLI</span>
-                      </label>
-
+                        Remove
+                      </button>
                     </div>
                   </div>
 
                   <div class="server-row-body">
-                    {#if server.id === "shell-control"}
-                      <div class="shell-server-settings">
-                        <div class="shell-setting">
-                          <div class="shell-setting__info">
-                            <span class="field-label">This machine</span>
-                            <span class="field-hint">
-                              Select which computer you're on. Sets host profile
-                              and storage path.
-                            </span>
-                          </div>
-                          <select
-                            class="select-control"
-                            value={server.env?.HOST_PROFILE_ID ?? ""}
-                            disabled={$mcpServers.pending[server.id] ||
-                              $mcpServers.saving}
-                            on:change={(event) =>
-                              handleHostProfileChange(
-                                server.id,
-                                (event.target as HTMLSelectElement).value,
-                              )}
-                          >
-                            <option value="">-- Select machine --</option>
-                            {#each HOST_PROFILES as profile}
-                              <option value={profile.id}>
-                                {profile.label}
-                              </option>
-                            {/each}
-                          </select>
-                        </div>
-                      </div>
-                    {/if}
-
                     <button
                       type="button"
                       class="tools-toggle"
@@ -705,12 +632,12 @@
                         {#if server.tools.length}
                           <ul class="tool-list">
                             {#each server.tools as tool}
-                              <li class="tool-row" data-disabled={!tool.enabled}>
+                              <li
+                                class="tool-row"
+                                data-disabled={!tool.enabled}
+                              >
                                 <div class="tool-info">
                                   <span class="tool-name">{tool.name}</span>
-                                  <span class="tool-qualified"
-                                    >{tool.qualified_name}</span
-                                  >
                                 </div>
                                 <label class="toggle">
                                   <input

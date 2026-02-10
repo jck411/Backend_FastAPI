@@ -1,64 +1,64 @@
 {
-  "servers": [
-    {
-      "id": "shell-control",
-      "url": "http://127.0.0.1:9001/mcp",
-      "enabled": false
-    },
-    {
-      "id": "housekeeping",
-      "url": "http://127.0.0.1:9002/mcp",
-      "enabled": true
-    },
-    {
-      "id": "local-calculator",
-      "url": "http://127.0.0.1:9003/mcp",
-      "enabled": false
-    },
-    {
-      "id": "custom-calendar",
-      "url": "http://127.0.0.1:9004/mcp",
-      "enabled": false
-    },
-    {
-      "id": "custom-gmail",
-      "url": "http://127.0.0.1:9005/mcp",
-      "enabled": false
-    },
-    {
-      "id": "custom-gdrive",
-      "url": "http://127.0.0.1:9006/mcp",
-      "enabled": true
-    },
-    {
-      "id": "custom-pdf",
-      "url": "http://127.0.0.1:9007/mcp",
-      "enabled": false
-    },
-    {
-      "id": "monarch-money",
-      "url": "http://127.0.0.1:9008/mcp",
-      "enabled": false
-    },
-    {
-      "id": "notes",
-      "url": "http://127.0.0.1:9009/mcp",
-      "enabled": true
-    },
-    {
-      "id": "spotify",
-      "url": "http://127.0.0.1:9010/mcp",
-      "enabled": false
-    },
-    {
-      "id": "playwright",
-      "url": "http://127.0.0.1:9011/mcp",
-      "enabled": false
-    },
-    {
-      "id": "kiosk-clock-tools",
-      "url": "http://127.0.0.1:9012/mcp",
-      "enabled": false
-    }
-  ]
+    "servers": [
+        {
+            "id": "shell-control",
+            "url": "http://127.0.0.1:9001/mcp",
+            "enabled": false
+        },
+        {
+            "id": "housekeeping",
+            "url": "http://127.0.0.1:9002/mcp",
+            "enabled": true
+        },
+        {
+            "id": "local-calculator",
+            "url": "http://127.0.0.1:9003/mcp",
+            "enabled": false
+        },
+        {
+            "id": "custom-calendar",
+            "url": "http://127.0.0.1:9004/mcp",
+            "enabled": false
+        },
+        {
+            "id": "custom-gmail",
+            "url": "http://127.0.0.1:9005/mcp",
+            "enabled": false
+        },
+        {
+            "id": "custom-gdrive",
+            "url": "http://127.0.0.1:9006/mcp",
+            "enabled": true
+        },
+        {
+            "id": "custom-pdf",
+            "url": "http://127.0.0.1:9007/mcp",
+            "enabled": false
+        },
+        {
+            "id": "monarch-money",
+            "url": "http://127.0.0.1:9008/mcp",
+            "enabled": false
+        },
+        {
+            "id": "notes",
+            "url": "http://127.0.0.1:9009/mcp",
+            "enabled": true
+        },
+        {
+            "id": "spotify",
+            "url": "http://127.0.0.1:9010/mcp",
+            "enabled": false
+        },
+        {
+            "id": "playwright",
+            "url": "http://127.0.0.1:9011/mcp",
+            "enabled": false
+        },
+        {
+            "id": "kiosk-clock-tools",
+            "url": "http://127.0.0.1:9012/mcp",
+            "enabled": false
+        }
+    ]
 }

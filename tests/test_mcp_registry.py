@@ -136,20 +136,6 @@ def test_config_new_format() -> None:
     assert cfg.disabled_tools == set()
 
 
-def test_config_migrates_http_port() -> None:
-    cfg = MCPServerConfig.model_validate(
-        {"id": "calc", "http_port": 9003, "module": "backend.mcp_servers.calc"}
-    )
-    assert cfg.url == "http://127.0.0.1:9003/mcp"
-
-
-def test_config_migrates_http_url() -> None:
-    cfg = MCPServerConfig.model_validate(
-        {"id": "remote", "http_url": "http://remote.host:9003/mcp"}
-    )
-    assert cfg.url == "http://remote.host:9003/mcp"
-
-
 def test_config_ignores_extra_fields() -> None:
     """Legacy fields like module, command, contexts etc. are silently dropped."""
     cfg = MCPServerConfig.model_validate(
@@ -198,7 +184,7 @@ def test_load_server_configs_from_file(tmp_path: Path) -> None:
 
 def test_load_server_configs_uses_fallback(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"
-    fallback = [{"id": "local", "http_port": 9003}]
+    fallback = [{"id": "local", "url": "http://127.0.0.1:9003/mcp"}]
     configs = load_server_configs(path, fallback=fallback)
     assert len(configs) == 1
     assert configs[0].id == "local"
@@ -209,11 +195,15 @@ def test_load_server_configs_overrides_fallback(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"
     path.write_text(
         json.dumps(
-            {"servers": [{"id": "local", "url": "http://host:9100/mcp", "enabled": False}]}
+            {
+                "servers": [
+                    {"id": "local", "url": "http://host:9100/mcp", "enabled": False}
+                ]
+            }
         ),
         encoding="utf-8",
     )
-    fallback = [{"id": "local", "http_port": 9003}]
+    fallback = [{"id": "local", "url": "http://127.0.0.1:9003/mcp"}]
     configs = load_server_configs(path, fallback=fallback)
     assert len(configs) == 1
     assert configs[0].url == "http://host:9100/mcp"

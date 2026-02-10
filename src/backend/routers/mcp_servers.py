@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..schemas.mcp_servers import (
@@ -160,12 +158,7 @@ async def update_mcp_server(
         if payload.enabled is not None:
             await mgmt.toggle_server(server_id, payload.enabled)
         if payload.disabled_tools is not None:
-            svc = settings
-            await svc.patch_server(
-                server_id, disabled_tools=payload.disabled_tools
-            )
-            configs = await svc.get_configs()
-            await mgmt._aggregator.apply_configs(configs)
+            await mgmt.update_disabled_tools(server_id, payload.disabled_tools)
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
     return await _build_status_response(mgmt, settings)

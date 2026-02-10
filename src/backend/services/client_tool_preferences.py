@@ -63,9 +63,7 @@ class ClientToolPreferences:
                     return [s for s in servers if isinstance(s, str)]
             return None
 
-    async def set_enabled_servers(
-        self, client_id: str, server_ids: list[str]
-    ) -> None:
+    async def set_enabled_servers(self, client_id: str, server_ids: list[str]) -> None:
         """Set which servers *client_id* may use."""
         async with self._lock:
             data = self._load()
@@ -82,9 +80,7 @@ class ClientToolPreferences:
                 if isinstance(entry, dict):
                     servers = entry.get("enabled_servers")
                     if isinstance(servers, list):
-                        result[client_id] = [
-                            s for s in servers if isinstance(s, str)
-                        ]
+                        result[client_id] = [s for s in servers if isinstance(s, str)]
                         continue
                 result[client_id] = None
             return result

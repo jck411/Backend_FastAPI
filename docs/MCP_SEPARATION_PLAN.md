@@ -4,6 +4,8 @@
 **Created:** February 9, 2026
 **Goal:** Decouple MCP servers from the chat application. Backend becomes a pure MCP client (consumer). MCP servers become standalone always-on services deployed to Proxmox.
 
+**Status:** Stage 1 + Stage 1.5 complete. Ready for Stage 2.
+
 ---
 
 ## Architecture: Before & After
@@ -356,6 +358,218 @@ curl http://localhost:8000/api/mcp/servers/
 curl -X POST http://localhost:8000/api/mcp/servers/connect \
   -H 'Content-Type: application/json' \
   -d '{"url": "http://127.0.0.1:9003/mcp"}'
+```
+
+---
+
+## Stage 1.5: Post-Review Cleanup
+
+**Goal:** Fix issues found during the Stage 1 code review before moving on. Backend code is solid; these are mostly frontend leftovers and a few encapsulation fixes.
+
+### 1.5.1 Update Frontend Types (`types.ts`)
+
+**File:** `frontend/src/lib/api/types.ts`
+
+Strip legacy fields from TypeScript interfaces to match the new backend schemas:
+
+```typescript
+// BEFORE (stale — has module, command, http_url, http_port, cwd, env, tool_prefix, client_enabled)
+export interface McpServerStatus {
+  id: string;
+  enabled: boolean;
+  connected: boolean;
+  module?: string | null;         // ← remove
+  command?: string[] | null;      // ← remove
+  http_url?: string | null;       // ← remove
+  http_port?: number | null;      // ← remove
+  cwd?: string | null;            // ← remove
+  env?: Record<string, string>;   // ← remove
+  tool_prefix?: string | null;    // ← remove
+  disabled_tools: string[];
+  tool_count: number;
+  tools: McpServerToolStatus[];
+  client_enabled?: Record<string, boolean>;  // ← remove
+}
+
+// AFTER
+export interface McpServerToolStatus {
+  name: string;
+  enabled: boolean;
+}
+
+export interface McpServerStatus {
+  id: string;
+  url: string;
+  enabled: boolean;
+  connected: boolean;
+  tool_count: number;
+  tools: McpServerToolStatus[];
+  disabled_tools: string[];
+}
+
+export interface McpServerUpdatePayload {
+  enabled?: boolean;
+  disabled_tools?: string[];
+}
+```
+
+Also:
+- Remove `qualified_name` from `McpServerToolStatus`
+- Remove `McpServerDefinition` interface (legacy, unused)
+- Remove `McpServersCollectionPayload` interface (PUT bulk replace was removed)
+- Clean up any imports/references to removed types
+
+### 1.5.2 Fix Frontend Store — Remove Dead Endpoint Calls
+
+**File:** `frontend/src/lib/stores/mcpServers.ts`
+
+| Function | Problem | Fix |
+|----------|---------|-----|
+| `setClientEnabled()` | Calls `PATCH /api/mcp/servers/{id}/clients/{client_id}` — **endpoint removed** | Rewrite to call `PUT /api/mcp/preferences/{client_id}` instead |
+| `setServerEnv()` | Accumulates `env` changes — `env` is no longer a server config field | Delete this function entirely |
+| `setKioskEnabled()`, `setFrontendEnabled()`, `setCliEnabled()` | Wrappers around `setClientEnabled` | Keep as convenience wrappers, they'll work once `setClientEnabled` is fixed |
+
+**File:** `frontend/src/lib/api/client.ts`
+
+| Function | Problem | Fix |
+|----------|---------|-----|
+| `replaceMcpServers()` | Calls `PUT /api/mcp/servers/` — **endpoint removed** | Delete this function |
+| `setMcpServerClientEnabled()` | Calls `PATCH /api/mcp/servers/{id}/clients/{client_id}` — **endpoint removed** | Replace with `updateClientPreferences(clientId, serverIds)` calling `PUT /api/mcp/preferences/{client_id}` |
+
+Add new API functions:
+```typescript
+export async function fetchClientPreferences(clientId: string): Promise<ClientPreferences> {
+  return requestJson<ClientPreferences>(resolveApiPath(`/api/mcp/preferences/${encodeURIComponent(clientId)}`));
+}
+
+export async function updateClientPreferences(
+  clientId: string,
+  enabledServers: string[],
+): Promise<ClientPreferences> {
+  return requestJson<ClientPreferences>(
+    resolveApiPath(`/api/mcp/preferences/${encodeURIComponent(clientId)}`),
+    { method: 'PUT', body: JSON.stringify({ enabled_servers: enabledServers }) },
+  );
+}
+
+export async function connectMcpServer(url: string): Promise<McpServerStatus> {
+  return requestJson<McpServerStatus>(resolveApiPath('/api/mcp/servers/connect'), {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  });
+}
+
+export async function removeMcpServer(serverId: string): Promise<void> {
+  await requestVoid(resolveApiPath(`/api/mcp/servers/${encodeURIComponent(serverId)}`), {
+    method: 'DELETE',
+  });
+}
+```
+
+### 1.5.3 Fix Private Member Access in `MCPManagementService`
+
+**File:** `src/backend/services/mcp_management.py`
+
+`discover_servers()` calls `self._aggregator._is_server_running()` (private). Fix:
+
+```python
+# In MCPToolAggregator (mcp_registry.py) — make public:
+async def is_server_running(self, host: str, port: int) -> bool:
+
+# In MCPManagementService — use public method:
+is_running = await self._aggregator.is_server_running(host, port)
+```
+
+### 1.5.4 Fix Private Member Access in Router
+
+**File:** `src/backend/routers/mcp_servers.py`
+
+`update_mcp_server()` calls `mgmt._aggregator.apply_configs()` directly. Fix by adding a method to `MCPManagementService`:
+
+```python
+# In MCPManagementService:
+async def update_disabled_tools(self, server_id: str, disabled_tools: list[str]) -> None:
+    """Update disabled_tools for a server and reload configs."""
+    await self._settings.patch_server(server_id, disabled_tools=disabled_tools)
+    configs = await self._settings.get_configs()
+    await self._aggregator.apply_configs(configs)
+```
+
+Then in the router:
+```python
+if payload.disabled_tools is not None:
+    await mgmt.update_disabled_tools(server_id, payload.disabled_tools)
+```
+
+### 1.5.5 Improve `connect_to_url` Server ID Derivation
+
+**File:** `src/backend/chat/mcp_registry.py`
+
+Currently when `server_id` is `None`, the fallback is:
+```python
+server_id = url.rstrip("/").rsplit("/", 1)[0].rsplit(":", 1)[-1]  # → "9003"
+```
+
+This produces port numbers as IDs. Improve by using the MCP server's self-reported name:
+
+```python
+async def connect_to_url(self, url: str, server_id: str | None = None) -> str:
+    async with self._lock:
+        # Connect first, then derive ID from server name if not provided
+        client = MCPToolClient(url=url, server_id=server_id or url)
+        await client.connect()
+
+        if server_id is None:
+            # Use the MCP server's self-reported name if available
+            if client._session and hasattr(client._session, 'server_info'):
+                info = client._session.server_info
+                if info and hasattr(info, 'name') and info.name:
+                    server_id = info.name.lower().replace(' ', '-')
+            if server_id is None:
+                # Fallback: extract host:port as ID
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                server_id = f"{parsed.hostname or 'unknown'}-{parsed.port or 0}"
+
+        # ... rest of method
+```
+
+This gives IDs like `"calculator"` (from server name) or `"192.168.1.110-9003"` (fallback) instead of just `"9003"`.
+
+### 1.5.6 Delete Backup File
+
+Delete `src/backend/chat/mcp_registry.py.bak` — old version with all legacy fields, no longer needed.
+
+### 1.5.7 Update `McpServersModal.svelte`
+
+**File:** `frontend/src/lib/components/chat/McpServersModal.svelte`
+
+- Remove UI for `env` editing (env is no longer configurable per-server)
+- Replace `client_enabled` toggle pattern with preferences API calls
+- Add "Add Server" URL input field + Connect button (calls `POST /api/mcp/servers/connect`)
+- Add "Remove" button per server row (calls `DELETE /api/mcp/servers/{id}`)
+- Show `url` field for each server (read-only)
+
+### Stage 1.5 Verification
+
+```bash
+# Backend lint clean
+uvx ruff check src/backend/
+
+# Backend tests pass
+pytest tests/test_mcp_registry.py tests/test_mcp_client.py tests/test_mcp_server_settings.py \
+  tests/test_mcp_management.py tests/test_client_tool_preferences.py -v
+
+# Frontend builds
+cd frontend && npm run build
+
+# Manual: open Svelte settings modal, verify:
+# - Can see server list with URLs
+# - Can toggle server/tool on/off
+# - Can add a server by URL
+# - Can remove a server
+# - Per-frontend preferences work
+# - No console errors hitting deleted endpoints
 ```
 
 ---

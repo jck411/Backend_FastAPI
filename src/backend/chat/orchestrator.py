@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import uuid
 from pathlib import Path
 from typing import (
@@ -15,8 +14,6 @@ from typing import (
     Iterable,
     Sequence,
 )
-
-from dotenv import dotenv_values
 
 from ..logging_settings import parse_logging_settings
 from ..openrouter import OpenRouterClient
@@ -34,12 +31,13 @@ if TYPE_CHECKING:
     from ..config import Settings
     from ..services.attachments import AttachmentService
     from ..services.client_profiles import ClientProfileService
+    from ..services.client_tool_preferences import ClientToolPreferences
 
 logger = logging.getLogger(__name__)
 
 
 ToolPayload = list[dict[str, Any]]
-_KNOWN_CLIENT_IDS = {"cli", "kiosk", "svelte"}
+_KNOWN_CLIENT_IDS = {"cli", "kiosk", "svelte", "voice"}
 
 
 def _iter_attachment_ids(content: Any) -> Iterable[str]:
@@ -52,19 +50,6 @@ def _iter_attachment_ids(content: Any) -> Iterable[str]:
                 candidate = metadata.get("attachment_id")
                 if isinstance(candidate, str):
                     yield candidate
-
-
-def _build_mcp_base_env(project_root: Path) -> dict[str, str]:
-    """Return the environment passed to launched MCP servers."""
-
-    env = os.environ.copy()
-    dotenv_path = project_root / ".env"
-    if dotenv_path.exists():
-        for key, value in dotenv_values(dotenv_path).items():
-            if not key or value is None:
-                continue
-            env.setdefault(key, value)
-    return env
 
 
 def _build_enhanced_system_prompt(base_prompt: str | None) -> str:
@@ -93,20 +78,11 @@ class ChatOrchestrator:
         if not db_path.is_absolute():
             db_path = project_root / db_path
 
-        env = _build_mcp_base_env(project_root)
-        pythonpath = env.get("PYTHONPATH", "")
-        src_str = str(src_dir)
-        if src_str not in pythonpath.split(os.pathsep):
-            env["PYTHONPATH"] = os.pathsep.join(filter(None, [pythonpath, src_str]))
-
         self._repo = ChatRepository(db_path)
         self._client = OpenRouterClient(settings)
         self._mcp_client = MCPToolAggregator(
             [],
-            base_env=env,
-            default_cwd=project_root,
             lazy_mode=True,  # Skip MCP connections at startup for faster boot
-            managed_mode=True,  # Allow spawning servers when enabled via UI
         )
         conversation_log_dir = settings.conversation_log_dir
         if not conversation_log_dir.is_absolute():
@@ -135,10 +111,15 @@ class ChatOrchestrator:
         self._init_lock = asyncio.Lock()
         self._ready = asyncio.Event()
         self._profile_service: ClientProfileService | None = None
+        self._tool_preferences: ClientToolPreferences | None = None
 
     def set_profile_service(self, service: "ClientProfileService | None") -> None:
         """Inject the profile service after application startup wiring."""
         self._profile_service = service
+
+    def set_tool_preferences(self, service: "ClientToolPreferences | None") -> None:
+        """Inject the client tool preferences after application startup wiring."""
+        self._tool_preferences = service
 
     async def initialize(self) -> None:
         """Initialize database only. MCP configs are loaded lazily on first discovery."""
@@ -325,19 +306,16 @@ class ChatOrchestrator:
         if not self._mcp_client.tools:
             await self.discover_mcp()
 
-        tools_payload = self._mcp_client.get_openai_tools()
-
-        # Determine allowed servers based on profile or client_enabled
+        # Determine allowed servers based on profile or client preferences
         profile_id: str | None = None
         if request_metadata:
             profile_candidate = request_metadata.get("profile_id")
             if isinstance(profile_candidate, str) and profile_candidate.strip():
                 profile_id = profile_candidate.strip()
 
-        allowed_servers: set[str] = set()
+        allowed_servers: set[str] | None = None
 
         if profile_id and self._profile_service:
-            # Use profile-based filtering
             profile = await self._profile_service.get_profile(profile_id)
             if profile is not None:
                 allowed_servers = set(profile.enabled_servers)
@@ -348,31 +326,26 @@ class ChatOrchestrator:
                 )
             else:
                 logger.warning(
-                    "Profile '%s' not found, falling back to client_enabled",
+                    "Profile '%s' not found, falling back to preferences",
                     profile_id,
                 )
 
-        if not allowed_servers:
-            # Fallback to legacy client_enabled filtering
-            configs = await self._mcp_settings.get_configs()
-            allowed_servers = {cfg.id for cfg in configs if cfg.is_enabled_for_client(client_id)}
+        if allowed_servers is None and self._tool_preferences:
+            pref_servers = await self._tool_preferences.get_enabled_servers(client_id)
+            if pref_servers is not None:
+                allowed_servers = set(pref_servers)
 
-        filtered_tools = []
-        for tool in tools_payload:
-            func = tool.get("function", {})
-            desc = func.get("description", "")
-            # Server ID is prefixed in description like "[local-calculator] ..."
-            server_match = any(f"[{server}]" in desc for server in allowed_servers)
-            if server_match:
-                filtered_tools.append(tool)
+        if allowed_servers is not None:
+            tools_payload = self._mcp_client.get_openai_tools_for_servers(allowed_servers)
+        else:
+            tools_payload = self._mcp_client.get_openai_tools()
 
         filter_source = f"profile:{profile_id}" if profile_id else f"client:{client_id}"
         logger.info(
-            "%s session %s: filtered tools from %d to %d (source=%s, servers=%s)",
-            client_id, session_id, len(tools_payload), len(filtered_tools),
-            filter_source, list(allowed_servers)
+            "%s session %s: %d tools (source=%s, servers=%s)",
+            client_id, session_id, len(tools_payload),
+            filter_source, list(allowed_servers) if allowed_servers else "all",
         )
-        tools_payload = filtered_tools
 
         if not existing:
             yield {
@@ -427,32 +400,16 @@ class ChatOrchestrator:
         return self._client
 
     def get_mcp_client(self) -> MCPToolAggregator:
-        """Expose the underlying MCP client for shared services."""
+        """Expose the underlying MCP aggregator for shared services."""
 
         return self._mcp_client
 
-    async def apply_mcp_configs(self, configs: Sequence[MCPServerConfig]) -> None:
-        """Apply MCP configuration updates to the running aggregator."""
-
-        await self._mcp_client.apply_configs(configs)
-
-    def describe_mcp_servers(self) -> list[dict[str, Any]]:
-        """Return runtime snapshot of MCP servers."""
-
-        return self._mcp_client.describe_servers()
-
-    async def refresh_mcp_tools(self) -> None:
-        """Trigger a manual refresh of tool catalogs."""
-
-        await self._mcp_client.refresh()
-
     async def discover_mcp(self) -> dict[str, bool]:
-        """Scan ports 9001-9010 for running MCP servers and connect to enabled ones.
+        """Scan local ports for running MCP servers and connect to enabled ones.
 
         Returns a dict mapping port -> is_running.
-        This loads configs on first call (lazy initialization).
+        This loads configs on first call (lazy initialisation).
         """
-        # Load configs on first discovery (lazy)
         if not self._mcp_client._configs:
             configs = await self._mcp_settings.get_configs()
             await self._mcp_client.apply_configs(configs)

@@ -3,93 +3,37 @@
 from __future__ import annotations
 
 from datetime import datetime
-from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
-
-
-class MCPServerToolDefinition(BaseModel):
-    """Serializable per-tool override definition."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    contexts: list[str] | None = Field(default=None)
+from pydantic import BaseModel, Field
 
 
-class MCPServerDefinition(BaseModel):
-    """Serializable MCP server definition used for persistence."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    id: str = Field(..., min_length=1)
-    enabled: bool = Field(default=True)
-    module: str | None = None
-    command: list[str] | None = None
-    http_url: str | None = None
-    http_port: int | None = None
-    cwd: Path | None = None
-    env: dict[str, str] = Field(default_factory=dict)
-    tool_prefix: str | None = None
-    disabled_tools: set[str] | None = Field(default=None)
-    contexts: list[str] = Field(default_factory=list)
-    tool_overrides: dict[str, MCPServerToolDefinition] = Field(default_factory=dict)
-    client_enabled: dict[str, bool] = Field(
-        default_factory=lambda: {"svelte": True, "kiosk": False, "cli": True}
-    )
+# ------------------------------------------------------------------
+# Tool info
+# ------------------------------------------------------------------
 
 
-class MCPServerCollectionPayload(BaseModel):
-    """Payload for replacing the full server list."""
+class MCPToolInfo(BaseModel):
+    """A tool exposed by an MCP server."""
 
-    servers: list[MCPServerDefinition]
-
-
-class MCPServerUpdatePayload(BaseModel):
-    """Partial update for a single server."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    enabled: bool | None = None
-    disabled_tools: list[str] | None = None
-    module: str | None = None
-    command: list[str] | None = None
-    http_url: str | None = None
-    http_port: int | None = None
-    cwd: Path | None = None
-    env: dict[str, str] | None = None
-    tool_prefix: str | None = None
-    contexts: list[str] | None = None
-    tool_overrides: dict[str, MCPServerToolDefinition] | None = None
-    client_enabled: dict[str, bool] | None = None
-
-
-class MCPServerToolStatus(BaseModel):
     name: str
-    qualified_name: str
     enabled: bool = True
+
+
+# ------------------------------------------------------------------
+# Server status
+# ------------------------------------------------------------------
 
 
 class MCPServerStatus(BaseModel):
     """Combined config + runtime status for an MCP server."""
 
     id: str
+    url: str
     enabled: bool
     connected: bool
-    module: str | None = None
-    command: list[str] | None = None
-    http_url: str | None = None
-    http_port: int | None = None
-    cwd: Path | None = None
-    env: dict[str, str] = Field(default_factory=dict)
-    tool_prefix: str | None = None
-    disabled_tools: list[str] = Field(default_factory=list)
     tool_count: int = 0
-    tools: list[MCPServerToolStatus] = Field(default_factory=list)
-    contexts: list[str] = Field(default_factory=list)
-    tool_overrides: dict[str, MCPServerToolDefinition] = Field(default_factory=dict)
-    client_enabled: dict[str, bool] = Field(
-        default_factory=lambda: {"svelte": True, "kiosk": False, "cli": True}
-    )
+    tools: list[MCPToolInfo] = Field(default_factory=list)
+    disabled_tools: list[str] = Field(default_factory=list)
 
 
 class MCPServerStatusResponse(BaseModel):
@@ -99,12 +43,64 @@ class MCPServerStatusResponse(BaseModel):
     updated_at: datetime | None = None
 
 
+# ------------------------------------------------------------------
+# Request payloads
+# ------------------------------------------------------------------
+
+
+class MCPServerConnectPayload(BaseModel):
+    """Payload for connecting to a new MCP server by URL."""
+
+    url: str
+
+
+class MCPServerDiscoverPayload(BaseModel):
+    """Payload for scanning a network host for MCP servers."""
+
+    host: str = "127.0.0.1"
+    ports: list[int] = Field(default_factory=list)
+
+
+class MCPServerUpdatePayload(BaseModel):
+    """Partial update for a single server."""
+
+    enabled: bool | None = None
+    disabled_tools: list[str] | None = None
+
+
+class MCPToolTogglePayload(BaseModel):
+    """Toggle a specific tool on/off."""
+
+    tool_name: str
+    enabled: bool
+
+
+# ------------------------------------------------------------------
+# Client preferences
+# ------------------------------------------------------------------
+
+
+class ClientPreferences(BaseModel):
+    """Tool preferences for a single frontend."""
+
+    client_id: str
+    enabled_servers: list[str]
+
+
+class ClientPreferencesUpdate(BaseModel):
+    """Update payload for client preferences."""
+
+    enabled_servers: list[str]
+
+
 __all__ = [
-    "MCPServerCollectionPayload",
-    "MCPServerDefinition",
+    "ClientPreferences",
+    "ClientPreferencesUpdate",
+    "MCPServerConnectPayload",
+    "MCPServerDiscoverPayload",
     "MCPServerStatus",
     "MCPServerStatusResponse",
-    "MCPServerToolStatus",
     "MCPServerUpdatePayload",
-    "MCPServerToolDefinition",
+    "MCPToolInfo",
+    "MCPToolTogglePayload",
 ]

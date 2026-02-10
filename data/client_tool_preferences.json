@@ -1,0 +1,49 @@
+{
+  "cli": {
+    "enabled_servers": [
+      "custom-calendar",
+      "custom-gmail",
+      "custom-pdf",
+      "kiosk-clock-tools",
+      "local-calculator",
+      "monarch-money",
+      "playwright",
+      "shell-control",
+      "spotify"
+    ]
+  },
+  "kiosk": {
+    "enabled_servers": [
+      "custom-gmail",
+      "custom-pdf",
+      "kiosk-clock-tools",
+      "local-calculator",
+      "monarch-money",
+      "playwright",
+      "shell-control",
+      "spotify"
+    ]
+  },
+  "svelte": {
+    "enabled_servers": [
+      "custom-calendar",
+      "custom-gdrive",
+      "custom-gmail",
+      "custom-pdf",
+      "housekeeping",
+      "kiosk-clock-tools",
+      "local-calculator",
+      "monarch-money",
+      "notes",
+      "playwright",
+      "shell-control",
+      "spotify"
+    ]
+  },
+  "voice": {
+    "enabled_servers": [
+      "local-calculator",
+      "spotify"
+    ]
+  }
+}

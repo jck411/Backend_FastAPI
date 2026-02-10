@@ -30,8 +30,9 @@ from .routers.kiosk_calendar import router as kiosk_calendar_router
 from .routers.alarms import router as alarms_router
 from .services.attachments import AttachmentService
 from .services.attachments_cleanup import cleanup_expired_attachments
-from .mcp_servers import BUILTIN_MCP_SERVER_DEFINITIONS
+from .services.client_tool_preferences import ClientToolPreferences
 from .services.client_profiles import ClientProfileService
+from .services.mcp_management import MCPManagementService
 from .services.mcp_server_settings import MCPServerSettingsService
 from .services.model_settings import ModelSettingsService
 from .services.suggestions import SuggestionsService
@@ -122,25 +123,7 @@ def create_app() -> FastAPI:
 
     mcp_servers_path = _resolve_under(project_root, settings.mcp_servers_path)
 
-    default_enabled_server_ids = {
-        "local-calculator",
-        "housekeeping",
-        "custom-calendar",
-        "custom-gmail",
-        "custom-gdrive",
-        "custom-pdf",
-        "monarch-money",
-    }
-
-    default_mcp_servers = [
-        {**definition, "enabled": definition["id"] in default_enabled_server_ids}
-        for definition in BUILTIN_MCP_SERVER_DEFINITIONS
-    ]
-
-    mcp_settings_service = MCPServerSettingsService(
-        mcp_servers_path,
-        fallback=default_mcp_servers,
-    )
+    mcp_settings_service = MCPServerSettingsService(mcp_servers_path)
 
     suggestions_path = _resolve_under(project_root, settings.suggestions_path)
 
@@ -150,11 +133,22 @@ def create_app() -> FastAPI:
     client_profile_service = ClientProfileService(profiles_path)
 
     orchestrator = ChatOrchestrator(
-
         settings,
         model_settings_service,
         mcp_settings_service,
     )
+
+    # MCP management and client tool preferences
+    mcp_management_service = MCPManagementService(
+        orchestrator.get_mcp_client(),
+        mcp_settings_service,
+    )
+
+    tool_preferences_path = _resolve_under(
+        project_root, Path("data/client_tool_preferences.json")
+    )
+    client_tool_preferences = ClientToolPreferences(tool_preferences_path)
+    orchestrator.set_tool_preferences(client_tool_preferences)
 
     attachment_service = AttachmentService(
         orchestrator.repository,
@@ -252,6 +246,8 @@ def create_app() -> FastAPI:
     app.state.model_settings_service = model_settings_service
     app.state.chat_orchestrator = orchestrator
     app.state.mcp_server_settings_service = mcp_settings_service
+    app.state.mcp_management_service = mcp_management_service
+    app.state.client_tool_preferences = client_tool_preferences
     app.state.attachment_service = attachment_service
     app.state.suggestions_service = suggestions_service
     app.state.client_profile_service = client_profile_service

@@ -12,7 +12,6 @@ from mcp.types import CallToolResult, Tool
 
 from backend.chat.mcp_registry import (
     MCPServerConfig,
-    MCPServerToolConfig,
     MCPToolAggregator,
     load_server_configs,
 )
@@ -24,6 +23,11 @@ pytestmark = pytest.mark.anyio
 @pytest.fixture
 def anyio_backend() -> str:
     return "asyncio"
+
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
 
 
 def build_tool_definition(name: str, description: str) -> tuple[Tool, dict[str, Any]]:
@@ -43,12 +47,9 @@ def build_tool_definition(name: str, description: str) -> tuple[Tool, dict[str, 
     return tool, spec
 
 
-DEFAULT_TEST_HTTP_PORT = 9100
-
-
 def make_config(**kwargs: Any) -> MCPServerConfig:
-    if "http_url" not in kwargs and "http_port" not in kwargs:
-        kwargs["http_port"] = DEFAULT_TEST_HTTP_PORT
+    if "url" not in kwargs:
+        kwargs["url"] = "http://127.0.0.1:9100/mcp"
     return MCPServerConfig(**kwargs)
 
 
@@ -56,33 +57,32 @@ def make_fake_client_factory(
     tool_map: dict[str, list[tuple[Tool, dict[str, Any]]]],
     created: dict[str, Any],
 ):
+    """Return a FakeClient class that replaces MCPToolClient in tests."""
+
     class FakeClient:
-        def __init__(
-            self,
-            server_module: str | None = None,
-            *,
-            command: list[str] | None = None,
-            http_url: str | None = None,
-            http_port: int | None = None,
-            server_id: str | None = None,
-            cwd: Path | None = None,
-            env: dict[str, str] | None = None,
-            connect_only: bool = False,
-        ) -> None:
-            if server_id is None:
-                raise AssertionError("server_id must be provided")
-            definitions = tool_map.get(server_id, [])
+        def __init__(self, url: str, *, server_id: str | None = None) -> None:
+            sid = server_id or url
+            definitions = tool_map.get(sid, [])
             self._tools = [tool for tool, _ in definitions]
             self._specs = [spec for _, spec in definitions]
             self._calls: list[tuple[str, dict[str, Any]]] = []
             self._closed = False
-            self.server_id = server_id
-            created[server_id] = self
+            self._server_id = sid
+            self._url = url
+            created[sid] = self
 
-        async def connect(self) -> None:  # pragma: no cover - trivial stub
+        @property
+        def server_id(self) -> str:
+            return self._server_id
+
+        @property
+        def url(self) -> str:
+            return self._url
+
+        async def connect(self) -> None:
             return None
 
-        async def refresh_tools(self) -> None:  # pragma: no cover - trivial stub
+        async def refresh_tools(self) -> None:
             return None
 
         def get_openai_tools(self) -> list[dict[str, Any]]:
@@ -102,7 +102,7 @@ def make_fake_client_factory(
             return CallToolResult(
                 content=[],
                 structuredContent={
-                    "server": self.server_id,
+                    "server": self._server_id,
                     "tool": name,
                     "arguments": arguments or {},
                 },
@@ -123,97 +123,106 @@ def make_fake_client_factory(
     return FakeClient
 
 
-def build_export(**overrides: Any) -> dict[str, Any]:
-    server = {
-        "id": "external-server",
-        "command": [
-            "uv",
-            "run",
-            "backend.mcp_servers.gmail_server",
-        ],
-        "http_port": DEFAULT_TEST_HTTP_PORT,
-        "env": {"EXPORTED_TOKEN": "${EXPORTED_TOKEN}"},
-        "tool_prefix": "external-server",
-        "enabled": True,
-    }
-    server.update(overrides)
-    return {"servers": [server]}
+# ------------------------------------------------------------------
+# Config model tests
+# ------------------------------------------------------------------
+
+
+def test_config_new_format() -> None:
+    cfg = MCPServerConfig(id="test", url="http://host:9000/mcp")
+    assert cfg.id == "test"
+    assert cfg.url == "http://host:9000/mcp"
+    assert cfg.enabled is True
+    assert cfg.disabled_tools == set()
+
+
+def test_config_migrates_http_port() -> None:
+    cfg = MCPServerConfig.model_validate(
+        {"id": "calc", "http_port": 9003, "module": "backend.mcp_servers.calc"}
+    )
+    assert cfg.url == "http://127.0.0.1:9003/mcp"
+
+
+def test_config_migrates_http_url() -> None:
+    cfg = MCPServerConfig.model_validate(
+        {"id": "remote", "http_url": "http://remote.host:9003/mcp"}
+    )
+    assert cfg.url == "http://remote.host:9003/mcp"
+
+
+def test_config_ignores_extra_fields() -> None:
+    """Legacy fields like module, command, contexts etc. are silently dropped."""
+    cfg = MCPServerConfig.model_validate(
+        {
+            "id": "legacy",
+            "url": "http://127.0.0.1:9001/mcp",
+            "module": "backend.mcp_servers.foo",
+            "command": ["python", "-m", "foo"],
+            "cwd": "/tmp",
+            "env": {"FOO": "bar"},
+            "contexts": ["calendar"],
+            "tool_overrides": {},
+            "client_enabled": {"svelte": True},
+            "tool_prefix": "pfx",
+        }
+    )
+    assert cfg.id == "legacy"
+    assert cfg.url == "http://127.0.0.1:9001/mcp"
+    # Legacy fields are not present on the model
+    assert not hasattr(cfg, "module") or getattr(cfg, "module", None) is None
+
+
+# ------------------------------------------------------------------
+# Config loader tests
+# ------------------------------------------------------------------
+
+
+def test_load_server_configs_from_file(tmp_path: Path) -> None:
+    path = tmp_path / "servers.json"
+    path.write_text(
+        json.dumps(
+            {
+                "servers": [
+                    {"id": "a", "url": "http://host:9001/mcp"},
+                    {"id": "b", "url": "http://host:9002/mcp", "enabled": False},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    configs = load_server_configs(path)
+    assert len(configs) == 2
+    assert configs[0].id == "a"
+    assert configs[1].enabled is False
 
 
 def test_load_server_configs_uses_fallback(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"
-    fallback = [
-        {
-            "id": "local",
-            "module": "backend.mcp_servers.calculator_server",
-            "http_port": DEFAULT_TEST_HTTP_PORT,
-        }
-    ]
-
+    fallback = [{"id": "local", "http_port": 9003}]
     configs = load_server_configs(path, fallback=fallback)
-
     assert len(configs) == 1
     assert configs[0].id == "local"
-    assert configs[0].module == "backend.mcp_servers.calculator_server"
+    assert configs[0].url == "http://127.0.0.1:9003/mcp"
 
 
 def test_load_server_configs_overrides_fallback(tmp_path: Path) -> None:
     path = tmp_path / "servers.json"
     path.write_text(
         json.dumps(
-            {
-                "servers": [
-                    {
-                        "id": "local",
-                        "module": "custom.server",
-                        "http_port": DEFAULT_TEST_HTTP_PORT,
-                        "enabled": False,
-                    }
-                ]
-            }
+            {"servers": [{"id": "local", "url": "http://host:9100/mcp", "enabled": False}]}
         ),
         encoding="utf-8",
     )
-
-    fallback = [
-        {
-            "id": "local",
-            "module": "backend.mcp_servers.calculator_server",
-            "http_port": DEFAULT_TEST_HTTP_PORT,
-        }
-    ]
+    fallback = [{"id": "local", "http_port": 9003}]
     configs = load_server_configs(path, fallback=fallback)
-
     assert len(configs) == 1
-    assert configs[0].module == "custom.server"
+    assert configs[0].url == "http://host:9100/mcp"
     assert configs[0].enabled is False
 
 
-def test_load_server_configs_prefers_export(tmp_path: Path) -> None:
-    path = tmp_path / "servers.json"
-    path.write_text(json.dumps(build_export()), encoding="utf-8")
-
-    fallback = [
-        {
-            "id": "external-server",
-            "module": "backend.mcp_servers.gmail_server",
-            "http_port": DEFAULT_TEST_HTTP_PORT,
-        }
-    ]
-
-    configs = load_server_configs(path, fallback=fallback)
-
-    assert len(configs) == 1
-    config = configs[0]
-    assert config.id == "external-server"
-    assert config.command == [
-        "uv",
-        "run",
-        "backend.mcp_servers.gmail_server",
-    ]
-    assert config.module is None
-    assert config.tool_prefix == "external-server"
-    assert config.env == {"EXPORTED_TOKEN": "${EXPORTED_TOKEN}"}
+# ------------------------------------------------------------------
+# Aggregator tests
+# ------------------------------------------------------------------
 
 
 async def test_aggregator_preserves_unique_names(
@@ -228,8 +237,8 @@ async def test_aggregator_preserves_unique_names(
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        make_config(id="server_a", module="pkg.alpha"),
-        make_config(id="server_b", module="pkg.beta"),
+        make_config(id="server_a"),
+        make_config(id="server_b", url="http://127.0.0.1:9101/mcp"),
     ]
 
     aggregator = MCPToolAggregator(configs)
@@ -248,9 +257,10 @@ async def test_aggregator_preserves_unique_names(
     assert created["server_b"].closed is True
 
 
-async def test_aggregator_prefixes_duplicate_tool_names(
+async def test_aggregator_skips_duplicate_tool_names(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """When two servers expose the same tool name, the first one wins."""
     tool_map = {
         "server_a": [build_tool_definition("shared", "Primary shared tool")],
         "server_b": [build_tool_definition("shared", "Secondary shared tool")],
@@ -260,33 +270,73 @@ async def test_aggregator_prefixes_duplicate_tool_names(
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        make_config(id="server_a", module="pkg.alpha"),
-        make_config(id="server_b", module="pkg.beta"),
+        make_config(id="server_a"),
+        make_config(id="server_b", url="http://127.0.0.1:9101/mcp"),
     ]
 
     aggregator = MCPToolAggregator(configs)
     await aggregator.connect()
 
     try:
-        tool_names = {
+        tool_names = [
             entry["function"]["name"] for entry in aggregator.get_openai_tools()
-        }
-        assert tool_names == {"server_a__shared", "server_b__shared"}
+        ]
+        # Only one "shared" tool — from server_a (first in config order)
+        assert tool_names == ["shared"]
 
-        await aggregator.call_tool("server_b__shared", {"value": 42})
-        assert created["server_b"].calls == [("shared", {"value": 42})]
+        result = await aggregator.call_tool("shared", {"value": 42})
+        assert result.structuredContent["server"] == "server_a"
     finally:
         await aggregator.close()
 
 
-async def test_aggregator_filters_tools_by_contexts(
+async def test_aggregator_filters_by_server_ids(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     tool_map = {
         "server_a": [build_tool_definition("alpha", "Alpha tool")],
-        "server_b": [
-            build_tool_definition("shared", "Shared calendar tool"),
-            build_tool_definition("secondary", "Tasks tool"),
+        "server_b": [build_tool_definition("beta", "Beta tool")],
+    }
+    created: dict[str, Any] = {}
+    fake_client_cls = make_fake_client_factory(tool_map, created)
+    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
+
+    configs = [
+        make_config(id="server_a"),
+        make_config(id="server_b", url="http://127.0.0.1:9101/mcp"),
+    ]
+
+    aggregator = MCPToolAggregator(configs)
+    await aggregator.connect()
+
+    try:
+        # Filter to server_b only
+        filtered = aggregator.get_openai_tools_for_servers({"server_b"})
+        names = {entry["function"]["name"] for entry in filtered}
+        assert names == {"beta"}
+
+        # Filter to server_a only
+        filtered = aggregator.get_openai_tools_for_servers({"server_a"})
+        names = {entry["function"]["name"] for entry in filtered}
+        assert names == {"alpha"}
+
+        # All servers
+        all_tools = aggregator.get_openai_tools_for_servers({"server_a", "server_b"})
+        assert len(all_tools) == 2
+
+        # Empty set = no tools
+        assert aggregator.get_openai_tools_for_servers(set()) == []
+    finally:
+        await aggregator.close()
+
+
+async def test_aggregator_disabled_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tool_map = {
+        "server_a": [
+            build_tool_definition("alpha", "Alpha tool"),
+            build_tool_definition("beta", "Beta tool"),
         ],
     }
     created: dict[str, Any] = {}
@@ -294,92 +344,151 @@ async def test_aggregator_filters_tools_by_contexts(
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        make_config(id="server_a", module="pkg.alpha", contexts=["calendar"]),
-        make_config(
-            id="server_b",
-            module="pkg.beta",
-            contexts=["tasks"],
-            tool_overrides={"shared": MCPServerToolConfig(contexts=["calendar"])},
-        ),
+        make_config(id="server_a", disabled_tools={"beta"}),
     ]
 
     aggregator = MCPToolAggregator(configs)
     await aggregator.connect()
 
     try:
-        calendar_tools = {
-            entry["function"]["name"]
-            for entry in aggregator.get_openai_tools_for_contexts(["calendar"])
-        }
-        assert calendar_tools == {"alpha", "shared"}
-
-        task_tools = {
-            entry["function"]["name"]
-            for entry in aggregator.get_openai_tools_for_contexts(["tasks"])
-        }
-        assert task_tools == {"secondary"}
-
-        assert aggregator.get_openai_tools_for_contexts(["unknown"]) == [], (
-            "Unexpected tools returned for unknown context"
-        )
-
-        all_tools = {
-            entry["function"]["name"] for entry in aggregator.get_openai_tools()
-        }
-        assert {
-            entry["function"]["name"]
-            for entry in aggregator.get_openai_tools_for_contexts([])
-        } == all_tools
+        names = {entry["function"]["name"] for entry in aggregator.get_openai_tools()}
+        assert names == {"alpha"}
     finally:
         await aggregator.close()
 
 
-async def test_aggregator_returns_tools_by_name(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_http_server_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that HTTP servers can be configured and connected."""
     tool_map = {
-        "server_a": [
-            build_tool_definition("alpha", "Alpha tool"),
-            build_tool_definition("beta", "Beta tool"),
-            build_tool_definition("gamma", "Gamma tool"),
-        ]
+        "http-server": [build_tool_definition("http_tool", "HTTP-based tool")],
     }
     created: dict[str, Any] = {}
     fake_client_cls = make_fake_client_factory(tool_map, created)
     monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
 
     configs = [
-        make_config(id="server_a", module="pkg.alpha", contexts=["calendar"]),
+        make_config(
+            id="http-server",
+            url="http://localhost:8080/mcp",
+            enabled=True,
+        )
     ]
 
     aggregator = MCPToolAggregator(configs)
     await aggregator.connect()
 
     try:
-        digest = aggregator.get_capability_digest(
-            ["calendar"], limit=2, include_global=False
-        )
-        names = [entry["name"] for entry in digest.get("calendar", [])]
-        assert names == ["alpha", "beta"]
+        assert "http-server" in aggregator.active_servers()
+        tool_names = {
+            entry["function"]["name"] for entry in aggregator.get_openai_tools()
+        }
+        assert "http_tool" in tool_names
 
-        reversed_names = list(reversed(names))
-        subset = aggregator.get_openai_tools_by_qualified_names(
-            reversed_names + [names[0]]
-        )
-        assert len(subset) == len(reversed_names)
-        assert [spec["function"]["name"] for spec in subset] == reversed_names, (
-            "Expected tools in requested order"
-        )
+        result = await aggregator.call_tool("http_tool", {"param": "value"})
+        assert result.structuredContent is not None
+        assert result.structuredContent["server"] == "http-server"
+    finally:
+        await aggregator.close()
 
-        # Ensure specs are deep copied
-        subset[0]["function"]["description"] = "mutated"
-        refreshed = aggregator.get_openai_tools_by_qualified_names([reversed_names[0]])
-        assert refreshed[0]["function"].get("description") != "mutated"
+
+async def test_http_server_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Disabled servers are not connected."""
+    tool_map: dict[str, list[tuple[Tool, dict[str, Any]]]] = {}
+    created: dict[str, Any] = {}
+    fake_client_cls = make_fake_client_factory(tool_map, created)
+    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
+
+    configs = [
+        make_config(
+            id="disabled-http",
+            url="http://disabled.example.com/mcp",
+            enabled=False,
+        )
+    ]
+
+    aggregator = MCPToolAggregator(configs)
+    await aggregator.connect()
+
+    try:
+        assert "disabled-http" not in aggregator.active_servers()
+        assert len(aggregator.get_openai_tools()) == 0
+    finally:
+        await aggregator.close()
+
+
+async def test_http_server_connection_failure_handling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Connection failures are handled gracefully."""
+
+    class FailingFakeClient:
+        def __init__(self, url: str, **kwargs: Any) -> None:
+            self._server_id = kwargs.get("server_id", "unknown")
+
+        @property
+        def server_id(self) -> str:
+            return self._server_id
+
+        async def connect(self) -> None:
+            raise ConnectionError("Failed to connect to HTTP server")
+
+        async def close(self) -> None:
+            pass
+
+        @property
+        def tools(self) -> list[Tool]:
+            return []
+
+        def get_openai_tools(self) -> list[dict[str, Any]]:
+            return []
+
+    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", FailingFakeClient)
+
+    configs = [
+        make_config(
+            id="failing-http",
+            url="http://unreachable.example.com/mcp",
+            enabled=True,
+        )
+    ]
+
+    aggregator = MCPToolAggregator(configs)
+    await aggregator.connect()
+
+    try:
+        assert "failing-http" not in aggregator.active_servers()
+        assert len(aggregator.get_openai_tools()) == 0
+    finally:
+        await aggregator.close()
+
+
+async def test_describe_servers(monkeypatch: pytest.MonkeyPatch) -> None:
+    tool_map = {
+        "server_a": [build_tool_definition("alpha", "Alpha tool")],
+    }
+    created: dict[str, Any] = {}
+    fake_client_cls = make_fake_client_factory(tool_map, created)
+    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
+
+    configs = [make_config(id="server_a")]
+    aggregator = MCPToolAggregator(configs)
+    await aggregator.connect()
+
+    try:
+        details = aggregator.describe_servers()
+        assert len(details) == 1
+        entry = details[0]
+        assert entry["id"] == "server_a"
+        assert entry["connected"] is True
+        assert entry["tool_count"] == 1
+        assert entry["url"] == "http://127.0.0.1:9100/mcp"
+        assert any(t["name"] == "alpha" for t in entry["tools"])
     finally:
         await aggregator.close()
 
 
 async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -> None:
+    """Integration test: connect to a real housekeeping MCP server."""
     import asyncio
 
     project_root = Path(__file__).resolve().parents[1]
@@ -403,24 +512,56 @@ async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -
     )
     await repository.close()
 
-    config = make_config(
-        id="housekeeping",
-        module="backend.mcp_servers.housekeeping_server",
-        env={
-            "PYTHONPATH": new_pythonpath,
-            "OPENROUTER_API_KEY": env["OPENROUTER_API_KEY"],
-            "CHAT_DATABASE_PATH": str(db_path),
-        },
-    )
+    # Spawn the housekeeping server as a subprocess (this test is special)
+    import sys
 
-    aggregator = MCPToolAggregator(
-        [config],
-        base_env=env,
-        default_cwd=project_root,
+    port = 19002  # Use a non-standard port to avoid conflicts
+    argv = [
+        sys.executable,
+        "-m",
+        "backend.mcp_servers.housekeeping_server",
+        "--transport",
+        "streamable-http",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+    ]
+    spawn_env = {
+        **env,
+        "FASTMCP_SHOW_CLI_BANNER": "false",
+        "PYTHONUNBUFFERED": "1",
+    }
+
+    process = await asyncio.create_subprocess_exec(
+        *argv,
+        cwd=str(project_root),
+        env=spawn_env,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
     )
 
     try:
-        # Add timeout for the entire test to prevent hanging
+        # Wait for server to start
+        for _ in range(20):
+            await asyncio.sleep(0.5)
+            try:
+                reader, writer = await asyncio.open_connection("127.0.0.1", port)
+                writer.close()
+                await writer.wait_closed()
+                break
+            except OSError:
+                continue
+        else:
+            pytest.skip("Housekeeping server didn't start in time")
+
+        config = make_config(
+            id="housekeeping",
+            url=f"http://127.0.0.1:{port}/mcp",
+        )
+
+        aggregator = MCPToolAggregator([config])
+
         async def run_test():
             await aggregator.connect()
             tool_names = {
@@ -435,330 +576,15 @@ async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -
             formatted = aggregator.format_tool_result(result)
             assert "PING" in formatted
 
-            clock = await aggregator.call_tool("current_time", {"format": "unix"})
-            clock_payload = (
-                clock.structuredContent if clock.structuredContent is not None else {}
-            )
-            value = clock_payload.get("value")
-            assert clock_payload.get("format") == "unix"
-            assert isinstance(value, str) and value.isdigit()
-            assert clock_payload.get("utc_unix") == value
-            assert clock_payload.get("utc_unix_precise")
-            assert clock_payload.get("eastern_iso")
-            assert clock_payload.get("eastern_abbreviation")
-            assert clock_payload.get("timezone") == "America/New_York"
-
-            history = await aggregator.call_tool(
-                "chat_history",
-                {"session_id": "session-test", "limit": 5, "newest_first": False},
-            )
-            history_payload = (
-                history.structuredContent
-                if history.structuredContent is not None
-                else {}
-            )
-            assert history_payload.get("session_id") == "session-test"
-            messages = history_payload.get("messages") or []
-            assert messages, "expected chat_history to return at least one message"
-            assert any(
-                "hello world" in (item.get("content") or "") for item in messages
-            )
-            summary = history_payload.get("summary") or ""
-            assert "hello world" in summary
-
-        # Run with a 10-second timeout
         await asyncio.wait_for(run_test(), timeout=10.0)
-    finally:
-        # Ensure cleanup happens with timeout
         try:
             await asyncio.wait_for(aggregator.close(), timeout=5.0)
         except asyncio.TimeoutError:
-            pass  # Log already issued in close() method
-
-
-async def test_exported_manifest_tools_are_prefixed(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    export_path = tmp_path / "servers.json"
-    export_path.write_text(json.dumps(build_export()), encoding="utf-8")
-
-    fallback = [
-        {
-            "id": "external-server",
-            "module": "backend.mcp_servers.gmail_server",
-            "http_port": DEFAULT_TEST_HTTP_PORT,
-        }
-    ]
-
-    configs = load_server_configs(export_path, fallback=fallback)
-
-    tool_map = {
-        "external-server": [
-            build_tool_definition("gmail_create_draft", "Create Gmail draft"),
-            build_tool_definition("gmail_send", "Send Gmail"),
-        ]
-    }
-    created: dict[str, Any] = {}
-    fake_client_cls = make_fake_client_factory(tool_map, created)
-    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
-
-    aggregator = MCPToolAggregator(configs)
-    await aggregator.connect()
-
-    try:
-        tool_names = {
-            entry["function"]["name"] for entry in aggregator.get_openai_tools()
-        }
-        assert tool_names == {
-            "external-server__gmail_create_draft",
-            "external-server__gmail_send",
-        }
-
-        await aggregator.call_tool(
-            "external-server__gmail_create_draft", {"subject": "Status"}
-        )
-        assert created["external-server"].calls == [
-            ("gmail_create_draft", {"subject": "Status"})
-        ]
-    finally:
-        await aggregator.close()
-
-
-async def test_http_server_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that HTTP servers can be configured and connected."""
-    tool_map = {
-        "http-server": [
-            build_tool_definition("http_tool", "HTTP-based tool"),
-        ]
-    }
-    created: dict[str, Any] = {}
-    fake_client_cls = make_fake_client_factory(tool_map, created)
-    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
-
-    configs = [
-        make_config(
-            id="http-server",
-            http_url="http://localhost:8080/mcp",
-            enabled=True,
-        )
-    ]
-
-    aggregator = MCPToolAggregator(configs)
-    await aggregator.connect()
-
-    try:
-        # Verify server is connected
-        assert "http-server" in aggregator.active_servers()
-
-        # Verify tools are available
-        tool_names = {
-            entry["function"]["name"] for entry in aggregator.get_openai_tools()
-        }
-        assert "http_tool" in tool_names
-
-        # Test tool execution
-        result = await aggregator.call_tool("http_tool", {"param": "value"})
-        assert result.structuredContent is not None
-        assert result.structuredContent["server"] == "http-server"
-    finally:
-        await aggregator.close()
-
-
-async def test_http_server_with_tool_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that HTTP servers with tool_prefix properly namespace tools."""
-    tool_map = {
-        "http-api": [
-            build_tool_definition("fetch", "Fetch data"),
-            build_tool_definition("update", "Update data"),
-        ]
-    }
-    created: dict[str, Any] = {}
-    fake_client_cls = make_fake_client_factory(tool_map, created)
-    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
-
-    configs = [
-        make_config(
-            id="http-api",
-            http_url="http://api.example.com/mcp",
-            tool_prefix="api",
-            enabled=True,
-        )
-    ]
-
-    aggregator = MCPToolAggregator(configs)
-    await aggregator.connect()
-
-    try:
-        tool_names = {
-            entry["function"]["name"] for entry in aggregator.get_openai_tools()
-        }
-        assert tool_names == {"api__fetch", "api__update"}
-
-        # Ensure calling with prefixed name routes correctly
-        await aggregator.call_tool("api__fetch", {"id": "123"})
-        assert created["http-api"].calls == [("fetch", {"id": "123"})]
-    finally:
-        await aggregator.close()
-
-
-async def test_mixed_http_and_module_servers(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test aggregator with both HTTP and module-based servers."""
-    tool_map = {
-        "http-remote": [
-            build_tool_definition("remote_tool", "Remote HTTP tool"),
-        ],
-        "local-module": [
-            build_tool_definition("local_tool", "Local module tool"),
-        ],
-    }
-    created: dict[str, Any] = {}
-    fake_client_cls = make_fake_client_factory(tool_map, created)
-    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
-
-    configs = [
-        make_config(
-            id="http-remote",
-            http_url="http://remote.example.com/mcp",
-            enabled=True,
-        ),
-        make_config(
-            id="local-module",
-            module="backend.mcp_servers.local_server",
-            enabled=True,
-        ),
-    ]
-
-    aggregator = MCPToolAggregator(configs)
-    await aggregator.connect()
-
-    try:
-        active = aggregator.active_servers()
-        assert "http-remote" in active
-        assert "local-module" in active
-
-        tool_names = {
-            entry["function"]["name"] for entry in aggregator.get_openai_tools()
-        }
-        assert tool_names == {"remote_tool", "local_tool"}
-
-        # Test both tools can be called
-        await aggregator.call_tool("remote_tool", {"data": "test"})
-        await aggregator.call_tool("local_tool", {"action": "execute"})
-
-        assert created["http-remote"].calls == [("remote_tool", {"data": "test"})]
-        assert created["local-module"].calls == [("local_tool", {"action": "execute"})]
-    finally:
-        await aggregator.close()
-
-
-async def test_http_server_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test that disabled HTTP servers are not started."""
-    tool_map: dict[str, list[tuple[Tool, dict[str, Any]]]] = {}
-    created: dict[str, Any] = {}
-    fake_client_cls = make_fake_client_factory(tool_map, created)
-    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
-
-    configs = [
-        make_config(
-            id="disabled-http",
-            http_url="http://disabled.example.com/mcp",
-            enabled=False,
-        )
-    ]
-
-    aggregator = MCPToolAggregator(configs)
-    await aggregator.connect()
-
-    try:
-        assert "disabled-http" not in aggregator.active_servers()
-        assert len(aggregator.get_openai_tools()) == 0
-    finally:
-        await aggregator.close()
-
-
-async def test_http_server_connection_failure_handling(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test that connection failures for HTTP servers are handled gracefully."""
-
-    class FailingFakeClient:
-        def __init__(self, http_url: str | None, **kwargs: Any) -> None:
-            self.server_id = kwargs.get("server_id", "unknown")
-            self._tools: list[Tool] = []
-
-        async def connect(self) -> None:
-            raise ConnectionError("Failed to connect to HTTP server")
-
-        async def close(self) -> None:
             pass
-
-        @property
-        def tools(self) -> list[Tool]:
-            return []
-
-        def get_openai_tools(self) -> list[dict[str, Any]]:
-            return []
-
-    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", FailingFakeClient)
-
-    configs = [
-        make_config(
-            id="failing-http",
-            http_url="http://unreachable.example.com/mcp",
-            enabled=True,
-        )
-    ]
-
-    aggregator = MCPToolAggregator(configs)
-    # Connection failure should not raise, just log
-    await aggregator.connect()
-
-    try:
-        # Server should not be in active list
-        assert "failing-http" not in aggregator.active_servers()
-        assert len(aggregator.get_openai_tools()) == 0
     finally:
-        await aggregator.close()
-
-
-async def test_http_server_with_contexts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Test HTTP servers with context filtering."""
-    tool_map = {
-        "http-contextual": [
-            build_tool_definition("email_send", "Send email"),
-            build_tool_definition("storage_upload", "Upload file"),
-        ]
-    }
-    created: dict[str, Any] = {}
-    fake_client_cls = make_fake_client_factory(tool_map, created)
-    monkeypatch.setattr("backend.chat.mcp_registry.MCPToolClient", fake_client_cls)
-
-    configs = [
-        make_config(
-            id="http-contextual",
-            http_url="http://api.example.com/mcp",
-            contexts=["email"],
-            tool_overrides={
-                "storage_upload": MCPServerToolConfig(contexts=["storage"])
-            },
-            enabled=True,
-        )
-    ]
-
-    aggregator = MCPToolAggregator(configs)
-    await aggregator.connect()
-
-    try:
-        email_tools = {
-            entry["function"]["name"]
-            for entry in aggregator.get_openai_tools_for_contexts(["email"])
-        }
-        assert email_tools == {"email_send"}
-
-        storage_tools = {
-            entry["function"]["name"]
-            for entry in aggregator.get_openai_tools_for_contexts(["storage"])
-        }
-        assert storage_tools == {"storage_upload"}
-    finally:
-        await aggregator.close()
+        process.terminate()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=3.0)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.wait()

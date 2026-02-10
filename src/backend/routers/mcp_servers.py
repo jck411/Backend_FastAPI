@@ -4,176 +4,228 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from ..chat.mcp_registry import MCPServerConfig
-from ..chat.orchestrator import ChatOrchestrator
 from ..schemas.mcp_servers import (
-    MCPServerCollectionPayload,
+    ClientPreferences,
+    ClientPreferencesUpdate,
+    MCPServerConnectPayload,
+    MCPServerDiscoverPayload,
     MCPServerStatus,
     MCPServerStatusResponse,
-    MCPServerToolDefinition,
-    MCPServerToolStatus,
     MCPServerUpdatePayload,
+    MCPToolInfo,
+    MCPToolTogglePayload,
 )
+from ..services.client_tool_preferences import ClientToolPreferences
+from ..services.mcp_management import MCPManagementService
 from ..services.mcp_server_settings import MCPServerSettingsService
 
-router = APIRouter(prefix="/api/mcp/servers", tags=["mcp"])
+router = APIRouter(prefix="/api/mcp", tags=["mcp"])
+
+
+# ------------------------------------------------------------------
+# Dependency helpers
+# ------------------------------------------------------------------
+
+
+def get_mcp_management(request: Request) -> MCPManagementService:
+    service = getattr(request.app.state, "mcp_management_service", None)
+    if service is None:
+        raise RuntimeError("MCP management service is not configured")
+    return service
 
 
 def get_mcp_settings_service(request: Request) -> MCPServerSettingsService:
     service = getattr(request.app.state, "mcp_server_settings_service", None)
-    if service is None:  # pragma: no cover - defensive
+    if service is None:
         raise RuntimeError("MCP server settings service is not configured")
     return service
 
 
-def get_chat_orchestrator(request: Request) -> ChatOrchestrator:
-    orchestrator = getattr(request.app.state, "chat_orchestrator", None)
-    if orchestrator is None:  # pragma: no cover - defensive
-        raise RuntimeError("Chat orchestrator is not configured")
-    return orchestrator
+def get_tool_preferences(request: Request) -> ClientToolPreferences:
+    service = getattr(request.app.state, "client_tool_preferences", None)
+    if service is None:
+        raise RuntimeError("Client tool preferences service is not configured")
+    return service
+
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
 
 
 async def _build_status_response(
-    service: MCPServerSettingsService,
-    orchestrator: ChatOrchestrator,
+    mgmt: MCPManagementService,
+    settings: MCPServerSettingsService,
 ) -> MCPServerStatusResponse:
-    configs = await service.get_configs()
-    runtime = orchestrator.describe_mcp_servers()
-    runtime_map: dict[str, dict[str, Any]] = {entry["id"]: entry for entry in runtime}
-
+    runtime = await mgmt.get_status()
     servers: list[MCPServerStatus] = []
-    for config in configs:
-        runtime_entry = runtime_map.get(config.id, {})
+    for entry in runtime:
         tools = [
-            MCPServerToolStatus.model_validate(tool)
-            for tool in runtime_entry.get("tools", [])
+            MCPToolInfo(name=t["name"], enabled=t.get("enabled", True))
+            for t in entry.get("tools", [])
         ]
-        status = MCPServerStatus(
-            id=config.id,
-            enabled=config.enabled,
-            connected=bool(runtime_entry.get("connected", False)),
-            module=config.module,
-            command=config.command,
-            http_url=config.http_url,
-            http_port=config.http_port,
-            cwd=config.cwd,
-            env=config.env,
-            tool_prefix=config.tool_prefix,
-            disabled_tools=sorted(config.disabled_tools)
-            if config.disabled_tools
-            else [],
-            tool_count=int(runtime_entry.get("tool_count", 0)),
-            tools=tools,
-            contexts=list(config.contexts),
-            tool_overrides={
-                name: MCPServerToolDefinition(contexts=override.contexts)
-                for name, override in config.tool_overrides.items()
-            },
-            client_enabled=dict(config.client_enabled),
+        servers.append(
+            MCPServerStatus(
+                id=entry["id"],
+                url=entry.get("url", ""),
+                enabled=entry.get("enabled", True),
+                connected=entry.get("connected", False),
+                tool_count=entry.get("tool_count", 0),
+                tools=tools,
+                disabled_tools=entry.get("disabled_tools", []),
+            )
         )
-        servers.append(status)
-
-    updated_at = await service.updated_at()
+    updated_at = await settings.updated_at()
     return MCPServerStatusResponse(servers=servers, updated_at=updated_at)
 
 
-@router.get("/", response_model=MCPServerStatusResponse)
+# ------------------------------------------------------------------
+# Server endpoints
+# ------------------------------------------------------------------
+
+
+@router.get("/servers/", response_model=MCPServerStatusResponse)
 async def read_mcp_servers(
-    service: MCPServerSettingsService = Depends(get_mcp_settings_service),
-    orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
+    mgmt: MCPManagementService = Depends(get_mcp_management),
+    settings: MCPServerSettingsService = Depends(get_mcp_settings_service),
 ) -> MCPServerStatusResponse:
-    # Trigger MCP discovery when settings are accessed
-    await orchestrator.discover_mcp()
-    return await _build_status_response(service, orchestrator)
+    """List all configured MCP servers with connection status and tools."""
+    await mgmt.discover_local()
+    return await _build_status_response(mgmt, settings)
 
 
-@router.post("/discover", response_model=MCPServerStatusResponse)
-async def discover_mcp_servers(
-    service: MCPServerSettingsService = Depends(get_mcp_settings_service),
-    orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
-) -> MCPServerStatusResponse:
-    """Scan ports 9001-9010 for running MCP servers and connect to enabled ones."""
-    await orchestrator.discover_mcp()
-    return await _build_status_response(service, orchestrator)
-
-
-@router.put("/", response_model=MCPServerStatusResponse)
-async def replace_mcp_servers(
-    payload: MCPServerCollectionPayload,
-    service: MCPServerSettingsService = Depends(get_mcp_settings_service),
-    orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
-) -> MCPServerStatusResponse:
-    configs = [
-        MCPServerConfig.model_validate(defn.model_dump()) for defn in payload.servers
+@router.post("/servers/connect", response_model=MCPServerStatus)
+async def connect_mcp_server(
+    payload: MCPServerConnectPayload,
+    mgmt: MCPManagementService = Depends(get_mcp_management),
+) -> MCPServerStatus:
+    """Connect to a new MCP server by URL, discover its tools."""
+    try:
+        entry = await mgmt.connect_server(payload.url)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    tools = [
+        MCPToolInfo(name=t["name"], enabled=t.get("enabled", True))
+        for t in entry.get("tools", [])
     ]
-    persisted = await service.replace_configs(configs)
-    await orchestrator.apply_mcp_configs(persisted)
-    await orchestrator.discover_mcp()
-    return await _build_status_response(service, orchestrator)
+    return MCPServerStatus(
+        id=entry["id"],
+        url=entry.get("url", payload.url),
+        enabled=entry.get("enabled", True),
+        connected=entry.get("connected", False),
+        tool_count=entry.get("tool_count", 0),
+        tools=tools,
+        disabled_tools=entry.get("disabled_tools", []),
+    )
 
 
-@router.patch("/{server_id}", response_model=MCPServerStatusResponse)
+@router.delete("/servers/{server_id}")
+async def remove_mcp_server(
+    server_id: str,
+    mgmt: MCPManagementService = Depends(get_mcp_management),
+) -> dict[str, str]:
+    """Disconnect and remove a server from the registry."""
+    try:
+        await mgmt.remove_server(server_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
+    return {"status": "removed", "server_id": server_id}
+
+
+@router.post("/servers/discover", response_model=MCPServerStatusResponse)
+async def discover_mcp_servers(
+    payload: MCPServerDiscoverPayload | None = None,
+    mgmt: MCPManagementService = Depends(get_mcp_management),
+    settings: MCPServerSettingsService = Depends(get_mcp_settings_service),
+) -> MCPServerStatusResponse:
+    """Scan for MCP servers on a network host (or local ports)."""
+    if payload and payload.ports:
+        await mgmt.discover_servers(payload.host, payload.ports)
+    else:
+        await mgmt.discover_local()
+    return await _build_status_response(mgmt, settings)
+
+
+@router.patch("/servers/{server_id}", response_model=MCPServerStatusResponse)
 async def update_mcp_server(
     server_id: str,
     payload: MCPServerUpdatePayload,
-    service: MCPServerSettingsService = Depends(get_mcp_settings_service),
-    orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
+    mgmt: MCPManagementService = Depends(get_mcp_management),
+    settings: MCPServerSettingsService = Depends(get_mcp_settings_service),
 ) -> MCPServerStatusResponse:
-    updates = payload.model_dump(exclude_none=True)
-    disabled_tools = updates.pop("disabled_tools", None)
-    enabled = updates.pop("enabled", None)
-
-    await service.patch_server(
-        server_id,
-        enabled=enabled,
-        disabled_tools=disabled_tools,
-        overrides=updates,
-    )
-    configs = await service.get_configs()
-    await orchestrator.apply_mcp_configs(configs)
-    await orchestrator.discover_mcp()
-    return await _build_status_response(service, orchestrator)
-
-
-@router.post("/refresh", response_model=MCPServerStatusResponse)
-async def refresh_mcp_servers(
-    service: MCPServerSettingsService = Depends(get_mcp_settings_service),
-    orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
-) -> MCPServerStatusResponse:
-    await orchestrator.refresh_mcp_tools()
-    return await _build_status_response(service, orchestrator)
-
-
-@router.patch("/{server_id}/clients/{client_id}", response_model=MCPServerStatusResponse)
-async def set_server_client_enabled(
-    server_id: str,
-    client_id: str,
-    enabled: bool,
-    service: MCPServerSettingsService = Depends(get_mcp_settings_service),
-    orchestrator: ChatOrchestrator = Depends(get_chat_orchestrator),
-) -> MCPServerStatusResponse:
-    """Enable or disable a server for a specific client."""
-    # Get current config
-    configs = await service.get_configs()
-    config = next((c for c in configs if c.id == server_id), None)
-    if config is None:
-        from fastapi import HTTPException
+    """Toggle a server enabled/disabled or update its disabled_tools."""
+    try:
+        if payload.enabled is not None:
+            await mgmt.toggle_server(server_id, payload.enabled)
+        if payload.disabled_tools is not None:
+            svc = settings
+            await svc.patch_server(
+                server_id, disabled_tools=payload.disabled_tools
+            )
+            configs = await svc.get_configs()
+            await mgmt._aggregator.apply_configs(configs)
+    except KeyError:
         raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
+    return await _build_status_response(mgmt, settings)
 
-    # Update client_enabled map
-    new_client_enabled = dict(config.client_enabled)
-    new_client_enabled[client_id] = enabled
 
-    await service.patch_server(
-        server_id,
-        overrides={"client_enabled": new_client_enabled}
+@router.post("/servers/{server_id}/tools", response_model=MCPServerStatusResponse)
+async def toggle_mcp_tool(
+    server_id: str,
+    payload: MCPToolTogglePayload,
+    mgmt: MCPManagementService = Depends(get_mcp_management),
+    settings: MCPServerSettingsService = Depends(get_mcp_settings_service),
+) -> MCPServerStatusResponse:
+    """Enable or disable a specific tool on a server."""
+    try:
+        await mgmt.toggle_tool(server_id, payload.tool_name, payload.enabled)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Server not found: {server_id}")
+    return await _build_status_response(mgmt, settings)
+
+
+@router.post("/servers/refresh", response_model=MCPServerStatusResponse)
+async def refresh_mcp_servers(
+    mgmt: MCPManagementService = Depends(get_mcp_management),
+    settings: MCPServerSettingsService = Depends(get_mcp_settings_service),
+) -> MCPServerStatusResponse:
+    """Re-list tools from all connected servers."""
+    await mgmt.refresh()
+    return await _build_status_response(mgmt, settings)
+
+
+# ------------------------------------------------------------------
+# Client preference endpoints
+# ------------------------------------------------------------------
+
+
+@router.get("/preferences/{client_id}", response_model=ClientPreferences)
+async def get_client_preferences(
+    client_id: str,
+    prefs: ClientToolPreferences = Depends(get_tool_preferences),
+) -> ClientPreferences:
+    """Get tool preferences for a frontend."""
+    servers = await prefs.get_enabled_servers(client_id)
+    return ClientPreferences(
+        client_id=client_id,
+        enabled_servers=servers or [],
     )
-    updated_configs = await service.get_configs()
-    await orchestrator.apply_mcp_configs(updated_configs)
-    await orchestrator.discover_mcp()
-    return await _build_status_response(service, orchestrator)
+
+
+@router.put("/preferences/{client_id}", response_model=ClientPreferences)
+async def update_client_preferences(
+    client_id: str,
+    payload: ClientPreferencesUpdate,
+    prefs: ClientToolPreferences = Depends(get_tool_preferences),
+) -> ClientPreferences:
+    """Update which MCP servers a frontend may use."""
+    await prefs.set_enabled_servers(client_id, payload.enabled_servers)
+    return ClientPreferences(
+        client_id=client_id,
+        enabled_servers=payload.enabled_servers,
+    )
 
 
 __all__ = ["router"]

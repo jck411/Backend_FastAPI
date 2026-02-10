@@ -16,17 +16,13 @@ logger = logging.getLogger(__name__)
 
 def _config_to_payload(config: MCPServerConfig) -> dict[str, Any]:
     """Convert an MCP server config into a JSON-serialisable payload."""
-
-    data = config.model_dump(mode="json", exclude_none=True)
+    data: dict[str, Any] = {
+        "id": config.id,
+        "url": config.url,
+        "enabled": config.enabled,
+    }
     if config.disabled_tools:
         data["disabled_tools"] = sorted(config.disabled_tools)
-    if config.tool_overrides:
-        data["tool_overrides"] = {
-            name: override.model_dump(mode="json", exclude_none=True)
-            for name, override in sorted(config.tool_overrides.items())
-        }
-    if config.contexts:
-        data["contexts"] = list(config.contexts)
     return data
 
 
@@ -44,12 +40,15 @@ class MCPServerSettingsService:
         self._lock = asyncio.Lock()
         self._configs: list[MCPServerConfig] = []
         self._updated_at: datetime | None = None
-        self._loaded = False  # Lazy load flag
+        self._loaded = False
+
+    # ------------------------------------------------------------------
+    # Internal I/O
+    # ------------------------------------------------------------------
 
     def _load_from_disk(self) -> None:
         if self._loaded:
             return
-
         try:
             configs = load_server_configs(self._path, fallback=self._fallback)
         except ValueError as exc:
@@ -59,26 +58,28 @@ class MCPServerSettingsService:
             configs = [
                 MCPServerConfig.model_validate(item) for item in self._fallback
             ]
-
         self._configs = [cfg.model_copy(deep=True) for cfg in configs]
         try:
             stat = self._path.stat()
             self._updated_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
         except FileNotFoundError:
             self._updated_at = None
-
         self._loaded = True
 
     def _save_to_disk(self) -> None:
         payload = {"servers": [_config_to_payload(cfg) for cfg in self._configs]}
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        serialized = json.dumps(payload, indent=2, sort_keys=True)
-        self._path.write_text(serialized + "\n", encoding="utf-8")
+        serialised = json.dumps(payload, indent=2, sort_keys=True)
+        self._path.write_text(serialised + "\n", encoding="utf-8")
         self._updated_at = datetime.now(timezone.utc)
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     async def get_configs(self) -> list[MCPServerConfig]:
         async with self._lock:
-            self._load_from_disk()  # Lazy load on first access
+            self._load_from_disk()
             return [cfg.model_copy(deep=True) for cfg in self._configs]
 
     async def replace_configs(
@@ -96,6 +97,27 @@ class MCPServerSettingsService:
             self._save_to_disk()
             return [cfg.model_copy(deep=True) for cfg in self._configs]
 
+    async def add_server(self, config: MCPServerConfig) -> MCPServerConfig:
+        """Add a single server to the registry."""
+        async with self._lock:
+            self._load_from_disk()
+            for existing in self._configs:
+                if existing.id == config.id:
+                    raise ValueError(f"MCP server '{config.id}' already exists")
+            self._configs.append(config.model_copy(deep=True))
+            self._save_to_disk()
+            return config.model_copy(deep=True)
+
+    async def remove_server(self, server_id: str) -> None:
+        """Remove a server from the registry."""
+        async with self._lock:
+            self._load_from_disk()
+            before = len(self._configs)
+            self._configs = [c for c in self._configs if c.id != server_id]
+            if len(self._configs) == before:
+                raise KeyError(f"Unknown MCP server id: {server_id}")
+            self._save_to_disk()
+
     async def patch_server(
         self,
         server_id: str,
@@ -105,54 +127,47 @@ class MCPServerSettingsService:
         overrides: dict[str, Any] | None = None,
     ) -> MCPServerConfig:
         """Apply targeted updates to an individual server configuration."""
-
         overrides = overrides or {}
         patch_data = dict(overrides)
         if enabled is not None:
             patch_data["enabled"] = enabled
         if disabled_tools is not None:
             patch_data["disabled_tools"] = list(disabled_tools)
-
         if "id" in patch_data and patch_data["id"] != server_id:
             raise ValueError("Server id cannot be changed")
 
         async with self._lock:
-            self._load_from_disk()  # Lazy load on first access
+            self._load_from_disk()
             for index, existing in enumerate(self._configs):
                 if existing.id != server_id:
                     continue
-
                 data = existing.model_dump(exclude_none=False)
                 data.update(patch_data)
                 updated = MCPServerConfig.model_validate(data)
                 self._configs[index] = updated
                 self._save_to_disk()
                 return updated.model_copy(deep=True)
-
         raise KeyError(f"Unknown MCP server id: {server_id}")
 
     async def toggle_tool(
         self, server_id: str, tool_name: str, *, enabled: bool
     ) -> MCPServerConfig:
         async with self._lock:
-            self._load_from_disk()  # Lazy load on first access
+            self._load_from_disk()
             for index, existing in enumerate(self._configs):
                 if existing.id != server_id:
                     continue
-
-                disabled = set(existing.disabled_tools or set())
+                disabled = set(existing.disabled_tools)
                 if enabled:
                     disabled.discard(tool_name)
                 else:
                     disabled.add(tool_name)
-
                 data = existing.model_dump(exclude_none=False)
-                data["disabled_tools"] = sorted(disabled) if disabled else None
+                data["disabled_tools"] = sorted(disabled) if disabled else []
                 updated = MCPServerConfig.model_validate(data)
                 self._configs[index] = updated
                 self._save_to_disk()
                 return updated.model_copy(deep=True)
-
         raise KeyError(f"Unknown MCP server id: {server_id}")
 
     async def updated_at(self) -> datetime | None:

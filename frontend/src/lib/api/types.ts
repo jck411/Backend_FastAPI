@@ -208,11 +208,6 @@ export interface ModelListResponse {
   [key: string]: unknown;
 }
 
-export interface DeepgramTokenResponse {
-  access_token: string;
-  expires_in?: number | null;
-}
-
 export interface GenerationDetails {
   id?: string;
   total_cost?: number | null;

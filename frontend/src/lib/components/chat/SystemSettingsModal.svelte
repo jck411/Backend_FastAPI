@@ -5,21 +5,20 @@
   import { chatStore } from "../../stores/chat";
   import { modelSettingsStore } from "../../stores/modelSettings";
   import { presetsStore } from "../../stores/presets";
-  import { autoSize } from "./autoSize";
   import {
-    DEEPGRAM_MODEL_OPTIONS,
     SPEECH_TIMING_PRESETS,
     type SpeechSettings,
     type SpeechTimingPresetKey,
     getDefaultSpeechSettings,
     speechSettingsStore,
   } from "../../stores/speechSettings";
-  import { createSystemPromptStore } from "../../stores/systemPrompt";
   import { suggestionsStore } from "../../stores/suggestions";
+  import { createSystemPromptStore } from "../../stores/systemPrompt";
+  import { autoSize } from "./autoSize";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
-  import "./system-settings.css";
-  import "./speech-settings.css";
   import "./presets-settings.css";
+  import "./speech-settings.css";
+  import "./system-settings.css";
 
   export let open = false;
 
@@ -44,10 +43,7 @@
   }
 
   async function initialize(): Promise<void> {
-    await Promise.all([
-      systemPrompt.load(),
-      presetsStore.load(),
-    ]);
+    await Promise.all([systemPrompt.load(), presetsStore.load()]);
   }
 
   async function flushSystemPrompt(): Promise<boolean> {
@@ -201,9 +197,7 @@
       ...speechDraft,
       stt: {
         ...speechDraft.stt,
-        utteranceEndMs: preset.stt.utteranceEndMs,
-        endpointing: preset.stt.endpointing,
-        autoSubmitDelayMs: preset.stt.autoSubmitDelayMs,
+        autoSubmitDelayMs: preset.autoSubmitDelayMs,
       },
     };
     speechDirty = true;
@@ -242,7 +236,6 @@
     speechDirty = true;
     speechSaveError = null;
   }
-
 </script>
 
 {#if open}
@@ -253,8 +246,7 @@
     bodyClass="system-settings-body"
     layerClass="system-settings-layer"
     closeLabel="Close system settings"
-    closeDisabled={$systemPrompt.saving ||
-      speechSaving}
+    closeDisabled={$systemPrompt.saving || speechSaving}
     on:close={() => void closeModal()}
   >
     <svelte:fragment slot="heading">
@@ -277,8 +269,7 @@
             type="button"
             class="btn btn-ghost btn-small"
             on:click={() => systemPrompt.reset()}
-            disabled={!$systemPrompt.dirty ||
-              $systemPrompt.saving}
+            disabled={!$systemPrompt.dirty || $systemPrompt.saving}
           >
             Reset
           </button>
@@ -306,7 +297,6 @@
         {/if}
       </div>
     </article>
-
 
     <article class="system-card">
       <header class="system-card-header">
@@ -472,9 +462,7 @@
       <header class="system-card-header">
         <div>
           <h3>Speech settings</h3>
-          <p class="system-card-caption">
-            Configure Deepgram speech-to-text dictation settings.
-          </p>
+          <p class="system-card-caption">Configure speech-to-text behavior.</p>
         </div>
         <div class="system-card-actions">
           <button
@@ -491,188 +479,8 @@
       <div class="system-card-body">
         <div class="speech-card">
           <div class="speech-card-header">
-            <h3>Deepgram model</h3>
-            <p>Choose the speech-to-text engine and helper features.</p>
-          </div>
-
-          <div class="model-presets-row">
-            <div class="speech-field">
-              <span class="field-label">Model</span>
-              <select
-                class="select-control"
-                value={speechDraft.stt.model}
-                on:change={(event) =>
-                  updateSpeechStt(
-                    "model",
-                    (event.target as HTMLSelectElement).value,
-                  )}
-              >
-                {#each DEEPGRAM_MODEL_OPTIONS as option}
-                  <option value={option.value}>{option.label}</option>
-                {/each}
-              </select>
-            </div>
-            <div class="speech-field presets-field">
-              <span class="field-label">Speech timing presets</span>
-              <div class="speech-presets" aria-label="Timing presets">
-                <button
-                  class="btn btn-soft btn-small"
-                  type="button"
-                  on:click={() => applySpeechPreset("fast")}
-                >
-                  Fast
-                </button>
-                <button
-                  class="btn btn-soft btn-small"
-                  type="button"
-                  on:click={() => applySpeechPreset("normal")}
-                >
-                  Normal
-                </button>
-                <button
-                  class="btn btn-soft btn-small"
-                  type="button"
-                  on:click={() => applySpeechPreset("slow")}
-                >
-                  Slow
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div class="toggle-grid">
-            <label class="toggle-item">
-              <input
-                type="checkbox"
-                checked={speechDraft.stt.interimResults}
-                on:change={(event) =>
-                  updateSpeechStt(
-                    "interimResults",
-                    (event.target as HTMLInputElement).checked,
-                  )}
-              />
-              <span>Interim transcripts</span>
-            </label>
-            <label class="toggle-item">
-              <input
-                type="checkbox"
-                checked={speechDraft.stt.vadEvents}
-                on:change={(event) =>
-                  updateSpeechStt(
-                    "vadEvents",
-                    (event.target as HTMLInputElement).checked,
-                  )}
-              />
-              <span>VAD events</span>
-            </label>
-            <label class="toggle-item">
-              <input
-                type="checkbox"
-                checked={speechDraft.stt.smartFormat}
-                on:change={(event) =>
-                  updateSpeechStt(
-                    "smartFormat",
-                    (event.target as HTMLInputElement).checked,
-                  )}
-              />
-              <span>Smart formatting</span>
-            </label>
-            <label class="toggle-item">
-              <input
-                type="checkbox"
-                checked={speechDraft.stt.punctuate}
-                on:change={(event) =>
-                  updateSpeechStt(
-                    "punctuate",
-                    (event.target as HTMLInputElement).checked,
-                  )}
-              />
-              <span>Punctuation</span>
-            </label>
-            <label class="toggle-item">
-              <input
-                type="checkbox"
-                checked={speechDraft.stt.numerals}
-                on:change={(event) =>
-                  updateSpeechStt(
-                    "numerals",
-                    (event.target as HTMLInputElement).checked,
-                  )}
-              />
-              <span>Numerals</span>
-            </label>
-            <label class="toggle-item">
-              <input
-                type="checkbox"
-                checked={speechDraft.stt.fillerWords}
-                on:change={(event) =>
-                  updateSpeechStt(
-                    "fillerWords",
-                    (event.target as HTMLInputElement).checked,
-                  )}
-              />
-              <span>Keep filler words</span>
-            </label>
-            <label class="toggle-item">
-              <input
-                type="checkbox"
-                checked={speechDraft.stt.profanityFilter}
-                on:change={(event) =>
-                  updateSpeechStt(
-                    "profanityFilter",
-                    (event.target as HTMLInputElement).checked,
-                  )}
-              />
-              <span>Profanity filter</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="speech-card">
-          <div class="speech-card-header">
-            <h3>Timing & auto-submit</h3>
-            <p>Tune silence detection and message submission.</p>
-          </div>
-
-          <div class="timing-grid">
-            <div class="speech-field">
-              <span class="field-label">Endpointing window (ms)</span>
-              <input
-                class="input-control"
-                type="number"
-                min="300"
-                max="5000"
-                step="50"
-                value={speechDraft.stt.endpointing}
-                on:change={(event) =>
-                  handleSpeechNumberInput(event, (value) =>
-                    updateSpeechStt("endpointing", value),
-                  )}
-              />
-              <p class="speech-hint">
-                How long Deepgram waits after silence before finalizing the
-                transcript.
-              </p>
-            </div>
-            <div class="speech-field">
-              <span class="field-label">Utterance gap (ms)</span>
-              <input
-                class="input-control"
-                type="number"
-                min="500"
-                max="5000"
-                step="50"
-                value={speechDraft.stt.utteranceEndMs}
-                on:change={(event) =>
-                  handleSpeechNumberInput(event, (value) =>
-                    updateSpeechStt("utteranceEndMs", value),
-                  )}
-              />
-              <p class="speech-hint">
-                Silence between words before Deepgram starts a new interim
-                segment.
-              </p>
-            </div>
+            <h3>Auto-submit timing</h3>
+            <p>Control when your speech is automatically sent.</p>
           </div>
 
           <div class="auto-submit-block">
@@ -691,20 +499,47 @@
                 <span class="field-label">Auto-submit</span>
               </label>
               <p class="speech-hint">
-                Send automatically when speech ends. Delay waits after
-                endpointing.
+                Automatically send when you stop speaking.
               </p>
             </div>
+
+            <div class="speech-field presets-field">
+              <span class="field-label">Timing presets</span>
+              <div class="speech-presets" aria-label="Timing presets">
+                <button
+                  class="btn btn-soft btn-small"
+                  type="button"
+                  on:click={() => applySpeechPreset("fast")}
+                >
+                  Fast (0ms)
+                </button>
+                <button
+                  class="btn btn-soft btn-small"
+                  type="button"
+                  on:click={() => applySpeechPreset("normal")}
+                >
+                  Normal (300ms)
+                </button>
+                <button
+                  class="btn btn-soft btn-small"
+                  type="button"
+                  on:click={() => applySpeechPreset("slow")}
+                >
+                  Slow (800ms)
+                </button>
+              </div>
+            </div>
+
             <div class="delay-inline">
               <label class="delay-label" for="auto-submit-delay-input">
-                Delay (ms)
+                Delay before submit (ms)
               </label>
               <input
                 id="auto-submit-delay-input"
                 class="input-control"
                 type="number"
                 min="0"
-                max="20000"
+                max="10000"
                 step="50"
                 value={speechDraft.stt.autoSubmitDelayMs}
                 disabled={!speechDraft.stt.autoSubmit}
@@ -713,10 +548,22 @@
                     updateSpeechStt("autoSubmitDelayMs", value),
                   )}
               />
+              <p class="speech-hint">
+                Wait this long after you stop speaking before sending.
+              </p>
             </div>
           </div>
         </div>
 
+        <div class="speech-card">
+          <div class="speech-card-header">
+            <h3>Server-side STT</h3>
+            <p>
+              Speech recognition is handled by the backend. Advanced settings
+              can be configured server-side.
+            </p>
+          </div>
+        </div>
       </div>
     </article>
 

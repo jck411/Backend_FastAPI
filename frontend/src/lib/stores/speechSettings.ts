@@ -1,21 +1,19 @@
+/**
+ * Speech Settings Store
+ *
+ * Manages frontend-only speech behavior settings.
+ * Note: Deepgram/STT parameters are now configured server-side via /api/clients/svelte/stt
+ * This store only handles frontend behavior like auto-submit timing.
+ */
 import { get, writable } from 'svelte/store';
 
-export const SPEECH_SETTINGS_STORAGE_KEY = 'speech.settings.v1';
+export const SPEECH_SETTINGS_STORAGE_KEY = 'speech.settings.v2';
 
 export interface SpeechSttSettings {
-  provider: 'deepgram';
-  model: string;
-  interimResults: boolean;
-  vadEvents: boolean;
-  utteranceEndMs: number;
-  endpointing: number;
+  /** Whether to auto-submit after speech ends */
   autoSubmit: boolean;
+  /** Delay in ms before auto-submitting (0 = immediate) */
   autoSubmitDelayMs: number;
-  smartFormat: boolean;
-  punctuate: boolean;
-  numerals: boolean;
-  fillerWords: boolean;
-  profanityFilter: boolean;
 }
 
 export interface SpeechSettings {
@@ -27,58 +25,28 @@ export type SpeechTimingPresetKey = 'fast' | 'normal' | 'slow';
 
 export interface SpeechTimingPreset {
   label: string;
-  stt: Pick<SpeechSttSettings, 'utteranceEndMs' | 'endpointing' | 'autoSubmitDelayMs'>;
+  autoSubmitDelayMs: number;
 }
 
 export const SPEECH_TIMING_PRESETS: Record<SpeechTimingPresetKey, SpeechTimingPreset> = {
   fast: {
-    label: 'Fast speech',
-    stt: {
-      utteranceEndMs: 1000,
-      endpointing: 800,
-      autoSubmitDelayMs: 100,
-    },
+    label: 'Fast',
+    autoSubmitDelayMs: 0,
   },
   normal: {
-    label: 'Normal speech',
-    stt: {
-      utteranceEndMs: 1500,
-      endpointing: 1200,
-      autoSubmitDelayMs: 400,
-    },
+    label: 'Normal',
+    autoSubmitDelayMs: 300,
   },
   slow: {
-    label: 'Slow speech',
-    stt: {
-      utteranceEndMs: 2500,
-      endpointing: 2000,
-      autoSubmitDelayMs: 800,
-    },
+    label: 'Slow',
+    autoSubmitDelayMs: 800,
   },
 };
 
-export const DEEPGRAM_MODEL_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'nova-3-general', label: 'Nova-3 General' },
-  { value: 'nova-3-medical', label: 'Nova-3 Medical' },
-  { value: 'nova-2-finance', label: 'Nova-2 Finance' },
-  { value: 'nova-2-conversationalai', label: 'Nova-2 Conversational AI' },
-];
-
 const DEFAULT_SPEECH_SETTINGS: SpeechSettings = {
   stt: {
-    provider: 'deepgram',
-    model: 'nova-3',
-    interimResults: true,
-    vadEvents: true,
-    utteranceEndMs: 1500,
-    endpointing: 1200,
     autoSubmit: true,
     autoSubmitDelayMs: 0,
-    smartFormat: true,
-    punctuate: true,
-    numerals: true,
-    fillerWords: false,
-    profanityFilter: false,
   },
   updatedAt: null,
 };
@@ -128,41 +96,12 @@ function sanitizeSpeechSettings(input: unknown): SpeechSettings {
   const sttRaw = data.stt ?? data['stt'];
   if (sttRaw && typeof sttRaw === 'object') {
     const stt = sttRaw as Record<string, unknown>;
-    const modelValue =
-      typeof stt.model === 'string'
-        ? stt.model
-        : typeof stt['model'] === 'string'
-          ? (stt['model'] as string)
-          : null;
-    const trimmedModel = modelValue ? modelValue.trim() : '';
-    result.stt.provider = 'deepgram';
-    result.stt.model = trimmedModel || defaults.stt.model;
-    result.stt.interimResults = toBoolean(stt.interimResults ?? stt['interim_results'], defaults.stt.interimResults);
-    result.stt.vadEvents = toBoolean(stt.vadEvents ?? stt['vad_events'], defaults.stt.vadEvents);
-
-    const utterance = readNumber(stt.utteranceEndMs ?? stt['utterance_end_ms']);
-    if (utterance !== null) {
-      result.stt.utteranceEndMs = clampNumber(utterance, 500, 5000);
-    }
-
-    const endpointing = readNumber(stt.endpointing);
-    if (endpointing !== null) {
-      result.stt.endpointing = clampNumber(endpointing, 300, 5000);
-    }
 
     result.stt.autoSubmit = toBoolean(stt.autoSubmit ?? stt['auto_submit'], defaults.stt.autoSubmit);
     const autoSubmitDelay = readNumber(stt.autoSubmitDelayMs ?? stt['auto_submit_delay_ms']);
     if (autoSubmitDelay !== null) {
-      result.stt.autoSubmitDelayMs = clampNumber(autoSubmitDelay, 0, 20000);
+      result.stt.autoSubmitDelayMs = clampNumber(autoSubmitDelay, 0, 10000);
     }
-    result.stt.smartFormat = toBoolean(stt.smartFormat ?? stt['smart_format'], defaults.stt.smartFormat);
-    result.stt.punctuate = toBoolean(stt.punctuate, defaults.stt.punctuate);
-    result.stt.numerals = toBoolean(stt.numerals, defaults.stt.numerals);
-    result.stt.fillerWords = toBoolean(stt.fillerWords ?? stt['filler_words'], defaults.stt.fillerWords);
-    result.stt.profanityFilter = toBoolean(
-      stt.profanityFilter ?? stt['profanity_filter'],
-      defaults.stt.profanityFilter,
-    );
   }
 
   const updatedAtRaw = data.updatedAt ?? data['updated_at'];

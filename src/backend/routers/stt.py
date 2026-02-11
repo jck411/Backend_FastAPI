@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import base64
 import logging
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 
 from ..config import get_settings
@@ -60,7 +61,9 @@ async def get_deepgram_token() -> DeepgramToken:
                     body = resp.json()
                     # Deepgram uses err_code and err_msg in responses
                     err_code = body.get("err_code")
-                    err_msg = body.get("err_msg") or body.get("error") or body.get("detail")
+                    err_msg = (
+                        body.get("err_msg") or body.get("error") or body.get("detail")
+                    )
                     logger.error(
                         f"Deepgram error response: {body}"
                         + (f" (request_id: {request_id})" if request_id else "")
@@ -81,7 +84,10 @@ async def get_deepgram_token() -> DeepgramToken:
 
                 # Provide specific error messages based on status code
                 if resp.status_code == 401:
-                    if err_code == "FORBIDDEN" or "permission" in (err_msg or "").lower():
+                    if (
+                        err_code == "FORBIDDEN"
+                        or "permission" in (err_msg or "").lower()
+                    ):
                         msg = "Deepgram API key lacks sufficient permissions (needs at least 'Member' role)"
                     else:
                         msg = "Deepgram API key is invalid or unauthorized"
@@ -107,9 +113,7 @@ async def get_deepgram_token() -> DeepgramToken:
         raise
     except httpx.TimeoutException as exc:
         logger.error(f"Deepgram request timed out: {exc}")
-        raise HTTPException(
-            status_code=504, detail="Deepgram request timed out"
-        )
+        raise HTTPException(status_code=504, detail="Deepgram request timed out")
     except httpx.RequestError as exc:
         logger.error(f"Network error contacting Deepgram: {exc}")
         raise HTTPException(
@@ -129,3 +133,121 @@ async def get_deepgram_token() -> DeepgramToken:
         access_token=token,
         expires_in=expires_in if isinstance(expires_in, int) else None,
     )
+
+
+# =============================================================================
+# WebSocket STT Streaming Endpoint
+# =============================================================================
+# This provides server-side STT for the main frontend, avoiding the need for
+# Deepgram token generation permissions. Audio is sent to the backend,
+# which handles the Deepgram connection server-side.
+
+
+@router.websocket("/stream")
+async def stt_stream(websocket: WebSocket) -> None:
+    """
+    WebSocket endpoint for STT streaming.
+
+    The frontend sends audio chunks, and the backend returns transcripts.
+
+    Protocol:
+    - Frontend sends: {"type": "audio_chunk", "data": {"audio": "<base64>"}}
+    - Backend sends: {"type": "transcript", "text": "...", "is_final": bool}
+    - Backend sends: {"type": "stt_session_ready"} when STT is ready
+    - Backend sends: {"type": "error", "message": "..."} on errors
+    - Frontend can send: {"type": "close"} to end the session
+    """
+    await websocket.accept()
+
+    # Get STT service from app state
+    stt_service = getattr(websocket.app.state, "stt_service", None)
+    if not stt_service:
+        await websocket.send_json(
+            {"type": "error", "message": "STT service unavailable"}
+        )
+        await websocket.close(code=1011, reason="STT service unavailable")
+        return
+
+    # Generate a unique session ID for this WebSocket connection
+    import uuid
+
+    session_id = f"stt_stream_{uuid.uuid4().hex[:12]}"
+    logger.info(f"STT stream connected: {session_id}")
+
+    async def on_transcript(text: str, is_final: bool) -> None:
+        """Callback when transcript is received from Deepgram."""
+        try:
+            await websocket.send_json(
+                {
+                    "type": "transcript",
+                    "text": text,
+                    "is_final": is_final,
+                }
+            )
+        except Exception as e:
+            logger.warning(f"Failed to send transcript for {session_id}: {e}")
+
+    async def on_error(error: str) -> None:
+        """Callback when STT error occurs."""
+        try:
+            await websocket.send_json({"type": "error", "message": error})
+        except Exception as e:
+            logger.warning(f"Failed to send error for {session_id}: {e}")
+
+    try:
+        # Create STT session using 'svelte' client settings
+        # This uses the backend's STTService (same as voice frontend)
+        success = await stt_service.create_session(
+            session_id,
+            on_transcript,
+            on_error,
+            settings_client_id="svelte",
+        )
+
+        if not success:
+            await websocket.send_json(
+                {"type": "error", "message": "Failed to start STT session"}
+            )
+            await websocket.close(code=1011, reason="STT session failed")
+            return
+
+        # Notify frontend that STT is ready
+        await websocket.send_json({"type": "stt_session_ready"})
+
+        # Main message loop
+        while True:
+            data = await websocket.receive_json()
+            event_type = data.get("type")
+
+            if event_type == "audio_chunk":
+                # Extract audio data
+                payload = data.get("data", {})
+                audio_b64 = payload.get("audio") if isinstance(payload, dict) else None
+                if audio_b64:
+                    try:
+                        audio_bytes = base64.b64decode(audio_b64)
+                        await stt_service.stream_audio(session_id, audio_bytes)
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to process audio chunk for {session_id}: {e}"
+                        )
+
+            elif event_type == "close":
+                logger.info(f"Client requested close for {session_id}")
+                break
+
+            elif event_type == "pause":
+                stt_service.pause_session(session_id)
+                await websocket.send_json({"type": "paused"})
+
+            elif event_type == "resume":
+                stt_service.resume_session(session_id)
+                await websocket.send_json({"type": "resumed"})
+
+    except WebSocketDisconnect:
+        logger.info(f"STT stream disconnected: {session_id}")
+    except Exception as e:
+        logger.error(f"STT stream error for {session_id}: {e}", exc_info=True)
+    finally:
+        await stt_service.close_session(session_id)
+        logger.info(f"STT session closed: {session_id}")

@@ -8,7 +8,6 @@ import type {
   ChatCompletionRequest,
   ClientPreferences,
   ClientPreferencesUpdate,
-  DeepgramTokenResponse,
   GenerationDetailsResponse,
   GoogleAuthAuthorizeRequest,
   GoogleAuthAuthorizeResponse,
@@ -92,13 +91,6 @@ async function requestVoid(input: RequestInfo, init?: RequestInit): Promise<void
 
 export async function fetchModels(): Promise<ModelListResponse> {
   return requestJson<ModelListResponse>(resolveApiPath('/api/models'));
-}
-
-export async function requestDeepgramToken(): Promise<DeepgramTokenResponse> {
-  return requestJson<DeepgramTokenResponse>(resolveApiPath('/api/stt/deepgram/token'), {
-    method: 'POST',
-    body: JSON.stringify({}),
-  });
 }
 
 export async function fetchGenerationDetails(

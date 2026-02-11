@@ -1,6 +1,19 @@
+/**
+ * Speech Controller - Server-side STT via Backend WebSocket
+ *
+ * This connects to the backend's /api/stt/stream WebSocket endpoint,
+ * which handles Deepgram STT server-side. This avoids the need for
+ * Deepgram token generation permissions.
+ */
 import { get, writable } from 'svelte/store';
-import { requestDeepgramToken } from '../api/client';
+import { API_BASE_URL } from '../api/config';
 import { speechSettingsStore } from '../stores/speechSettings';
+
+// Audio configuration
+const TARGET_SAMPLE_RATE = 16000;
+const PROCESSOR_BUFFER_SIZE = 4096;
+const WORKLET_PROCESSOR_NAME = 'audio-capture';
+const WORKLET_MODULE_URL = new URL('./audioCaptureWorklet.js', import.meta.url);
 
 type SpeechMode = 'idle' | 'dictation';
 
@@ -32,17 +45,21 @@ const initialState: SpeechStoreState = {
 
 const state = writable<SpeechStoreState>({ ...initialState });
 
+// Audio resources
 let mediaStream: MediaStream | null = null;
-let mediaRecorder: MediaRecorder | null = null;
+let audioContext: AudioContext | null = null;
+let audioProcessor: AudioWorkletNode | ScriptProcessorNode | null = null;
 let ws: WebSocket | null = null;
 
+// Session state
 let currentSession = 0;
 let accumulatedTranscript = '';
-let lastInterim = '';
-let speechFinalReceived = false;
-let utteranceEndTimer: ReturnType<typeof setTimeout> | null = null;
 let autoSubmitTimer: ReturnType<typeof setTimeout> | null = null;
 let autoSubmitSequence = 0;
+
+// =============================================================================
+// Helper Functions
+// =============================================================================
 
 function clearAutoSubmitTimer(): void {
   if (autoSubmitTimer) {
@@ -61,39 +78,117 @@ function updatePrompt(text: string, keepSynced: boolean): void {
   }));
 }
 
-function resetPromptTracking(): void {
-  accumulatedTranscript = '';
-  lastInterim = '';
-  speechFinalReceived = false;
+function setError(message: string): void {
+  state.update((value) => ({
+    ...value,
+    error: message,
+    recording: false,
+    connecting: false,
+    keepPromptSynced: false,
+    mode: 'idle',
+  }));
 }
 
-function clearUtteranceTimer(): void {
-  if (utteranceEndTimer) {
-    clearTimeout(utteranceEndTimer);
-    utteranceEndTimer = null;
-  }
+function getWebSocketUrl(): string {
+  // Convert HTTP(S) URL to WS(S)
+  let base = API_BASE_URL || window.location.origin;
+  base = base.replace(/^http/, 'ws');
+  return `${base}/api/stt/stream`;
 }
+
+// Resample audio from source rate to target rate
+function resampleFloat32(input: Float32Array, fromRate: number, toRate: number): Float32Array {
+  if (!input || input.length === 0) return input;
+  if (!fromRate || !toRate || fromRate === toRate) return input;
+
+  const ratio = fromRate / toRate;
+  const outputLength = Math.max(1, Math.round(input.length / ratio));
+  const output = new Float32Array(outputLength);
+
+  for (let i = 0; i < outputLength; i++) {
+    const position = i * ratio;
+    const left = Math.floor(position);
+    const right = Math.min(left + 1, input.length - 1);
+    const weight = position - left;
+    output[i] = input[left] + (input[right] - input[left]) * weight;
+  }
+  return output;
+}
+
+// Convert Float32 samples to base64-encoded Int16
+function float32ToBase64(float32: Float32Array): string {
+  const int16 = new Int16Array(float32.length);
+  for (let i = 0; i < float32.length; i++) {
+    int16[i] = Math.max(-32768, Math.min(32767, Math.floor(float32[i] * 32768)));
+  }
+
+  // Convert to binary string
+  const bytes = new Uint8Array(int16.buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+// =============================================================================
+// Audio Processing
+// =============================================================================
+
+function processAudioFrame(samples: Float32Array, inputSampleRate: number): void {
+  if (!samples || samples.length === 0) return;
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+  // Resample if needed
+  const resampled =
+    inputSampleRate !== TARGET_SAMPLE_RATE
+      ? resampleFloat32(samples, inputSampleRate, TARGET_SAMPLE_RATE)
+      : samples;
+
+  // Convert to base64 and send
+  const b64 = float32ToBase64(resampled);
+  ws.send(JSON.stringify({
+    type: 'audio_chunk',
+    data: { audio: b64 },
+  }));
+}
+
+// =============================================================================
+// Cleanup Functions
+// =============================================================================
 
 function ensureSocketClosed(): void {
   if (ws) {
     try {
       ws.close();
     } catch (error) {
-      console.warn('Failed to close Deepgram socket', error);
+      console.warn('Failed to close WebSocket', error);
     }
   }
   ws = null;
 }
 
-function ensureMediaStopped(): void {
-  if (mediaRecorder) {
+function ensureAudioStopped(): void {
+  if (audioProcessor) {
     try {
-      mediaRecorder.stop();
+      audioProcessor.disconnect();
+      if ('port' in audioProcessor) {
+        audioProcessor.port.onmessage = null;
+      }
     } catch (error) {
       // ignore
     }
   }
-  mediaRecorder = null;
+  audioProcessor = null;
+
+  if (audioContext) {
+    try {
+      audioContext.close();
+    } catch (error) {
+      // ignore
+    }
+  }
+  audioContext = null;
 
   if (mediaStream) {
     try {
@@ -110,9 +205,9 @@ interface StopOptions {
 }
 
 function stopListening(options: StopOptions = {}): void {
-  ensureMediaStopped();
+  ensureAudioStopped();
   ensureSocketClosed();
-  clearUtteranceTimer();
+  clearAutoSubmitTimer();
 
   state.update((value) => ({
     ...value,
@@ -124,16 +219,9 @@ function stopListening(options: StopOptions = {}): void {
   }));
 }
 
-function setError(message: string): void {
-  state.update((value) => ({
-    ...value,
-    error: message,
-    recording: false,
-    connecting: false,
-    keepPromptSynced: false,
-    mode: 'idle',
-  }));
-}
+// =============================================================================
+// Speech End Handling
+// =============================================================================
 
 function handleSpeechEnd(finalText: string): void {
   const trimmed = finalText.trim();
@@ -154,6 +242,7 @@ function handleSpeechEnd(finalText: string): void {
       return;
     }
 
+    // Stop recording but wait before submitting
     stopListening();
     updatePrompt(trimmed, false);
     const token = ++autoSubmitSequence;
@@ -172,6 +261,58 @@ function handleSpeechEnd(finalText: string): void {
   }
 }
 
+// =============================================================================
+// Audio Processing Setup
+// =============================================================================
+
+async function setupAudioProcessing(
+  context: AudioContext,
+  source: MediaStreamAudioSourceNode,
+  inputSampleRate: number,
+  sessionId: number,
+): Promise<void> {
+  let processor: AudioWorkletNode | ScriptProcessorNode | null = null;
+
+  // Try AudioWorklet first (better performance)
+  if (context.audioWorklet) {
+    try {
+      await context.audioWorklet.addModule(WORKLET_MODULE_URL);
+      const workletNode = new AudioWorkletNode(context, WORKLET_PROCESSOR_NAME);
+      workletNode.port.onmessage = (event) => {
+        if (sessionId !== currentSession) return;
+        const data = event.data;
+        const samples = data && data.samples ? data.samples : data;
+        if (samples instanceof Float32Array) {
+          processAudioFrame(samples, inputSampleRate);
+        } else if (samples instanceof ArrayBuffer) {
+          processAudioFrame(new Float32Array(samples), inputSampleRate);
+        }
+      };
+      processor = workletNode;
+    } catch (error) {
+      console.warn('AudioWorklet unavailable, falling back to ScriptProcessor:', error);
+    }
+  }
+
+  // Fallback to ScriptProcessor
+  if (!processor) {
+    const scriptNode = context.createScriptProcessor(PROCESSOR_BUFFER_SIZE, 1, 1);
+    scriptNode.onaudioprocess = (e) => {
+      if (sessionId !== currentSession) return;
+      processAudioFrame(e.inputBuffer.getChannelData(0), inputSampleRate);
+    };
+    processor = scriptNode;
+  }
+
+  source.connect(processor);
+  processor.connect(context.destination);
+  audioProcessor = processor;
+}
+
+// =============================================================================
+// Main STT Functions
+// =============================================================================
+
 async function startListening(mode: SpeechMode): Promise<void> {
   const current = get(state);
   if (current.connecting || current.recording) {
@@ -186,8 +327,7 @@ async function startListening(mode: SpeechMode): Promise<void> {
   }
 
   const sessionId = ++currentSession;
-
-  resetPromptTracking();
+  accumulatedTranscript = '';
 
   state.set({
     ...current,
@@ -199,130 +339,52 @@ async function startListening(mode: SpeechMode): Promise<void> {
     pendingSubmit: null,
   });
 
-  let token: string;
-  try {
-    const response = await requestDeepgramToken();
-    token = response.access_token;
-    if (!token) {
-      throw new Error('Missing Deepgram token');
-    }
-  } catch (error) {
-    if (sessionId !== currentSession) {
-      return;
-    }
-    stopListening();
-    const message = error instanceof Error ? error.message : 'Failed to get Deepgram token';
-    setError(message);
-    return;
-  }
-
+  // 1. Get microphone access
   let stream: MediaStream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        sampleRate: TARGET_SAMPLE_RATE,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+      video: false,
+    });
   } catch (error) {
-    if (sessionId !== currentSession) {
-      return;
-    }
+    if (sessionId !== currentSession) return;
     stopListening();
     const message = error instanceof Error ? error.message : 'Microphone access denied';
     setError(message);
     return;
   }
 
-  const recorderMimeCandidates = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus', 'audio/webm'];
-  const selectedMime = recorderMimeCandidates.find((type) => {
-    try {
-      return MediaRecorder.isTypeSupported(type);
-    } catch (error) {
-      return false;
-    }
-  });
+  if (sessionId !== currentSession) {
+    stream.getTracks().forEach((t) => t.stop());
+    return;
+  }
 
-  const encoding = 'opus';
-
-  const stt = settings.stt;
-
-  const utteranceEndMs = Math.max(stt.utteranceEndMs, 500);
-  const endpointingMs = Math.max(stt.endpointing, 300);
-
-  const params = new URLSearchParams({
-    model: stt.model,
-    interim_results: String(stt.interimResults !== false),
-    vad_events: String(stt.vadEvents !== false),
-    smart_format: String(stt.smartFormat !== false),
-    punctuate: String(stt.punctuate !== false),
-    numerals: String(stt.numerals !== false),
-    filler_words: String(stt.fillerWords === true),
-    profanity_filter: String(stt.profanityFilter === true),
-    utterance_end_ms: String(utteranceEndMs),
-    endpointing: String(endpointingMs),
-    encoding,
-    no_delay: 'false',
-    multichannel: 'false',
-    alternatives: '1',
-  });
-
-  const socketUrl = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
-  const isJwt = token.includes('.') && token.split('.').length >= 3;
-  const protocols = isJwt ? ['Bearer', token] as const : ['token', token] as const;
-
-  const dgSocket = new WebSocket(socketUrl, protocols as unknown as string | string[]);
-  ws = dgSocket;
   mediaStream = stream;
 
-  dgSocket.addEventListener('open', () => {
-    if (sessionId !== currentSession) {
-      return;
-    }
+  // 2. Create audio context
+  const context = new AudioContext({ sampleRate: TARGET_SAMPLE_RATE });
+  audioContext = context;
+  const inputSampleRate = context.sampleRate;
+  const source = context.createMediaStreamSource(stream);
 
-    state.update((value) => ({
-      ...value,
-      connecting: false,
-      recording: true,
-      error: null,
-      keepPromptSynced: true,
-    }));
+  // 3. Connect to backend WebSocket
+  const wsUrl = getWebSocketUrl();
+  const socket = new WebSocket(wsUrl);
+  ws = socket;
 
-    try {
-      mediaRecorder = new MediaRecorder(stream, selectedMime ? { mimeType: selectedMime } : undefined);
-    } catch (error) {
-      setError('MediaRecorder not supported');
-      stopListening();
-      return;
-    }
-
-    mediaRecorder.addEventListener('dataavailable', async (event) => {
-      if (!event.data || event.data.size === 0) {
-        return;
-      }
-      try {
-        const buffer = await event.data.arrayBuffer();
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(buffer);
-        }
-      } catch (error) {
-        console.warn('Failed to send audio chunk', error);
-      }
-    });
-
-    mediaRecorder.addEventListener('stop', () => {
-      try {
-        ws?.send(new Uint8Array());
-      } catch (error) {
-        // ignore
-      }
-    });
-
-    mediaRecorder.start(250);
+  socket.addEventListener('open', () => {
+    if (sessionId !== currentSession) return;
+    // Wait for stt_session_ready message before starting audio
   });
 
-  dgSocket.addEventListener('message', (event) => {
-    if (sessionId !== currentSession) {
-      return;
-    }
-    if (typeof event.data !== 'string') {
-      return;
-    }
+  socket.addEventListener('message', (event) => {
+    if (sessionId !== currentSession) return;
+    if (typeof event.data !== 'string') return;
 
     let payload: Record<string, unknown>;
     try {
@@ -331,83 +393,70 @@ async function startListening(mode: SpeechMode): Promise<void> {
       return;
     }
 
-    handleDeepgramMessage(payload, mode, sessionId);
+    const eventType = payload.type as string;
+
+    if (eventType === 'stt_session_ready') {
+      // Backend STT session is ready - start audio processing
+      void setupAudioProcessing(context, source, inputSampleRate, sessionId);
+
+      state.update((value) => ({
+        ...value,
+        connecting: false,
+        recording: true,
+        error: null,
+        keepPromptSynced: true,
+      }));
+    } else if (eventType === 'transcript') {
+      const text = String(payload.text ?? '');
+      const isFinal = payload.is_final === true;
+
+      if (text) {
+        if (isFinal) {
+          // Accumulate final transcripts
+          accumulatedTranscript = accumulatedTranscript
+            ? `${accumulatedTranscript} ${text}`.trim()
+            : text;
+          updatePrompt(accumulatedTranscript, true);
+          // When speech is final, handle the end
+          handleSpeechEnd(accumulatedTranscript);
+        } else {
+          // Interim transcript - show accumulated + current interim
+          const combined = accumulatedTranscript
+            ? `${accumulatedTranscript} ${text}`.trim()
+            : text;
+          updatePrompt(combined, true);
+        }
+      }
+    } else if (eventType === 'error') {
+      const message = String(payload.message ?? 'STT error');
+      console.error('STT error:', message);
+      setError(message);
+      stopListening();
+    }
   });
 
-  dgSocket.addEventListener('error', (event) => {
-    console.warn('Deepgram socket error', event);
-    if (sessionId !== currentSession) {
-      return;
-    }
-    setError('Deepgram connection error');
+  socket.addEventListener('error', (event) => {
+    console.warn('WebSocket error', event);
+    if (sessionId !== currentSession) return;
+    setError('Connection error');
     stopListening();
   });
 
-  dgSocket.addEventListener('close', () => {
-    if (sessionId !== currentSession) {
-      return;
-    }
-    ensureMediaStopped();
-    state.update((value) => ({ ...value, recording: false, connecting: false, keepPromptSynced: false }));
+  socket.addEventListener('close', () => {
+    if (sessionId !== currentSession) return;
+    ensureAudioStopped();
+    state.update((value) => ({
+      ...value,
+      recording: false,
+      connecting: false,
+      keepPromptSynced: false,
+    }));
   });
 }
 
-interface DeepgramMessage {
-  type?: string;
-  is_final?: boolean;
-  speech_final?: boolean;
-  channel?: {
-    alternatives?: Array<{
-      transcript?: string;
-    }>;
-  };
-}
-
-function handleDeepgramMessage(raw: Record<string, unknown>, mode: SpeechMode, sessionId: number): void {
-  const message = raw as DeepgramMessage;
-
-  if (message.type === 'UtteranceEnd') {
-    if (!speechFinalReceived) {
-      handleSpeechEnd(accumulatedTranscript || lastInterim);
-    }
-    clearUtteranceTimer();
-    utteranceEndTimer = setTimeout(() => {
-      speechFinalReceived = false;
-    }, 1000);
-    return;
-  }
-
-  if (message.type !== 'Results') {
-    return;
-  }
-
-  const alternative = message.channel?.alternatives?.[0];
-  const transcriptRaw = alternative?.transcript ?? '';
-  const transcript = transcriptRaw.trim();
-
-  if (transcript) {
-    const interimCombined = accumulatedTranscript
-      ? `${accumulatedTranscript} ${transcript}`.trim()
-      : transcript;
-    lastInterim = interimCombined;
-    updatePrompt(interimCombined, true);
-  }
-
-  const isFinal = message.is_final === true;
-  if (isFinal && transcript) {
-    accumulatedTranscript = accumulatedTranscript
-      ? `${accumulatedTranscript} ${transcript}`.trim()
-      : transcript;
-    updatePrompt(accumulatedTranscript, true);
-  }
-
-  const speechFinal = message.speech_final === true;
-  if (speechFinal) {
-    speechFinalReceived = true;
-    clearUtteranceTimer();
-    handleSpeechEnd(accumulatedTranscript || lastInterim || transcript);
-  }
-}
+// =============================================================================
+// Public API
+// =============================================================================
 
 export async function startDictation(): Promise<void> {
   clearAutoSubmitTimer();

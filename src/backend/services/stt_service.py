@@ -203,6 +203,7 @@ class DeepgramSession:
         """Connect to Deepgram."""
         if self.mode == "command":
             # Command mode: Use Nova-3 with v1 API
+            # Note: filler_words is not supported by the Deepgram SDK v1 API
             params = {
                 "model": self.command_model,
                 "encoding": "linear16",
@@ -213,7 +214,6 @@ class DeepgramSession:
                 "smart_format": str(self.command_smart_format).lower(),
                 "punctuate": str(self.command_punctuate).lower(),
                 "numerals": str(self.command_numerals).lower(),
-                "filler_words": str(self.command_filler_words).lower(),
                 "profanity_filter": str(self.command_profanity_filter).lower(),
                 "vad_events": "true",
             }

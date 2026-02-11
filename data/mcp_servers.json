@@ -52,13 +52,13 @@
     },
     {
       "enabled": true,
-      "id": "housekeeping",
-      "url": "http://192.168.1.110:9002/mcp"
+      "id": "monarch",
+      "url": "http://192.168.1.110:9008/mcp"
     },
     {
       "enabled": true,
-      "id": "monarch",
-      "url": "http://192.168.1.110:9008/mcp"
+      "id": "housekeeping",
+      "url": "http://192.168.1.110:9002/mcp"
     }
   ]
 }

@@ -76,7 +76,7 @@ class SttSettings(BaseModel):
     """STT configuration for a client."""
 
     mode: Literal["conversation", "command"] = Field(
-        default="conversation",
+        default="command",
         description="STT mode: 'conversation' (Flux v2) or 'command' (Nova-3 v1)",
     )
 

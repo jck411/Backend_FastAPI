@@ -72,3 +72,4 @@ data/model_settings.json
 
 # Slideshow photos
 data/slideshow/photos/
+data/mcp_servers.json

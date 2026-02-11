@@ -158,9 +158,7 @@ class DeepgramSession:
                             if asyncio.iscoroutinefunction(self.on_transcript):
                                 if self._event_loop is not None:
                                     asyncio.run_coroutine_threadsafe(
-                                        self.on_transcript(
-                                            transcript_text, is_final
-                                        ),
+                                        self.on_transcript(transcript_text, is_final),
                                         self._event_loop,
                                     )
                                 else:

@@ -8,7 +8,7 @@ FastAPI backend that proxies streaming chat completions from OpenRouter with int
 - **Configurable LLM planning** — Optional AI-driven tool selection for optimized context
 - **Persistent chat history** with GCS-backed attachment storage and automatic cleanup
 - **MCP tool aggregation** — Google Calendar, Gmail, Drive, PDF extraction, Monarch Money, and custom utilities
-- **Speech-to-text** — Mint short-lived Deepgram tokens for browser-based voice input
+- **Dual-mode speech-to-text** — Conversation (Flux, auto-listen) and Command (Nova-3, click-to-talk) modes with per-mode tuning
 - **Presets** — Save and restore complete chat configurations (model, tools, prompts)
 - **OAuth integrations** — Google, Monarch Money, and Spotify authentication flows
 

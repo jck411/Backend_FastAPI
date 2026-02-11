@@ -2,6 +2,15 @@
 
 FastAPI backend for AI chat with MCP tool orchestration. Deployed to Proxmox LXC 111.
 
+## Project Structure
+
+- **Backend**: `src/backend/` — FastAPI with MCP client, AI orchestration, data management
+- **Frontends** (SPAs served from `src/backend/static/`):
+  - `frontend/` — Main web UI (Svelte), settings modals shared by other frontends
+  - `frontend-cli/` — Terminal chat (Python)
+  - `frontend-kiosk/` — Kiosk display (`/`)
+  - `frontend-voice/` — Voice PWA (`/voice/`)
+
 ## Deployment
 
 - Deploy backend: `ssh root@192.168.1.111 "cd /opt/backend-fastapi && git pull && chown -R backend:backend /opt/backend-fastapi/src/backend/data/ && systemctl restart backend-fastapi-dev"`
@@ -14,7 +23,6 @@ FastAPI backend for AI chat with MCP tool orchestration. Deployed to Proxmox LXC
 - MCP tools are external (LXC 110, ports 9001–9015) — never embed tool logic in backend
 - `ChatOrchestrator` coordinates streaming, tools, and persistence
 - `StreamingHandler` manages SSE events and tool execution loops
-- Frontends are SPAs served from `src/backend/static/` — kiosk at `/`, voice at `/voice/`, chat at `/chat/`
 
 ## Code Style
 

@@ -4,19 +4,45 @@ This is a quick reference for speed and responsiveness knobs that do not
 require a rewrite. It focuses on settings you can adjust safely, plus a few
 low-risk code tweaks to consider later.
 
+## STT Mode Selection
+
+The voice frontend supports two speech recognition modes, selectable via the
+settings panel or `stt.json`:
+
+| Mode | Model | API | Turn Detection | After Response |
+|------|-------|-----|----------------|----------------|
+| **Conversation** | flux-general-en | v2 | ML-based (`eot_threshold`) | Auto-listen |
+| **Command** | nova-3 | v1 | Timer-based (`utterance_end_ms`) | Return to IDLE |
+
+- **Conversation mode** — Optimized for back-and-forth dialogue. Uses Deepgram
+  Flux with ML end-of-turn detection. Automatically resumes listening after TTS.
+- **Command mode** — Optimized for single commands. Uses Nova-3 with higher
+  accuracy. Click orb to speak each time.
+
 ## Safe adjustments (no code)
 
 These values live under `src/backend/data/clients/voice/` and can be edited
 directly or updated via the `/api/clients/voice/*` endpoints.
 
-### STT end-of-turn timing
+### STT settings
 File: `src/backend/data/clients/voice/stt.json`
 
-- `eot_timeout_ms` (default 5000). Lower values return faster after you stop
-  speaking. Typical range: 1500-3000.
-- `eot_threshold` (default 0.7). Lower values end turns sooner. Typical range:
-  0.6-0.75. Too low can clip words.
-- `keyterms` (default empty). Add domain-specific words to improve accuracy.
+**Mode selection:**
+- `mode` — `"conversation"` or `"command"`
+
+**Conversation mode (Flux):**
+- `eot_timeout_ms` (default 1000) — Max silence before forcing turn end.
+- `eot_threshold` (default 0.7) — ML confidence for end-of-turn. Lower = faster
+  but may clip words. Range: 0.6-0.75.
+- `keyterms` — Domain-specific words to improve accuracy.
+
+**Command mode (Nova-3):**
+- `command_utterance_end_ms` (default 1000) — Silence duration to detect
+  complete utterance. Community-recommended value.
+- `command_endpointing` (default 300) — Shorter silence to finalize segments.
+  Community-recommended value.
+- `command_smart_format`, `command_numerals`, `command_profanity_filter` —
+  Formatting options for transcripts.
 
 ### LLM response length
 File: `src/backend/data/clients/voice/llm.json`

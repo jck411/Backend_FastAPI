@@ -131,13 +131,21 @@ class DeepgramSession:
                     self.on_transcript(transcript, is_end_of_turn)
             else:
                 # v1 style: check for channel.alternatives (Nova models)
-                if hasattr(result, "channel"):
-                    alternatives = result.channel.alternatives
+                channel = getattr(result, "channel", None)
+                if channel is not None:
+                    # Handle both object and dict access patterns
+                    alternatives = getattr(channel, "alternatives", None)
+                    if alternatives is None and hasattr(channel, "__getitem__"):
+                        alternatives = channel.get("alternatives", [])
+
                     if alternatives and len(alternatives) > 0:
-                        transcript_text = alternatives[0].transcript
+                        alt = alternatives[0]
+                        # Handle both object and dict access
+                        transcript_text = getattr(alt, "transcript", None)
+                        if transcript_text is None and hasattr(alt, "__getitem__"):
+                            transcript_text = alt.get("transcript", "")
+
                         is_final = getattr(result, "is_final", False)
-                        # speech_final indicates user stopped speaking (silence detected)
-                        # This is the proper end-of-utterance signal for v1 API
                         speech_final = getattr(result, "speech_final", False)
 
                         if transcript_text:
@@ -145,12 +153,13 @@ class DeepgramSession:
                                 f"Transcript for {self.session_id}: '{transcript_text}' "
                                 f"(is_final={is_final}, speech_final={speech_final})"
                             )
-                            # Use speech_final as end signal - indicates user stopped speaking
+                            # Use is_final as the signal - it indicates segment is complete
+                            # speech_final comes separately and often has no text
                             if asyncio.iscoroutinefunction(self.on_transcript):
                                 if self._event_loop is not None:
                                     asyncio.run_coroutine_threadsafe(
                                         self.on_transcript(
-                                            transcript_text, speech_final
+                                            transcript_text, is_final
                                         ),
                                         self._event_loop,
                                     )
@@ -159,20 +168,12 @@ class DeepgramSession:
                                         "No event loop available for transcript callback"
                                     )
                             else:
-                                self.on_transcript(transcript_text, speech_final)
+                                self.on_transcript(transcript_text, is_final)
                         elif speech_final:
-                            # UtteranceEnd with no new transcript - still signal end
-                            logger.info(
-                                f"Speech final (no transcript) for {self.session_id}"
+                            # UtteranceEnd with no new transcript - ignore, don't send empty
+                            logger.debug(
+                                f"Speech final (no new transcript) for {self.session_id}"
                             )
-                            if asyncio.iscoroutinefunction(self.on_transcript):
-                                if self._event_loop is not None:
-                                    asyncio.run_coroutine_threadsafe(
-                                        self.on_transcript("", True),
-                                        self._event_loop,
-                                    )
-                            else:
-                                self.on_transcript("", True)
         except Exception as e:
             logger.error(
                 f"Error processing transcript for {self.session_id}: {e}", exc_info=True

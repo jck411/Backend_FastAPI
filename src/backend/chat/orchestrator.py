@@ -19,7 +19,7 @@ from ..openrouter import OpenRouterClient
 from ..repository import ChatRepository
 from ..schemas.chat import ChatCompletionRequest
 from ..services.attachment_urls import refresh_message_attachments
-from ..services.conversation_logging import ConversationLogWriter
+from ..services.conversation_logging import ConversationLogWriter, MemoryBackupLogger
 from ..services.mcp_server_settings import MCPServerSettingsService
 from ..services.model_settings import ModelSettingsService
 from ..services.time_context import build_prompt_context_block, create_time_snapshot
@@ -94,6 +94,9 @@ class ChatOrchestrator:
             conversation_log_dir,
             min_level=logging_settings.conversations_level,
         )
+        self._memory_backup_logger = MemoryBackupLogger(
+            conversation_log_dir / "memory_backups"
+        )
         self._model_settings = model_settings
         self._model_settings_by_client: dict[str, ModelSettingsService] = {
             model_settings.client_id: model_settings
@@ -106,6 +109,7 @@ class ChatOrchestrator:
             default_model=settings.default_model,
             model_settings=model_settings,
             conversation_logger=self._conversation_logger,
+            memory_backup_logger=self._memory_backup_logger,
         )
         self._settings = settings
         self._init_lock = asyncio.Lock()

@@ -14,7 +14,7 @@ from ...repository import ChatRepository, format_timestamp_for_client
 from ...schemas.chat import ChatCompletionRequest
 from ...services.attachment_urls import refresh_message_attachments
 from ...services.attachments import AttachmentService
-from ...services.conversation_logging import ConversationLogWriter
+from ...services.conversation_logging import ConversationLogWriter, MemoryBackupLogger
 from ...services.model_settings import ModelCapabilities, ModelSettingsService
 from .attachments import (
     normalize_structured_fragments as _normalize_structured_fragments,
@@ -70,6 +70,7 @@ class StreamingHandler:
         model_settings: ModelSettingsService | None = None,
         attachment_service: AttachmentService | None = None,
         conversation_logger: ConversationLogWriter | None = None,
+        memory_backup_logger: MemoryBackupLogger | None = None,
     ) -> None:
         self._client = client
         self._repo = repository
@@ -80,6 +81,7 @@ class StreamingHandler:
         self._model_settings = model_settings
         self._attachment_service = attachment_service
         self._conversation_logger = conversation_logger
+        self._memory_backup_logger = memory_backup_logger
 
     def set_attachment_service(self, service: AttachmentService | None) -> None:
         """Attach or replace the attachment service used for image persistence."""
@@ -849,6 +851,21 @@ class StreamingHandler:
                                 )
                                 tool_error_flag = getattr(result_obj, "isError", False)
                                 status = "error" if tool_error_flag else "finished"
+
+                                # Memory backup: log conversation when memory tools are used
+                                if self._memory_backup_logger is not None:
+                                    try:
+                                        await self._memory_backup_logger.log_if_memory_tool(
+                                            tool_name=tool_name,
+                                            session_id=session_id,
+                                            conversation=conversation_state,
+                                            tool_arguments=working_arguments,
+                                            tool_result=result_text,
+                                        )
+                                    except Exception as backup_exc:
+                                        logger.warning(
+                                            "Memory backup logging failed: %s", backup_exc
+                                        )
                             except Exception as exc:  # pragma: no cover - MCP errors
                                 logger.exception("Tool '%s' raised an exception", tool_name)
                                 result_text = f"Tool error: {exc}"

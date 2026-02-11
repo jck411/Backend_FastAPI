@@ -4,6 +4,7 @@
     activateKioskPreset,
     fetchKioskPresets,
     fetchTtsVoices,
+    STT_MODELS,
     updateKioskPreset,
     type KioskPresets,
     type TtsVoice,
@@ -400,96 +401,159 @@
         <div class="setting reasoning">
           <div class="setting-header">
             <span class="setting-label">Speech Recognition</span>
-            <span class="setting-hint"
-              >Deepgram Flux end-of-turn detection settings.</span
-            >
+            <span class="setting-hint">Deepgram speech-to-text settings.</span>
           </div>
 
           <div class="reasoning-controls">
-            <!-- EOT Threshold -->
-            <div class="reasoning-field">
-              <div class="setting-range">
-                <div class="setting-range-header">
-                  <span
-                    class="setting-label"
-                    title="Confidence level (0.5-0.9) required before the system considers you've finished speaking. Lower = faster response but may cut you off. Higher = waits longer to be sure you're done."
-                    >EOT Threshold</span
-                  >
-                  <span class="range-value"
-                    >{draft.eot_threshold.toFixed(2)}</span
-                  >
-                </div>
-                <input
-                  type="range"
-                  class="range-input"
-                  min="0.5"
-                  max="0.9"
-                  step="0.05"
-                  value={draft.eot_threshold}
+            <!-- Mode Selection -->
+            <div class="reasoning-field" style="grid-column: 1 / -1;">
+              <div class="setting-select">
+                <label
+                  class="setting-label"
+                  for="stt-mode"
+                  title="Conversation mode uses Flux for natural turn-taking. Command mode uses Nova models optimized for specific domains."
+                  >Recognition Mode</label
+                >
+                <select
+                  id="stt-mode"
+                  class="select-input"
+                  value={draft.stt_mode}
                   disabled={saving}
-                  style="--slider-fill: {getSliderFill(
-                    draft.eot_threshold,
-                    0.5,
-                    0.9,
-                  )}"
-                  on:input={(e) => {
+                  on:change={(e) => {
                     draft = {
                       ...draft,
-                      eot_threshold: parseFloat(
-                        (e.target as HTMLInputElement).value,
-                      ),
+                      stt_mode: (e.target as HTMLSelectElement).value as
+                        | "conversation"
+                        | "command",
                     };
                     markDirty();
                   }}
-                />
-                <div class="range-extents">
-                  <span>0.5 (fast)</span>
-                  <span>0.9 (reliable)</span>
-                </div>
+                >
+                  <option value="conversation"
+                    >Conversation (Flux - natural turn-taking)</option
+                  >
+                  <option value="command"
+                    >Command (Nova - domain-specific)</option
+                  >
+                </select>
               </div>
             </div>
 
-            <!-- EOT Timeout -->
-            <div class="reasoning-field">
-              <div class="setting-range">
-                <div class="setting-range-header">
-                  <span
+            {#if draft.stt_mode === "command"}
+              <!-- Command Mode: Model Selection -->
+              <div class="reasoning-field" style="grid-column: 1 / -1;">
+                <div class="setting-select">
+                  <label
                     class="setting-label"
-                    title="Maximum time (ms) to wait after speech before forcing end-of-turn, regardless of confidence. Shorter = faster response. Longer = allows for natural pauses."
-                    >EOT Timeout</span
+                    for="stt-model"
+                    title="Select a Deepgram model optimized for your use case. Medical and Finance models have specialized vocabulary."
+                    >STT Model</label
                   >
-                  <span class="range-value">{draft.eot_timeout_ms}ms</span>
-                </div>
-                <input
-                  type="range"
-                  class="range-input"
-                  min="500"
-                  max="10000"
-                  step="250"
-                  value={draft.eot_timeout_ms}
-                  disabled={saving}
-                  style="--slider-fill: {getSliderFill(
-                    draft.eot_timeout_ms,
-                    500,
-                    10000,
-                  )}"
-                  on:input={(e) => {
-                    draft = {
-                      ...draft,
-                      eot_timeout_ms: parseInt(
-                        (e.target as HTMLInputElement).value,
-                        10,
-                      ),
-                    };
-                    markDirty();
-                  }}
-                />
-                <div class="range-extents">
-                  <span>500ms</span>
-                  <span>10s</span>
+                  <select
+                    id="stt-model"
+                    class="select-input"
+                    value={draft.command_model}
+                    disabled={saving}
+                    on:change={(e) => {
+                      draft = {
+                        ...draft,
+                        command_model: (e.target as HTMLSelectElement).value,
+                      };
+                      markDirty();
+                    }}
+                  >
+                    {#each STT_MODELS as model (model.id)}
+                      <option value={model.id}>{model.name}</option>
+                    {/each}
+                  </select>
                 </div>
               </div>
-            </div>
+            {:else}
+              <!-- Conversation Mode: EOT Threshold -->
+              <div class="reasoning-field">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="Confidence level (0.5-0.9) required before the system considers you've finished speaking. Lower = faster response but may cut you off. Higher = waits longer to be sure you're done."
+                      >EOT Threshold</span
+                    >
+                    <span class="range-value"
+                      >{draft.eot_threshold.toFixed(2)}</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="0.5"
+                    max="0.9"
+                    step="0.05"
+                    value={draft.eot_threshold}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.eot_threshold,
+                      0.5,
+                      0.9,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        eot_threshold: parseFloat(
+                          (e.target as HTMLInputElement).value,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>0.5 (fast)</span>
+                    <span>0.9 (reliable)</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Conversation Mode: EOT Timeout -->
+              <div class="reasoning-field">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="Maximum time (ms) to wait after speech before forcing end-of-turn, regardless of confidence. Shorter = faster response. Longer = allows for natural pauses."
+                      >EOT Timeout</span
+                    >
+                    <span class="range-value">{draft.eot_timeout_ms}ms</span>
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="500"
+                    max="10000"
+                    step="250"
+                    value={draft.eot_timeout_ms}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.eot_timeout_ms,
+                      500,
+                      10000,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        eot_timeout_ms: parseInt(
+                          (e.target as HTMLInputElement).value,
+                          10,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>500ms</span>
+                    <span>10s</span>
+                  </div>
+                </div>
+              </div>
+            {/if}
 
             <!-- Keyterms -->
             <div class="reasoning-field" style="grid-column: 1 / -1;">

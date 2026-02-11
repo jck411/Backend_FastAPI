@@ -11,9 +11,11 @@
   },
   "svelte": {
     "enabled_servers": [
-      "calculator",
       "shell-control",
-      "playwright"
+      "playwright",
+      "context7",
+      "calculator",
+      "spotify"
     ]
   },
   "voice": {

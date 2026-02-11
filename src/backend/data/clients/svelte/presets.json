@@ -238,7 +238,40 @@
       },
       "created_at": "2026-01-31T03:19:01.299239+00:00",
       "updated_at": "2026-01-31T03:19:01.299239+00:00"
+    },
+    {
+      "name": "newtest",
+      "llm": {
+        "model": "minimax/minimax-m2",
+        "system_prompt": "you are a helpful assistant with tools",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "price",
+        "series": null,
+        "providers": null,
+        "supportedParameters": {
+          "include": [
+            "tools"
+          ],
+          "exclude": []
+        },
+        "moderation": null
+      },
+      "created_at": "2026-02-11T00:12:42.370238+00:00",
+      "updated_at": "2026-02-11T00:12:42.370238+00:00"
     }
   ],
-  "active_index": 5
+  "active_index": 8
 }

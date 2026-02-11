@@ -6,14 +6,59 @@
       "url": "http://192.168.1.110:9003/mcp"
     },
     {
-      "enabled": true,
+      "enabled": false,
       "id": "shell-control",
       "url": "http://192.168.1.110:9001/mcp"
     },
     {
-      "enabled": true,
+      "enabled": false,
       "id": "playwright",
       "url": "http://192.168.1.110:9011/mcp"
+    },
+    {
+      "enabled": true,
+      "id": "spotify",
+      "url": "http://192.168.1.110:9010/mcp"
+    },
+    {
+      "enabled": true,
+      "id": "gdrive",
+      "url": "http://192.168.1.110:9006/mcp"
+    },
+    {
+      "enabled": true,
+      "id": "gmail",
+      "url": "http://192.168.1.110:9005/mcp"
+    },
+    {
+      "enabled": true,
+      "id": "calendar",
+      "url": "http://192.168.1.110:9004/mcp"
+    },
+    {
+      "enabled": true,
+      "id": "notes",
+      "url": "http://192.168.1.110:9009/mcp"
+    },
+    {
+      "enabled": true,
+      "id": "pdf",
+      "url": "http://192.168.1.110:9007/mcp"
+    },
+    {
+      "enabled": true,
+      "id": "context7",
+      "url": "https://mcp.context7.com/mcp"
+    },
+    {
+      "enabled": true,
+      "id": "housekeeping",
+      "url": "http://192.168.1.110:9002/mcp"
+    },
+    {
+      "enabled": true,
+      "id": "monarch",
+      "url": "http://192.168.1.110:9008/mcp"
     }
   ]
 }

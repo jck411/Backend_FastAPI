@@ -2,7 +2,7 @@
     "description": "Default Svelte frontend profile with all servers enabled",
     "enabled_servers": [
         "custom-calendar",
-        "custom-gdrive",
+        "gdrive",
         "custom-gmail",
         "custom-pdf",
         "housekeeping",

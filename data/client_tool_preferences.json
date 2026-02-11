@@ -13,14 +13,20 @@
     "enabled_servers": [
       "shell-control",
       "playwright",
-      "context7",
       "calculator",
       "spotify"
     ]
   },
   "voice": {
     "enabled_servers": [
-      "calculator"
+      "calculator",
+      "gdrive",
+      "spotify",
+      "calendar",
+      "notes",
+      "pdf",
+      "context7",
+      "gmail"
     ]
   }
 }

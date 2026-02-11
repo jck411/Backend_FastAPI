@@ -2,7 +2,12 @@
   import { createEventDispatcher } from "svelte";
   import { get } from "svelte/store";
   import { createGoogleAuthStore } from "../../stores/googleAuth";
-  import { createMcpServersStore } from "../../stores/mcpServers";
+  import {
+    CLIENT_IDS,
+    CLIENT_LABELS,
+    createMcpServersStore,
+    type ClientId,
+  } from "../../stores/mcpServers";
   import { createMonarchAuthStore } from "../../stores/monarchAuth";
   import { createSpotifyAuthStore } from "../../stores/spotifyAuth";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
@@ -81,11 +86,15 @@
     mcpServers.setServerEnabled(serverId, enabled);
   }
 
-  function toggleClientServer(serverId: string, enabled: boolean): void {
+  function toggleClientServer(
+    clientId: ClientId,
+    serverId: string,
+    enabled: boolean,
+  ): void {
     if ($mcpServers.saving) {
       return;
     }
-    void mcpServers.setClientServerEnabled(serverId, enabled);
+    void mcpServers.setClientServerEnabled(clientId, serverId, enabled);
   }
 
   function toggleTool(serverId: string, tool: string, enabled: boolean): void {
@@ -544,26 +553,35 @@
                       </div>
                     </div>
                     <div class="server-toggles">
-                      <label
-                        class="toggle client-toggle"
-                        title="Include this server's tools in your chat sessions"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={$mcpServers.enabledServers === null ||
-                            $mcpServers.enabledServers.includes(server.id)}
-                          disabled={!server.enabled ||
-                            !server.connected ||
-                            $mcpServers.pending[server.id] ||
-                            $mcpServers.saving}
-                          on:change={(event) =>
-                            toggleClientServer(
-                              server.id,
-                              (event.target as HTMLInputElement).checked,
-                            )}
-                        />
-                        <span>Use in chat</span>
-                      </label>
+                      <div class="client-toggles-group">
+                        {#each CLIENT_IDS as clientId}
+                          <label
+                            class="toggle client-toggle"
+                            title="Enable for {CLIENT_LABELS[clientId]} client"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={$mcpServers.clientPreferences[
+                                clientId
+                              ] === null ||
+                                $mcpServers.clientPreferences[
+                                  clientId
+                                ]?.includes(server.id)}
+                              disabled={!server.enabled ||
+                                !server.connected ||
+                                $mcpServers.pending[server.id] ||
+                                $mcpServers.saving}
+                              on:change={(event) =>
+                                toggleClientServer(
+                                  clientId,
+                                  server.id,
+                                  (event.target as HTMLInputElement).checked,
+                                )}
+                            />
+                            <span>{CLIENT_LABELS[clientId]}</span>
+                          </label>
+                        {/each}
+                      </div>
                       <label
                         class="toggle running-toggle"
                         title="Enable or disable this server globally"

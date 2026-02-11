@@ -14,6 +14,18 @@ import type {
   McpServersResponse,
 } from '../api/types';
 
+/** All supported client types. */
+export const CLIENT_IDS = ['svelte', 'voice', 'kiosk', 'cli'] as const;
+export type ClientId = (typeof CLIENT_IDS)[number];
+
+/** Display labels for each client type. */
+export const CLIENT_LABELS: Record<ClientId, string> = {
+  svelte: 'Main',
+  voice: 'Voice',
+  kiosk: 'Kiosk',
+  cli: 'CLI',
+};
+
 interface McpServersState {
   loading: boolean;
   refreshing: boolean;
@@ -25,13 +37,11 @@ interface McpServersState {
   updatedAt: string | null;
   pending: Record<string, boolean>;
   pendingChanges: Record<string, McpServerUpdatePayload>;
-  /** Server IDs enabled for the current client (null = all allowed). */
-  enabledServers: string[] | null;
+  /** Server IDs enabled per client (null = all allowed for that client). */
+  clientPreferences: Record<ClientId, string[] | null>;
   /** Whether preferences have been loaded. */
   prefsLoaded: boolean;
 }
-
-const CLIENT_ID = 'svelte';
 
 const INITIAL_STATE: McpServersState = {
   loading: false,
@@ -44,7 +54,12 @@ const INITIAL_STATE: McpServersState = {
   updatedAt: null,
   pending: {},
   pendingChanges: {},
-  enabledServers: null,
+  clientPreferences: {
+    svelte: null,
+    voice: null,
+    kiosk: null,
+    cli: null,
+  },
   prefsLoaded: false,
 };
 
@@ -64,15 +79,29 @@ export function createMcpServersStore() {
   async function load(): Promise<void> {
     store.set({ ...INITIAL_STATE, loading: true });
     try {
-      const [response, prefs] = await Promise.all([
+      const [response, ...prefsResults] = await Promise.all([
         fetchMcpServers(),
-        fetchClientPreferences(CLIENT_ID),
+        ...CLIENT_IDS.map((id) => fetchClientPreferences(id)),
       ]);
+
+      const clientPreferences: Record<ClientId, string[] | null> = {
+        svelte: null,
+        voice: null,
+        kiosk: null,
+        cli: null,
+      };
+
+      CLIENT_IDS.forEach((clientId, index) => {
+        const prefs = prefsResults[index];
+        clientPreferences[clientId] =
+          prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null;
+      });
+
       store.set({
         ...INITIAL_STATE,
         servers: response.servers,
         updatedAt: response.updated_at ?? null,
-        enabledServers: prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null,
+        clientPreferences,
         prefsLoaded: true,
         loading: false,
       });
@@ -272,16 +301,19 @@ export function createMcpServersStore() {
       // Reload the full list to get consistent state
       const response = await fetchMcpServers();
 
-      // Auto-enable the new server in client preferences ("Use in chat")
+      // Auto-enable the new server in svelte client preferences
       const snapshot = get(store);
-      const current = snapshot.enabledServers ?? response.servers.map((s) => s.id);
+      const current = snapshot.clientPreferences.svelte ?? response.servers.map((s) => s.id);
       if (!current.includes(server.id)) {
         const updated = [...current, server.id];
         try {
-          const prefs = await updateClientPreferences(CLIENT_ID, updated);
+          const prefs = await updateClientPreferences('svelte', updated);
           store.update((state) => ({
             ...mergeResponse(state, response),
-            enabledServers: prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null,
+            clientPreferences: {
+              ...state.clientPreferences,
+              svelte: prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null,
+            },
             saving: false,
           }));
         } catch {
@@ -336,10 +368,14 @@ export function createMcpServersStore() {
     }
   }
 
-  /** Toggle whether a server is enabled for this frontend (client preferences). */
-  async function setClientServerEnabled(serverId: string, enabled: boolean): Promise<void> {
+  /** Toggle whether a server is enabled for a specific client (client preferences). */
+  async function setClientServerEnabled(
+    clientId: ClientId,
+    serverId: string,
+    enabled: boolean,
+  ): Promise<void> {
     const snapshot = get(store);
-    const current = snapshot.enabledServers ?? snapshot.servers.map((s) => s.id);
+    const current = snapshot.clientPreferences[clientId] ?? snapshot.servers.map((s) => s.id);
     let updated: string[];
     if (enabled) {
       updated = current.includes(serverId) ? current : [...current, serverId];
@@ -349,16 +385,22 @@ export function createMcpServersStore() {
 
     store.update((state) => ({
       ...state,
-      enabledServers: updated,
+      clientPreferences: {
+        ...state.clientPreferences,
+        [clientId]: updated,
+      },
       saving: true,
       saveError: null,
     }));
 
     try {
-      const prefs = await updateClientPreferences(CLIENT_ID, updated);
+      const prefs = await updateClientPreferences(clientId, updated);
       store.update((state) => ({
         ...state,
-        enabledServers: prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null,
+        clientPreferences: {
+          ...state.clientPreferences,
+          [clientId]: prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null,
+        },
         saving: false,
       }));
     } catch (error) {
@@ -366,18 +408,22 @@ export function createMcpServersStore() {
       // Revert optimistic update
       store.update((state) => ({
         ...state,
-        enabledServers: current.length > 0 ? current : null,
+        clientPreferences: {
+          ...state.clientPreferences,
+          [clientId]: current.length > 0 ? current : null,
+        },
         saving: false,
         saveError: message,
       }));
     }
   }
 
-  /** Check if a server is enabled in client preferences. */
-  function isServerEnabledForClient(serverId: string): boolean {
+  /** Check if a server is enabled for a specific client. */
+  function isServerEnabledForClient(clientId: ClientId, serverId: string): boolean {
     const snapshot = get(store);
-    if (snapshot.enabledServers === null) return true; // null = all allowed
-    return snapshot.enabledServers.includes(serverId);
+    const prefs = snapshot.clientPreferences[clientId];
+    if (prefs === null) return true; // null = all allowed
+    return prefs.includes(serverId);
   }
 
   return {
@@ -396,4 +442,5 @@ export function createMcpServersStore() {
   };
 }
 
-export type { McpServersState };
+export type { ClientId, McpServersState };
+

@@ -1,5 +1,5 @@
 {
-  "enabled": true,
+  "enabled": false,
   "provider": "openai",
   "model": "tts-1",
   "voice": "alloy",
@@ -23,6 +23,12 @@
     ": ",
     ":"
   ],
+  "first_phrase_min_chars": 60,
   "segmentation_logging_enabled": false,
-  "first_phrase_min_chars": 60
+  "buffering_enabled": true,
+  "startup_delay_enabled": true,
+  "low_latency_audio": false,
+  "initial_buffer_sec": 0.3,
+  "max_ahead_sec": 1.5,
+  "min_chunk_sec": 0.1
 }

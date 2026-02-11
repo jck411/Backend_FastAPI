@@ -200,8 +200,17 @@ class ChatOrchestrator:
         session_id: str,
         metadata: dict[str, Any] | None,
     ) -> str:
-        """Resolve client id from request metadata or session id prefix."""
+        """Resolve client id from request metadata or session id prefix.
 
+        Resolution order:
+        1. Explicit client_id in metadata (CLI sends this)
+        2. Session ID prefix (kiosk_, cli_, voice_)
+        3. Default: "svelte" (main web frontend)
+
+        Each client has its own tool preferences in client_tool_preferences.json.
+        """
+
+        # 1. Check metadata for explicit client_id (CLI uses this approach)
         if isinstance(metadata, dict):
             candidate = metadata.get("client_id")
             if isinstance(candidate, str):
@@ -214,10 +223,12 @@ class ChatOrchestrator:
                         candidate,
                     )
 
-        if session_id.startswith("kiosk_"):
-            return "kiosk"
-        if session_id.startswith("cli_"):
-            return "cli"
+        # 2. Infer from session ID prefix (voice/kiosk use prefixed session IDs)
+        for prefix in ("kiosk_", "cli_", "voice_"):
+            if session_id.startswith(prefix):
+                return prefix.rstrip("_")
+
+        # 3. Default to main web frontend
         return "svelte"
 
     def _get_model_settings_for_client(self, client_id: str) -> ModelSettingsService:

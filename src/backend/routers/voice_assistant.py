@@ -16,12 +16,22 @@ from backend.services.voice_session import VoiceConnectionManager
 router = APIRouter(prefix="/api/voice", tags=["Voice Assistant"])
 logger = logging.getLogger(__name__)
 
+# Client IDs that connect via the voice WebSocket endpoint
+_VOICE_WS_CLIENT_PREFIXES = ("kiosk_", "voice_")
+
 
 def resolve_settings_client_id(client_id: str) -> str:
-    if client_id.startswith("kiosk_"):
-        return "kiosk"
-    if client_id.startswith("voice_"):
-        return "voice"
+    """Map WebSocket client_id to settings client type.
+
+    Voice WebSocket connections use prefixed client IDs:
+    - kiosk_<uuid> → "kiosk"
+    - voice_<uuid> → "voice"
+
+    This controls which STT/TTS/LLM settings profile is used.
+    """
+    for prefix in _VOICE_WS_CLIENT_PREFIXES:
+        if client_id.startswith(prefix):
+            return prefix.rstrip("_")
     return "voice"
 
 

@@ -16,9 +16,9 @@ FastAPI backend for AI chat with MCP tool orchestration. Deployed to Proxmox LXC
 ## Deployment
 
 - LXC 111 at 192.168.1.111, port 8000 (HTTPS)
-- Repo path: `/opt/Backend_FastAPI`
-- Service: `systemctl restart backend-fastapi`
-- Deploy: `ssh root@192.168.1.111 "cd /opt/Backend_FastAPI && git pull && systemctl restart backend-fastapi"`
+- Repo path: `/opt/backend-fastapi`
+- Service: `systemctl restart backend-fastapi-dev`
+- Deploy: `ssh root@192.168.1.111 "cd /opt/backend-fastapi && git pull && systemctl restart backend-fastapi-dev"`
 
 ## Architecture
 

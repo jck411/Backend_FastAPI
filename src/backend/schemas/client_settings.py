@@ -116,16 +116,16 @@ class SttSettings(BaseModel):
         description="Model for command mode",
     )
     command_utterance_end_ms: int = Field(
-        default=1500,
+        default=1000,
         ge=500,
         le=5000,
-        description="Silence duration (ms) to detect end of utterance",
+        description="Silence duration (ms) to detect end of utterance (min 1000 recommended)",
     )
     command_endpointing: int = Field(
-        default=1200,
-        ge=300,
+        default=300,
+        ge=10,
         le=5000,
-        description="Endpointing threshold (ms)",
+        description="Endpointing threshold (ms) - 300 recommended for fast commands",
     )
     command_interim_results: bool = Field(
         default=True,
@@ -168,7 +168,7 @@ class SttSettingsUpdate(BaseModel):
     # Command mode (Nova-3) settings
     command_model: Optional[str] = None
     command_utterance_end_ms: Optional[int] = Field(default=None, ge=500, le=5000)
-    command_endpointing: Optional[int] = Field(default=None, ge=300, le=5000)
+    command_endpointing: Optional[int] = Field(default=None, ge=10, le=5000)
     command_interim_results: Optional[bool] = None
     command_smart_format: Optional[bool] = None
     command_punctuate: Optional[bool] = None

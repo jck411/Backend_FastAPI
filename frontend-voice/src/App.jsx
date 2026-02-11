@@ -75,9 +75,9 @@ function App() {
     eot_timeout_ms: 1000,
     eot_threshold: 0.7,
     listen_timeout_seconds: 15,
-    // Command mode (Nova-3)
-    command_utterance_end_ms: 1500,
-    command_endpointing: 1200,
+    // Command mode (Nova-3) - Deepgram recommended
+    command_utterance_end_ms: 1000,
+    command_endpointing: 300,
     command_smart_format: true,
     command_punctuate: true,
     command_numerals: true,
@@ -735,9 +735,9 @@ function App() {
               eot_timeout_ms: Number(data.eot_timeout_ms ?? 1000),
               eot_threshold: Number(data.eot_threshold ?? 0.7),
               listen_timeout_seconds: Number(data.listen_timeout_seconds ?? 15),
-              // Command
-              command_utterance_end_ms: Number(data.command_utterance_end_ms ?? 1500),
-              command_endpointing: Number(data.command_endpointing ?? 1200),
+              // Command - Deepgram recommended
+              command_utterance_end_ms: Number(data.command_utterance_end_ms ?? 1000),
+              command_endpointing: Number(data.command_endpointing ?? 300),
               command_smart_format: Boolean(data.command_smart_format ?? true),
               command_punctuate: Boolean(data.command_punctuate ?? true),
               command_numerals: Boolean(data.command_numerals ?? true),
@@ -895,9 +895,9 @@ function App() {
     eot_timeout_ms: 1000,
     eot_threshold: 0.7,
     listen_timeout_seconds: 15,
-    // Command mode (Nova-3)
-    command_utterance_end_ms: 1500,
-    command_endpointing: 1200,
+    // Command mode (Nova-3) - Deepgram recommended
+    command_utterance_end_ms: 1000,
+    command_endpointing: 300,
     command_smart_format: true,
     command_punctuate: true,
     command_numerals: true,
@@ -1300,9 +1300,9 @@ function App() {
                       <input
                         className="settings-slider"
                         type="range"
-                        min="300"
+                        min="100"
                         max="2000"
-                        step="100"
+                        step="50"
                         value={sttDraft.command_endpointing}
                         onChange={(e) => setSttDraft(prev => ({
                           ...prev,

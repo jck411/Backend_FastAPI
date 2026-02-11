@@ -5,6 +5,7 @@ FastAPI backend for AI chat with MCP tool orchestration. Deployed to Proxmox LXC
 ## Deployment
 
 - Deploy backend: `ssh root@192.168.1.111 "cd /opt/backend-fastapi && git pull && systemctl restart backend-fastapi-dev"`
+- After git pull, fix data dir permissions: `chown -R backend:backend /opt/backend-fastapi/src/backend/data/`
 - Build voice frontend locally: `cd frontend-voice && npm run build` (outputs to `src/backend/static/voice/`)
 - Commit built frontend assets before deploying — server serves pre-built static files
 - Use `git stash && git pull` on server if local settings files conflict

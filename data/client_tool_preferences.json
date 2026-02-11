@@ -19,14 +19,9 @@
   },
   "voice": {
     "enabled_servers": [
-      "calculator",
-      "gdrive",
       "spotify",
-      "calendar",
       "notes",
-      "pdf",
-      "context7",
-      "gmail"
+      "tv"
     ]
   }
 }

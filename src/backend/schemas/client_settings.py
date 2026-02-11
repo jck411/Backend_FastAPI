@@ -135,10 +135,7 @@ class SttSettings(BaseModel):
         default=True,
         description="Apply smart formatting to transcripts",
     )
-    command_punctuate: bool = Field(
-        default=True,
-        description="Add punctuation to transcripts",
-    )
+    # Note: punctuate is always enabled (included in smart_format)
     command_numerals: bool = Field(
         default=True,
         description="Convert spoken numbers to numerals",
@@ -168,7 +165,7 @@ class SttSettingsUpdate(BaseModel):
     command_endpointing: Optional[int] = Field(default=None, ge=10, le=5000)
     command_interim_results: Optional[bool] = None
     command_smart_format: Optional[bool] = None
-    command_punctuate: Optional[bool] = None
+    # Note: punctuate is always enabled (included in smart_format)
     command_numerals: Optional[bool] = None
     # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
     command_profanity_filter: Optional[bool] = None

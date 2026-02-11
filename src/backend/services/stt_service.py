@@ -46,7 +46,7 @@ class DeepgramSession:
         command_endpointing: int = 1200,
         command_interim_results: bool = True,
         command_smart_format: bool = True,
-        command_punctuate: bool = True,
+        # Note: punctuate is always enabled (included in smart_format)
         command_numerals: bool = True,
         # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
         command_profanity_filter: bool = False,
@@ -73,7 +73,7 @@ class DeepgramSession:
         self.command_endpointing = command_endpointing
         self.command_interim_results = command_interim_results
         self.command_smart_format = command_smart_format
-        self.command_punctuate = command_punctuate
+        # Note: punctuate is always enabled (included in smart_format)
         self.command_numerals = command_numerals
         # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
         self.command_profanity_filter = command_profanity_filter
@@ -212,7 +212,7 @@ class DeepgramSession:
                 "utterance_end_ms": str(self.command_utterance_end_ms),
                 "endpointing": str(self.command_endpointing),
                 "smart_format": str(self.command_smart_format).lower(),
-                "punctuate": str(self.command_punctuate).lower(),
+                "punctuate": "true",  # Always enabled, included in smart_format
                 "numerals": str(self.command_numerals).lower(),
                 "profanity_filter": str(self.command_profanity_filter).lower(),
                 "vad_events": "true",
@@ -467,7 +467,7 @@ class STTService:
                 command_endpointing=stt_settings.command_endpointing,
                 command_interim_results=stt_settings.command_interim_results,
                 command_smart_format=stt_settings.command_smart_format,
-                command_punctuate=stt_settings.command_punctuate,
+                # Note: punctuate is always enabled (included in smart_format)
                 command_numerals=stt_settings.command_numerals,
                 # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
                 command_profanity_filter=stt_settings.command_profanity_filter,

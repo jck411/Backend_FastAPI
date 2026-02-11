@@ -76,11 +76,10 @@ function App() {
     eot_threshold: 0.7,
     listen_timeout_seconds: 15,
     // Command mode (Nova-3) - Deepgram recommended
-    // Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
+    // Note: punctuate is always on (smart_format includes it)
     command_utterance_end_ms: 1000,
     command_endpointing: 300,
     command_smart_format: true,
-    command_punctuate: true,
     command_numerals: true,
     command_profanity_filter: false,
   });
@@ -739,7 +738,6 @@ function App() {
               command_utterance_end_ms: Number(data.command_utterance_end_ms ?? 1000),
               command_endpointing: Number(data.command_endpointing ?? 300),
               command_smart_format: Boolean(data.command_smart_format ?? true),
-              command_punctuate: Boolean(data.command_punctuate ?? true),
               command_numerals: Boolean(data.command_numerals ?? true),
               command_profanity_filter: Boolean(data.command_profanity_filter ?? false),
             };
@@ -888,7 +886,7 @@ function App() {
   }, [releaseMic, stopTtsPlayback]);
 
   // Community-recommended defaults for Deepgram STT
-  // Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
+  // Note: punctuate is always on (smart_format includes it)
   const defaultSettings = {
     mode: 'conversation',
     // Conversation mode (Flux)
@@ -899,7 +897,6 @@ function App() {
     command_utterance_end_ms: 1000,
     command_endpointing: 300,
     command_smart_format: true,
-    command_punctuate: true,
     command_numerals: true,
     command_profanity_filter: false,
   };
@@ -938,7 +935,6 @@ function App() {
         command_utterance_end_ms: Number(sttDraft.command_utterance_end_ms),
         command_endpointing: Number(sttDraft.command_endpointing),
         command_smart_format: Boolean(sttDraft.command_smart_format),
-        command_punctuate: Boolean(sttDraft.command_punctuate),
         command_numerals: Boolean(sttDraft.command_numerals),
         command_profanity_filter: Boolean(sttDraft.command_profanity_filter),
       };
@@ -963,7 +959,6 @@ function App() {
           command_utterance_end_ms: Number(data.command_utterance_end_ms ?? payload.command_utterance_end_ms),
           command_endpointing: Number(data.command_endpointing ?? payload.command_endpointing),
           command_smart_format: Boolean(data.command_smart_format ?? payload.command_smart_format),
-          command_punctuate: Boolean(data.command_punctuate ?? payload.command_punctuate),
           command_numerals: Boolean(data.command_numerals ?? payload.command_numerals),
           command_profanity_filter: Boolean(data.command_profanity_filter ?? payload.command_profanity_filter),
         };
@@ -1319,20 +1314,6 @@ function App() {
                         disabled={settingsSaving}
                       >
                         {sttDraft.command_smart_format ? 'On' : 'Off'}
-                      </button>
-                    </div>
-
-                    <div className="settings-row">
-                      <div className="settings-label">Punctuate</div>
-                      <button
-                        className={`settings-toggle ${sttDraft.command_punctuate ? 'on' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSttDraft(prev => ({ ...prev, command_punctuate: !prev.command_punctuate }));
-                        }}
-                        disabled={settingsSaving}
-                      >
-                        {sttDraft.command_punctuate ? 'On' : 'Off'}
                       </button>
                     </div>
 

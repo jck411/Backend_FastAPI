@@ -143,10 +143,7 @@ class SttSettings(BaseModel):
         default=True,
         description="Convert spoken numbers to numerals",
     )
-    command_filler_words: bool = Field(
-        default=False,
-        description="Include filler words (um, uh)",
-    )
+    # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
     command_profanity_filter: bool = Field(
         default=False,
         description="Filter profanity from transcripts",
@@ -173,7 +170,7 @@ class SttSettingsUpdate(BaseModel):
     command_smart_format: Optional[bool] = None
     command_punctuate: Optional[bool] = None
     command_numerals: Optional[bool] = None
-    command_filler_words: Optional[bool] = None
+    # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
     command_profanity_filter: Optional[bool] = None
 
 

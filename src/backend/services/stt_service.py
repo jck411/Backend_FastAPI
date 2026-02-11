@@ -48,7 +48,7 @@ class DeepgramSession:
         command_smart_format: bool = True,
         command_punctuate: bool = True,
         command_numerals: bool = True,
-        command_filler_words: bool = False,
+        # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
         command_profanity_filter: bool = False,
         event_loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
@@ -75,7 +75,7 @@ class DeepgramSession:
         self.command_smart_format = command_smart_format
         self.command_punctuate = command_punctuate
         self.command_numerals = command_numerals
-        self.command_filler_words = command_filler_words
+        # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
         self.command_profanity_filter = command_profanity_filter
 
         # Store the main event loop reference for scheduling callbacks from worker thread
@@ -469,7 +469,7 @@ class STTService:
                 command_smart_format=stt_settings.command_smart_format,
                 command_punctuate=stt_settings.command_punctuate,
                 command_numerals=stt_settings.command_numerals,
-                command_filler_words=stt_settings.command_filler_words,
+                # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
                 command_profanity_filter=stt_settings.command_profanity_filter,
                 event_loop=loop,  # Pass event loop for thread-safe callback scheduling
             )

@@ -76,12 +76,12 @@ function App() {
     eot_threshold: 0.7,
     listen_timeout_seconds: 15,
     // Command mode (Nova-3) - Deepgram recommended
+    // Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
     command_utterance_end_ms: 1000,
     command_endpointing: 300,
     command_smart_format: true,
     command_punctuate: true,
     command_numerals: true,
-    command_filler_words: false,
     command_profanity_filter: false,
   });
   const [ttsDraft, setTtsDraft] = useState({
@@ -741,7 +741,6 @@ function App() {
               command_smart_format: Boolean(data.command_smart_format ?? true),
               command_punctuate: Boolean(data.command_punctuate ?? true),
               command_numerals: Boolean(data.command_numerals ?? true),
-              command_filler_words: Boolean(data.command_filler_words ?? false),
               command_profanity_filter: Boolean(data.command_profanity_filter ?? false),
             };
             setSttDraft(normalized);
@@ -889,6 +888,7 @@ function App() {
   }, [releaseMic, stopTtsPlayback]);
 
   // Community-recommended defaults for Deepgram STT
+  // Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
   const defaultSettings = {
     mode: 'conversation',
     // Conversation mode (Flux)
@@ -901,7 +901,6 @@ function App() {
     command_smart_format: true,
     command_punctuate: true,
     command_numerals: true,
-    command_filler_words: false,
     command_profanity_filter: false,
   };
 
@@ -941,7 +940,6 @@ function App() {
         command_smart_format: Boolean(sttDraft.command_smart_format),
         command_punctuate: Boolean(sttDraft.command_punctuate),
         command_numerals: Boolean(sttDraft.command_numerals),
-        command_filler_words: Boolean(sttDraft.command_filler_words),
         command_profanity_filter: Boolean(sttDraft.command_profanity_filter),
       };
 
@@ -967,7 +965,6 @@ function App() {
           command_smart_format: Boolean(data.command_smart_format ?? payload.command_smart_format),
           command_punctuate: Boolean(data.command_punctuate ?? payload.command_punctuate),
           command_numerals: Boolean(data.command_numerals ?? payload.command_numerals),
-          command_filler_words: Boolean(data.command_filler_words ?? payload.command_filler_words),
           command_profanity_filter: Boolean(data.command_profanity_filter ?? payload.command_profanity_filter),
         };
         setSttDraft(normalized);
@@ -1350,20 +1347,6 @@ function App() {
                         disabled={settingsSaving}
                       >
                         {sttDraft.command_numerals ? 'On' : 'Off'}
-                      </button>
-                    </div>
-
-                    <div className="settings-row">
-                      <div className="settings-label">Filler words</div>
-                      <button
-                        className={`settings-toggle ${sttDraft.command_filler_words ? 'on' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSttDraft(prev => ({ ...prev, command_filler_words: !prev.command_filler_words }));
-                        }}
-                        disabled={settingsSaving}
-                      >
-                        {sttDraft.command_filler_words ? 'On' : 'Off'}
                       </button>
                     </div>
 

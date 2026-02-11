@@ -254,10 +254,7 @@ From laptop:
 ```bash
 cd ~/REPOS/Backend_FastAPI/frontend-voice
 npm install && npm run build
-
-# Copy build to static/voice/
-rm -rf ../src/backend/static/voice
-cp -r dist ../src/backend/static/voice
+# Build outputs directly to src/backend/static/voice/ (configured in vite.config.js)
 
 # Commit and push
 cd ..
@@ -273,7 +270,7 @@ ssh root@192.168.1.111 "cd /opt/backend-fastapi && git pull && systemctl restart
 
 Verify: `https://192.168.1.111:8000/voice/`
 
-#### 6b. Add Main Chat Frontend (Optional)
+#### 6b. Add Main Chat Frontend
 
 The main chat frontend needs a route added to `app.py`. Similar pattern to voice:
 1. Add `/chat/` route in `app.py` serving from `static/chat/`
@@ -311,6 +308,7 @@ if chat_dir.exists():
 Then build and deploy:
 ```bash
 cd ~/REPOS/Backend_FastAPI/frontend
+# Ensure vite.config.ts has base: '/chat/' for correct asset paths
 npm install && npm run build
 rm -rf ../src/backend/static/chat
 cp -r dist ../src/backend/static/chat

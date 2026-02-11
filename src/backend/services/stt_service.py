@@ -383,6 +383,11 @@ class DeepgramSession:
             self._keepalive_timer.cancel()
             self._keepalive_timer = None
 
+    @property
+    def is_connected(self) -> bool:
+        """Check if the Deepgram connection is alive."""
+        return self._ready.is_set() and self._socket is not None
+
     def close(self):
         """Close connection."""
         self._running = False
@@ -524,3 +529,8 @@ class STTService:
         session = self.sessions.get(session_id)
         if session:
             session.resume()
+
+    def is_session_connected(self, session_id: str) -> bool:
+        """Check if a session exists and is connected to Deepgram."""
+        session = self.sessions.get(session_id)
+        return session is not None and session.is_connected

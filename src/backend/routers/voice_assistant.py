@@ -481,20 +481,26 @@ async def handle_connection(
                 await manager.update_state(client_id, "IDLE")
 
             elif event_type == "resume_listening":
-                # Resume from pause - just unpause the existing STT session
+                # Resume from pause - unpause existing session OR create new one if dead
                 logger.info(f"User resumed listening for {client_id}")
 
-                # Check if session exists, if not create one
-                if client_id in stt_service.sessions:
+                # Check if session exists AND is still connected to Deepgram
+                if stt_service.is_session_connected(client_id):
                     stt_service.resume_session(client_id)
                     await manager.update_state(client_id, "LISTENING")
                     await manager.send_message(client_id, {"type": "stt_session_ready"})
                     logger.info(f"STT session resumed for {client_id}")
                 else:
-                    # Session doesn't exist (maybe timed out), create new one
-                    logger.info(
-                        f"No existing session for {client_id}, creating new one"
-                    )
+                    # Session doesn't exist or connection is dead, create new one
+                    if client_id in stt_service.sessions:
+                        logger.info(
+                            f"Session for {client_id} exists but connection is dead, recreating"
+                        )
+                        await stt_service.close_session(client_id)
+                    else:
+                        logger.info(
+                            f"No existing session for {client_id}, creating new one"
+                        )
                     await manager.update_state(client_id, "LISTENING")
                     success = await start_stt_session()
                     if success:

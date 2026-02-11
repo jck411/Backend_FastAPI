@@ -212,7 +212,6 @@ class DeepgramSession:
                 "utterance_end_ms": str(self.command_utterance_end_ms),
                 "endpointing": str(self.command_endpointing),
                 "smart_format": str(self.command_smart_format).lower(),
-                "punctuate": "true",  # Always enabled, included in smart_format
                 "numerals": str(self.command_numerals).lower(),
                 "profanity_filter": str(self.command_profanity_filter).lower(),
                 "vad_events": "true",

@@ -383,6 +383,36 @@ def create_app() -> FastAPI:
 
                 return RedirectResponse(url="/voice/")
 
+        # Mount Chat app assets if they exist
+        chat_dir = static_dir / "chat"
+        if chat_dir.exists():
+            if (chat_dir / "assets").exists():
+                app.mount(
+                    "/chat/assets",
+                    StaticFiles(directory=chat_dir / "assets"),
+                    name="chat_assets",
+                )
+
+            @app.get("/chat/{full_path:path}")
+            async def serve_chat_spa(full_path: str):
+                file_path = chat_dir / full_path
+                if file_path.exists() and file_path.is_file():
+                    return FileResponse(file_path)
+                return FileResponse(
+                    chat_dir / "index.html",
+                    headers={
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Pragma": "no-cache",
+                        "Expires": "0",
+                    },
+                )
+
+            @app.get("/chat")
+            async def redirect_chat():
+                from starlette.responses import RedirectResponse
+
+                return RedirectResponse(url="/chat/")
+
         # Serve index.html for root and any other SPA routes (catch-all)
         @app.get("/{full_path:path}")
         async def serve_spa(full_path: str):

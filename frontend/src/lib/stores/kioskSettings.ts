@@ -30,12 +30,10 @@ import {
 // Combined settings type for the UI
 export interface KioskSettings {
     // STT settings
-    stt_mode: 'conversation' | 'command';
     eot_threshold: number;
     eot_timeout_ms: number;
     eager_eot_threshold: number | null;
     keyterms: string[];
-    command_model: string;
     // TTS settings (OpenAI)
     enabled: boolean;
     provider: string;  // Always 'openai'
@@ -72,12 +70,10 @@ export interface KioskSettingsUpdate extends Partial<KioskSettings> { }
 
 export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
     // STT
-    stt_mode: 'command',
     eot_threshold: 0.7,
     eot_timeout_ms: 5000,
     eager_eot_threshold: null,
     keyterms: [],
-    command_model: 'nova-3',
     // TTS (OpenAI)
     enabled: true,
     provider: 'openai',
@@ -137,12 +133,10 @@ function createKioskSettingsStore() {
             ]);
             const combined: KioskSettings = {
                 // STT
-                stt_mode: sttSettings.mode,
                 eot_threshold: sttSettings.eot_threshold,
                 eot_timeout_ms: sttSettings.eot_timeout_ms,
                 eager_eot_threshold: sttSettings.eager_eot_threshold ?? null,
                 keyterms: sttSettings.keyterms,
-                command_model: sttSettings.command_model,
                 // TTS
                 enabled: ttsSettings.enabled,
                 provider: ttsSettings.provider,
@@ -192,12 +186,10 @@ function createKioskSettingsStore() {
             const llmUpdate: KioskLlmSettingsUpdate = {};
 
             // STT fields
-            if (update.stt_mode !== undefined) sttUpdate.mode = update.stt_mode;
             if (update.eot_threshold !== undefined) sttUpdate.eot_threshold = update.eot_threshold;
             if (update.eot_timeout_ms !== undefined) sttUpdate.eot_timeout_ms = update.eot_timeout_ms;
             if (update.eager_eot_threshold !== undefined) sttUpdate.eager_eot_threshold = update.eager_eot_threshold;
             if (update.keyterms !== undefined) sttUpdate.keyterms = update.keyterms;
-            if (update.command_model !== undefined) sttUpdate.command_model = update.command_model;
 
             // TTS fields
             if (update.enabled !== undefined) ttsUpdate.enabled = update.enabled;
@@ -280,12 +272,10 @@ function createKioskSettingsStore() {
             const current = get(store);
             const combined: KioskSettings = {
                 // STT
-                stt_mode: sttSettings.mode,
                 eot_threshold: sttSettings.eot_threshold,
                 eot_timeout_ms: sttSettings.eot_timeout_ms,
                 eager_eot_threshold: sttSettings.eager_eot_threshold ?? null,
                 keyterms: sttSettings.keyterms,
-                command_model: sttSettings.command_model,
                 // TTS
                 enabled: ttsSettings.enabled,
                 provider: ttsSettings.provider,

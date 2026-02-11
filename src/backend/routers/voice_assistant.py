@@ -366,11 +366,10 @@ async def handle_connection(
                 # Interrupt TTS - send to THIS client only (session isolation)
                 await manager.send_message(client_id, {"type": "interrupt_tts"})
                 await cancel_tts()
-                await manager.update_state(client_id, "LISTENING")
 
-                # Reset STT
+                # Close STT session and return to IDLE (user can tap to start fresh)
                 await stt_service.close_session(client_id)
-                await start_stt_session()
+                await manager.update_state(client_id, "IDLE")
 
             elif event_type in ("audio_chunk", "audio_data"):
                 session = manager.get_session(client_id)

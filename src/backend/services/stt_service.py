@@ -42,8 +42,8 @@ class DeepgramSession:
         keyterms: Optional[list[str]] = None,
         # Command mode (Nova-3 v1) settings
         command_model: str = "nova-3",
-        command_utterance_end_ms: int = 1500,
-        command_endpointing: int = 1200,
+        command_utterance_end_ms: int = 1000,
+        command_endpointing: int = 300,
         command_interim_results: bool = True,
         command_smart_format: bool = True,
         # Note: punctuate is always enabled (included in smart_format)

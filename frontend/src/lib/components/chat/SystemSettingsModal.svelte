@@ -554,16 +554,6 @@
             </div>
           </div>
         </div>
-
-        <div class="speech-card">
-          <div class="speech-card-header">
-            <h3>Server-side STT</h3>
-            <p>
-              Speech recognition is handled by the backend. Advanced settings
-              can be configured server-side.
-            </p>
-          </div>
-        </div>
       </div>
     </article>
 

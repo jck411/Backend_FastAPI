@@ -257,8 +257,8 @@ async def handle_connection(
                     )
                 else:
                     try:
-                        llm_settings = settings_service.get_llm()
-                        if llm_settings.conversation_mode:
+                        stt_settings = settings_service.get_stt()
+                        if stt_settings.mode == "conversation":
                             logger.info(
                                 f"Conversation mode active for {client_id}, listening for reply"
                             )
@@ -447,27 +447,21 @@ async def handle_connection(
 
             elif event_type == "tts_playback_end":
                 logger.info(f"TTS playback ended for {client_id}")
-                # Check if conversation mode is active
+                # Always resume STT session (session isolation)
+                stt_service.resume_session(client_id)
+                # Check mode to determine next state
                 try:
-                    llm_settings = settings_service.get_llm()
-                    if llm_settings.conversation_mode:
+                    stt_settings = settings_service.get_stt()
+                    if stt_settings.mode == "conversation":
                         logger.info(
                             f"Conversation mode ON - resuming listening for {client_id}"
                         )
-                        # Resume THIS client only (session isolation)
-                        stt_service.resume_session(client_id)
                         await manager.update_state(client_id, "LISTENING")
                     else:
-                        logger.info(
-                            f"Conversation mode OFF - {client_id} going to IDLE"
-                        )
-                        # Resume THIS client only (session isolation)
-                        stt_service.resume_session(client_id)
+                        logger.info(f"Command mode - {client_id} going to IDLE")
                         await manager.update_state(client_id, "IDLE")
                 except Exception as e:
-                    logger.error(f"Error checking conversation mode: {e}")
-                    # Safety: Resume this client
-                    stt_service.resume_session(client_id)
+                    logger.error(f"Error checking STT mode: {e}")
                     await manager.update_state(client_id, "IDLE")
 
             elif event_type == "clear_session":

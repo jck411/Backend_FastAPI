@@ -33,10 +33,23 @@ class DeepgramSession:
         on_speech_start: Optional[
             Callable[[], None]
         ] = None,  # Called when Deepgram detects speech start
+        # Mode selection
+        mode: str = "conversation",
+        # Conversation mode (Flux v2) settings
         eot_threshold: float = 0.7,
         eot_timeout_ms: int = 5000,
         eager_eot_threshold: Optional[float] = None,
         keyterms: Optional[list[str]] = None,
+        # Command mode (Nova-3 v1) settings
+        command_model: str = "nova-3",
+        command_utterance_end_ms: int = 1500,
+        command_endpointing: int = 1200,
+        command_interim_results: bool = True,
+        command_smart_format: bool = True,
+        command_punctuate: bool = True,
+        command_numerals: bool = True,
+        command_filler_words: bool = False,
+        command_profanity_filter: bool = False,
         event_loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
         self.api_key = api_key
@@ -45,11 +58,25 @@ class DeepgramSession:
         self.on_error = on_error
         self.on_speech_start = on_speech_start  # VAD callback
 
-        # Configurable STT settings
+        # Mode selection
+        self.mode = mode
+
+        # Conversation mode (Flux v2) settings
         self.eot_threshold = eot_threshold
         self.eot_timeout_ms = eot_timeout_ms
         self.eager_eot_threshold = eager_eot_threshold
         self.keyterms = keyterms or []
+
+        # Command mode (Nova-3 v1) settings
+        self.command_model = command_model
+        self.command_utterance_end_ms = command_utterance_end_ms
+        self.command_endpointing = command_endpointing
+        self.command_interim_results = command_interim_results
+        self.command_smart_format = command_smart_format
+        self.command_punctuate = command_punctuate
+        self.command_numerals = command_numerals
+        self.command_filler_words = command_filler_words
+        self.command_profanity_filter = command_profanity_filter
 
         # Store the main event loop reference for scheduling callbacks from worker thread
         self._event_loop = event_loop
@@ -57,8 +84,6 @@ class DeepgramSession:
         self._client = DeepgramClient(api_key=api_key)
         self._context_manager = None
         self._socket = None
-        self._ready = threading.Event()
-        self._running = False
         self._ready = threading.Event()
         self._running = False
         self._listening_thread = None
@@ -70,8 +95,9 @@ class DeepgramSession:
             # For v2 (Flux): transcript is at top level with event type
             event = getattr(result, "event", None)
 
-            if event == "StartOfTurn":
-                logger.info(f"--- StartOfTurn for {self.session_id} ---")
+            # Speech start detection: v2=StartOfTurn, v1=SpeechStarted
+            if event in ("StartOfTurn", "SpeechStarted"):
+                logger.info(f"--- {event} for {self.session_id} ---")
                 # Notify that speech has started (used for VAD gating after barge-in)
                 if self.on_speech_start:
                     if asyncio.iscoroutinefunction(self.on_speech_start):
@@ -85,6 +111,7 @@ class DeepgramSession:
 
             transcript = getattr(result, "transcript", None)
             if transcript:
+                # v2 (Flux) response - transcript at top level
                 is_end_of_turn = event == "EndOfTurn"
                 logger.info(
                     f"Transcript for {self.session_id}: '{transcript}' (eot={is_end_of_turn})"
@@ -103,21 +130,28 @@ class DeepgramSession:
                 else:
                     self.on_transcript(transcript, is_end_of_turn)
             else:
-                # v1 style: check for channel.alternatives
+                # v1 style: check for channel.alternatives (Nova models)
                 if hasattr(result, "channel"):
                     alternatives = result.channel.alternatives
                     if alternatives and len(alternatives) > 0:
                         transcript_text = alternatives[0].transcript
                         is_final = getattr(result, "is_final", False)
+                        # speech_final indicates user stopped speaking (silence detected)
+                        # This is the proper end-of-utterance signal for v1 API
+                        speech_final = getattr(result, "speech_final", False)
 
                         if transcript_text:
                             logger.info(
-                                f"Transcript for {self.session_id}: '{transcript_text}' (final={is_final})"
+                                f"Transcript for {self.session_id}: '{transcript_text}' "
+                                f"(is_final={is_final}, speech_final={speech_final})"
                             )
+                            # Use speech_final as end signal - indicates user stopped speaking
                             if asyncio.iscoroutinefunction(self.on_transcript):
                                 if self._event_loop is not None:
                                     asyncio.run_coroutine_threadsafe(
-                                        self.on_transcript(transcript_text, is_final),
+                                        self.on_transcript(
+                                            transcript_text, speech_final
+                                        ),
                                         self._event_loop,
                                     )
                                 else:
@@ -125,7 +159,20 @@ class DeepgramSession:
                                         "No event loop available for transcript callback"
                                     )
                             else:
-                                self.on_transcript(transcript_text, is_final)
+                                self.on_transcript(transcript_text, speech_final)
+                        elif speech_final:
+                            # UtteranceEnd with no new transcript - still signal end
+                            logger.info(
+                                f"Speech final (no transcript) for {self.session_id}"
+                            )
+                            if asyncio.iscoroutinefunction(self.on_transcript):
+                                if self._event_loop is not None:
+                                    asyncio.run_coroutine_threadsafe(
+                                        self.on_transcript("", True),
+                                        self._event_loop,
+                                    )
+                            else:
+                                self.on_transcript("", True)
         except Exception as e:
             logger.error(
                 f"Error processing transcript for {self.session_id}: {e}", exc_info=True
@@ -154,68 +201,137 @@ class DeepgramSession:
 
     def connect(self) -> bool:
         """Connect to Deepgram."""
-        # Use Flux model with v2 API for fast turn-taking detection
-        params = {
-            "model": "flux-general-en",
-            "encoding": "linear16",
-            "sample_rate": str(SAMPLE_RATE),
-            "eot_threshold": str(self.eot_threshold),
-            "eot_timeout_ms": str(self.eot_timeout_ms),
-        }
+        if self.mode == "command":
+            # Command mode: Use Nova-3 with v1 API
+            params = {
+                "model": self.command_model,
+                "encoding": "linear16",
+                "sample_rate": str(SAMPLE_RATE),
+                "interim_results": str(self.command_interim_results).lower(),
+                "utterance_end_ms": str(self.command_utterance_end_ms),
+                "endpointing": str(self.command_endpointing),
+                "smart_format": str(self.command_smart_format).lower(),
+                "punctuate": str(self.command_punctuate).lower(),
+                "numerals": str(self.command_numerals).lower(),
+                "filler_words": str(self.command_filler_words).lower(),
+                "profanity_filter": str(self.command_profanity_filter).lower(),
+                "vad_events": "true",
+            }
 
-        # Add optional eager EOT threshold
-        if self.eager_eot_threshold is not None:
-            params["eager_eot_threshold"] = str(self.eager_eot_threshold)
-
-        # Add keyterms (Deepgram supports multiple keyterm params)
-        # Note: The SDK may handle this differently; we pass as list
-        if self.keyterms:
-            params["keyterm"] = self.keyterms
-
-        logger.info(
-            f"Connecting to Deepgram Flux for {self.session_id} with settings: "
-            f"eot_threshold={self.eot_threshold}, eot_timeout_ms={self.eot_timeout_ms}, "
-            f"eager_eot={self.eager_eot_threshold}, keyterms={len(self.keyterms)}"
-        )
-
-        try:
-            # Use v2 for Flux turn-taking
-            self._context_manager = self._client.listen.v2.connect(**params)
-            self._socket = self._context_manager.__enter__()
-
-            # Register handlers
-            self._socket.on(EventType.OPEN, self._on_open)
-            self._socket.on(EventType.MESSAGE, self._handle_message)
-            self._socket.on(EventType.ERROR, self._on_error)
-            self._socket.on(EventType.CLOSE, self._on_close)
-
-            # Start listening in background thread
-            def listen_loop():
-                try:
-                    self._socket.start_listening()
-                except Exception as e:
-                    if self._running:
-                        logger.error(f"Listen error for {self.session_id}: {e}")
-
-            self._running = True
-            self._listening_thread = threading.Thread(target=listen_loop, daemon=True)
-            self._listening_thread.start()
-
-            # Wait for connection
-            if not self._ready.wait(timeout=10.0):
-                raise RuntimeError(
-                    f"Failed to connect to Deepgram for {self.session_id}"
-                )
-
-            logger.info(f"Deepgram session ready for {self.session_id}")
-            return True
-
-        except Exception as e:
-            logger.error(
-                f"Failed to connect to Deepgram for {self.session_id}: {e}",
-                exc_info=True,
+            logger.info(
+                f"Connecting to Deepgram Nova (v1) for {self.session_id} with settings: "
+                f"model={self.command_model}, utterance_end_ms={self.command_utterance_end_ms}, "
+                f"endpointing={self.command_endpointing}"
             )
-            return False
+
+            try:
+                # Use v1 API for Nova models
+                self._context_manager = self._client.listen.v1.connect(**params)
+                self._socket = self._context_manager.__enter__()
+
+                # Register handlers
+                self._socket.on(EventType.OPEN, self._on_open)
+                self._socket.on(EventType.MESSAGE, self._handle_message)
+                self._socket.on(EventType.ERROR, self._on_error)
+                self._socket.on(EventType.CLOSE, self._on_close)
+
+                # Start listening in background thread
+                def listen_loop():
+                    try:
+                        self._socket.start_listening()
+                    except Exception as e:
+                        if self._running:
+                            logger.error(f"Listen error for {self.session_id}: {e}")
+
+                self._running = True
+                self._listening_thread = threading.Thread(
+                    target=listen_loop, daemon=True
+                )
+                self._listening_thread.start()
+
+                # Wait for connection
+                if not self._ready.wait(timeout=10.0):
+                    raise RuntimeError(
+                        f"Failed to connect to Deepgram for {self.session_id}"
+                    )
+
+                logger.info(
+                    f"Deepgram session ready for {self.session_id} (command mode)"
+                )
+                return True
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to connect to Deepgram for {self.session_id}: {e}",
+                    exc_info=True,
+                )
+                return False
+        else:
+            # Conversation mode: Use Flux with v2 API
+            params = {
+                "model": "flux-general-en",
+                "encoding": "linear16",
+                "sample_rate": str(SAMPLE_RATE),
+                "eot_threshold": str(self.eot_threshold),
+                "eot_timeout_ms": str(self.eot_timeout_ms),
+            }
+
+            # Add optional eager EOT threshold
+            if self.eager_eot_threshold is not None:
+                params["eager_eot_threshold"] = str(self.eager_eot_threshold)
+
+            # Add keyterms (Deepgram supports multiple keyterm params)
+            if self.keyterms:
+                params["keyterm"] = self.keyterms
+
+            logger.info(
+                f"Connecting to Deepgram Flux (v2) for {self.session_id} with settings: "
+                f"eot_threshold={self.eot_threshold}, eot_timeout_ms={self.eot_timeout_ms}, "
+                f"eager_eot={self.eager_eot_threshold}, keyterms={len(self.keyterms)}"
+            )
+
+            try:
+                # Use v2 for Flux turn-taking
+                self._context_manager = self._client.listen.v2.connect(**params)
+                self._socket = self._context_manager.__enter__()
+
+                # Register handlers
+                self._socket.on(EventType.OPEN, self._on_open)
+                self._socket.on(EventType.MESSAGE, self._handle_message)
+                self._socket.on(EventType.ERROR, self._on_error)
+                self._socket.on(EventType.CLOSE, self._on_close)
+
+                # Start listening in background thread
+                def listen_loop():
+                    try:
+                        self._socket.start_listening()
+                    except Exception as e:
+                        if self._running:
+                            logger.error(f"Listen error for {self.session_id}: {e}")
+
+                self._running = True
+                self._listening_thread = threading.Thread(
+                    target=listen_loop, daemon=True
+                )
+                self._listening_thread.start()
+
+                # Wait for connection
+                if not self._ready.wait(timeout=10.0):
+                    raise RuntimeError(
+                        f"Failed to connect to Deepgram for {self.session_id}"
+                    )
+
+                logger.info(
+                    f"Deepgram session ready for {self.session_id} (conversation mode)"
+                )
+                return True
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to connect to Deepgram for {self.session_id}: {e}",
+                    exc_info=True,
+                )
+                return False
 
     def send_audio(self, data: bytes):
         """Send audio to Deepgram."""
@@ -339,9 +455,22 @@ class STTService:
                 on_transcript=on_transcript,
                 on_error=on_error,
                 on_speech_start=on_speech_start,
+                # Mode selection
+                mode=stt_settings.mode,
+                # Conversation mode (Flux v2) settings
                 eot_threshold=stt_settings.eot_threshold,
                 eot_timeout_ms=stt_settings.eot_timeout_ms,
                 keyterms=stt_settings.keyterms,
+                # Command mode (Nova-3 v1) settings
+                command_model=stt_settings.command_model,
+                command_utterance_end_ms=stt_settings.command_utterance_end_ms,
+                command_endpointing=stt_settings.command_endpointing,
+                command_interim_results=stt_settings.command_interim_results,
+                command_smart_format=stt_settings.command_smart_format,
+                command_punctuate=stt_settings.command_punctuate,
+                command_numerals=stt_settings.command_numerals,
+                command_filler_words=stt_settings.command_filler_words,
+                command_profanity_filter=stt_settings.command_profanity_filter,
                 event_loop=loop,  # Pass event loop for thread-safe callback scheduling
             )
 
@@ -350,7 +479,9 @@ class STTService:
 
             if success:
                 self.sessions[session_id] = session
-                logger.info(f"STT session created for {session_id}")
+                logger.info(
+                    f"STT session created for {session_id} (mode={stt_settings.mode})"
+                )
                 return True
             else:
                 logger.error(f"Failed to create STT session for {session_id}")

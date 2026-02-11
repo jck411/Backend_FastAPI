@@ -70,9 +70,19 @@ function App() {
   const [latestExchange, setLatestExchange] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [sttDraft, setSttDraft] = useState({
-    eot_timeout_ms: 5000,
+    mode: 'conversation',
+    // Conversation mode (Flux)
+    eot_timeout_ms: 1000,
     eot_threshold: 0.7,
     listen_timeout_seconds: 15,
+    // Command mode (Nova-3)
+    command_utterance_end_ms: 1500,
+    command_endpointing: 1200,
+    command_smart_format: true,
+    command_punctuate: true,
+    command_numerals: true,
+    command_filler_words: false,
+    command_profanity_filter: false,
   });
   const [ttsDraft, setTtsDraft] = useState({
     enabled: false,
@@ -720,9 +730,19 @@ function App() {
           const data = await sttResp.json();
           if (!cancelled) {
             const normalized = {
-              eot_timeout_ms: Number(data.eot_timeout_ms ?? 5000),
+              mode: data.mode || 'conversation',
+              // Conversation
+              eot_timeout_ms: Number(data.eot_timeout_ms ?? 1000),
               eot_threshold: Number(data.eot_threshold ?? 0.7),
               listen_timeout_seconds: Number(data.listen_timeout_seconds ?? 15),
+              // Command
+              command_utterance_end_ms: Number(data.command_utterance_end_ms ?? 1500),
+              command_endpointing: Number(data.command_endpointing ?? 1200),
+              command_smart_format: Boolean(data.command_smart_format ?? true),
+              command_punctuate: Boolean(data.command_punctuate ?? true),
+              command_numerals: Boolean(data.command_numerals ?? true),
+              command_filler_words: Boolean(data.command_filler_words ?? false),
+              command_profanity_filter: Boolean(data.command_profanity_filter ?? false),
             };
             setSttDraft(normalized);
           }
@@ -870,9 +890,19 @@ function App() {
 
   // Community-recommended defaults for Deepgram STT
   const defaultSettings = {
-    eot_timeout_ms: 1000,  // 1 second - natural conversation pace
-    eot_threshold: 0.7,    // balanced confidence threshold
-    listen_timeout_seconds: 15,  // 15 seconds of no speech
+    mode: 'conversation',
+    // Conversation mode (Flux)
+    eot_timeout_ms: 1000,
+    eot_threshold: 0.7,
+    listen_timeout_seconds: 15,
+    // Command mode (Nova-3)
+    command_utterance_end_ms: 1500,
+    command_endpointing: 1200,
+    command_smart_format: true,
+    command_punctuate: true,
+    command_numerals: true,
+    command_filler_words: false,
+    command_profanity_filter: false,
   };
 
   const handleResetDefaults = (e) => {
@@ -900,9 +930,19 @@ function App() {
 
     try {
       const payload = {
+        mode: sttDraft.mode,
+        // Conversation
         eot_timeout_ms: Number(sttDraft.eot_timeout_ms),
         eot_threshold: Number(sttDraft.eot_threshold),
         listen_timeout_seconds: Number(sttDraft.listen_timeout_seconds),
+        // Command
+        command_utterance_end_ms: Number(sttDraft.command_utterance_end_ms),
+        command_endpointing: Number(sttDraft.command_endpointing),
+        command_smart_format: Boolean(sttDraft.command_smart_format),
+        command_punctuate: Boolean(sttDraft.command_punctuate),
+        command_numerals: Boolean(sttDraft.command_numerals),
+        command_filler_words: Boolean(sttDraft.command_filler_words),
+        command_profanity_filter: Boolean(sttDraft.command_profanity_filter),
       };
 
       const resp = await fetch('/api/clients/voice/stt', {
@@ -918,9 +958,17 @@ function App() {
       } else {
         const data = await resp.json();
         const normalized = {
+          mode: data.mode || payload.mode,
           eot_timeout_ms: Number(data.eot_timeout_ms ?? payload.eot_timeout_ms),
           eot_threshold: Number(data.eot_threshold ?? payload.eot_threshold),
           listen_timeout_seconds: Number(data.listen_timeout_seconds ?? payload.listen_timeout_seconds),
+          command_utterance_end_ms: Number(data.command_utterance_end_ms ?? payload.command_utterance_end_ms),
+          command_endpointing: Number(data.command_endpointing ?? payload.command_endpointing),
+          command_smart_format: Boolean(data.command_smart_format ?? payload.command_smart_format),
+          command_punctuate: Boolean(data.command_punctuate ?? payload.command_punctuate),
+          command_numerals: Boolean(data.command_numerals ?? payload.command_numerals),
+          command_filler_words: Boolean(data.command_filler_words ?? payload.command_filler_words),
+          command_profanity_filter: Boolean(data.command_profanity_filter ?? payload.command_profanity_filter),
         };
         setSttDraft(normalized);
       }
@@ -1093,6 +1141,34 @@ function App() {
             ) : (
               <div className="settings-scroll">
                 <div className="settings-section">
+                  <div className="settings-section-title">Mode</div>
+                  <div className="settings-row">
+                    <div className="mode-toggle">
+                      <button
+                        className={`mode-btn ${sttDraft.mode === 'conversation' ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSttDraft(prev => ({ ...prev, mode: 'conversation' }));
+                        }}
+                        disabled={settingsSaving}
+                      >
+                        Conversation
+                      </button>
+                      <button
+                        className={`mode-btn ${sttDraft.mode === 'command' ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSttDraft(prev => ({ ...prev, mode: 'command' }));
+                        }}
+                        disabled={settingsSaving}
+                      >
+                        Command
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="settings-section">
                   <div className="settings-section-title">Text to Speech</div>
 
                   <div className="settings-row">
@@ -1138,64 +1214,174 @@ function App() {
                   </div>
                 </div>
 
-                <div className="settings-section">
-                  <div className="settings-section-title">Speech Recognition</div>
+                {sttDraft.mode === 'conversation' ? (
+                  <div className="settings-section">
+                    <div className="settings-section-title">Speech Recognition (Flux)</div>
 
-                  <div className="settings-row">
-                    <div className="settings-label">End of turn timeout</div>
-                    <div className="settings-value">{sttDraft.eot_timeout_ms} ms</div>
-                    <input
-                      className="settings-slider"
-                      type="range"
-                      min="100"
-                      max="2000"
-                      step="100"
-                      value={sttDraft.eot_timeout_ms}
-                      onChange={(e) => setSttDraft(prev => ({
-                        ...prev,
-                        eot_timeout_ms: Number(e.target.value),
-                      }))}
-                    />
-                  </div>
-
-                  <div className="settings-row">
-                    <div className="settings-label">End of turn threshold</div>
-                    <div className="settings-value">
-                      {Number(sttDraft.eot_threshold).toFixed(2)}
+                    <div className="settings-row">
+                      <div className="settings-label">End of turn timeout</div>
+                      <div className="settings-value">{sttDraft.eot_timeout_ms} ms</div>
+                      <input
+                        className="settings-slider"
+                        type="range"
+                        min="100"
+                        max="2000"
+                        step="100"
+                        value={sttDraft.eot_timeout_ms}
+                        onChange={(e) => setSttDraft(prev => ({
+                          ...prev,
+                          eot_timeout_ms: Number(e.target.value),
+                        }))}
+                      />
                     </div>
-                    <input
-                      className="settings-slider"
-                      type="range"
-                      min="0.5"
-                      max="0.9"
-                      step="0.01"
-                      value={sttDraft.eot_threshold}
-                      onChange={(e) => setSttDraft(prev => ({
-                        ...prev,
-                        eot_threshold: Number(e.target.value),
-                      }))}
-                    />
-                  </div>
 
-                  <div className="settings-row">
-                    <div className="settings-label">Listen timeout</div>
-                    <div className="settings-value">
-                      {sttDraft.listen_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.listen_timeout_seconds}s`}
+                    <div className="settings-row">
+                      <div className="settings-label">End of turn threshold</div>
+                      <div className="settings-value">
+                        {Number(sttDraft.eot_threshold).toFixed(2)}
+                      </div>
+                      <input
+                        className="settings-slider"
+                        type="range"
+                        min="0.5"
+                        max="0.9"
+                        step="0.01"
+                        value={sttDraft.eot_threshold}
+                        onChange={(e) => setSttDraft(prev => ({
+                          ...prev,
+                          eot_threshold: Number(e.target.value),
+                        }))}
+                      />
                     </div>
-                    <input
-                      className="settings-slider"
-                      type="range"
-                      min="0"
-                      max="30"
-                      step="1"
-                      value={sttDraft.listen_timeout_seconds}
-                      onChange={(e) => setSttDraft(prev => ({
-                        ...prev,
-                        listen_timeout_seconds: Number(e.target.value),
-                      }))}
-                    />
+
+                    <div className="settings-row">
+                      <div className="settings-label">Listen timeout</div>
+                      <div className="settings-value">
+                        {sttDraft.listen_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.listen_timeout_seconds}s`}
+                      </div>
+                      <input
+                        className="settings-slider"
+                        type="range"
+                        min="0"
+                        max="30"
+                        step="1"
+                        value={sttDraft.listen_timeout_seconds}
+                        onChange={(e) => setSttDraft(prev => ({
+                          ...prev,
+                          listen_timeout_seconds: Number(e.target.value),
+                        }))}
+                      />
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="settings-section">
+                    <div className="settings-section-title">Speech Recognition (Nova-3)</div>
+
+                    <div className="settings-row">
+                      <div className="settings-label">Utterance end</div>
+                      <div className="settings-value">{sttDraft.command_utterance_end_ms} ms</div>
+                      <input
+                        className="settings-slider"
+                        type="range"
+                        min="500"
+                        max="3000"
+                        step="100"
+                        value={sttDraft.command_utterance_end_ms}
+                        onChange={(e) => setSttDraft(prev => ({
+                          ...prev,
+                          command_utterance_end_ms: Number(e.target.value),
+                        }))}
+                      />
+                    </div>
+
+                    <div className="settings-row">
+                      <div className="settings-label">Endpointing</div>
+                      <div className="settings-value">{sttDraft.command_endpointing} ms</div>
+                      <input
+                        className="settings-slider"
+                        type="range"
+                        min="300"
+                        max="2000"
+                        step="100"
+                        value={sttDraft.command_endpointing}
+                        onChange={(e) => setSttDraft(prev => ({
+                          ...prev,
+                          command_endpointing: Number(e.target.value),
+                        }))}
+                      />
+                    </div>
+
+                    <div className="settings-row">
+                      <div className="settings-label">Smart format</div>
+                      <button
+                        className={`settings-toggle ${sttDraft.command_smart_format ? 'on' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSttDraft(prev => ({ ...prev, command_smart_format: !prev.command_smart_format }));
+                        }}
+                        disabled={settingsSaving}
+                      >
+                        {sttDraft.command_smart_format ? 'On' : 'Off'}
+                      </button>
+                    </div>
+
+                    <div className="settings-row">
+                      <div className="settings-label">Punctuate</div>
+                      <button
+                        className={`settings-toggle ${sttDraft.command_punctuate ? 'on' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSttDraft(prev => ({ ...prev, command_punctuate: !prev.command_punctuate }));
+                        }}
+                        disabled={settingsSaving}
+                      >
+                        {sttDraft.command_punctuate ? 'On' : 'Off'}
+                      </button>
+                    </div>
+
+                    <div className="settings-row">
+                      <div className="settings-label">Numerals</div>
+                      <button
+                        className={`settings-toggle ${sttDraft.command_numerals ? 'on' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSttDraft(prev => ({ ...prev, command_numerals: !prev.command_numerals }));
+                        }}
+                        disabled={settingsSaving}
+                      >
+                        {sttDraft.command_numerals ? 'On' : 'Off'}
+                      </button>
+                    </div>
+
+                    <div className="settings-row">
+                      <div className="settings-label">Filler words</div>
+                      <button
+                        className={`settings-toggle ${sttDraft.command_filler_words ? 'on' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSttDraft(prev => ({ ...prev, command_filler_words: !prev.command_filler_words }));
+                        }}
+                        disabled={settingsSaving}
+                      >
+                        {sttDraft.command_filler_words ? 'On' : 'Off'}
+                      </button>
+                    </div>
+
+                    <div className="settings-row">
+                      <div className="settings-label">Profanity filter</div>
+                      <button
+                        className={`settings-toggle ${sttDraft.command_profanity_filter ? 'on' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSttDraft(prev => ({ ...prev, command_profanity_filter: !prev.command_profanity_filter }));
+                        }}
+                        disabled={settingsSaving}
+                      >
+                        {sttDraft.command_profanity_filter ? 'On' : 'Off'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

@@ -4,7 +4,7 @@ These schemas are shared across all clients (kiosk, svelte, cli).
 Each client stores its own data but uses the same structure.
 """
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -75,6 +75,12 @@ class LlmSettingsUpdate(BaseModel):
 class SttSettings(BaseModel):
     """STT configuration for a client."""
 
+    mode: Literal["conversation", "command"] = Field(
+        default="conversation",
+        description="STT mode: 'conversation' (Flux v2) or 'command' (Nova-3 v1)",
+    )
+
+    # Conversation mode (Flux) settings
     eot_threshold: float = Field(
         default=0.7,
         ge=0.0,
@@ -82,7 +88,7 @@ class SttSettings(BaseModel):
         description="End-of-turn detection threshold",
     )
     eot_timeout_ms: int = Field(
-        default=5000,
+        default=1000,
         ge=100,
         le=30000,
         description="End-of-turn timeout in milliseconds",
@@ -104,15 +110,71 @@ class SttSettings(BaseModel):
         description="Close session after X seconds of no speech while listening (0 = disabled)",
     )
 
+    # Command mode (Nova-3) settings
+    command_model: str = Field(
+        default="nova-3",
+        description="Model for command mode",
+    )
+    command_utterance_end_ms: int = Field(
+        default=1500,
+        ge=500,
+        le=5000,
+        description="Silence duration (ms) to detect end of utterance",
+    )
+    command_endpointing: int = Field(
+        default=1200,
+        ge=300,
+        le=5000,
+        description="Endpointing threshold (ms)",
+    )
+    command_interim_results: bool = Field(
+        default=True,
+        description="Return interim (partial) results",
+    )
+    command_smart_format: bool = Field(
+        default=True,
+        description="Apply smart formatting to transcripts",
+    )
+    command_punctuate: bool = Field(
+        default=True,
+        description="Add punctuation to transcripts",
+    )
+    command_numerals: bool = Field(
+        default=True,
+        description="Convert spoken numbers to numerals",
+    )
+    command_filler_words: bool = Field(
+        default=False,
+        description="Include filler words (um, uh)",
+    )
+    command_profanity_filter: bool = Field(
+        default=False,
+        description="Filter profanity from transcripts",
+    )
+
 
 class SttSettingsUpdate(BaseModel):
     """Partial update for STT settings."""
 
+    mode: Optional[Literal["conversation", "command"]] = None
+
+    # Conversation mode (Flux) settings
     eot_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     eot_timeout_ms: Optional[int] = Field(default=None, ge=100, le=30000)
     keyterms: Optional[list[str]] = None
     pause_timeout_seconds: Optional[int] = Field(default=None, ge=0, le=600)
     listen_timeout_seconds: Optional[int] = Field(default=None, ge=0, le=600)
+
+    # Command mode (Nova-3) settings
+    command_model: Optional[str] = None
+    command_utterance_end_ms: Optional[int] = Field(default=None, ge=500, le=5000)
+    command_endpointing: Optional[int] = Field(default=None, ge=300, le=5000)
+    command_interim_results: Optional[bool] = None
+    command_smart_format: Optional[bool] = None
+    command_punctuate: Optional[bool] = None
+    command_numerals: Optional[bool] = None
+    command_filler_words: Optional[bool] = None
+    command_profanity_filter: Optional[bool] = None
 
 
 # =============================================================================

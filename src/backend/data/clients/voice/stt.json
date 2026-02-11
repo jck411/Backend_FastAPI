@@ -1,7 +1,17 @@
 {
+  "mode": "conversation",
   "eot_threshold": 0.7,
   "eot_timeout_ms": 1000,
   "keyterms": [],
   "pause_timeout_seconds": 30,
-  "listen_timeout_seconds": 15
+  "listen_timeout_seconds": 15,
+  "command_model": "nova-3",
+  "command_utterance_end_ms": 1500,
+  "command_endpointing": 1200,
+  "command_interim_results": true,
+  "command_smart_format": true,
+  "command_punctuate": true,
+  "command_numerals": true,
+  "command_filler_words": false,
+  "command_profanity_filter": false
 }

@@ -736,16 +736,10 @@ Tools are configured in `data/mcp_servers.json` (or similar):
 {
   "servers": [
     {
-      "id": "custom-calendar",
+      "id": "calendar",
       "enabled": true,
-      "module": "backend.mcp_servers.calendar_server",
-      "contexts": ["scheduling", "tasks", "personal"],
-      "disabled_tools": ["some_tool_to_hide"],
-      "tool_overrides": {
-        "search_all_tasks": {
-          "contexts": ["preferences", "recommendations"]
-        }
-      }
+      "url": "http://192.168.1.11:9005/mcp",
+      "disabled_tools": ["some_tool_to_hide"]
     }
   ]
 }
@@ -756,11 +750,9 @@ Tools are configured in `data/mcp_servers.json` (or similar):
 | Field | Impact on LLM | Description |
 |-------|--------------|-------------|
 | `id` | Indirect (prefix) | Server identifier, may prefix tool names |
+| `url` | Connection | URL to the external MCP server |
 | `enabled` | Direct | If false, tools not exposed to LLM |
-| `contexts` | Filtering | Can filter which tools LLM sees based on context |
 | `disabled_tools` | Direct | Listed tools hidden from LLM |
-| `tool_prefix` | Tool naming | Custom prefix instead of `id` |
-| `tool_overrides` | Context filtering | Per-tool context overrides |
 
 **Key point:** The LLM doesn't see this config directly, but it affects:
 1. Which tools are in the tools array

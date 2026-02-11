@@ -74,14 +74,13 @@ Routers (HTTP) → Services (business logic) → Repository (data access)
   private Google Cloud Storage, records metadata in SQLite, and keeps signed
   URLs fresh when messages are serialized.
 - **Environment knobs**: `ATTACHMENTS_MAX_SIZE_BYTES`,
-  `ATTACHMENTS_RETENTION_DAYS`, and optional `LEGACY_ATTACHMENTS_DIR` for MCP
-  servers that still stage local files while developing.
+  `ATTACHMENTS_RETENTION_DAYS`, and optional `LEGACY_ATTACHMENTS_DIR` for
+  debugging or local development.
 - **Routes**: `POST /api/uploads` (create + return signed URL), legacy
   download routes now respond with `410 Gone`.
 - **Behaviour**:
-  - Gmail helpers inside `backend.mcp_servers.gmail_server` persist downloads to
-    GCS through the shared attachment service and return signed URLs to the
-    caller.
+  - MCP servers (running on Proxmox) can persist downloads to GCS through the
+    shared attachment service and return signed URLs to the caller.
   - Attachment records are associated with chat sessions; touching a message
     marks referenced files as recently used so retention policies work as
     expected.
@@ -134,11 +133,12 @@ Example: Model selection resolves as:
 
 ### Adding a new MCP server
 
-1. Create server directory under `src/backend/mcp_servers/`
-2. Implement server with MCP protocol (use `mcp` package)
-3. Add environment variables to `.env` if needed
-4. Register in `backend/app.py` startup or via API
-5. Test with `POST /api/mcp/servers/refresh`
+MCP servers are now external services running on Proxmox. To add a new server:
+
+1. Deploy the server to Proxmox as a systemd service
+2. Add the server URL to `data/mcp_servers.json`
+3. Test with `POST /api/mcp/servers/refresh`
+4. Configure client preferences via the UI
 
 ### Adding a new route
 
@@ -332,11 +332,12 @@ tar -czf config_backup.tar.gz data/*.json credentials/
 
 ### Custom MCP server
 
-See `src/backend/mcp_servers/calculator_server.py` for a minimal example. Implement these methods:
+MCP servers are now external services deployed to Proxmox. To create a new server:
 
-- `list_tools()` - Advertise available tools
-- `call_tool(name, arguments)` - Execute tool logic
-- Error handling and logging
+1. Create a new repository with FastMCP
+2. Implement tools using `@mcp.tool()` decorators
+3. Deploy as a systemd service on Proxmox
+4. Add the server URL to `data/mcp_servers.json`
 
 ### Custom service
 

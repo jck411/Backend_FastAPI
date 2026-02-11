@@ -1,12 +1,7 @@
 """Unified datetime parsing and timezone normalization utilities.
 
 This module consolidates all datetime parsing, conversion, and formatting logic
-that was previously scattered across multiple files:
-- tasks/utils.py: parse_rfc3339_datetime, normalize_rfc3339, parse_time_string
-- calendar_server.py: _parse_time_string
-- repository.py: _normalize_db_timestamp, _parse_db_timestamp, format_timestamp_for_client
-
-All timestamp conversion logic is now centralized here for consistency and maintainability.
+used throughout the backend for consistency and maintainability.
 """
 
 from __future__ import annotations

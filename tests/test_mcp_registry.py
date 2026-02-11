@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +14,6 @@ from backend.chat.mcp_registry import (
     MCPToolAggregator,
     load_server_configs,
 )
-from backend.repository import ChatRepository
 
 pytestmark = pytest.mark.anyio
 
@@ -475,106 +473,3 @@ async def test_describe_servers(monkeypatch: pytest.MonkeyPatch) -> None:
         assert any(t["name"] == "alpha" for t in entry["tools"])
     finally:
         await aggregator.close()
-
-
-async def test_builtin_housekeeping_server_runs_via_aggregator(tmp_path: Path) -> None:
-    """Integration test: connect to a real housekeeping MCP server."""
-    import asyncio
-
-    project_root = Path(__file__).resolve().parents[1]
-    src_dir = project_root / "src"
-
-    env = os.environ.copy()
-    existing_path = env.get("PYTHONPATH", "")
-    new_pythonpath = os.pathsep.join(filter(None, [existing_path, str(src_dir)]))
-    env["PYTHONPATH"] = new_pythonpath
-    env.setdefault("OPENROUTER_API_KEY", "test-key")
-
-    db_path = tmp_path / "chat.db"
-    env["CHAT_DATABASE_PATH"] = str(db_path)
-
-    repository = ChatRepository(db_path)
-    await repository.initialize()
-    await repository.ensure_session("session-test")
-    await repository.add_message("session-test", role="user", content="hello world")
-    await repository.add_message(
-        "session-test", role="assistant", content="Hello back!"
-    )
-    await repository.close()
-
-    # Spawn the housekeeping server as a subprocess (this test is special)
-    import sys
-
-    port = 19002  # Use a non-standard port to avoid conflicts
-    argv = [
-        sys.executable,
-        "-m",
-        "backend.mcp_servers.housekeeping_server",
-        "--transport",
-        "streamable-http",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        str(port),
-    ]
-    spawn_env = {
-        **env,
-        "FASTMCP_SHOW_CLI_BANNER": "false",
-        "PYTHONUNBUFFERED": "1",
-    }
-
-    process = await asyncio.create_subprocess_exec(
-        *argv,
-        cwd=str(project_root),
-        env=spawn_env,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
-    )
-
-    try:
-        # Wait for server to start
-        for _ in range(20):
-            await asyncio.sleep(0.5)
-            try:
-                reader, writer = await asyncio.open_connection("127.0.0.1", port)
-                writer.close()
-                await writer.wait_closed()
-                break
-            except OSError:
-                continue
-        else:
-            pytest.skip("Housekeeping server didn't start in time")
-
-        config = make_config(
-            id="housekeeping",
-            url=f"http://127.0.0.1:{port}/mcp",
-        )
-
-        aggregator = MCPToolAggregator([config])
-
-        async def run_test():
-            await aggregator.connect()
-            tool_names = {
-                entry["function"]["name"] for entry in aggregator.get_openai_tools()
-            }
-            assert {"test_echo", "current_time", "chat_history"}.issubset(tool_names)
-
-            result = await aggregator.call_tool(
-                "test_echo",
-                {"message": "ping", "uppercase": True},
-            )
-            formatted = aggregator.format_tool_result(result)
-            assert "PING" in formatted
-
-        await asyncio.wait_for(run_test(), timeout=10.0)
-        try:
-            await asyncio.wait_for(aggregator.close(), timeout=5.0)
-        except asyncio.TimeoutError:
-            pass
-    finally:
-        process.terminate()
-        try:
-            await asyncio.wait_for(process.wait(), timeout=3.0)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()

@@ -187,7 +187,6 @@ src/backend/
     mcp_registry.py   # MCP tool aggregator
     tool_utils.py     # Tool handling utilities
     streaming/        # Streaming pipeline modules
-  mcp_servers/        # Bundled MCP integrations
 
 data/                 # Runtime state (gitignored)
   chat_sessions.db    # SQLite database
@@ -230,21 +229,16 @@ Supported types: `image/png`, `image/jpeg`, `image/webp`, `image/gif`, `applicat
 
 ### MCP Tool Integration
 
-MCP servers are configured in `data/mcp_servers.json` and hot-reloaded via API. Built-in integrations:
+MCP servers run as external services on Proxmox and are configured in `data/mcp_servers.json`. Available integrations:
 
 - **Google Calendar** — create/search events
 - **Gmail** — read/send messages, manage drafts
 - **Google Drive** — search/read/create files
 - **PDF tools** — extract text and metadata
 - **Monarch Money** — personal finance data and transactions
-- **Calculator & utilities** — housekeeping helpers
-- Local servers run over streamable HTTP using `http_port`; remote servers use `http_url`.
-- The canonical list of bundled servers lives in `src/backend/mcp_servers/__init__.py`
-  (`BUILTIN_MCP_SERVER_DEFINITIONS`). The FastAPI factory consumes that list to
-  generate default entries with the same enable/disable defaults, so updating the
-  list keeps both the module exports and fallback config in sync.
+- **Housekeeping** — utilities and system helpers
 
-Each server's tools are prefixed (e.g., `custom-gmail__gmail_create_draft`) to avoid naming conflicts.
+Servers are always-on systemd services discovered by URL. The backend acts as a pure MCP client (consumer), connecting to running servers and routing tool calls.
 
 ### Presets
 

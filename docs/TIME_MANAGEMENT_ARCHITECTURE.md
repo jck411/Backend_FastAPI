@@ -189,11 +189,11 @@ This happens:
 
 ---
 
-### Housekeeping Server (`backend.mcp_servers.housekeeping_server`)
+### Housekeeping Server (External MCP Server)
 
 **`current_time` MCP Tool**:
 
-Provides the LLM with precise current time information when needed during conversations:
+Provides the LLM with precise current time information when needed during conversations. This MCP server runs externally on Proxmox:
 
 ```python
 @mcp.tool("current_time")
@@ -224,11 +224,11 @@ async def current_time(format: Literal["iso", "unix"] = "iso") -> dict[str, Any]
 
 ---
 
-### Calendar Server (`backend.mcp_servers.calendar_server`)
+### Calendar Server (External MCP Server)
 
 **Time Parsing for Events & Tasks**:
 
-Uses `datetime_utils` for all date/time parsing:
+The calendar MCP server runs externally on Proxmox. It uses `datetime_utils` patterns for all date/time parsing:
 
 ```python
 from backend.utils.datetime_utils import (
@@ -513,10 +513,7 @@ client_data = {
 
 ### Integration Points
 - **Chat Orchestrator**: `src/backend/chat/orchestrator.py`
-- **Housekeeping Server**: `src/backend/mcp_servers/housekeeping_server.py`
-- **Calendar Server**: `src/backend/mcp_servers/calendar_server.py`
-- **Task Service**: `src/backend/tasks/service.py`
-- **Task Utils**: `src/backend/tasks/utils.py`
+- **MCP Servers**: External servers running on Proxmox (housekeeping, calendar, etc.)
 - **Repository**: `src/backend/repository.py`
 - **Logging Handlers**: `src/backend/logging_handlers.py`
 - **Conversation Logging**: `src/backend/services/conversation_logging.py`
@@ -531,7 +528,6 @@ client_data = {
 
 ### Tests
 - **DateTime Utils Tests**: `tests/test_datetime_utils.py`
-- **Calendar Server Tests**: `tests/test_calendar_server.py`
 - **Orchestrator Tests**: `tests/test_chat_orchestrator.py`
 
 ---

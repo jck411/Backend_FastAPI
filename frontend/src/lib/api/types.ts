@@ -448,3 +448,39 @@ export interface ClientSettings {
   llm: LlmSettings;
   [key: string]: unknown;
 }
+
+/* STT Settings */
+
+/** Available Deepgram STT models for command mode */
+export const STT_MODELS = [
+  { id: 'nova-3', name: 'Nova 3 (Latest)' },
+  { id: 'nova-2', name: 'Nova 2 (General)' },
+  { id: 'nova-2-medical', name: 'Nova 2 Medical' },
+  { id: 'nova-2-phonecall', name: 'Nova 2 Phone Call' },
+  { id: 'nova-2-meeting', name: 'Nova 2 Meeting' },
+  { id: 'nova-2-finance', name: 'Nova 2 Finance' },
+  { id: 'nova-2-conversationalai', name: 'Nova 2 Conversational AI' },
+  { id: 'nova-2-drivethru', name: 'Nova 2 Drive-Thru' },
+] as const;
+
+export type SttModelId = (typeof STT_MODELS)[number]['id'];
+
+export interface SttSettings {
+  mode: 'conversation' | 'command';
+  command_model: string;
+  // Conversation mode settings
+  eot_threshold: number;
+  eot_timeout_ms: number;
+  // Command mode settings
+  command_utterance_end_ms: number;
+  command_endpointing: number;
+}
+
+export interface SttSettingsUpdate {
+  mode?: 'conversation' | 'command';
+  command_model?: string;
+  eot_threshold?: number;
+  eot_timeout_ms?: number;
+  command_utterance_end_ms?: number;
+  command_endpointing?: number;
+}

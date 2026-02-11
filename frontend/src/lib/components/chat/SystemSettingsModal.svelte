@@ -1,7 +1,9 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import { get } from "svelte/store";
+  import { fetchSttSettings, updateSttSettings } from "../../api/client";
   import type { PresetListItem } from "../../api/types";
+  import { STT_MODELS, type SttSettings } from "../../api/types";
   import { chatStore } from "../../stores/chat";
   import { modelSettingsStore } from "../../stores/modelSettings";
   import { presetsStore } from "../../stores/presets";
@@ -43,7 +45,20 @@
   }
 
   async function initialize(): Promise<void> {
-    await Promise.all([systemPrompt.load(), presetsStore.load()]);
+    await Promise.all([
+      systemPrompt.load(),
+      presetsStore.load(),
+      loadServerSttSettings(),
+    ]);
+  }
+
+  async function loadServerSttSettings(): Promise<void> {
+    try {
+      serverSttSettings = await fetchSttSettings();
+      serverSttError = null;
+    } catch (error) {
+      serverSttError = error instanceof Error ? error.message : "Failed to load STT settings";
+    }
   }
 
   async function flushSystemPrompt(): Promise<boolean> {
@@ -57,7 +72,7 @@
   }
 
   async function closeModal(): Promise<void> {
-    if (closing || $systemPrompt.saving || speechSaving) {
+    if (closing || $systemPrompt.saving || speechSaving || serverSttSaving) {
       return;
     }
 
@@ -65,14 +80,37 @@
 
     const promptSaved = await flushSystemPrompt();
     const speechSaved = await flushSpeechSettings();
+    const serverSttSaved = await flushServerSttSettings();
 
     const promptState = get(systemPrompt);
 
-    if (promptSaved && speechSaved && !promptState.saveError) {
+    if (promptSaved && speechSaved && serverSttSaved && !promptState.saveError) {
       dispatch("close");
     }
 
     closing = false;
+  }
+
+  async function flushServerSttSettings(): Promise<boolean> {
+    if (!serverSttDirty || !serverSttSettings) {
+      return true;
+    }
+
+    serverSttSaving = true;
+    try {
+      serverSttSettings = await updateSttSettings({
+        mode: serverSttSettings.mode,
+        command_model: serverSttSettings.command_model,
+      });
+      serverSttDirty = false;
+      serverSttError = null;
+      return true;
+    } catch (error) {
+      serverSttError = error instanceof Error ? error.message : "Failed to save STT settings";
+      return false;
+    } finally {
+      serverSttSaving = false;
+    }
   }
 
   let creatingName = "";
@@ -81,6 +119,12 @@
   let speechDirty = false;
   let speechSaving = false;
   let speechSaveError: string | null = null;
+
+  // Server-side STT settings (mode, model)
+  let serverSttSettings: SttSettings | null = null;
+  let serverSttDirty = false;
+  let serverSttSaving = false;
+  let serverSttError: string | null = null;
 
   function handlePromptInput(event: Event): void {
     const target = event.target as HTMLTextAreaElement | null;
@@ -159,6 +203,11 @@
     speechDirty = false;
     speechSaving = false;
     speechSaveError = null;
+    // Reset server STT state
+    serverSttSettings = null;
+    serverSttDirty = false;
+    serverSttSaving = false;
+    serverSttError = null;
   }
 
   function updateSpeechStt<K extends keyof SpeechSettings["stt"]>(
@@ -554,6 +603,75 @@
             </div>
           </div>
         </div>
+
+        <!-- STT Mode and Model Selection -->
+        <div class="speech-card">
+          <div class="speech-card-header">
+            <h3>Recognition mode</h3>
+            <p>Select the speech recognition engine and model.</p>
+          </div>
+
+          {#if serverSttError}
+            <p class="status error">{serverSttError}</p>
+          {:else if serverSttSettings}
+            <div class="stt-mode-block">
+              <div class="speech-field">
+                <label class="field-label" for="stt-mode-select">Mode</label>
+                <select
+                  id="stt-mode-select"
+                  class="input-control"
+                  value={serverSttSettings.mode}
+                  disabled={serverSttSaving}
+                  on:change={(event) => {
+                    if (serverSttSettings) {
+                      serverSttSettings = {
+                        ...serverSttSettings,
+                        mode: (event.target as HTMLSelectElement).value as 'conversation' | 'command',
+                      };
+                      serverSttDirty = true;
+                    }
+                  }}
+                >
+                  <option value="conversation">Conversation (Flux - natural turn-taking)</option>
+                  <option value="command">Command (Nova - domain-specific)</option>
+                </select>
+                <p class="speech-hint">
+                  Conversation mode uses natural turn-taking. Command mode uses specialized models.
+                </p>
+              </div>
+
+              {#if serverSttSettings.mode === 'command'}
+                <div class="speech-field">
+                  <label class="field-label" for="stt-model-select">STT Model</label>
+                  <select
+                    id="stt-model-select"
+                    class="input-control"
+                    value={serverSttSettings.command_model}
+                    disabled={serverSttSaving}
+                    on:change={(event) => {
+                      if (serverSttSettings) {
+                        serverSttSettings = {
+                          ...serverSttSettings,
+                          command_model: (event.target as HTMLSelectElement).value,
+                        };
+                        serverSttDirty = true;
+                      }
+                    }}
+                  >
+                    {#each STT_MODELS as model (model.id)}
+                      <option value={model.id}>{model.name}</option>
+                    {/each}
+                  </select>
+                  <p class="speech-hint">
+                    Medical and Finance models have specialized vocabulary.
+                  </p>
+                </div>
+              {/if}
+            </div>
+          {:else}
+            <p class="status">Loading STT settings…</p>
+          {/if}
+        </div>
       </div>
     </article>
 
@@ -562,9 +680,11 @@
         <p class="status error">Resolve the errors above before closing.</p>
       {:else if speechSaveError}
         <p class="status error">{speechSaveError}</p>
-      {:else if $systemPrompt.saving || speechSaving}
+      {:else if serverSttError}
+        <p class="status error">{serverSttError}</p>
+      {:else if $systemPrompt.saving || speechSaving || serverSttSaving}
         <p class="status">Saving changes…</p>
-      {:else if $systemPrompt.dirty || speechDirty}
+      {:else if $systemPrompt.dirty || speechDirty || serverSttDirty}
         <p class="status">Pending changes; closing this modal will save.</p>
       {:else}
         <p class="status">Changes save when you close this modal.</p>

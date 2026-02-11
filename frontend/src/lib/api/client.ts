@@ -626,4 +626,19 @@ export async function fetchDefaultPreset(): Promise<PresetConfig | null> {
 }
 
 
+// ============== STT Settings ==============
+
+import type { SttSettings, SttSettingsUpdate } from './types';
+
+export async function fetchSttSettings(): Promise<SttSettings> {
+  return requestJson<SttSettings>(resolveApiPath('/api/clients/svelte/stt'));
+}
+
+export async function updateSttSettings(update: SttSettingsUpdate): Promise<SttSettings> {
+  return requestJson<SttSettings>(resolveApiPath('/api/clients/svelte/stt'), {
+    method: 'PUT',
+    body: JSON.stringify(update),
+  });
+}
+
 export { ApiError };

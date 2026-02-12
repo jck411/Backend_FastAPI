@@ -17,8 +17,8 @@
   import QuickPrompts from "./lib/components/chat/QuickPrompts.svelte";
   import SystemSettingsModal from "./lib/components/chat/SystemSettingsModal.svelte";
 
-  import KioskSettingsModal from "./lib/components/chat/KioskSettingsModal.svelte";
   import CliSettingsModal from "./lib/components/chat/CliSettingsModal.svelte";
+  import KioskSettingsModal from "./lib/components/chat/KioskSettingsModal.svelte";
   import McpServersModal from "./lib/components/chat/McpServersModal.svelte";
   import ModelExplorer from "./lib/components/model-explorer/ModelExplorer.svelte";
   import {

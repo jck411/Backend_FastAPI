@@ -215,6 +215,8 @@ function ensureAudioStopped(): void {
 
 interface StopOptions {
   submitText?: string | null;
+  /** If true, preserve conversationActive state for auto-resume after AI response */
+  preserveConversation?: boolean;
 }
 
 function stopListening(options: StopOptions = {}): void {
@@ -229,6 +231,8 @@ function stopListening(options: StopOptions = {}): void {
     keepPromptSynced: false,
     pendingSubmit: options.submitText ? { text: options.submitText } : null,
     mode: 'idle',
+    // Preserve conversationActive if we're submitting in conversation mode
+    conversationActive: options.preserveConversation ? value.conversationActive : false,
   }));
 }
 
@@ -238,25 +242,31 @@ function stopListening(options: StopOptions = {}): void {
 
 function handleSpeechEnd(finalText: string): void {
   const trimmed = finalText.trim();
+  const current = get(state);
+
+  // In conversation mode, always auto-submit immediately (Deepgram AI handles turn detection)
+  const isConversationMode = current.sttMode === 'conversation';
+
+  // For command mode, use frontend settings
   const settings = speechSettingsStore.current;
-  const autoSubmit = settings?.stt.autoSubmit ?? true;
-  const autoSubmitDelay = Math.max(settings?.stt.autoSubmitDelayMs ?? 0, 0);
+  const autoSubmit = isConversationMode ? true : (settings?.stt.autoSubmit ?? true);
+  const autoSubmitDelay = isConversationMode ? 0 : Math.max(settings?.stt.autoSubmitDelayMs ?? 0, 0);
 
   clearAutoSubmitTimer();
 
   if (!trimmed) {
-    stopListening({ submitText: null });
+    stopListening({ submitText: null, preserveConversation: isConversationMode });
     return;
   }
 
   if (autoSubmit) {
     if (autoSubmitDelay <= 0) {
-      stopListening({ submitText: trimmed });
+      stopListening({ submitText: trimmed, preserveConversation: isConversationMode });
       return;
     }
 
-    // Stop recording but wait before submitting
-    stopListening();
+    // Stop recording but wait before submitting (command mode only)
+    stopListening({ preserveConversation: isConversationMode });
     updatePrompt(trimmed, false);
     const token = ++autoSubmitSequence;
     autoSubmitTimer = setTimeout(() => {
@@ -269,7 +279,7 @@ function handleSpeechEnd(finalText: string): void {
       }));
     }, autoSubmitDelay);
   } else {
-    stopListening();
+    stopListening({ preserveConversation: false });
     updatePrompt(trimmed, false);
   }
 }

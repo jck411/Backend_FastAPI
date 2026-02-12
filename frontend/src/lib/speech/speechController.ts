@@ -4,9 +4,15 @@
  * This connects to the backend's /api/stt/stream WebSocket endpoint,
  * which handles Deepgram STT server-side. This avoids the need for
  * Deepgram token generation permissions.
+ *
+ * Supports two modes:
+ * - Conversation (Flux): AI turn detection, auto-resumes listening after AI responds
+ * - Command (Nova): Silence-based detection, stops after each utterance
  */
 import { get, writable } from 'svelte/store';
+import { fetchSttSettings } from '../api/client';
 import { API_BASE_URL } from '../api/config';
+import type { SttSettings } from '../api/types';
 import { speechSettingsStore } from '../stores/speechSettings';
 
 // Audio configuration
@@ -16,6 +22,7 @@ const WORKLET_PROCESSOR_NAME = 'audio-capture';
 const WORKLET_MODULE_URL = new URL('./audioCaptureWorklet.js', import.meta.url);
 
 type SpeechMode = 'idle' | 'dictation';
+type SttEngineMode = 'conversation' | 'command';
 
 interface PendingSubmit {
   text: string;
@@ -30,6 +37,10 @@ interface SpeechStoreState {
   promptVersion: number;
   keepPromptSynced: boolean;
   pendingSubmit: PendingSubmit | null;
+  /** Server-side STT engine mode (conversation/command) */
+  sttMode: SttEngineMode;
+  /** True if listening was triggered from conversation mode auto-resume */
+  conversationActive: boolean;
 }
 
 const initialState: SpeechStoreState = {
@@ -41,6 +52,8 @@ const initialState: SpeechStoreState = {
   promptVersion: 0,
   keepPromptSynced: false,
   pendingSubmit: null,
+  sttMode: 'command',
+  conversationActive: false,
 };
 
 const state = writable<SpeechStoreState>({ ...initialState });
@@ -313,7 +326,38 @@ async function setupAudioProcessing(
 // Main STT Functions
 // =============================================================================
 
-async function startListening(mode: SpeechMode): Promise<void> {
+// Cached server STT settings
+let cachedSttSettings: SttSettings | null = null;
+let sttSettingsLoading = false;
+
+async function loadServerSttSettings(): Promise<SttSettings | null> {
+  if (cachedSttSettings) {
+    return cachedSttSettings;
+  }
+  if (sttSettingsLoading) {
+    // Wait for the in-flight request
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return cachedSttSettings;
+  }
+
+  sttSettingsLoading = true;
+  try {
+    cachedSttSettings = await fetchSttSettings();
+    return cachedSttSettings;
+  } catch (error) {
+    console.warn('Failed to fetch server STT settings', error);
+    return null;
+  } finally {
+    sttSettingsLoading = false;
+  }
+}
+
+/** Clear the cached STT settings so they are re-fetched on next listen */
+export function invalidateSttSettingsCache(): void {
+  cachedSttSettings = null;
+}
+
+async function startListening(mode: SpeechMode, isConversationResume = false): Promise<void> {
   const current = get(state);
   if (current.connecting || current.recording) {
     stopListening();
@@ -326,6 +370,11 @@ async function startListening(mode: SpeechMode): Promise<void> {
     return;
   }
 
+  // Fetch server STT settings to determine mode
+  const serverSttSettings = await loadServerSttSettings();
+  const sttMode: SttEngineMode = serverSttSettings?.mode === 'conversation' ? 'conversation' : 'command';
+  const isConversationMode = sttMode === 'conversation';
+
   const sessionId = ++currentSession;
   accumulatedTranscript = '';
 
@@ -337,6 +386,8 @@ async function startListening(mode: SpeechMode): Promise<void> {
     error: null,
     keepPromptSynced: true,
     pendingSubmit: null,
+    sttMode,
+    conversationActive: isConversationMode || isConversationResume,
   });
 
   // 1. Get microphone access
@@ -464,7 +515,7 @@ export async function startDictation(): Promise<void> {
   const activeDictation = current.mode === 'dictation' && (current.recording || current.connecting);
   if (activeDictation) {
     stopListening();
-    state.update((value) => ({ ...value, mode: 'idle', keepPromptSynced: false }));
+    state.update((value) => ({ ...value, mode: 'idle', keepPromptSynced: false, conversationActive: false }));
     return;
   }
 
@@ -472,10 +523,46 @@ export async function startDictation(): Promise<void> {
   await startListening('dictation');
 }
 
+/**
+ * Resume listening after AI response in conversation mode.
+ * Called automatically by App.svelte when streaming ends and conversation mode is active.
+ */
+export async function resumeConversation(): Promise<void> {
+  const current = get(state);
+
+  // Only resume if we were in conversation mode
+  if (!current.conversationActive) {
+    return;
+  }
+
+  // If already recording/connecting, don't restart
+  if (current.recording || current.connecting) {
+    return;
+  }
+
+  // Resume listening in dictation mode (conversation continues)
+  state.update((value) => ({ ...value, mode: 'dictation' }));
+  await startListening('dictation', true);
+}
+
+/**
+ * End the conversation session and return to idle.
+ * Called when user manually stops or when conversation times out.
+ */
+export function endConversation(): void {
+  clearAutoSubmitTimer();
+  stopListening();
+  state.update((value) => ({
+    ...value,
+    mode: 'idle',
+    conversationActive: false,
+  }));
+}
+
 export function stopSpeech(): void {
   clearAutoSubmitTimer();
   stopListening();
-  state.update((value) => ({ ...value, mode: 'idle' }));
+  state.update((value) => ({ ...value, mode: 'idle', conversationActive: false }));
 }
 
 export function clearPendingSubmit(): PendingSubmit | null {

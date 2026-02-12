@@ -518,7 +518,9 @@
       <header class="system-card-header">
         <div>
           <h3>Speech recognition</h3>
-          <p class="system-card-caption">Configure speech-to-text engine and behavior.</p>
+          <p class="system-card-caption">
+            Configure speech-to-text engine and behavior.
+          </p>
         </div>
         <div class="system-card-actions">
           <button
@@ -540,7 +542,9 @@
         {:else}
           <!-- Mode Selection -->
           <div class="speech-field">
-            <label class="field-label" for="stt-mode-select">Recognition mode</label>
+            <label class="field-label" for="stt-mode-select"
+              >Recognition mode</label
+            >
             <select
               id="stt-mode-select"
               class="input-control"
@@ -550,7 +554,9 @@
                 if (serverSttSettings) {
                   serverSttSettings = {
                     ...serverSttSettings,
-                    mode: (event.target as HTMLSelectElement).value as "conversation" | "command",
+                    mode: (event.target as HTMLSelectElement).value as
+                      | "conversation"
+                      | "command",
                   };
                   serverSttDirty = true;
                 }
@@ -561,7 +567,8 @@
             </select>
             <p class="speech-hint">
               {#if serverSttSettings.mode === "conversation"}
-                AI-based turn detection for natural dialogue. Auto-submits when you finish speaking.
+                AI-based turn detection for natural dialogue. Auto-submits when
+                you finish speaking.
               {:else}
                 Silence-based detection with specialized vocabulary models.
               {/if}
@@ -601,7 +608,10 @@
                   type="checkbox"
                   checked={speechDraft.stt.autoSubmit}
                   on:change={(event) =>
-                    updateSpeechStt("autoSubmit", (event.target as HTMLInputElement).checked)}
+                    updateSpeechStt(
+                      "autoSubmit",
+                      (event.target as HTMLInputElement).checked,
+                    )}
                 />
                 <span class="field-label">Auto-submit after speaking</span>
               </label>
@@ -615,24 +625,28 @@
                   <button
                     class="btn btn-soft btn-small"
                     type="button"
-                    on:click={() => applySpeechPreset("fast")}
-                  >Instant</button>
+                    on:click={() => applySpeechPreset("fast")}>Instant</button
+                  >
                   <button
                     class="btn btn-soft btn-small"
                     type="button"
                     on:click={() => applySpeechPreset("normal")}
-                  >Normal (300ms)</button>
+                    >Normal (300ms)</button
+                  >
                   <button
                     class="btn btn-soft btn-small"
                     type="button"
                     on:click={() => applySpeechPreset("slow")}
-                  >Slow (800ms)</button>
+                    >Slow (800ms)</button
+                  >
                 </div>
               </div>
 
               <!-- Custom delay input -->
               <div class="speech-field">
-                <label class="field-label" for="auto-submit-delay-input">Custom delay (ms)</label>
+                <label class="field-label" for="auto-submit-delay-input"
+                  >Custom delay (ms)</label
+                >
                 <input
                   id="auto-submit-delay-input"
                   class="input-control"
@@ -643,7 +657,8 @@
                   value={speechDraft.stt.autoSubmitDelayMs}
                   on:change={(event) =>
                     handleSpeechNumberInput(event, (value) =>
-                      updateSpeechStt("autoSubmitDelayMs", value))}
+                      updateSpeechStt("autoSubmitDelayMs", value),
+                    )}
                 />
               </div>
             {/if}

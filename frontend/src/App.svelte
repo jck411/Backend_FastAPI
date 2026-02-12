@@ -23,6 +23,7 @@
   import ModelExplorer from "./lib/components/model-explorer/ModelExplorer.svelte";
   import {
     clearPendingSubmit,
+    resumeConversation,
     speechState,
     startDictation,
     stopSpeech,
@@ -64,6 +65,7 @@
   let kioskSettingsOpen = false;
   let cliSettingsOpen = false;
   let lastSpeechPromptVersion = 0;
+  let wasStreaming = false;
   let generationModalLoading = false;
   let generationModalError: string | null = null;
   let generationModalData: GenerationDetails | null = null;
@@ -298,6 +300,16 @@
     if (submission) {
       void handleSpeechAutoSubmit(submission.text);
     }
+  }
+
+  // Conversation mode: resume listening after AI response completes
+  $: {
+    const isStreaming = $chatStore.isStreaming;
+    if (wasStreaming && !isStreaming && $speechState.conversationActive) {
+      // Streaming just ended and conversation mode is active - resume listening
+      void resumeConversation();
+    }
+    wasStreaming = isStreaming;
   }
 
   $: if (editingMessageId) {

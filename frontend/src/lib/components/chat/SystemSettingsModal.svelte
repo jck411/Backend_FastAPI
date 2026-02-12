@@ -57,7 +57,8 @@
       serverSttSettings = await fetchSttSettings();
       serverSttError = null;
     } catch (error) {
-      serverSttError = error instanceof Error ? error.message : "Failed to load STT settings";
+      serverSttError =
+        error instanceof Error ? error.message : "Failed to load STT settings";
     }
   }
 
@@ -84,7 +85,12 @@
 
     const promptState = get(systemPrompt);
 
-    if (promptSaved && speechSaved && serverSttSaved && !promptState.saveError) {
+    if (
+      promptSaved &&
+      speechSaved &&
+      serverSttSaved &&
+      !promptState.saveError
+    ) {
       dispatch("close");
     }
 
@@ -106,7 +112,8 @@
       serverSttError = null;
       return true;
     } catch (error) {
-      serverSttError = error instanceof Error ? error.message : "Failed to save STT settings";
+      serverSttError =
+        error instanceof Error ? error.message : "Failed to save STT settings";
       return false;
     } finally {
       serverSttSaving = false;
@@ -510,15 +517,15 @@
     <article class="system-card">
       <header class="system-card-header">
         <div>
-          <h3>Speech settings</h3>
-          <p class="system-card-caption">Configure speech-to-text behavior.</p>
+          <h3>Speech recognition</h3>
+          <p class="system-card-caption">Configure speech-to-text engine and behavior.</p>
         </div>
         <div class="system-card-actions">
           <button
             type="button"
             class="btn btn-ghost btn-small"
             on:click={handleSpeechReset}
-            disabled={speechSaving}
+            disabled={speechSaving || serverSttSaving}
           >
             Reset to defaults
           </button>
@@ -526,152 +533,122 @@
       </header>
 
       <div class="system-card-body">
-        <div class="speech-card">
-          <div class="speech-card-header">
-            <h3>Auto-submit timing</h3>
-            <p>Control when your speech is automatically sent.</p>
+        {#if serverSttError}
+          <p class="status error">{serverSttError}</p>
+        {:else if !serverSttSettings}
+          <p class="status">Loading STT settings…</p>
+        {:else}
+          <!-- Mode Selection -->
+          <div class="speech-field">
+            <label class="field-label" for="stt-mode-select">Recognition mode</label>
+            <select
+              id="stt-mode-select"
+              class="input-control"
+              value={serverSttSettings.mode}
+              disabled={serverSttSaving}
+              on:change={(event) => {
+                if (serverSttSettings) {
+                  serverSttSettings = {
+                    ...serverSttSettings,
+                    mode: (event.target as HTMLSelectElement).value as "conversation" | "command",
+                  };
+                  serverSttDirty = true;
+                }
+              }}
+            >
+              <option value="conversation">Conversation (Flux)</option>
+              <option value="command">Command (Nova)</option>
+            </select>
+            <p class="speech-hint">
+              {#if serverSttSettings.mode === "conversation"}
+                AI-based turn detection for natural dialogue. Auto-submits when you finish speaking.
+              {:else}
+                Silence-based detection with specialized vocabulary models.
+              {/if}
+            </p>
           </div>
 
-          <div class="auto-submit-block">
-            <div class="auto-submit-row">
+          {#if serverSttSettings.mode === "command"}
+            <!-- Nova Model Selection -->
+            <div class="speech-field">
+              <label class="field-label" for="stt-model-select">Model</label>
+              <select
+                id="stt-model-select"
+                class="input-control"
+                value={serverSttSettings.command_model}
+                disabled={serverSttSaving}
+                on:change={(event) => {
+                  if (serverSttSettings) {
+                    serverSttSettings = {
+                      ...serverSttSettings,
+                      command_model: (event.target as HTMLSelectElement).value,
+                    };
+                    serverSttDirty = true;
+                  }
+                }}
+              >
+                {#each STT_MODELS as model (model.id)}
+                  <option value={model.id}>{model.name}</option>
+                {/each}
+              </select>
+            </div>
+
+            <!-- Auto-submit toggle -->
+            <div class="speech-field">
               <label class="inline-checkbox">
                 <input
                   class="input-control"
                   type="checkbox"
                   checked={speechDraft.stt.autoSubmit}
                   on:change={(event) =>
-                    updateSpeechStt(
-                      "autoSubmit",
-                      (event.target as HTMLInputElement).checked,
-                    )}
+                    updateSpeechStt("autoSubmit", (event.target as HTMLInputElement).checked)}
                 />
-                <span class="field-label">Auto-submit</span>
+                <span class="field-label">Auto-submit after speaking</span>
               </label>
-              <p class="speech-hint">
-                Automatically send when you stop speaking.
-              </p>
             </div>
 
-            <div class="speech-field presets-field">
-              <span class="field-label">Timing presets</span>
-              <div class="speech-presets" aria-label="Timing presets">
-                <button
-                  class="btn btn-soft btn-small"
-                  type="button"
-                  on:click={() => applySpeechPreset("fast")}
-                >
-                  Fast (0ms)
-                </button>
-                <button
-                  class="btn btn-soft btn-small"
-                  type="button"
-                  on:click={() => applySpeechPreset("normal")}
-                >
-                  Normal (300ms)
-                </button>
-                <button
-                  class="btn btn-soft btn-small"
-                  type="button"
-                  on:click={() => applySpeechPreset("slow")}
-                >
-                  Slow (800ms)
-                </button>
-              </div>
-            </div>
-
-            <div class="delay-inline">
-              <label class="delay-label" for="auto-submit-delay-input">
-                Delay before submit (ms)
-              </label>
-              <input
-                id="auto-submit-delay-input"
-                class="input-control"
-                type="number"
-                min="0"
-                max="10000"
-                step="50"
-                value={speechDraft.stt.autoSubmitDelayMs}
-                disabled={!speechDraft.stt.autoSubmit}
-                on:change={(event) =>
-                  handleSpeechNumberInput(event, (value) =>
-                    updateSpeechStt("autoSubmitDelayMs", value),
-                  )}
-              />
-              <p class="speech-hint">
-                Wait this long after you stop speaking before sending.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <!-- STT Mode and Model Selection -->
-        <div class="speech-card">
-          <div class="speech-card-header">
-            <h3>Recognition mode</h3>
-            <p>Select the speech recognition engine and model.</p>
-          </div>
-
-          {#if serverSttError}
-            <p class="status error">{serverSttError}</p>
-          {:else if serverSttSettings}
-            <div class="stt-mode-block">
+            {#if speechDraft.stt.autoSubmit}
+              <!-- Timing presets -->
               <div class="speech-field">
-                <label class="field-label" for="stt-mode-select">Mode</label>
-                <select
-                  id="stt-mode-select"
-                  class="input-control"
-                  value={serverSttSettings.mode}
-                  disabled={serverSttSaving}
-                  on:change={(event) => {
-                    if (serverSttSettings) {
-                      serverSttSettings = {
-                        ...serverSttSettings,
-                        mode: (event.target as HTMLSelectElement).value as 'conversation' | 'command',
-                      };
-                      serverSttDirty = true;
-                    }
-                  }}
-                >
-                  <option value="conversation">Conversation (Flux - natural turn-taking)</option>
-                  <option value="command">Command (Nova - domain-specific)</option>
-                </select>
-                <p class="speech-hint">
-                  Conversation mode uses natural turn-taking. Command mode uses specialized models.
-                </p>
+                <span class="field-label">Submit delay</span>
+                <div class="speech-presets">
+                  <button
+                    class="btn btn-soft btn-small"
+                    type="button"
+                    on:click={() => applySpeechPreset("fast")}
+                  >Instant</button>
+                  <button
+                    class="btn btn-soft btn-small"
+                    type="button"
+                    on:click={() => applySpeechPreset("normal")}
+                  >Normal (300ms)</button>
+                  <button
+                    class="btn btn-soft btn-small"
+                    type="button"
+                    on:click={() => applySpeechPreset("slow")}
+                  >Slow (800ms)</button>
+                </div>
               </div>
 
-              {#if serverSttSettings.mode === 'command'}
-                <div class="speech-field">
-                  <label class="field-label" for="stt-model-select">STT Model</label>
-                  <select
-                    id="stt-model-select"
-                    class="input-control"
-                    value={serverSttSettings.command_model}
-                    disabled={serverSttSaving}
-                    on:change={(event) => {
-                      if (serverSttSettings) {
-                        serverSttSettings = {
-                          ...serverSttSettings,
-                          command_model: (event.target as HTMLSelectElement).value,
-                        };
-                        serverSttDirty = true;
-                      }
-                    }}
-                  >
-                    {#each STT_MODELS as model (model.id)}
-                      <option value={model.id}>{model.name}</option>
-                    {/each}
-                  </select>
-                  <p class="speech-hint">
-                    Medical and Finance models have specialized vocabulary.
-                  </p>
-                </div>
-              {/if}
-            </div>
-          {:else}
-            <p class="status">Loading STT settings…</p>
+              <!-- Custom delay input -->
+              <div class="speech-field">
+                <label class="field-label" for="auto-submit-delay-input">Custom delay (ms)</label>
+                <input
+                  id="auto-submit-delay-input"
+                  class="input-control"
+                  type="number"
+                  min="0"
+                  max="10000"
+                  step="50"
+                  value={speechDraft.stt.autoSubmitDelayMs}
+                  on:change={(event) =>
+                    handleSpeechNumberInput(event, (value) =>
+                      updateSpeechStt("autoSubmitDelayMs", value))}
+                />
+              </div>
+            {/if}
           {/if}
-        </div>
+        {/if}
       </div>
     </article>
 

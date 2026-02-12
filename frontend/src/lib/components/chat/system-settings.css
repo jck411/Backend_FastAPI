@@ -410,4 +410,22 @@
   box-shadow: none;
 }
 
+.account-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.account-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+}
+
+.account-actions .btn svg {
+  flex-shrink: 0;
+}
+
 /* end */

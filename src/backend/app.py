@@ -383,7 +383,31 @@ def create_app() -> FastAPI:
 
                 return RedirectResponse(url="/voice/")
 
-        # Mount Chat app assets if they exist
+        # Mount Kiosk app (formerly served at root, now at /kiosk)
+        kiosk_index = static_dir / "index.html"
+        if kiosk_index.exists():
+
+            @app.get("/kiosk/{full_path:path}")
+            async def serve_kiosk_spa(full_path: str):
+                file_path = static_dir / full_path
+                if file_path.exists() and file_path.is_file():
+                    return FileResponse(file_path)
+                return FileResponse(
+                    kiosk_index,
+                    headers={
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Pragma": "no-cache",
+                        "Expires": "0",
+                    },
+                )
+
+            @app.get("/kiosk")
+            async def redirect_kiosk():
+                from starlette.responses import RedirectResponse
+
+                return RedirectResponse(url="/kiosk/")
+
+        # Mount Chat app assets (chat is now served at root)
         chat_dir = static_dir / "chat"
         if chat_dir.exists():
             if (chat_dir / "assets").exists():
@@ -393,43 +417,28 @@ def create_app() -> FastAPI:
                     name="chat_assets",
                 )
 
-            @app.get("/chat/{full_path:path}")
-            async def serve_chat_spa(full_path: str):
-                file_path = chat_dir / full_path
-                if file_path.exists() and file_path.is_file():
-                    return FileResponse(file_path)
-                return FileResponse(
-                    chat_dir / "index.html",
-                    headers={
-                        "Cache-Control": "no-cache, no-store, must-revalidate",
-                        "Pragma": "no-cache",
-                        "Expires": "0",
-                    },
-                )
-
-            @app.get("/chat")
-            async def redirect_chat():
-                from starlette.responses import RedirectResponse
-
-                return RedirectResponse(url="/chat/")
-
-        # Serve index.html for root and any other SPA routes (catch-all)
+        # Serve Chat UI at root (catch-all for SPA routing)
         @app.get("/{full_path:path}")
         async def serve_spa(full_path: str):
-            # If API route, let it pass through (already handled above appropriately,
-            # but usually catch-all is last resort).
-            # Actually, FastAPI matches in order. Since this is last, logic is simpler.
+            # If API route, let it pass through
             if full_path.startswith("api/"):
                 return Response(status_code=404)
 
-            # Check if file exists (e.g. valid static file not in assets)
+            # Check if file exists in chat dir
+            if chat_dir.exists():
+                file_path = chat_dir / full_path
+                if file_path.exists() and file_path.is_file():
+                    return FileResponse(file_path)
+
+            # Check if file exists in static root (e.g. shared assets)
             file_path = static_dir / full_path
             if file_path.exists() and file_path.is_file():
                 return FileResponse(file_path)
 
-            # Default to index.html for SPA routing
+            # Default to chat index.html for SPA routing
+            chat_index = chat_dir / "index.html" if chat_dir.exists() else static_dir / "index.html"
             return FileResponse(
-                static_dir / "index.html",
+                chat_index,
                 headers={
                     "Cache-Control": "no-cache, no-store, must-revalidate",
                     "Pragma": "no-cache",

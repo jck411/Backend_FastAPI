@@ -12,6 +12,7 @@ const httpsConfig = fs.existsSync(certPath) && fs.existsSync(keyPath)
 
 export default defineConfig({
     plugins: [react()],
+    base: '/kiosk/',
     server: {
         host: '0.0.0.0',
         port: 5174,
@@ -29,7 +30,7 @@ export default defineConfig({
         },
     },
     build: {
-        outDir: '../src/backend/static',
+        outDir: '../src/backend/static/kiosk',
         emptyOutDir: true,
         // Memory optimization for local-only kiosk
         rollupOptions: {

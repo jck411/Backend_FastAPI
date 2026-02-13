@@ -18,8 +18,6 @@ const STREAM_SPEED_STEP = 5;
 const DEFAULT_TTS_SYNC_CPS = 15;
 const TTS_SYNC_CPS_MIN = 8;
 const TTS_SYNC_CPS_MAX = 30;
-const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 48;
-const USER_SCROLL_IDLE_MS = 180;
 
 const renderInlineRuns = (runs, keyPrefix) => {
   if (!runs || !runs.length) return null;
@@ -77,12 +75,13 @@ function App() {
     eot_timeout_ms: 1000,
     eot_threshold: 0.7,
     listen_timeout_seconds: 15,
-    // Command mode (Nova-3) - Deepgram recommended
-    // Note: punctuate is always on (smart_format includes it)
-    command_utterance_end_ms: 1000,
-    command_endpointing: 300,
+    // Command mode (Nova-3)
+    command_utterance_end_ms: 1500,
+    command_endpointing: 1200,
     command_smart_format: true,
+    command_punctuate: true,
     command_numerals: true,
+    command_filler_words: false,
     command_profanity_filter: false,
   });
   const [ttsDraft, setTtsDraft] = useState({
@@ -133,9 +132,6 @@ function App() {
   const backgroundedRef = useRef(false);
   const floatingTextRef = useRef(null);
   const autoScrollRef = useRef(true);
-  const autoScrollRafRef = useRef({ outer: 0, inner: 0 });
-  const floatingInteractionRef = useRef(false);
-  const floatingInteractionTimeoutRef = useRef(null);
 
   const streamSpeedRef = useRef(streamSpeedCps);
   const syncToTtsRef = useRef(syncToTts);
@@ -495,67 +491,21 @@ function App() {
     }
   }, [syncToTts]);
 
-  const clearFloatingInteractionTimeout = useCallback(() => {
-    if (floatingInteractionTimeoutRef.current) {
-      clearTimeout(floatingInteractionTimeoutRef.current);
-      floatingInteractionTimeoutRef.current = null;
-    }
-  }, []);
-
-  const markFloatingInteraction = useCallback(() => {
-    floatingInteractionRef.current = true;
-    clearFloatingInteractionTimeout();
-    floatingInteractionTimeoutRef.current = setTimeout(() => {
-      floatingInteractionRef.current = false;
-      floatingInteractionTimeoutRef.current = null;
-    }, USER_SCROLL_IDLE_MS);
-  }, [clearFloatingInteractionTimeout]);
-
-  const endFloatingInteraction = useCallback(() => {
-    clearFloatingInteractionTimeout();
-    floatingInteractionRef.current = false;
-  }, [clearFloatingInteractionTimeout]);
-
-  const cancelPendingAutoScrollFrame = useCallback(() => {
-    const { outer, inner } = autoScrollRafRef.current;
-    if (outer) {
-      cancelAnimationFrame(outer);
-    }
-    if (inner) {
-      cancelAnimationFrame(inner);
-    }
-    autoScrollRafRef.current = { outer: 0, inner: 0 };
-  }, []);
-
   useEffect(() => {
     if (!textVisible) return;
     const container = floatingTextRef.current;
     if (!container) return;
     if (!autoScrollRef.current) return;
-    if (floatingInteractionRef.current) return;
-
-    cancelPendingAutoScrollFrame();
-
-    // Double RAF to ensure DOM has painted and scrollHeight is accurate.
-    autoScrollRafRef.current.outer = requestAnimationFrame(() => {
-      autoScrollRafRef.current.outer = 0;
-      autoScrollRafRef.current.inner = requestAnimationFrame(() => {
-        autoScrollRafRef.current.inner = 0;
-        const nextContainer = floatingTextRef.current;
-        if (!nextContainer) return;
-        if (!autoScrollRef.current || floatingInteractionRef.current) return;
-        nextContainer.scrollTop = nextContainer.scrollHeight;
+    // Double RAF to ensure DOM has painted and scrollHeight is accurate
+    const frame = requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (container) {
+          container.scrollTop = container.scrollHeight;
+        }
       });
     });
-
-    return cancelPendingAutoScrollFrame;
-  }, [
-    cancelPendingAutoScrollFrame,
-    currentResponse,
-    currentTranscript,
-    latestExchange,
-    textVisible,
-  ]);
+    return () => cancelAnimationFrame(frame);
+  }, [currentResponse, currentTranscript, latestExchange, textVisible]);
 
   useEffect(() => {
     if (!textVisible) return;
@@ -563,12 +513,12 @@ function App() {
   }, [textVisible]);
 
 
-  const handleFloatingScroll = useCallback(() => {
+  const handleFloatingScroll = () => {
     const container = floatingTextRef.current;
     if (!container) return;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    autoScrollRef.current = distanceFromBottom <= AUTO_SCROLL_BOTTOM_THRESHOLD_PX;
-  }, []);
+    autoScrollRef.current = distanceFromBottom < 12;
+  };
 
   const finalizePartialResponse = useCallback(() => {
     const partial = displayedResponseRef.current;
@@ -785,11 +735,13 @@ function App() {
               eot_timeout_ms: Number(data.eot_timeout_ms ?? 1000),
               eot_threshold: Number(data.eot_threshold ?? 0.7),
               listen_timeout_seconds: Number(data.listen_timeout_seconds ?? 15),
-              // Command - Deepgram recommended
-              command_utterance_end_ms: Number(data.command_utterance_end_ms ?? 1000),
-              command_endpointing: Number(data.command_endpointing ?? 300),
+              // Command
+              command_utterance_end_ms: Number(data.command_utterance_end_ms ?? 1500),
+              command_endpointing: Number(data.command_endpointing ?? 1200),
               command_smart_format: Boolean(data.command_smart_format ?? true),
+              command_punctuate: Boolean(data.command_punctuate ?? true),
               command_numerals: Boolean(data.command_numerals ?? true),
+              command_filler_words: Boolean(data.command_filler_words ?? false),
               command_profanity_filter: Boolean(data.command_profanity_filter ?? false),
             };
             setSttDraft(normalized);
@@ -831,13 +783,7 @@ function App() {
   }, [showSettings]);
 
   // Handle tap
-  const handleTap = (event) => {
-    const target = event?.target;
-    if (target instanceof Element && target.closest(
-      '.floating-text, .top-controls, .bottom-controls, .history-overlay, .settings-overlay',
-    )) {
-      return;
-    }
+  const handleTap = () => {
     primeAudioContext();
     if (showHistory || showSettings) return;
     const currentAppState = deriveAppState(
@@ -933,8 +879,6 @@ function App() {
 
   useEffect(() => {
     return () => {
-      cancelPendingAutoScrollFrame();
-      clearFloatingInteractionTimeout();
       if (streamAnimationRef.current) {
         cancelAnimationFrame(streamAnimationRef.current);
         streamAnimationRef.current = null;
@@ -942,21 +886,22 @@ function App() {
       stopTtsPlayback();
       releaseMic();
     };
-  }, [cancelPendingAutoScrollFrame, clearFloatingInteractionTimeout, releaseMic, stopTtsPlayback]);
+  }, [releaseMic, stopTtsPlayback]);
 
   // Community-recommended defaults for Deepgram STT
-  // Note: punctuate is always on (smart_format includes it)
   const defaultSettings = {
     mode: 'conversation',
     // Conversation mode (Flux)
     eot_timeout_ms: 1000,
     eot_threshold: 0.7,
     listen_timeout_seconds: 15,
-    // Command mode (Nova-3) - Deepgram recommended
-    command_utterance_end_ms: 1000,
-    command_endpointing: 300,
+    // Command mode (Nova-3)
+    command_utterance_end_ms: 1500,
+    command_endpointing: 1200,
     command_smart_format: true,
+    command_punctuate: true,
     command_numerals: true,
+    command_filler_words: false,
     command_profanity_filter: false,
   };
 
@@ -994,7 +939,9 @@ function App() {
         command_utterance_end_ms: Number(sttDraft.command_utterance_end_ms),
         command_endpointing: Number(sttDraft.command_endpointing),
         command_smart_format: Boolean(sttDraft.command_smart_format),
+        command_punctuate: Boolean(sttDraft.command_punctuate),
         command_numerals: Boolean(sttDraft.command_numerals),
+        command_filler_words: Boolean(sttDraft.command_filler_words),
         command_profanity_filter: Boolean(sttDraft.command_profanity_filter),
       };
 
@@ -1018,7 +965,9 @@ function App() {
           command_utterance_end_ms: Number(data.command_utterance_end_ms ?? payload.command_utterance_end_ms),
           command_endpointing: Number(data.command_endpointing ?? payload.command_endpointing),
           command_smart_format: Boolean(data.command_smart_format ?? payload.command_smart_format),
+          command_punctuate: Boolean(data.command_punctuate ?? payload.command_punctuate),
           command_numerals: Boolean(data.command_numerals ?? payload.command_numerals),
+          command_filler_words: Boolean(data.command_filler_words ?? payload.command_filler_words),
           command_profanity_filter: Boolean(data.command_profanity_filter ?? payload.command_profanity_filter),
         };
         setSttDraft(normalized);
@@ -1115,8 +1064,6 @@ function App() {
         <ScrollFadeText
           ref={floatingTextRef}
           onScroll={handleFloatingScroll}
-          onInteractionStart={markFloatingInteraction}
-          onInteractionEnd={endFloatingInteraction}
           visible={textVisible}
           items={textItems}
         />
@@ -1353,9 +1300,9 @@ function App() {
                       <input
                         className="settings-slider"
                         type="range"
-                        min="100"
+                        min="300"
                         max="2000"
-                        step="50"
+                        step="100"
                         value={sttDraft.command_endpointing}
                         onChange={(e) => setSttDraft(prev => ({
                           ...prev,
@@ -1379,6 +1326,20 @@ function App() {
                     </div>
 
                     <div className="settings-row">
+                      <div className="settings-label">Punctuate</div>
+                      <button
+                        className={`settings-toggle ${sttDraft.command_punctuate ? 'on' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSttDraft(prev => ({ ...prev, command_punctuate: !prev.command_punctuate }));
+                        }}
+                        disabled={settingsSaving}
+                      >
+                        {sttDraft.command_punctuate ? 'On' : 'Off'}
+                      </button>
+                    </div>
+
+                    <div className="settings-row">
                       <div className="settings-label">Numerals</div>
                       <button
                         className={`settings-toggle ${sttDraft.command_numerals ? 'on' : ''}`}
@@ -1389,6 +1350,20 @@ function App() {
                         disabled={settingsSaving}
                       >
                         {sttDraft.command_numerals ? 'On' : 'Off'}
+                      </button>
+                    </div>
+
+                    <div className="settings-row">
+                      <div className="settings-label">Filler words</div>
+                      <button
+                        className={`settings-toggle ${sttDraft.command_filler_words ? 'on' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSttDraft(prev => ({ ...prev, command_filler_words: !prev.command_filler_words }));
+                        }}
+                        disabled={settingsSaving}
+                      >
+                        {sttDraft.command_filler_words ? 'On' : 'Off'}
                       </button>
                     </div>
 

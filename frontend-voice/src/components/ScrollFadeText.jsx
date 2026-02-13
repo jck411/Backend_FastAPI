@@ -6,7 +6,6 @@ const DEFAULT_SLIDE_DIST_PX = 10;
 const DEFAULT_FADE_MS = 600;
 const DEFAULT_SLIDE_MS = 600;
 const MAX_CHUNK_CHARS = 120;
-const MAX_OBSERVED_SEGMENTS = 220;
 
 const chunkText = (text, maxChars) => {
   const chunks = [];
@@ -77,8 +76,6 @@ const renderInlineRuns = (runs, keyPrefix) => {
 const ScrollFadeText = forwardRef(({
   visible = false,
   onScroll,
-  onInteractionStart,
-  onInteractionEnd,
   items = [],
   fadeZonePx = DEFAULT_FADE_ZONE_PX,
   slideDistPx = DEFAULT_SLIDE_DIST_PX,
@@ -150,14 +147,6 @@ const ScrollFadeText = forwardRef(({
       return;
     }
 
-    const prefersReducedMotion = typeof window !== 'undefined'
-      && typeof window.matchMedia === 'function'
-      && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (prefersReducedMotion || segments.length > MAX_OBSERVED_SEGMENTS) {
-      nodes.forEach(node => node.classList.add('is-visible'));
-      return;
-    }
-
     if (typeof IntersectionObserver === 'undefined') {
       nodes.forEach(node => node.classList.add('is-visible'));
       return;
@@ -182,32 +171,10 @@ const ScrollFadeText = forwardRef(({
     return () => observer.disconnect();
   }, [fadeZonePx, segments.length, visible]);
 
-  const handleClick = useCallback((event) => {
-    event.stopPropagation();
-  }, []);
-
-  const handleInteractionStart = useCallback((event) => {
-    event.stopPropagation();
-    onInteractionStart?.();
-  }, [onInteractionStart]);
-
-  const handleInteractionEnd = useCallback((event) => {
-    event.stopPropagation();
-    onInteractionEnd?.();
-  }, [onInteractionEnd]);
-
   return (
     <div
       ref={setRefs}
       onScroll={onScroll}
-      onClick={handleClick}
-      onPointerDown={handleInteractionStart}
-      onPointerUp={handleInteractionEnd}
-      onPointerCancel={handleInteractionEnd}
-      onTouchStart={handleInteractionStart}
-      onTouchEnd={handleInteractionEnd}
-      onTouchCancel={handleInteractionEnd}
-      onWheel={handleInteractionStart}
       className={`floating-text ${visible ? 'visible' : ''} ${className}`.trim()}
     >
       <div className="fade-spacer" aria-hidden="true" />

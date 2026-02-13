@@ -138,14 +138,12 @@
   align-items: center;
   padding: 20px;
   padding-top: max(15vh, calc(env(safe-area-inset-top) + 80px));
-  overflow: visible;
-  position: relative;
+  overflow: hidden;
 }
 
-/* Orb container - positioned above scroll area */
+/* Orb container - fixed at top of main content */
 .orb-container {
   position: relative;
-  z-index: 10;
   width: 200px;
   height: 200px;
   flex-shrink: 0;
@@ -153,7 +151,6 @@
   align-items: center;
   justify-content: center;
   margin-bottom: 16px;
-  pointer-events: none;
 }
 
 .orb {
@@ -343,8 +340,6 @@
   margin-bottom: 16px;
   flex-shrink: 0;
   transition: all 0.3s ease;
-  position: relative;
-  z-index: 10;
 }
 
 .status-text.active {
@@ -447,7 +442,7 @@
   }
 }
 
-/* Floating text - fills remaining space, extends behind orb area */
+/* Floating text - fills remaining space below orb */
 .floating-text {
   position: relative;
   text-align: left;
@@ -455,15 +450,12 @@
   max-width: 720px;
   flex: 1;
   min-height: 0;
-  max-height: 100%;
   overflow-y: auto;
-  overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding: 0 12px calc(120px + env(safe-area-inset-bottom, 0px));
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+  padding: 0 12px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   overscroll-behavior: contain;
-  touch-action: pan-y;
   opacity: 0;
   transform: translateY(10px);
   transition: opacity 0.6s ease, transform 0.6s ease;
@@ -472,9 +464,6 @@
   --fade-dur: 600ms;
   --slide-dur: 600ms;
   --fade-zone: 140px;
-  /* Extend upward behind orb area so text can scroll under it */
-  margin-top: -280px;
-  padding-top: 280px;
 }
 
 .floating-text.visible {
@@ -484,20 +473,7 @@
 }
 
 .floating-text::-webkit-scrollbar {
-  width: 8px;
-}
-
-.floating-text::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.floating-text::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.22);
-  border-radius: 999px;
-}
-
-.floating-text::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.35);
+  display: none;
 }
 
 .fade-spacer {

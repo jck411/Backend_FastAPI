@@ -27,18 +27,10 @@
   export let modelsLoading = false;
   export let modelsError: string | null = null;
   export let hasMessages = false;
-  export let pwaMode = false;
   let ModelPicker: ModelPickerComponent | null = null;
   let WebSearchMenu: WebSearchMenuComponent | null = null;
   let modelPickerLoading = false;
   let webSearchMenuLoading = false;
-  let controlsOpen = true;
-  let previousPwaMode = pwaMode;
-
-  $: if (pwaMode !== previousPwaMode) {
-    controlsOpen = pwaMode ? false : true;
-    previousPwaMode = pwaMode;
-  }
 
   async function loadModelPicker(): Promise<void> {
     if (ModelPicker) return;
@@ -104,29 +96,11 @@
   }
 </script>
 
-<header class="topbar chat-header" data-pwa-mode={pwaMode}>
+<header class="topbar chat-header">
   <div class="topbar-content">
-    {#if pwaMode}
-      <button
-        class="hamburger-toggle"
-        type="button"
-        aria-expanded={controlsOpen}
-        aria-controls="chat-header-controls"
-        aria-label={controlsOpen ? "Close menu" : "Open menu"}
-        on:click={() => (controlsOpen = !controlsOpen)}
-      >
-        <span class="hamburger-icon" data-open={controlsOpen}>
-          <span></span>
-          <span></span>
-          <span></span>
-        </span>
-      </button>
-    {/if}
-
     <div
       class="controls"
       id="chat-header-controls"
-      data-collapsed={pwaMode && !controlsOpen}
     >
       <button
         class="btn btn-ghost btn-small explorer"
@@ -651,72 +625,6 @@
     .icon-row {
       gap: 0.5rem;
     }
-  }
-  .topbar[data-pwa-mode="true"] {
-    height: auto;
-    padding-top: max(0.5rem, env(safe-area-inset-top, 0));
-    padding-bottom: 0.5rem;
-  }
-  .topbar[data-pwa-mode="true"] .topbar-content {
-    gap: 0.5rem;
-    position: relative;
-  }
-  .hamburger-toggle {
-    position: absolute;
-    top: 0;
-    right: 0;
-    z-index: 10;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 44px;
-    height: 44px;
-    padding: 0;
-    border: none;
-    background: transparent;
-    cursor: pointer;
-    -webkit-tap-highlight-color: transparent;
-  }
-  .hamburger-icon {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    width: 24px;
-    height: 24px;
-    gap: 5px;
-  }
-  .hamburger-icon span {
-    display: block;
-    width: 22px;
-    height: 2px;
-    background: #c8d6ef;
-    border-radius: 2px;
-    transition:
-      transform 0.25s ease,
-      opacity 0.25s ease;
-    transform-origin: center;
-  }
-  .hamburger-icon[data-open="true"] span:nth-child(1) {
-    transform: translateY(7px) rotate(45deg);
-  }
-  .hamburger-icon[data-open="true"] span:nth-child(2) {
-    opacity: 0;
-  }
-  .hamburger-icon[data-open="true"] span:nth-child(3) {
-    transform: translateY(-7px) rotate(-45deg);
-  }
-  .hamburger-toggle:hover .hamburger-icon span,
-  .hamburger-toggle:focus-visible .hamburger-icon span {
-    background: #f2f6ff;
-  }
-  .hamburger-toggle:focus-visible {
-    outline: 2px solid #38bdf8;
-    outline-offset: 2px;
-    border-radius: 6px;
-  }
-  .topbar[data-pwa-mode="true"] .controls[data-collapsed="true"] {
-    display: none;
   }
   @media (max-width: 480px) {
     .topbar {

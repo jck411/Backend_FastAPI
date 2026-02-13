@@ -78,7 +78,6 @@
   let editingText = "";
   let editingOriginalText = "";
   let editingSaving = false;
-  let isStandalonePwa = false;
   let deferredInstallPrompt: BeforeInstallPromptEvent | null = null;
   let showInstallBanner = false;
 
@@ -89,17 +88,6 @@
 
   onMount(async () => {
     if (typeof window !== "undefined") {
-      const standaloneQuery = window.matchMedia("(display-mode: standalone)");
-      const updateStandaloneMode = (): void => {
-        const iosStandalone =
-          "standalone" in window.navigator &&
-          (window.navigator as Navigator & { standalone?: boolean })
-            .standalone === true;
-        isStandalonePwa = standaloneQuery.matches || iosStandalone;
-      };
-      updateStandaloneMode();
-      standaloneQuery.addEventListener("change", updateStandaloneMode);
-
       // PWA install prompt
       const handleBeforeInstall = (e: Event): void => {
         e.preventDefault();
@@ -115,7 +103,6 @@
       });
 
       onDestroy(() => {
-        standaloneQuery.removeEventListener("change", updateStandaloneMode);
         window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
       });
     }
@@ -373,7 +360,6 @@
 
 <main class="chat-app">
   <ChatHeader
-    pwaMode={isStandalonePwa}
     {selectableModels}
     selectedModel={$chatStore.selectedModel}
     modelsLoading={$modelsLoading}

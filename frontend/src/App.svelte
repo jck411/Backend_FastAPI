@@ -78,8 +78,25 @@
   let editingText = "";
   let editingOriginalText = "";
   let editingSaving = false;
+  let isStandalonePwa = false;
 
   onMount(async () => {
+    if (typeof window !== "undefined") {
+      const standaloneQuery = window.matchMedia("(display-mode: standalone)");
+      const updateStandaloneMode = (): void => {
+        const iosStandalone =
+          "standalone" in window.navigator &&
+          (window.navigator as Navigator & { standalone?: boolean }).standalone ===
+            true;
+        isStandalonePwa = standaloneQuery.matches || iosStandalone;
+      };
+      updateStandaloneMode();
+      standaloneQuery.addEventListener("change", updateStandaloneMode);
+      onDestroy(() => {
+        standaloneQuery.removeEventListener("change", updateStandaloneMode);
+      });
+    }
+
     await loadModels();
     await suggestionsStore.load();
     // Load and apply default preset if one is set
@@ -319,6 +336,7 @@
 
 <main class="chat-app">
   <ChatHeader
+    pwaMode={isStandalonePwa}
     {selectableModels}
     selectedModel={$chatStore.selectedModel}
     modelsLoading={$modelsLoading}

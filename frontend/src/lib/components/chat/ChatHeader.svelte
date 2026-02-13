@@ -27,10 +27,18 @@
   export let modelsLoading = false;
   export let modelsError: string | null = null;
   export let hasMessages = false;
+  export let pwaMode = false;
   let ModelPicker: ModelPickerComponent | null = null;
   let WebSearchMenu: WebSearchMenuComponent | null = null;
   let modelPickerLoading = false;
   let webSearchMenuLoading = false;
+  let controlsOpen = true;
+  let previousPwaMode = pwaMode;
+
+  $: if (pwaMode !== previousPwaMode) {
+    controlsOpen = pwaMode ? false : true;
+    previousPwaMode = pwaMode;
+  }
 
   async function loadModelPicker(): Promise<void> {
     if (ModelPicker) return;
@@ -96,9 +104,28 @@
   }
 </script>
 
-<header class="topbar chat-header">
+<header class="topbar chat-header" data-pwa-mode={pwaMode}>
   <div class="topbar-content">
-    <div class="controls">
+    {#if pwaMode}
+      <div class="mobile-toolbar">
+        <span class="mobile-title">Chat controls</span>
+        <button
+          class="btn btn-ghost btn-small mobile-toggle"
+          type="button"
+          aria-expanded={controlsOpen}
+          aria-controls="chat-header-controls"
+          on:click={() => (controlsOpen = !controlsOpen)}
+        >
+          {controlsOpen ? "Hide" : "Show"}
+        </button>
+      </div>
+    {/if}
+
+    <div
+      class="controls"
+      id="chat-header-controls"
+      data-collapsed={pwaMode && !controlsOpen}
+    >
       <button
         class="btn btn-ghost btn-small explorer"
         type="button"
@@ -374,6 +401,9 @@
     align-items: center;
     justify-content: flex-start;
   }
+  .mobile-toolbar {
+    display: none;
+  }
   .controls {
     display: flex;
     gap: 0.75rem;
@@ -616,6 +646,34 @@
     .icon-row {
       gap: 0.5rem;
     }
+  }
+  .topbar[data-pwa-mode="true"] {
+    height: auto;
+    padding-top: max(0.5rem, env(safe-area-inset-top, 0));
+    padding-bottom: 0.5rem;
+  }
+  .topbar[data-pwa-mode="true"] .topbar-content {
+    gap: 0.5rem;
+  }
+  .topbar[data-pwa-mode="true"] .mobile-toolbar {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+  .topbar[data-pwa-mode="true"] .mobile-title {
+    font-size: 0.85rem;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #9fb3d8;
+  }
+  .topbar[data-pwa-mode="true"] .mobile-toggle {
+    min-width: 80px;
+    justify-content: center;
+  }
+  .topbar[data-pwa-mode="true"] .controls[data-collapsed="true"] {
+    display: none;
   }
   @media (max-width: 480px) {
     .topbar {

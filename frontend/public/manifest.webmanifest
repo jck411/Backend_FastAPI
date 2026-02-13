@@ -1,0 +1,19 @@
+{
+  "name": "Backend FastAPI Chat",
+  "short_name": "FastAPI Chat",
+  "description": "Mobile-first chat experience for Backend FastAPI.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#04060d",
+  "theme_color": "#04060d",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

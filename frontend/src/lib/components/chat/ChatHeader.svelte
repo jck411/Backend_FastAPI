@@ -107,18 +107,20 @@
 <header class="topbar chat-header" data-pwa-mode={pwaMode}>
   <div class="topbar-content">
     {#if pwaMode}
-      <div class="mobile-toolbar">
-        <span class="mobile-title">Chat controls</span>
-        <button
-          class="btn btn-ghost btn-small mobile-toggle"
-          type="button"
-          aria-expanded={controlsOpen}
-          aria-controls="chat-header-controls"
-          on:click={() => (controlsOpen = !controlsOpen)}
-        >
-          {controlsOpen ? "Hide" : "Show"}
-        </button>
-      </div>
+      <button
+        class="hamburger-toggle"
+        type="button"
+        aria-expanded={controlsOpen}
+        aria-controls="chat-header-controls"
+        aria-label={controlsOpen ? "Close menu" : "Open menu"}
+        on:click={() => (controlsOpen = !controlsOpen)}
+      >
+        <span class="hamburger-icon" data-open={controlsOpen}>
+          <span></span>
+          <span></span>
+          <span></span>
+        </span>
+      </button>
     {/if}
 
     <div
@@ -366,7 +368,13 @@
             xmlns="http://www.w3.org/2000/svg"
             aria-hidden="true"
           >
-              <path d="M4 17l6-6-6-6M12 19h8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path
+              d="M4 17l6-6-6-6M12 19h8"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </button>
 
@@ -400,9 +408,6 @@
     display: flex;
     align-items: center;
     justify-content: flex-start;
-  }
-  .mobile-toolbar {
-    display: none;
   }
   .controls {
     display: flex;
@@ -654,23 +659,61 @@
   }
   .topbar[data-pwa-mode="true"] .topbar-content {
     gap: 0.5rem;
+    position: relative;
   }
-  .topbar[data-pwa-mode="true"] .mobile-toolbar {
+  .hamburger-toggle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 10;
     display: flex;
-    width: 100%;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-  .topbar[data-pwa-mode="true"] .mobile-title {
-    font-size: 0.85rem;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    color: #9fb3d8;
-  }
-  .topbar[data-pwa-mode="true"] .mobile-toggle {
-    min-width: 80px;
     justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .hamburger-icon {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 24px;
+    height: 24px;
+    gap: 5px;
+  }
+  .hamburger-icon span {
+    display: block;
+    width: 22px;
+    height: 2px;
+    background: #c8d6ef;
+    border-radius: 2px;
+    transition:
+      transform 0.25s ease,
+      opacity 0.25s ease;
+    transform-origin: center;
+  }
+  .hamburger-icon[data-open="true"] span:nth-child(1) {
+    transform: translateY(7px) rotate(45deg);
+  }
+  .hamburger-icon[data-open="true"] span:nth-child(2) {
+    opacity: 0;
+  }
+  .hamburger-icon[data-open="true"] span:nth-child(3) {
+    transform: translateY(-7px) rotate(-45deg);
+  }
+  .hamburger-toggle:hover .hamburger-icon span,
+  .hamburger-toggle:focus-visible .hamburger-icon span {
+    background: #f2f6ff;
+  }
+  .hamburger-toggle:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
+    border-radius: 6px;
   }
   .topbar[data-pwa-mode="true"] .controls[data-collapsed="true"] {
     display: none;

@@ -83,10 +83,7 @@ const buildSttSettingsPayload = (draft) => ({
   command_utterance_end_ms: Number(draft.command_utterance_end_ms),
   command_endpointing: Number(draft.command_endpointing),
   command_smart_format: Boolean(draft.command_smart_format),
-  command_punctuate: Boolean(draft.command_punctuate),
   command_numerals: Boolean(draft.command_numerals),
-  command_filler_words: Boolean(draft.command_filler_words),
-  command_profanity_filter: Boolean(draft.command_profanity_filter),
 });
 
 const normalizeSttSettings = (data, fallback) => ({
@@ -99,12 +96,7 @@ const normalizeSttSettings = (data, fallback) => ({
   ),
   command_endpointing: Number(data.command_endpointing ?? fallback.command_endpointing),
   command_smart_format: Boolean(data.command_smart_format ?? fallback.command_smart_format),
-  command_punctuate: Boolean(data.command_punctuate ?? fallback.command_punctuate),
   command_numerals: Boolean(data.command_numerals ?? fallback.command_numerals),
-  command_filler_words: Boolean(data.command_filler_words ?? fallback.command_filler_words),
-  command_profanity_filter: Boolean(
-    data.command_profanity_filter ?? fallback.command_profanity_filter,
-  ),
 });
 
 const buildTtsSettingsPayload = (draft) => ({
@@ -134,10 +126,7 @@ function App() {
     command_utterance_end_ms: 1500,
     command_endpointing: 1200,
     command_smart_format: true,
-    command_punctuate: true,
     command_numerals: true,
-    command_filler_words: false,
-    command_profanity_filter: false,
   });
   const [ttsDraft, setTtsDraft] = useState({
     enabled: false,
@@ -1067,10 +1056,7 @@ function App() {
     command_utterance_end_ms: 1500,
     command_endpointing: 1200,
     command_smart_format: true,
-    command_punctuate: true,
     command_numerals: true,
-    command_filler_words: false,
-    command_profanity_filter: false,
   };
 
   const handleResetDefaults = (e) => {
@@ -1402,7 +1388,7 @@ function App() {
                       </div>
 
                       <div className="settings-row">
-                        <div className="settings-label">Smart format</div>
+                        <div className="settings-label">Smart format (includes punctuation)</div>
                         <button
                           className={`settings-toggle ${sttDraft.command_smart_format ? 'on' : ''}`}
                           onClick={(e) => {
@@ -1411,19 +1397,6 @@ function App() {
                           }}
                         >
                           {sttDraft.command_smart_format ? 'On' : 'Off'}
-                        </button>
-                      </div>
-
-                      <div className="settings-row">
-                        <div className="settings-label">Punctuate</div>
-                        <button
-                          className={`settings-toggle ${sttDraft.command_punctuate ? 'on' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSttDraft(prev => ({ ...prev, command_punctuate: !prev.command_punctuate }));
-                          }}
-                        >
-                          {sttDraft.command_punctuate ? 'On' : 'Off'}
                         </button>
                       </div>
 
@@ -1437,32 +1410,6 @@ function App() {
                           }}
                         >
                           {sttDraft.command_numerals ? 'On' : 'Off'}
-                        </button>
-                      </div>
-
-                      <div className="settings-row">
-                        <div className="settings-label">Filler words</div>
-                        <button
-                          className={`settings-toggle ${sttDraft.command_filler_words ? 'on' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSttDraft(prev => ({ ...prev, command_filler_words: !prev.command_filler_words }));
-                          }}
-                        >
-                          {sttDraft.command_filler_words ? 'On' : 'Off'}
-                        </button>
-                      </div>
-
-                      <div className="settings-row">
-                        <div className="settings-label">Profanity filter</div>
-                        <button
-                          className={`settings-toggle ${sttDraft.command_profanity_filter ? 'on' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSttDraft(prev => ({ ...prev, command_profanity_filter: !prev.command_profanity_filter }));
-                          }}
-                        >
-                          {sttDraft.command_profanity_filter ? 'On' : 'Off'}
                         </button>
                       </div>
                     </>

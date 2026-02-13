@@ -41,8 +41,8 @@ File: `src/backend/data/clients/voice/stt.json`
   complete utterance. Community-recommended value.
 - `command_endpointing` (default 300) — Shorter silence to finalize segments.
   Community-recommended value.
-- `command_smart_format`, `command_numerals`, `command_profanity_filter` —
-  Formatting options for transcripts.
+- `command_smart_format`, `command_numerals` — Formatting options for
+  transcripts (`smart_format` already includes punctuation behavior).
 
 ### LLM response length
 File: `src/backend/data/clients/voice/llm.json`

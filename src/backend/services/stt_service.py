@@ -46,10 +46,7 @@ class DeepgramSession:
         command_endpointing: int = 300,
         command_interim_results: bool = True,
         command_smart_format: bool = True,
-        # Note: punctuate is always enabled (included in smart_format)
         command_numerals: bool = True,
-        # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
-        command_profanity_filter: bool = False,
         event_loop: Optional[asyncio.AbstractEventLoop] = None,
     ):
         self.api_key = api_key
@@ -73,10 +70,7 @@ class DeepgramSession:
         self.command_endpointing = command_endpointing
         self.command_interim_results = command_interim_results
         self.command_smart_format = command_smart_format
-        # Note: punctuate is always enabled (included in smart_format)
         self.command_numerals = command_numerals
-        # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
-        self.command_profanity_filter = command_profanity_filter
 
         # Store the main event loop reference for scheduling callbacks from worker thread
         self._event_loop = event_loop
@@ -202,7 +196,6 @@ class DeepgramSession:
         """Connect to Deepgram."""
         if self.mode == "command":
             # Command mode: Use Nova-3 with v1 API
-            # Note: filler_words is not supported by the Deepgram SDK v1 API
             params = {
                 "model": self.command_model,
                 "encoding": "linear16",
@@ -212,7 +205,8 @@ class DeepgramSession:
                 "endpointing": str(self.command_endpointing),
                 "smart_format": str(self.command_smart_format).lower(),
                 "numerals": str(self.command_numerals).lower(),
-                "profanity_filter": str(self.command_profanity_filter).lower(),
+                # Keep profanity filtering disabled for command mode.
+                "profanity_filter": "false",
                 "vad_events": "true",
             }
 
@@ -470,10 +464,7 @@ class STTService:
                 command_endpointing=stt_settings.command_endpointing,
                 command_interim_results=stt_settings.command_interim_results,
                 command_smart_format=stt_settings.command_smart_format,
-                # Note: punctuate is always enabled (included in smart_format)
                 command_numerals=stt_settings.command_numerals,
-                # Note: filler_words is not supported by Deepgram SDK v5 for streaming WebSocket
-                command_profanity_filter=stt_settings.command_profanity_filter,
                 event_loop=loop,  # Pass event loop for thread-safe callback scheduling
             )
 

@@ -6,6 +6,7 @@ operations for any client (kiosk, svelte, cli, etc.).
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -26,8 +27,18 @@ from backend.schemas.client_settings import (
 
 logger = logging.getLogger(__name__)
 
-# Default data directory
-_DATA_DIR = Path(__file__).parent.parent / "data" / "clients"
+# Bundled defaults ship with the backend package.
+_BUNDLED_DATA_DIR = Path(__file__).resolve().parent.parent / "data" / "clients"
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _resolve_runtime_data_dir() -> Path:
+    """Resolve where mutable client settings should be written."""
+    configured_dir = os.getenv("CLIENT_SETTINGS_DATA_DIR")
+    if configured_dir:
+        return Path(configured_dir).expanduser()
+    # Default to runtime data folder so deployments can mount/persist it.
+    return _PROJECT_ROOT / "data" / "clients"
 
 
 class ClientSettingsService:
@@ -35,7 +46,10 @@ class ClientSettingsService:
 
     def __init__(self, client_id: str, data_dir: Optional[Path] = None):
         self.client_id = client_id
-        self.base_path = (data_dir or _DATA_DIR) / client_id
+        runtime_data_dir = Path(data_dir).expanduser() if data_dir else _resolve_runtime_data_dir()
+        self.base_path = runtime_data_dir / client_id
+        # When using default runtime dir, fall back to bundled defaults for reads.
+        self.default_path = None if data_dir else _BUNDLED_DATA_DIR / client_id
         self._cache: dict[str, object] = {}
 
     def _ensure_dir(self) -> None:
@@ -46,22 +60,39 @@ class ClientSettingsService:
         """Get path to a settings file."""
         return self.base_path / f"{name}.json"
 
-    def _load_json(self, name: str) -> Optional[dict]:
-        """Load JSON from a settings file."""
-        path = self._file_path(name)
-        if not path.exists():
-            return None
+    @staticmethod
+    def _read_json(path: Path) -> Optional[dict]:
+        """Read JSON from disk, returning None for invalid/missing data."""
         try:
-            return json.loads(path.read_text())
+            return json.loads(path.read_text(encoding="utf-8"))
         except Exception as e:
             logger.warning(f"Failed to load {path}: {e}")
             return None
+
+    def _load_json(self, name: str) -> Optional[dict]:
+        """Load JSON from a settings file."""
+        path = self._file_path(name)
+        if path.exists():
+            return self._read_json(path)
+
+        if self.default_path is not None:
+            bundled_path = self.default_path / f"{name}.json"
+            if bundled_path.exists():
+                return self._read_json(bundled_path)
+
+        return None
 
     def _save_json(self, name: str, data: dict) -> None:
         """Save JSON to a settings file."""
         self._ensure_dir()
         path = self._file_path(name)
-        path.write_text(json.dumps(data, indent=2))
+        try:
+            path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except OSError as exc:
+            raise PermissionError(
+                f"Cannot save {name} settings to '{path}'. "
+                "Set CLIENT_SETTINGS_DATA_DIR to a writable directory."
+            ) from exc
         logger.debug(f"Saved {path}")
 
     # =========================================================================

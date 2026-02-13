@@ -3,6 +3,7 @@ import useWebSocket from 'react-use-websocket';
 import './App.css';
 import ScrollFadeText from './components/ScrollFadeText';
 import useAudioCapture from './hooks/useAudioCapture';
+import useKeepAwake from './hooks/useKeepAwake';
 import { normalizeMarkdownText, parseHeading, parseInlineRuns } from './utils/markdown';
 import { buildVoiceWsUrl, createClientId, VOICE_CONFIG } from './voice/config';
 
@@ -58,6 +59,18 @@ const deriveAppState = (backend, responseActive = false) => {
   if (backend === 'PROCESSING' || backend === 'SPEAKING') return 'SPEAKING';
   if (backend === 'LISTENING') return 'LISTENING';
   return 'IDLE';
+};
+
+const readErrorDetail = async (response, fallbackMessage) => {
+  try {
+    const payload = await response.json();
+    if (typeof payload?.detail === 'string' && payload.detail.trim()) {
+      return payload.detail;
+    }
+  } catch {
+    // Ignore parse issues and fall back to generic message.
+  }
+  return fallbackMessage;
 };
 
 function App() {
@@ -157,6 +170,7 @@ function App() {
     releaseMic,
     handleSessionReady,
   } = useAudioCapture(sendMessage, readyState, VOICE_CONFIG.audio);
+  const { ensureKeepAwake } = useKeepAwake();
 
   const setBackendState = (nextState) => {
     backendStateRef.current = nextState;
@@ -784,6 +798,7 @@ function App() {
 
   // Handle tap
   const handleTap = () => {
+    void ensureKeepAwake();
     primeAudioContext();
     if (showHistory || showSettings) return;
     const currentAppState = deriveAppState(
@@ -929,6 +944,7 @@ function App() {
     setSettingsError(null);
 
     try {
+      let errorMessage = 'Failed to save settings';
       const payload = {
         mode: sttDraft.mode,
         // Conversation
@@ -955,6 +971,7 @@ function App() {
 
       if (!resp.ok) {
         hadError = true;
+        errorMessage = await readErrorDetail(resp, errorMessage);
       } else {
         const data = await resp.json();
         const normalized = {
@@ -985,6 +1002,7 @@ function App() {
 
       if (!ttsResp.ok) {
         hadError = true;
+        errorMessage = await readErrorDetail(ttsResp, errorMessage);
       } else {
         const data = await ttsResp.json();
         setTtsDraft({
@@ -993,12 +1011,12 @@ function App() {
       }
 
       if (hadError) {
-        throw new Error('Failed to save settings');
+        throw new Error(errorMessage);
       }
 
       setShowSettings(false);
-    } catch {
-      setSettingsError('Failed to save settings');
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
       setSettingsSaving(false);
     }
@@ -1014,11 +1032,18 @@ function App() {
     if (!isConnected) return 'Connecting...';
     if (appState === 'LISTENING') return 'Listening...';
     if (appState === 'SPEAKING') return '';
-    return 'Tap to start';
+    return 'Tap orb to start';
+  };
+
+  const getOrbActionLabel = () => {
+    if (!isConnected) return 'Connecting';
+    if (appState === 'LISTENING') return 'Stop listening';
+    if (appState === 'SPEAKING') return 'Interrupt response';
+    return 'Start listening';
   };
 
   return (
-    <div className="app" onClick={handleTap}>
+    <div className="app">
       <div className="top-controls">
         <div className="top-left-controls">
           <button
@@ -1050,12 +1075,20 @@ function App() {
       {error && <div className="error">{error}</div>}
 
       <div className="main-content">
-        <div className="orb-container">
-          <div className={`orb ${getOrbClass()}`} />
-          <div className="ripple-ring" />
-          <div className="ripple-ring" />
-          <div className="ripple-ring" />
-        </div>
+        <button
+          type="button"
+          className="orb-tap-target"
+          onClick={handleTap}
+          aria-label={getOrbActionLabel()}
+          title={getStatusText() || 'Tap orb'}
+        >
+          <div className="orb-container">
+            <div className={`orb ${getOrbClass()}`} />
+            <div className="ripple-ring" />
+            <div className="ripple-ring" />
+            <div className="ripple-ring" />
+          </div>
+        </button>
 
         <div className={`status-text ${appState !== 'IDLE' ? 'active' : ''}`}>
           {getStatusText()}

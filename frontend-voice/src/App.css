@@ -142,6 +142,28 @@
 }
 
 /* Orb container - fixed at top of main content */
+.orb-tap-target {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  margin: 0 0 16px;
+  padding: 12px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.orb-tap-target:focus-visible {
+  outline: 1px solid rgba(255, 255, 255, 0.35);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+.orb-tap-target:disabled {
+  cursor: default;
+}
+
 .orb-container {
   position: relative;
   width: 200px;
@@ -150,7 +172,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .orb {
@@ -1039,7 +1061,11 @@
   .orb-container {
     width: 160px;
     height: 160px;
+  }
+
+  .orb-tap-target {
     margin-bottom: 12px;
+    padding: 10px;
   }
 
   .orb {

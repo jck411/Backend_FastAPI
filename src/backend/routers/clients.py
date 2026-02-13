@@ -107,7 +107,10 @@ async def update_stt_settings(
     service: ClientSettingsService = Depends(get_service),
 ) -> SttSettings:
     """Update STT settings for the client."""
-    return service.update_stt(update)
+    try:
+        return service.update_stt(update)
+    except PermissionError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/{client_id}/stt/reset", response_model=SttSettings)
@@ -139,7 +142,10 @@ async def update_tts_settings(
     service: ClientSettingsService = Depends(get_service),
 ) -> TtsSettings:
     """Update TTS settings for the client."""
-    return service.update_tts(update)
+    try:
+        return service.update_tts(update)
+    except PermissionError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.post("/{client_id}/tts/reset", response_model=TtsSettings)

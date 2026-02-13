@@ -80,6 +80,7 @@
   let editingSaving = false;
   let deferredInstallPrompt: BeforeInstallPromptEvent | null = null;
   let showInstallBanner = false;
+  let pwaMode = false;
 
   interface BeforeInstallPromptEvent extends Event {
     prompt(): Promise<void>;
@@ -88,6 +89,12 @@
 
   onMount(async () => {
     if (typeof window !== "undefined") {
+      // Detect PWA mode (standalone display)
+      pwaMode =
+        window.matchMedia("(display-mode: standalone)").matches ||
+        ("standalone" in navigator &&
+          (navigator as { standalone?: boolean }).standalone === true);
+
       // PWA install prompt
       const handleBeforeInstall = (e: Event): void => {
         e.preventDefault();
@@ -365,6 +372,7 @@
     modelsLoading={$modelsLoading}
     modelsError={$modelsError}
     hasMessages={$chatStore.messages.length > 0}
+    {pwaMode}
     on:openExplorer={() => (explorerOpen = true)}
     on:clear={() => {
       presetAttachments = [];
@@ -384,6 +392,7 @@
       bind:this={quickPromptsComponent}
       suggestions={$suggestionsStore.items}
       deleting={$suggestionsStore.deleting}
+      {pwaMode}
       on:add={handleSuggestionAdd}
       on:delete={handleSuggestionDelete}
       on:select={(event) => handlePromptSelect(event.detail.text)}

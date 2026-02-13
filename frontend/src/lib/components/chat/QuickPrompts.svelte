@@ -10,6 +10,7 @@
 
   export let suggestions: Suggestion[] = [];
   export let deleting: number | null = null;
+  export let pwaMode = false;
 
   let showingAddForm = false;
   let newLabel = "";
@@ -76,36 +77,38 @@
     </div>
   {/each}
 
-  {#if showingAddForm}
-    <div class="add-form">
-      <input
-        type="text"
-        placeholder="Label"
-        bind:value={newLabel}
-        on:keydown={(e) => e.key === "Enter" && handleAddSubmit()}
-      />
-      <input
-        type="text"
-        placeholder="Prompt text"
-        bind:value={newText}
-        on:keydown={(e) => e.key === "Enter" && handleAddSubmit()}
-      />
-      <button type="button" class="add-submit-btn" on:click={handleAddSubmit}
-        >Add</button
+  {#if !pwaMode}
+    {#if showingAddForm}
+      <div class="add-form">
+        <input
+          type="text"
+          placeholder="Label"
+          bind:value={newLabel}
+          on:keydown={(e) => e.key === "Enter" && handleAddSubmit()}
+        />
+        <input
+          type="text"
+          placeholder="Prompt text"
+          bind:value={newText}
+          on:keydown={(e) => e.key === "Enter" && handleAddSubmit()}
+        />
+        <button type="button" class="add-submit-btn" on:click={handleAddSubmit}
+          >Add</button
+        >
+        <button type="button" class="add-cancel-btn" on:click={handleAddCancel}
+          >Cancel</button
+        >
+      </div>
+    {:else}
+      <button
+        type="button"
+        class="add-btn"
+        aria-label="Add suggested prompt"
+        on:click={handleAdd}
       >
-      <button type="button" class="add-cancel-btn" on:click={handleAddCancel}
-        >Cancel</button
-      >
-    </div>
-  {:else}
-    <button
-      type="button"
-      class="add-btn"
-      aria-label="Add suggested prompt"
-      on:click={handleAdd}
-    >
-      +
-    </button>
+        +
+      </button>
+    {/if}
   {/if}
 </section>
 

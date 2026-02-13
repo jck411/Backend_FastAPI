@@ -43,7 +43,6 @@ body {
   background-color: var(--color-bg);
   font-family: var(--font-sans);
   overscroll-behavior: none;
-  touch-action: manipulation;
 }
 
 /* Fix for iOS viewport height */

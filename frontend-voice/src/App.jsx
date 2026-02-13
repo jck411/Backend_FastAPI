@@ -18,6 +18,8 @@ const STREAM_SPEED_STEP = 5;
 const DEFAULT_TTS_SYNC_CPS = 15;
 const TTS_SYNC_CPS_MIN = 8;
 const TTS_SYNC_CPS_MAX = 30;
+const AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 48;
+const USER_SCROLL_IDLE_MS = 180;
 
 const renderInlineRuns = (runs, keyPrefix) => {
   if (!runs || !runs.length) return null;
@@ -131,6 +133,9 @@ function App() {
   const backgroundedRef = useRef(false);
   const floatingTextRef = useRef(null);
   const autoScrollRef = useRef(true);
+  const autoScrollRafRef = useRef({ outer: 0, inner: 0 });
+  const floatingInteractionRef = useRef(false);
+  const floatingInteractionTimeoutRef = useRef(null);
 
   const streamSpeedRef = useRef(streamSpeedCps);
   const syncToTtsRef = useRef(syncToTts);
@@ -490,21 +495,67 @@ function App() {
     }
   }, [syncToTts]);
 
+  const clearFloatingInteractionTimeout = useCallback(() => {
+    if (floatingInteractionTimeoutRef.current) {
+      clearTimeout(floatingInteractionTimeoutRef.current);
+      floatingInteractionTimeoutRef.current = null;
+    }
+  }, []);
+
+  const markFloatingInteraction = useCallback(() => {
+    floatingInteractionRef.current = true;
+    clearFloatingInteractionTimeout();
+    floatingInteractionTimeoutRef.current = setTimeout(() => {
+      floatingInteractionRef.current = false;
+      floatingInteractionTimeoutRef.current = null;
+    }, USER_SCROLL_IDLE_MS);
+  }, [clearFloatingInteractionTimeout]);
+
+  const endFloatingInteraction = useCallback(() => {
+    clearFloatingInteractionTimeout();
+    floatingInteractionRef.current = false;
+  }, [clearFloatingInteractionTimeout]);
+
+  const cancelPendingAutoScrollFrame = useCallback(() => {
+    const { outer, inner } = autoScrollRafRef.current;
+    if (outer) {
+      cancelAnimationFrame(outer);
+    }
+    if (inner) {
+      cancelAnimationFrame(inner);
+    }
+    autoScrollRafRef.current = { outer: 0, inner: 0 };
+  }, []);
+
   useEffect(() => {
     if (!textVisible) return;
     const container = floatingTextRef.current;
     if (!container) return;
     if (!autoScrollRef.current) return;
-    // Double RAF to ensure DOM has painted and scrollHeight is accurate
-    const frame = requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (container) {
-          container.scrollTop = container.scrollHeight;
-        }
+    if (floatingInteractionRef.current) return;
+
+    cancelPendingAutoScrollFrame();
+
+    // Double RAF to ensure DOM has painted and scrollHeight is accurate.
+    autoScrollRafRef.current.outer = requestAnimationFrame(() => {
+      autoScrollRafRef.current.outer = 0;
+      autoScrollRafRef.current.inner = requestAnimationFrame(() => {
+        autoScrollRafRef.current.inner = 0;
+        const nextContainer = floatingTextRef.current;
+        if (!nextContainer) return;
+        if (!autoScrollRef.current || floatingInteractionRef.current) return;
+        nextContainer.scrollTop = nextContainer.scrollHeight;
       });
     });
-    return () => cancelAnimationFrame(frame);
-  }, [currentResponse, currentTranscript, latestExchange, textVisible]);
+
+    return cancelPendingAutoScrollFrame;
+  }, [
+    cancelPendingAutoScrollFrame,
+    currentResponse,
+    currentTranscript,
+    latestExchange,
+    textVisible,
+  ]);
 
   useEffect(() => {
     if (!textVisible) return;
@@ -512,12 +563,12 @@ function App() {
   }, [textVisible]);
 
 
-  const handleFloatingScroll = () => {
+  const handleFloatingScroll = useCallback(() => {
     const container = floatingTextRef.current;
     if (!container) return;
     const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    autoScrollRef.current = distanceFromBottom < 12;
-  };
+    autoScrollRef.current = distanceFromBottom <= AUTO_SCROLL_BOTTOM_THRESHOLD_PX;
+  }, []);
 
   const finalizePartialResponse = useCallback(() => {
     const partial = displayedResponseRef.current;
@@ -780,7 +831,13 @@ function App() {
   }, [showSettings]);
 
   // Handle tap
-  const handleTap = () => {
+  const handleTap = (event) => {
+    const target = event?.target;
+    if (target instanceof Element && target.closest(
+      '.floating-text, .top-controls, .bottom-controls, .history-overlay, .settings-overlay',
+    )) {
+      return;
+    }
     primeAudioContext();
     if (showHistory || showSettings) return;
     const currentAppState = deriveAppState(
@@ -876,6 +933,8 @@ function App() {
 
   useEffect(() => {
     return () => {
+      cancelPendingAutoScrollFrame();
+      clearFloatingInteractionTimeout();
       if (streamAnimationRef.current) {
         cancelAnimationFrame(streamAnimationRef.current);
         streamAnimationRef.current = null;
@@ -883,7 +942,7 @@ function App() {
       stopTtsPlayback();
       releaseMic();
     };
-  }, [releaseMic, stopTtsPlayback]);
+  }, [cancelPendingAutoScrollFrame, clearFloatingInteractionTimeout, releaseMic, stopTtsPlayback]);
 
   // Community-recommended defaults for Deepgram STT
   // Note: punctuate is always on (smart_format includes it)
@@ -1056,6 +1115,8 @@ function App() {
         <ScrollFadeText
           ref={floatingTextRef}
           onScroll={handleFloatingScroll}
+          onInteractionStart={markFloatingInteraction}
+          onInteractionEnd={endFloatingInteraction}
           visible={textVisible}
           items={textItems}
         />

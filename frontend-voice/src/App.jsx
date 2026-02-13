@@ -73,6 +73,48 @@ const readErrorDetail = async (response, fallbackMessage) => {
   return fallbackMessage;
 };
 
+const buildSttSettingsPayload = (draft) => ({
+  mode: draft.mode,
+  // Conversation
+  eot_timeout_ms: Number(draft.eot_timeout_ms),
+  eot_threshold: Number(draft.eot_threshold),
+  listen_timeout_seconds: Number(draft.listen_timeout_seconds),
+  // Command
+  command_utterance_end_ms: Number(draft.command_utterance_end_ms),
+  command_endpointing: Number(draft.command_endpointing),
+  command_smart_format: Boolean(draft.command_smart_format),
+  command_punctuate: Boolean(draft.command_punctuate),
+  command_numerals: Boolean(draft.command_numerals),
+  command_filler_words: Boolean(draft.command_filler_words),
+  command_profanity_filter: Boolean(draft.command_profanity_filter),
+});
+
+const normalizeSttSettings = (data, fallback) => ({
+  mode: data.mode || fallback.mode,
+  eot_timeout_ms: Number(data.eot_timeout_ms ?? fallback.eot_timeout_ms),
+  eot_threshold: Number(data.eot_threshold ?? fallback.eot_threshold),
+  listen_timeout_seconds: Number(data.listen_timeout_seconds ?? fallback.listen_timeout_seconds),
+  command_utterance_end_ms: Number(
+    data.command_utterance_end_ms ?? fallback.command_utterance_end_ms,
+  ),
+  command_endpointing: Number(data.command_endpointing ?? fallback.command_endpointing),
+  command_smart_format: Boolean(data.command_smart_format ?? fallback.command_smart_format),
+  command_punctuate: Boolean(data.command_punctuate ?? fallback.command_punctuate),
+  command_numerals: Boolean(data.command_numerals ?? fallback.command_numerals),
+  command_filler_words: Boolean(data.command_filler_words ?? fallback.command_filler_words),
+  command_profanity_filter: Boolean(
+    data.command_profanity_filter ?? fallback.command_profanity_filter,
+  ),
+});
+
+const buildTtsSettingsPayload = (draft) => ({
+  enabled: Boolean(draft.enabled),
+});
+
+const normalizeTtsSettings = (data, fallback) => ({
+  enabled: Boolean(data.enabled ?? fallback.enabled),
+});
+
 function App() {
   const [messages, setMessages] = useState([]);
   const [currentTranscript, setCurrentTranscript] = useState('');
@@ -145,6 +187,13 @@ function App() {
   const backgroundedRef = useRef(false);
   const floatingTextRef = useRef(null);
   const autoScrollRef = useRef(true);
+  const sttDraftRef = useRef(sttDraft);
+  const ttsDraftRef = useRef(ttsDraft);
+  const settingsReadyRef = useRef(false);
+  const settingsSaveTimerRef = useRef(null);
+  const settingsSaveVersionRef = useRef(0);
+  const savedSttPayloadKeyRef = useRef('');
+  const savedTtsPayloadKeyRef = useRef('');
 
   const streamSpeedRef = useRef(streamSpeedCps);
   const syncToTtsRef = useRef(syncToTts);
@@ -506,6 +555,14 @@ function App() {
   }, [syncToTts]);
 
   useEffect(() => {
+    sttDraftRef.current = sttDraft;
+  }, [sttDraft]);
+
+  useEffect(() => {
+    ttsDraftRef.current = ttsDraft;
+  }, [ttsDraft]);
+
+  useEffect(() => {
     if (!textVisible) return;
     const container = floatingTextRef.current;
     if (!container) return;
@@ -730,11 +787,19 @@ function App() {
     if (!showSettings) return;
 
     let cancelled = false;
+    settingsReadyRef.current = false;
+    if (settingsSaveTimerRef.current) {
+      clearTimeout(settingsSaveTimerRef.current);
+      settingsSaveTimerRef.current = null;
+    }
     setSettingsLoading(true);
+    setSettingsSaving(false);
     setSettingsError(null);
 
     const loadSettings = async () => {
       let hadError = false;
+      let nextSttDraft = sttDraftRef.current;
+      let nextTtsDraft = ttsDraftRef.current;
 
       try {
         const sttResp = await fetch('/api/clients/voice/stt');
@@ -742,24 +807,8 @@ function App() {
           hadError = true;
         } else {
           const data = await sttResp.json();
-          if (!cancelled) {
-            const normalized = {
-              mode: data.mode || 'conversation',
-              // Conversation
-              eot_timeout_ms: Number(data.eot_timeout_ms ?? 1000),
-              eot_threshold: Number(data.eot_threshold ?? 0.7),
-              listen_timeout_seconds: Number(data.listen_timeout_seconds ?? 15),
-              // Command
-              command_utterance_end_ms: Number(data.command_utterance_end_ms ?? 1500),
-              command_endpointing: Number(data.command_endpointing ?? 1200),
-              command_smart_format: Boolean(data.command_smart_format ?? true),
-              command_punctuate: Boolean(data.command_punctuate ?? true),
-              command_numerals: Boolean(data.command_numerals ?? true),
-              command_filler_words: Boolean(data.command_filler_words ?? false),
-              command_profanity_filter: Boolean(data.command_profanity_filter ?? false),
-            };
-            setSttDraft(normalized);
-          }
+          nextSttDraft = normalizeSttSettings(data, nextSttDraft);
+          if (!cancelled) setSttDraft(nextSttDraft);
         }
       } catch {
         hadError = true;
@@ -771,17 +820,17 @@ function App() {
           hadError = true;
         } else {
           const data = await ttsResp.json();
-          if (!cancelled) {
-            setTtsDraft({
-              enabled: Boolean(data.enabled),
-            });
-          }
+          nextTtsDraft = normalizeTtsSettings(data, nextTtsDraft);
+          if (!cancelled) setTtsDraft(nextTtsDraft);
         }
       } catch {
         hadError = true;
       }
 
       if (!cancelled) {
+        savedSttPayloadKeyRef.current = JSON.stringify(buildSttSettingsPayload(nextSttDraft));
+        savedTtsPayloadKeyRef.current = JSON.stringify(buildTtsSettingsPayload(nextTtsDraft));
+        settingsReadyRef.current = true;
         if (hadError) {
           setSettingsError('Failed to load settings');
         }
@@ -795,6 +844,88 @@ function App() {
       cancelled = true;
     };
   }, [showSettings]);
+
+  useEffect(() => {
+    if (!settingsReadyRef.current || settingsLoading) return;
+
+    const sttPayload = buildSttSettingsPayload(sttDraft);
+    const ttsPayload = buildTtsSettingsPayload(ttsDraft);
+    const sttPayloadKey = JSON.stringify(sttPayload);
+    const ttsPayloadKey = JSON.stringify(ttsPayload);
+    const hasSttChanges = sttPayloadKey !== savedSttPayloadKeyRef.current;
+    const hasTtsChanges = ttsPayloadKey !== savedTtsPayloadKeyRef.current;
+
+    if (!hasSttChanges && !hasTtsChanges) return;
+
+    if (settingsSaveTimerRef.current) {
+      clearTimeout(settingsSaveTimerRef.current);
+      settingsSaveTimerRef.current = null;
+    }
+
+    settingsSaveTimerRef.current = setTimeout(async () => {
+      settingsSaveTimerRef.current = null;
+      const saveVersion = settingsSaveVersionRef.current + 1;
+      settingsSaveVersionRef.current = saveVersion;
+      setSettingsSaving(true);
+      setSettingsError(null);
+
+      try {
+        if (hasSttChanges) {
+          const sttResp = await fetch('/api/clients/voice/stt', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sttPayload),
+          });
+          if (!sttResp.ok) {
+            throw new Error(await readErrorDetail(sttResp, 'Failed to save speech settings'));
+          }
+          const sttData = await sttResp.json();
+          const normalizedStt = normalizeSttSettings(sttData, sttPayload);
+          savedSttPayloadKeyRef.current = JSON.stringify(buildSttSettingsPayload(normalizedStt));
+          setSttDraft(normalizedStt);
+        }
+
+        if (hasTtsChanges) {
+          const ttsResp = await fetch('/api/clients/voice/tts', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ttsPayload),
+          });
+          if (!ttsResp.ok) {
+            throw new Error(await readErrorDetail(ttsResp, 'Failed to save TTS settings'));
+          }
+          const ttsData = await ttsResp.json();
+          const normalizedTts = normalizeTtsSettings(ttsData, ttsPayload);
+          savedTtsPayloadKeyRef.current = JSON.stringify(buildTtsSettingsPayload(normalizedTts));
+          setTtsDraft(normalizedTts);
+        }
+      } catch (err) {
+        if (settingsSaveVersionRef.current === saveVersion) {
+          setSettingsError(err instanceof Error ? err.message : 'Failed to save settings');
+        }
+      } finally {
+        if (settingsSaveVersionRef.current === saveVersion) {
+          setSettingsSaving(false);
+        }
+      }
+    }, 350);
+
+    return () => {
+      if (settingsSaveTimerRef.current) {
+        clearTimeout(settingsSaveTimerRef.current);
+        settingsSaveTimerRef.current = null;
+      }
+    };
+  }, [settingsLoading, sttDraft, ttsDraft]);
+
+  useEffect(() => {
+    return () => {
+      if (settingsSaveTimerRef.current) {
+        clearTimeout(settingsSaveTimerRef.current);
+        settingsSaveTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // Handle tap
   const handleTap = () => {
@@ -938,90 +1069,6 @@ function App() {
     }
   };
 
-  const handleSaveSettings = async (e) => {
-    e.stopPropagation();
-    setSettingsSaving(true);
-    setSettingsError(null);
-
-    try {
-      let errorMessage = 'Failed to save settings';
-      const payload = {
-        mode: sttDraft.mode,
-        // Conversation
-        eot_timeout_ms: Number(sttDraft.eot_timeout_ms),
-        eot_threshold: Number(sttDraft.eot_threshold),
-        listen_timeout_seconds: Number(sttDraft.listen_timeout_seconds),
-        // Command
-        command_utterance_end_ms: Number(sttDraft.command_utterance_end_ms),
-        command_endpointing: Number(sttDraft.command_endpointing),
-        command_smart_format: Boolean(sttDraft.command_smart_format),
-        command_punctuate: Boolean(sttDraft.command_punctuate),
-        command_numerals: Boolean(sttDraft.command_numerals),
-        command_filler_words: Boolean(sttDraft.command_filler_words),
-        command_profanity_filter: Boolean(sttDraft.command_profanity_filter),
-      };
-
-      const resp = await fetch('/api/clients/voice/stt', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      let hadError = false;
-
-      if (!resp.ok) {
-        hadError = true;
-        errorMessage = await readErrorDetail(resp, errorMessage);
-      } else {
-        const data = await resp.json();
-        const normalized = {
-          mode: data.mode || payload.mode,
-          eot_timeout_ms: Number(data.eot_timeout_ms ?? payload.eot_timeout_ms),
-          eot_threshold: Number(data.eot_threshold ?? payload.eot_threshold),
-          listen_timeout_seconds: Number(data.listen_timeout_seconds ?? payload.listen_timeout_seconds),
-          command_utterance_end_ms: Number(data.command_utterance_end_ms ?? payload.command_utterance_end_ms),
-          command_endpointing: Number(data.command_endpointing ?? payload.command_endpointing),
-          command_smart_format: Boolean(data.command_smart_format ?? payload.command_smart_format),
-          command_punctuate: Boolean(data.command_punctuate ?? payload.command_punctuate),
-          command_numerals: Boolean(data.command_numerals ?? payload.command_numerals),
-          command_filler_words: Boolean(data.command_filler_words ?? payload.command_filler_words),
-          command_profanity_filter: Boolean(data.command_profanity_filter ?? payload.command_profanity_filter),
-        };
-        setSttDraft(normalized);
-      }
-
-      const ttsPayload = {
-        enabled: Boolean(ttsDraft.enabled),
-      };
-
-      const ttsResp = await fetch('/api/clients/voice/tts', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(ttsPayload),
-      });
-
-      if (!ttsResp.ok) {
-        hadError = true;
-        errorMessage = await readErrorDetail(ttsResp, errorMessage);
-      } else {
-        const data = await ttsResp.json();
-        setTtsDraft({
-          enabled: Boolean(data.enabled),
-        });
-      }
-
-      if (hadError) {
-        throw new Error(errorMessage);
-      }
-
-      setShowSettings(false);
-    } catch (err) {
-      setSettingsError(err instanceof Error ? err.message : 'Failed to save settings');
-    } finally {
-      setSettingsSaving(false);
-    }
-  };
-
   const getOrbClass = () => {
     if (appState === 'LISTENING') return 'listening';
     if (appState === 'SPEAKING') return 'speaking';
@@ -1040,6 +1087,13 @@ function App() {
     if (appState === 'LISTENING') return 'Stop listening';
     if (appState === 'SPEAKING') return 'Interrupt response';
     return 'Start listening';
+  };
+
+  const getSettingsStatusLabel = () => {
+    if (settingsLoading) return 'Loading...';
+    if (settingsSaving) return 'Saving...';
+    if (settingsError) return 'Save failed';
+    return 'Auto-save on';
   };
 
   return (
@@ -1156,13 +1210,11 @@ function App() {
             <div className="panel-header">
               <span className="panel-header-title">Voice Settings</span>
               <div className="settings-header-actions">
-                <button
-                  className="panel-header-btn settings-header-save"
-                  onClick={handleSaveSettings}
-                  disabled={settingsLoading || settingsSaving}
+                <span
+                  className={`settings-sync-status ${settingsError ? 'error' : settingsSaving ? 'saving' : 'idle'}`}
                 >
-                  {settingsSaving ? 'Saving...' : 'Save'}
-                </button>
+                  {getSettingsStatusLabel()}
+                </span>
                 <button className="panel-header-btn" onClick={handleCloseSettings}>Close</button>
               </div>
             </div>
@@ -1174,8 +1226,12 @@ function App() {
             ) : (
               <div className="settings-scroll">
                 <div className="settings-section">
-                  <div className="settings-section-title">Mode</div>
+                  <div className="settings-section-title">Speech Recognition</div>
+                  <div className="settings-note">
+                    Conversation/Command mode only affects speech recognition.
+                  </div>
                   <div className="settings-row">
+                    <div className="settings-label">Recognition mode</div>
                     <div className="mode-toggle">
                       <button
                         className={`mode-btn ${sttDraft.mode === 'conversation' ? 'active' : ''}`}
@@ -1183,7 +1239,6 @@ function App() {
                           e.stopPropagation();
                           setSttDraft(prev => ({ ...prev, mode: 'conversation' }));
                         }}
-                        disabled={settingsSaving}
                       >
                         Conversation
                       </button>
@@ -1193,64 +1248,16 @@ function App() {
                           e.stopPropagation();
                           setSttDraft(prev => ({ ...prev, mode: 'command' }));
                         }}
-                        disabled={settingsSaving}
                       >
                         Command
                       </button>
                     </div>
                   </div>
-                </div>
-
-                <div className="settings-section">
-                  <div className="settings-section-title">Text to Speech</div>
-
-                  <div className="settings-row">
-                    <div className="settings-label">Enable TTS</div>
-                    <button
-                      className={`settings-toggle ${ttsDraft.enabled ? 'on' : ''}`}
-                      onClick={handleToggleTts}
-                      disabled={settingsSaving}
-                    >
-                      {ttsDraft.enabled ? 'On' : 'Off'}
-                    </button>
+                  <div className="settings-subtitle">
+                    {sttDraft.mode === 'conversation' ? 'Conversation (Flux)' : 'Command (Nova-3)'}
                   </div>
-
-                  <div className={`settings-row ${syncToTts && ttsDraft.enabled ? 'disabled' : ''}`}>
-                    <div className="settings-row-header">
-                      <div className="settings-label">Text stream speed</div>
-                      {ttsDraft.enabled && (
-                        <button
-                          className={`settings-sync-btn ${syncToTts ? 'on' : ''}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSyncToTts(!syncToTts);
-                          }}
-                          disabled={settingsSaving}
-                        >
-                          Sync
-                        </button>
-                      )}
-                    </div>
-                    <div className="settings-value">
-                      {syncToTts && ttsDraft.enabled ? 'Synced to TTS' : `${streamSpeedCps} chars/sec`}
-                    </div>
-                    <input
-                      className="settings-slider"
-                      type="range"
-                      min={STREAM_SPEED_MIN}
-                      max={STREAM_SPEED_MAX}
-                      step={STREAM_SPEED_STEP}
-                      value={streamSpeedCps}
-                      onChange={(e) => setStreamSpeedCps(Number(e.target.value))}
-                      disabled={syncToTts && ttsDraft.enabled}
-                    />
-                  </div>
-                </div>
-
-                {sttDraft.mode === 'conversation' ? (
-                  <div className="settings-section">
-                    <div className="settings-section-title">Speech Recognition (Flux)</div>
-
+                  {sttDraft.mode === 'conversation' ? (
+                    <>
                     <div className="settings-row">
                       <div className="settings-label">End of turn timeout</div>
                       <div className="settings-value">{sttDraft.eot_timeout_ms} ms</div>
@@ -1305,11 +1312,9 @@ function App() {
                         }))}
                       />
                     </div>
-                  </div>
-                ) : (
-                  <div className="settings-section">
-                    <div className="settings-section-title">Speech Recognition (Nova-3)</div>
-
+                  </>
+                  ) : (
+                    <>
                     <div className="settings-row">
                       <div className="settings-label">Utterance end</div>
                       <div className="settings-value">{sttDraft.command_utterance_end_ms} ms</div>
@@ -1352,7 +1357,6 @@ function App() {
                           e.stopPropagation();
                           setSttDraft(prev => ({ ...prev, command_smart_format: !prev.command_smart_format }));
                         }}
-                        disabled={settingsSaving}
                       >
                         {sttDraft.command_smart_format ? 'On' : 'Off'}
                       </button>
@@ -1366,7 +1370,6 @@ function App() {
                           e.stopPropagation();
                           setSttDraft(prev => ({ ...prev, command_punctuate: !prev.command_punctuate }));
                         }}
-                        disabled={settingsSaving}
                       >
                         {sttDraft.command_punctuate ? 'On' : 'Off'}
                       </button>
@@ -1380,7 +1383,6 @@ function App() {
                           e.stopPropagation();
                           setSttDraft(prev => ({ ...prev, command_numerals: !prev.command_numerals }));
                         }}
-                        disabled={settingsSaving}
                       >
                         {sttDraft.command_numerals ? 'On' : 'Off'}
                       </button>
@@ -1394,7 +1396,6 @@ function App() {
                           e.stopPropagation();
                           setSttDraft(prev => ({ ...prev, command_filler_words: !prev.command_filler_words }));
                         }}
-                        disabled={settingsSaving}
                       >
                         {sttDraft.command_filler_words ? 'On' : 'Off'}
                       </button>
@@ -1408,13 +1409,57 @@ function App() {
                           e.stopPropagation();
                           setSttDraft(prev => ({ ...prev, command_profanity_filter: !prev.command_profanity_filter }));
                         }}
-                        disabled={settingsSaving}
                       >
                         {sttDraft.command_profanity_filter ? 'On' : 'Off'}
                       </button>
                     </div>
+                  </>
+                  )}
+                </div>
+
+                <div className="settings-section">
+                  <div className="settings-section-title">Text to Speech</div>
+
+                  <div className="settings-row">
+                    <div className="settings-label">Enable TTS</div>
+                    <button
+                      className={`settings-toggle ${ttsDraft.enabled ? 'on' : ''}`}
+                      onClick={handleToggleTts}
+                    >
+                      {ttsDraft.enabled ? 'On' : 'Off'}
+                    </button>
                   </div>
-                )}
+
+                  <div className={`settings-row ${syncToTts && ttsDraft.enabled ? 'disabled' : ''}`}>
+                    <div className="settings-row-header">
+                      <div className="settings-label">Text stream speed</div>
+                      {ttsDraft.enabled && (
+                        <button
+                          className={`settings-sync-btn ${syncToTts ? 'on' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSyncToTts(!syncToTts);
+                          }}
+                        >
+                          Sync
+                        </button>
+                      )}
+                    </div>
+                    <div className="settings-value">
+                      {syncToTts && ttsDraft.enabled ? 'Synced to TTS' : `${streamSpeedCps} chars/sec`}
+                    </div>
+                    <input
+                      className="settings-slider"
+                      type="range"
+                      min={STREAM_SPEED_MIN}
+                      max={STREAM_SPEED_MAX}
+                      step={STREAM_SPEED_STEP}
+                      value={streamSpeedCps}
+                      onChange={(e) => setStreamSpeedCps(Number(e.target.value))}
+                      disabled={syncToTts && ttsDraft.enabled}
+                    />
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1422,9 +1467,9 @@ function App() {
               <button
                 className="settings-default"
                 onClick={handleResetDefaults}
-                disabled={settingsLoading || settingsSaving}
+                disabled={settingsLoading}
               >
-                Default
+                Reset Defaults
               </button>
             </div>
           </div>

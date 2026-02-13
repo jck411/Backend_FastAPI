@@ -859,26 +859,43 @@
   gap: 8px;
 }
 
-.settings-header-save {
-  background: rgba(59, 130, 246, 0.2);
-  border-color: rgba(59, 130, 246, 0.35);
+.settings-sync-status {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.settings-sync-status.idle {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.settings-sync-status.saving {
   color: #93c5fd;
 }
 
-.settings-header-save:hover {
-  background: rgba(59, 130, 246, 0.3);
-  border-color: rgba(59, 130, 246, 0.5);
-}
-
-.settings-header-save:disabled {
-  opacity: 0.5;
-  cursor: default;
+.settings-sync-status.error {
+  color: #fecaca;
 }
 
 .settings-row {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.settings-note {
+  font-size: 0.72rem;
+  color: rgba(255, 255, 255, 0.52);
+  line-height: 1.45;
+}
+
+.settings-subtitle {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 2px;
 }
 
 .settings-label {

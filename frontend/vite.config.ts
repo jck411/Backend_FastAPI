@@ -5,6 +5,10 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [svelte()],
   base: '/',
+  build: {
+    outDir: '../src/backend/static',
+    emptyOutDir: false, // Don't delete kiosk/voice subdirs
+  },
   server: {
     host: '0.0.0.0', // Listen on all network interfaces
     port: 5173,

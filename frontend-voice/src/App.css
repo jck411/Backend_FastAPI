@@ -859,35 +859,25 @@
   gap: 8px;
 }
 
-.settings-sync-status {
+.settings-save-status {
   font-size: 0.62rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: rgba(255, 255, 255, 0.45);
 }
 
-.settings-sync-status.idle {
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.settings-sync-status.saving {
+.settings-save-status.saving {
   color: #93c5fd;
 }
 
-.settings-sync-status.error {
-  color: #fecaca;
+.settings-save-status.saved {
+  color: #86efac;
 }
 
 .settings-row {
   display: flex;
   flex-direction: column;
   gap: 8px;
-}
-
-.settings-note {
-  font-size: 0.72rem;
-  color: rgba(255, 255, 255, 0.52);
-  line-height: 1.45;
 }
 
 .settings-subtitle {

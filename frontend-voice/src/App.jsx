@@ -144,7 +144,7 @@ function App() {
   });
   const [settingsError, setSettingsError] = useState(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
-  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
   const [streamSpeedCps, setStreamSpeedCps] = useState(() => {
     if (typeof window === 'undefined') return DEFAULT_STREAM_SPEED_CPS;
     try {
@@ -191,6 +191,7 @@ function App() {
   const ttsDraftRef = useRef(ttsDraft);
   const settingsReadyRef = useRef(false);
   const settingsSaveTimerRef = useRef(null);
+  const settingsSavedTimerRef = useRef(null);
   const settingsSaveVersionRef = useRef(0);
   const savedSttPayloadKeyRef = useRef('');
   const savedTtsPayloadKeyRef = useRef('');
@@ -792,8 +793,12 @@ function App() {
       clearTimeout(settingsSaveTimerRef.current);
       settingsSaveTimerRef.current = null;
     }
+    if (settingsSavedTimerRef.current) {
+      clearTimeout(settingsSavedTimerRef.current);
+      settingsSavedTimerRef.current = null;
+    }
+    setSettingsSaved(false);
     setSettingsLoading(true);
-    setSettingsSaving(false);
     setSettingsError(null);
 
     const loadSettings = async () => {
@@ -866,10 +871,11 @@ function App() {
       settingsSaveTimerRef.current = null;
       const saveVersion = settingsSaveVersionRef.current + 1;
       settingsSaveVersionRef.current = saveVersion;
-      setSettingsSaving(true);
+      setSettingsSaved(false);
       setSettingsError(null);
 
       try {
+        let didSave = false;
         if (hasSttChanges) {
           const sttResp = await fetch('/api/clients/voice/stt', {
             method: 'PUT',
@@ -883,6 +889,7 @@ function App() {
           const normalizedStt = normalizeSttSettings(sttData, sttPayload);
           savedSttPayloadKeyRef.current = JSON.stringify(buildSttSettingsPayload(normalizedStt));
           setSttDraft(normalizedStt);
+          didSave = true;
         }
 
         if (hasTtsChanges) {
@@ -898,15 +905,26 @@ function App() {
           const normalizedTts = normalizeTtsSettings(ttsData, ttsPayload);
           savedTtsPayloadKeyRef.current = JSON.stringify(buildTtsSettingsPayload(normalizedTts));
           setTtsDraft(normalizedTts);
+          didSave = true;
+        }
+
+        if (didSave && settingsSaveVersionRef.current === saveVersion) {
+          setSettingsSaved(true);
+          if (settingsSavedTimerRef.current) {
+            clearTimeout(settingsSavedTimerRef.current);
+          }
+          settingsSavedTimerRef.current = setTimeout(() => {
+            setSettingsSaved(false);
+            settingsSavedTimerRef.current = null;
+          }, 1300);
         }
       } catch (err) {
         if (settingsSaveVersionRef.current === saveVersion) {
           setSettingsError(err instanceof Error ? err.message : 'Failed to save settings');
+          setSettingsSaved(false);
         }
       } finally {
-        if (settingsSaveVersionRef.current === saveVersion) {
-          setSettingsSaving(false);
-        }
+        // No-op: save lifecycle is reflected by the transient "Saved" status.
       }
     }, 350);
 
@@ -923,6 +941,10 @@ function App() {
       if (settingsSaveTimerRef.current) {
         clearTimeout(settingsSaveTimerRef.current);
         settingsSaveTimerRef.current = null;
+      }
+      if (settingsSavedTimerRef.current) {
+        clearTimeout(settingsSavedTimerRef.current);
+        settingsSavedTimerRef.current = null;
       }
     };
   }, []);
@@ -1089,13 +1111,6 @@ function App() {
     return 'Start listening';
   };
 
-  const getSettingsStatusLabel = () => {
-    if (settingsLoading) return 'Loading...';
-    if (settingsSaving) return 'Saving...';
-    if (settingsError) return 'Save failed';
-    return 'Auto-save on';
-  };
-
   return (
     <div className="app">
       <div className="top-controls">
@@ -1210,11 +1225,7 @@ function App() {
             <div className="panel-header">
               <span className="panel-header-title">Voice Settings</span>
               <div className="settings-header-actions">
-                <span
-                  className={`settings-sync-status ${settingsError ? 'error' : settingsSaving ? 'saving' : 'idle'}`}
-                >
-                  {getSettingsStatusLabel()}
-                </span>
+                {settingsSaved && <span className="settings-save-status saved">Saved</span>}
                 <button className="panel-header-btn" onClick={handleCloseSettings}>Close</button>
               </div>
             </div>
@@ -1225,198 +1236,6 @@ function App() {
               <div className="settings-loading">Loading...</div>
             ) : (
               <div className="settings-scroll">
-                <div className="settings-section">
-                  <div className="settings-section-title">Speech Recognition</div>
-                  <div className="settings-note">
-                    Conversation/Command mode only affects speech recognition.
-                  </div>
-                  <div className="settings-row">
-                    <div className="settings-label">Recognition mode</div>
-                    <div className="mode-toggle">
-                      <button
-                        className={`mode-btn ${sttDraft.mode === 'conversation' ? 'active' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSttDraft(prev => ({ ...prev, mode: 'conversation' }));
-                        }}
-                      >
-                        Conversation
-                      </button>
-                      <button
-                        className={`mode-btn ${sttDraft.mode === 'command' ? 'active' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSttDraft(prev => ({ ...prev, mode: 'command' }));
-                        }}
-                      >
-                        Command
-                      </button>
-                    </div>
-                  </div>
-                  <div className="settings-subtitle">
-                    {sttDraft.mode === 'conversation' ? 'Conversation (Flux)' : 'Command (Nova-3)'}
-                  </div>
-                  {sttDraft.mode === 'conversation' ? (
-                    <>
-                    <div className="settings-row">
-                      <div className="settings-label">End of turn timeout</div>
-                      <div className="settings-value">{sttDraft.eot_timeout_ms} ms</div>
-                      <input
-                        className="settings-slider"
-                        type="range"
-                        min="100"
-                        max="2000"
-                        step="100"
-                        value={sttDraft.eot_timeout_ms}
-                        onChange={(e) => setSttDraft(prev => ({
-                          ...prev,
-                          eot_timeout_ms: Number(e.target.value),
-                        }))}
-                      />
-                    </div>
-
-                    <div className="settings-row">
-                      <div className="settings-label">End of turn threshold</div>
-                      <div className="settings-value">
-                        {Number(sttDraft.eot_threshold).toFixed(2)}
-                      </div>
-                      <input
-                        className="settings-slider"
-                        type="range"
-                        min="0.5"
-                        max="0.9"
-                        step="0.01"
-                        value={sttDraft.eot_threshold}
-                        onChange={(e) => setSttDraft(prev => ({
-                          ...prev,
-                          eot_threshold: Number(e.target.value),
-                        }))}
-                      />
-                    </div>
-
-                    <div className="settings-row">
-                      <div className="settings-label">Listen timeout</div>
-                      <div className="settings-value">
-                        {sttDraft.listen_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.listen_timeout_seconds}s`}
-                      </div>
-                      <input
-                        className="settings-slider"
-                        type="range"
-                        min="0"
-                        max="30"
-                        step="1"
-                        value={sttDraft.listen_timeout_seconds}
-                        onChange={(e) => setSttDraft(prev => ({
-                          ...prev,
-                          listen_timeout_seconds: Number(e.target.value),
-                        }))}
-                      />
-                    </div>
-                  </>
-                  ) : (
-                    <>
-                    <div className="settings-row">
-                      <div className="settings-label">Utterance end</div>
-                      <div className="settings-value">{sttDraft.command_utterance_end_ms} ms</div>
-                      <input
-                        className="settings-slider"
-                        type="range"
-                        min="500"
-                        max="3000"
-                        step="100"
-                        value={sttDraft.command_utterance_end_ms}
-                        onChange={(e) => setSttDraft(prev => ({
-                          ...prev,
-                          command_utterance_end_ms: Number(e.target.value),
-                        }))}
-                      />
-                    </div>
-
-                    <div className="settings-row">
-                      <div className="settings-label">Endpointing</div>
-                      <div className="settings-value">{sttDraft.command_endpointing} ms</div>
-                      <input
-                        className="settings-slider"
-                        type="range"
-                        min="300"
-                        max="2000"
-                        step="100"
-                        value={sttDraft.command_endpointing}
-                        onChange={(e) => setSttDraft(prev => ({
-                          ...prev,
-                          command_endpointing: Number(e.target.value),
-                        }))}
-                      />
-                    </div>
-
-                    <div className="settings-row">
-                      <div className="settings-label">Smart format</div>
-                      <button
-                        className={`settings-toggle ${sttDraft.command_smart_format ? 'on' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSttDraft(prev => ({ ...prev, command_smart_format: !prev.command_smart_format }));
-                        }}
-                      >
-                        {sttDraft.command_smart_format ? 'On' : 'Off'}
-                      </button>
-                    </div>
-
-                    <div className="settings-row">
-                      <div className="settings-label">Punctuate</div>
-                      <button
-                        className={`settings-toggle ${sttDraft.command_punctuate ? 'on' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSttDraft(prev => ({ ...prev, command_punctuate: !prev.command_punctuate }));
-                        }}
-                      >
-                        {sttDraft.command_punctuate ? 'On' : 'Off'}
-                      </button>
-                    </div>
-
-                    <div className="settings-row">
-                      <div className="settings-label">Numerals</div>
-                      <button
-                        className={`settings-toggle ${sttDraft.command_numerals ? 'on' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSttDraft(prev => ({ ...prev, command_numerals: !prev.command_numerals }));
-                        }}
-                      >
-                        {sttDraft.command_numerals ? 'On' : 'Off'}
-                      </button>
-                    </div>
-
-                    <div className="settings-row">
-                      <div className="settings-label">Filler words</div>
-                      <button
-                        className={`settings-toggle ${sttDraft.command_filler_words ? 'on' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSttDraft(prev => ({ ...prev, command_filler_words: !prev.command_filler_words }));
-                        }}
-                      >
-                        {sttDraft.command_filler_words ? 'On' : 'Off'}
-                      </button>
-                    </div>
-
-                    <div className="settings-row">
-                      <div className="settings-label">Profanity filter</div>
-                      <button
-                        className={`settings-toggle ${sttDraft.command_profanity_filter ? 'on' : ''}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSttDraft(prev => ({ ...prev, command_profanity_filter: !prev.command_profanity_filter }));
-                        }}
-                      >
-                        {sttDraft.command_profanity_filter ? 'On' : 'Off'}
-                      </button>
-                    </div>
-                  </>
-                  )}
-                </div>
-
                 <div className="settings-section">
                   <div className="settings-section-title">Text to Speech</div>
 
@@ -1459,6 +1278,195 @@ function App() {
                       disabled={syncToTts && ttsDraft.enabled}
                     />
                   </div>
+                </div>
+
+                <div className="settings-section">
+                  <div className="settings-section-title">Speech Recognition</div>
+                  <div className="settings-row">
+                    <div className="settings-label">Recognition mode</div>
+                    <div className="mode-toggle">
+                      <button
+                        className={`mode-btn ${sttDraft.mode === 'conversation' ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSttDraft(prev => ({ ...prev, mode: 'conversation' }));
+                        }}
+                      >
+                        Conversation
+                      </button>
+                      <button
+                        className={`mode-btn ${sttDraft.mode === 'command' ? 'active' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSttDraft(prev => ({ ...prev, mode: 'command' }));
+                        }}
+                      >
+                        Command
+                      </button>
+                    </div>
+                  </div>
+                  <div className="settings-subtitle">
+                    {sttDraft.mode === 'conversation' ? 'Conversation (Flux)' : 'Command (Nova-3)'}
+                  </div>
+                  {sttDraft.mode === 'conversation' ? (
+                    <>
+                      <div className="settings-row">
+                        <div className="settings-label">End of turn timeout</div>
+                        <div className="settings-value">{sttDraft.eot_timeout_ms} ms</div>
+                        <input
+                          className="settings-slider"
+                          type="range"
+                          min="100"
+                          max="2000"
+                          step="100"
+                          value={sttDraft.eot_timeout_ms}
+                          onChange={(e) => setSttDraft(prev => ({
+                            ...prev,
+                            eot_timeout_ms: Number(e.target.value),
+                          }))}
+                        />
+                      </div>
+
+                      <div className="settings-row">
+                        <div className="settings-label">End of turn threshold</div>
+                        <div className="settings-value">
+                          {Number(sttDraft.eot_threshold).toFixed(2)}
+                        </div>
+                        <input
+                          className="settings-slider"
+                          type="range"
+                          min="0.5"
+                          max="0.9"
+                          step="0.01"
+                          value={sttDraft.eot_threshold}
+                          onChange={(e) => setSttDraft(prev => ({
+                            ...prev,
+                            eot_threshold: Number(e.target.value),
+                          }))}
+                        />
+                      </div>
+
+                      <div className="settings-row">
+                        <div className="settings-label">Listen timeout</div>
+                        <div className="settings-value">
+                          {sttDraft.listen_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.listen_timeout_seconds}s`}
+                        </div>
+                        <input
+                          className="settings-slider"
+                          type="range"
+                          min="0"
+                          max="30"
+                          step="1"
+                          value={sttDraft.listen_timeout_seconds}
+                          onChange={(e) => setSttDraft(prev => ({
+                            ...prev,
+                            listen_timeout_seconds: Number(e.target.value),
+                          }))}
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="settings-row">
+                        <div className="settings-label">Utterance end</div>
+                        <div className="settings-value">{sttDraft.command_utterance_end_ms} ms</div>
+                        <input
+                          className="settings-slider"
+                          type="range"
+                          min="500"
+                          max="3000"
+                          step="100"
+                          value={sttDraft.command_utterance_end_ms}
+                          onChange={(e) => setSttDraft(prev => ({
+                            ...prev,
+                            command_utterance_end_ms: Number(e.target.value),
+                          }))}
+                        />
+                      </div>
+
+                      <div className="settings-row">
+                        <div className="settings-label">Endpointing</div>
+                        <div className="settings-value">{sttDraft.command_endpointing} ms</div>
+                        <input
+                          className="settings-slider"
+                          type="range"
+                          min="300"
+                          max="2000"
+                          step="100"
+                          value={sttDraft.command_endpointing}
+                          onChange={(e) => setSttDraft(prev => ({
+                            ...prev,
+                            command_endpointing: Number(e.target.value),
+                          }))}
+                        />
+                      </div>
+
+                      <div className="settings-row">
+                        <div className="settings-label">Smart format</div>
+                        <button
+                          className={`settings-toggle ${sttDraft.command_smart_format ? 'on' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSttDraft(prev => ({ ...prev, command_smart_format: !prev.command_smart_format }));
+                          }}
+                        >
+                          {sttDraft.command_smart_format ? 'On' : 'Off'}
+                        </button>
+                      </div>
+
+                      <div className="settings-row">
+                        <div className="settings-label">Punctuate</div>
+                        <button
+                          className={`settings-toggle ${sttDraft.command_punctuate ? 'on' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSttDraft(prev => ({ ...prev, command_punctuate: !prev.command_punctuate }));
+                          }}
+                        >
+                          {sttDraft.command_punctuate ? 'On' : 'Off'}
+                        </button>
+                      </div>
+
+                      <div className="settings-row">
+                        <div className="settings-label">Numerals</div>
+                        <button
+                          className={`settings-toggle ${sttDraft.command_numerals ? 'on' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSttDraft(prev => ({ ...prev, command_numerals: !prev.command_numerals }));
+                          }}
+                        >
+                          {sttDraft.command_numerals ? 'On' : 'Off'}
+                        </button>
+                      </div>
+
+                      <div className="settings-row">
+                        <div className="settings-label">Filler words</div>
+                        <button
+                          className={`settings-toggle ${sttDraft.command_filler_words ? 'on' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSttDraft(prev => ({ ...prev, command_filler_words: !prev.command_filler_words }));
+                          }}
+                        >
+                          {sttDraft.command_filler_words ? 'On' : 'Off'}
+                        </button>
+                      </div>
+
+                      <div className="settings-row">
+                        <div className="settings-label">Profanity filter</div>
+                        <button
+                          className={`settings-toggle ${sttDraft.command_profanity_filter ? 'on' : ''}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSttDraft(prev => ({ ...prev, command_profanity_filter: !prev.command_profanity_filter }));
+                          }}
+                        >
+                          {sttDraft.command_profanity_filter ? 'On' : 'Off'}
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             )}

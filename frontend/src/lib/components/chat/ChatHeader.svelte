@@ -98,10 +98,7 @@
 
 <header class="topbar chat-header">
   <div class="topbar-content">
-    <div
-      class="controls"
-      id="chat-header-controls"
-    >
+    <div class="controls" id="chat-header-controls">
       <button
         class="btn btn-ghost btn-small explorer"
         type="button"

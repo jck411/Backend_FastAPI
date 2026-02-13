@@ -79,6 +79,13 @@
   let editingOriginalText = "";
   let editingSaving = false;
   let isStandalonePwa = false;
+  let deferredInstallPrompt: BeforeInstallPromptEvent | null = null;
+  let showInstallBanner = false;
+
+  interface BeforeInstallPromptEvent extends Event {
+    prompt(): Promise<void>;
+    userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
+  }
 
   onMount(async () => {
     if (typeof window !== "undefined") {
@@ -86,14 +93,30 @@
       const updateStandaloneMode = (): void => {
         const iosStandalone =
           "standalone" in window.navigator &&
-          (window.navigator as Navigator & { standalone?: boolean }).standalone ===
-            true;
+          (window.navigator as Navigator & { standalone?: boolean })
+            .standalone === true;
         isStandalonePwa = standaloneQuery.matches || iosStandalone;
       };
       updateStandaloneMode();
       standaloneQuery.addEventListener("change", updateStandaloneMode);
+
+      // PWA install prompt
+      const handleBeforeInstall = (e: Event): void => {
+        e.preventDefault();
+        deferredInstallPrompt = e as BeforeInstallPromptEvent;
+        showInstallBanner = true;
+      };
+      window.addEventListener("beforeinstallprompt", handleBeforeInstall);
+
+      // Hide banner if app gets installed
+      window.addEventListener("appinstalled", () => {
+        showInstallBanner = false;
+        deferredInstallPrompt = null;
+      });
+
       onDestroy(() => {
         standaloneQuery.removeEventListener("change", updateStandaloneMode);
+        window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
       });
     }
 
@@ -332,6 +355,20 @@
   $: if (editingMessageId) {
     stopSpeech();
   }
+
+  async function handleInstallClick(): Promise<void> {
+    if (!deferredInstallPrompt) return;
+    await deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    if (outcome === "accepted") {
+      showInstallBanner = false;
+    }
+    deferredInstallPrompt = null;
+  }
+
+  function dismissInstallBanner(): void {
+    showInstallBanner = false;
+  }
 </script>
 
 <main class="chat-app">
@@ -443,6 +480,34 @@
   />
 
   <ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />
+
+  {#if showInstallBanner}
+    <div
+      class="install-banner"
+      role="alertdialog"
+      aria-labelledby="install-title"
+    >
+      <div class="install-content">
+        <span id="install-title">Install this app for a better experience</span>
+        <div class="install-actions">
+          <button
+            class="install-btn install-btn-primary"
+            type="button"
+            on:click={handleInstallClick}
+          >
+            Install
+          </button>
+          <button
+            class="install-btn install-btn-dismiss"
+            type="button"
+            on:click={dismissInstallBanner}
+          >
+            Not now
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </main>
 
 <style>
@@ -548,5 +613,84 @@
     border-color: #fca5a5;
     color: #fca5a5;
     outline: none;
+  }
+  .install-banner {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    padding: 1rem;
+    padding-bottom: max(1rem, env(safe-area-inset-bottom, 0));
+    background: linear-gradient(
+      to top,
+      rgba(4, 6, 13, 0.98),
+      rgba(12, 22, 40, 0.95)
+    );
+    border-top: 1px solid rgba(56, 189, 248, 0.3);
+    backdrop-filter: blur(12px);
+    animation: slideUp 0.3s ease-out;
+  }
+  @keyframes slideUp {
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+  .install-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  .install-content > span {
+    font-size: 0.95rem;
+    color: #e5edff;
+  }
+  .install-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-shrink: 0;
+  }
+  .install-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .install-btn-primary {
+    background: #38bdf8;
+    color: #04060d;
+    border: none;
+  }
+  .install-btn-primary:hover,
+  .install-btn-primary:focus-visible {
+    background: #7dd3fc;
+    outline: none;
+  }
+  .install-btn-dismiss {
+    background: transparent;
+    color: #9fb3d8;
+    border: 1px solid rgba(159, 179, 216, 0.4);
+  }
+  .install-btn-dismiss:hover,
+  .install-btn-dismiss:focus-visible {
+    color: #c8d6ef;
+    border-color: rgba(159, 179, 216, 0.7);
+    outline: none;
+  }
+  @media (max-width: 480px) {
+    .install-content {
+      flex-direction: column;
+      text-align: center;
+    }
   }
 </style>

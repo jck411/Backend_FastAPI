@@ -7,12 +7,3 @@ const app = mount(App, {
 })
 
 export default app
-
-
-if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((error) => {
-      console.error("Service worker registration failed", error)
-    })
-  })
-}

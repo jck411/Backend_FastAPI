@@ -60,26 +60,12 @@ If the site looks stale after deploy, purge Cloudflare:
 
 ```bash
 cd /home/human/REPOS/Backend_FastAPI
-python scripts/purge_cloudflare.py --zone chat.jackshome.com
+python scripts/cloudflare_interactive.py
 ```
 
-Optional: set this once in `.env` to avoid passing `--zone` each time:
-
-```bash
-CLOUDFLARE_ZONE=chat.jackshome.com
-```
-
-Then you can run:
-
-```bash
-python scripts/purge_cloudflare.py
-```
-
-Optional (targeted purge):
-
-```bash
-python scripts/purge_cloudflare.py --zone chat.jackshome.com --urls https://chat.jackshome.com/ https://chat.jackshome.com/voice/
-```
+Then choose:
+1. your zone
+2. `4` (Purge cache)
 
 Optional emergency workaround: enable Development Mode for 3 hours (menu option `5`) to bypass edge cache while validating fixes.
 

@@ -32,12 +32,10 @@
   let WebSearchMenu: WebSearchMenuComponent | null = null;
   let modelPickerLoading = false;
   let webSearchMenuLoading = false;
-  let controlsOpen = true;
-  let previousPwaMode = pwaMode;
+  let controlsOpen = false;
 
-  $: if (pwaMode !== previousPwaMode) {
-    controlsOpen = pwaMode ? false : true;
-    previousPwaMode = pwaMode;
+  function closeDrawer(): void {
+    controlsOpen = false;
   }
 
   async function loadModelPicker(): Promise<void> {
@@ -72,10 +70,12 @@
   });
 
   function handleExplorerClick(): void {
+    closeDrawer();
     dispatch("openExplorer");
   }
 
   function handleClear(): void {
+    closeDrawer();
     dispatch("clear");
   }
 
@@ -84,47 +84,75 @@
   }
 
   function forwardOpenModelSettings(): void {
+    closeDrawer();
     dispatch("openModelSettings");
   }
 
   function forwardOpenSystemSettings(): void {
+    closeDrawer();
     dispatch("openSystemSettings");
   }
 
   function forwardOpenKioskSettings(): void {
+    closeDrawer();
     dispatch("openKioskSettings");
   }
 
   function forwardOpenCliSettings(): void {
+    closeDrawer();
     dispatch("openCliSettings");
   }
 
   function forwardOpenMcpServers(): void {
+    closeDrawer();
     dispatch("openMcpServers");
   }
 </script>
 
-<header class="topbar chat-header" data-pwa-mode={pwaMode}>
-  <div class="topbar-content">
-    {#if pwaMode}
-      <div class="mobile-toolbar">
-        <span class="mobile-title">Chat controls</span>
-        <button
-          class="btn btn-ghost btn-small mobile-toggle"
-          type="button"
-          aria-expanded={controlsOpen}
-          aria-controls="chat-header-controls"
-          on:click={() => (controlsOpen = !controlsOpen)}
-        >
-          {controlsOpen ? "Hide" : "Show"}
-        </button>
-      </div>
-    {/if}
+<header class="topbar chat-header" data-pwa-mode={pwaMode} data-drawer-open={controlsOpen}>
+  <!-- Mobile hamburger bar (≤768px) -->
+  <div class="mobile-bar">
+    <button
+      class="hamburger-btn"
+      type="button"
+      aria-label={controlsOpen ? "Close menu" : "Open menu"}
+      aria-expanded={controlsOpen}
+      aria-controls="chat-header-controls"
+      on:click={() => (controlsOpen = !controlsOpen)}
+    >
+      {#if controlsOpen}
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      {:else}
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      {/if}
+    </button>
+    <span class="mobile-model-name">
+      {#if selectedModel}
+        {selectableModels.find(m => m.id === selectedModel)?.name ?? selectedModel.split('/').pop() ?? 'Chat'}
+      {:else}
+        Chat
+      {/if}
+    </span>
+    <button
+      class="btn btn-ghost btn-small mobile-clear"
+      type="button"
+      on:click={handleClear}
+      disabled={!hasMessages}
+      aria-label="Clear conversation"
+    >
+      Clear
+    </button>
+  </div>
 
+  <!-- Desktop topbar content -->
+  <div class="topbar-content">
     <div
       class="controls"
       id="chat-header-controls"
-      data-collapsed={pwaMode && !controlsOpen}
     >
       <button
         class="btn btn-ghost btn-small explorer"
@@ -387,9 +415,21 @@
       </div>
     </div>
   </div>
+
+  <!-- Mobile drawer backdrop -->
+  {#if controlsOpen}
+    <button
+      class="drawer-backdrop"
+      type="button"
+      aria-label="Close menu"
+      tabindex="-1"
+      on:click={() => (controlsOpen = false)}
+    ></button>
+  {/if}
 </header>
 
 <style>
+  /* ── Base (desktop) ── */
   .topbar {
     height: var(--header-h);
     flex-shrink: 0;
@@ -407,7 +447,10 @@
     align-items: center;
     justify-content: flex-start;
   }
-  .mobile-toolbar {
+  .mobile-bar {
+    display: none;
+  }
+  .drawer-backdrop {
     display: none;
   }
   .controls {
@@ -470,7 +513,6 @@
     white-space: nowrap;
     color: #e5edff;
   }
-  /* Small indicator dot for active state */
   .preset-badge .dot {
     width: 0.4rem;
     height: 0.4rem;
@@ -478,7 +520,6 @@
     background: #22c55e;
     box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.15);
   }
-  /* Spinner when applying */
   .preset-badge.applying .spinner {
     width: 0.85rem;
     height: 0.85rem;
@@ -488,12 +529,8 @@
     animation: spin 0.9s linear infinite;
   }
   @keyframes spin {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
-    }
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
   }
   :global(.chat-header .controls select) {
     appearance: none;
@@ -556,6 +593,8 @@
     border: 1px solid rgba(62, 90, 140, 0.6);
     color: #9fb3d8;
   }
+
+  /* ── Tablet breakpoint ── */
   @media (max-width: 1280px) {
     .topbar {
       height: auto;
@@ -631,60 +670,145 @@
       gap: 0.65rem;
     }
   }
+
+  /* ── Mobile: hamburger + slide-out drawer ── */
   @media (max-width: 768px) {
     .topbar {
-      padding: 0.75rem 1.15rem 0.75rem;
+      height: auto;
+      padding: 0;
+      flex-direction: column;
+      align-items: stretch;
     }
+
+    /* Thin always-visible bar */
+    .mobile-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      padding-top: max(0.5rem, env(safe-area-inset-top, 0));
+      background: rgba(4, 6, 13, 0.97);
+      border-bottom: 1px solid rgba(37, 49, 77, 0.5);
+      position: relative;
+      z-index: 52;
+    }
+    .hamburger-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      border: none;
+      border-radius: 0.5rem;
+      background: transparent;
+      color: #c8d6ef;
+      cursor: pointer;
+      transition: background 0.15s ease, color 0.15s ease;
+      flex-shrink: 0;
+    }
+    .hamburger-btn:hover,
+    .hamburger-btn:focus-visible {
+      background: rgba(56, 189, 248, 0.12);
+      color: #38bdf8;
+      outline: none;
+    }
+    .mobile-model-name {
+      flex: 1;
+      text-align: center;
+      font-size: 0.8rem;
+      color: #9fb3d8;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      padding: 0 0.25rem;
+    }
+    .mobile-clear {
+      flex-shrink: 0;
+      font-size: 0.78rem;
+      padding: 0.3rem 0.7rem;
+    }
+
+    /* Desktop topbar-content becomes the drawer */
     .topbar-content {
+      position: fixed;
+      top: 0;
+      left: 0;
+      bottom: 0;
+      width: min(300px, 80vw);
+      background: rgba(6, 10, 20, 0.98);
+      border-right: 1px solid rgba(37, 49, 77, 0.6);
+      padding: 1rem;
+      padding-top: calc(max(0.5rem, env(safe-area-inset-top, 0)) + 3rem);
+      overflow-y: auto;
+      z-index: 51;
+      transform: translateX(-100%);
+      transition: transform 0.25s ease;
+      flex-direction: column;
+      backdrop-filter: blur(16px);
+    }
+    .topbar[data-drawer-open="true"] .topbar-content {
+      transform: translateX(0);
+    }
+
+    .controls {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
       max-width: 100%;
     }
-    .controls {
-      max-width: 100%;
+    .controls > * {
+      width: 100%;
+      min-width: 0;
     }
     :global(.chat-header .controls .btn),
-    :global(.chat-header .controls select) {
-      padding: 0.55rem 0.9rem;
+    :global(.chat-header .controls select),
+    .preset-badge,
+    .model-picker-loading,
+    .web-search-loading,
+    :global(.chat-header .controls .model-picker),
+    :global(.chat-header .controls .web-search) {
+      width: 100%;
     }
-    :global(.chat-header .controls .btn.settings-icon svg) {
-      width: 1rem;
-      height: 1rem;
+    :global(.chat-header .controls .btn) {
+      justify-content: flex-start;
+      padding: 0.6rem 0.75rem;
+    }
+    :global(.chat-header .controls select) {
+      min-width: 0;
+      width: 100%;
     }
     .icon-row {
+      flex-wrap: wrap;
       gap: 0.5rem;
+      justify-content: flex-start;
+    }
+    .icon-row :global(.btn) {
+      width: auto;
+    }
+    .preset-badge {
+      width: 100%;
+      justify-content: flex-start;
+    }
+
+    /* Backdrop overlay */
+    .drawer-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(0, 0, 0, 0.5);
+      border: none;
+      padding: 0;
+      cursor: default;
+    }
+    .topbar[data-drawer-open="true"] .drawer-backdrop {
+      display: block;
     }
   }
-  .topbar[data-pwa-mode="true"] {
-    height: auto;
-    padding-top: max(0.5rem, env(safe-area-inset-top, 0));
-    padding-bottom: 0.5rem;
-  }
-  .topbar[data-pwa-mode="true"] .topbar-content {
-    gap: 0.5rem;
-  }
-  .topbar[data-pwa-mode="true"] .mobile-toolbar {
-    display: flex;
-    width: 100%;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-  .topbar[data-pwa-mode="true"] .mobile-title {
-    font-size: 0.85rem;
-    letter-spacing: 0.03em;
-    text-transform: uppercase;
-    color: #9fb3d8;
-  }
-  .topbar[data-pwa-mode="true"] .mobile-toggle {
-    min-width: 80px;
-    justify-content: center;
-  }
-  .topbar[data-pwa-mode="true"] .controls[data-collapsed="true"] {
-    display: none;
-  }
+
   @media (max-width: 480px) {
-    .topbar {
-      padding: 0.75rem 1rem 0.5rem;
-    }
     .preset-badge .name {
       max-width: 20ch;
     }

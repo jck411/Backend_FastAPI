@@ -526,7 +526,8 @@
     );
     color: #f3f5ff;
     overflow: hidden;
-    position: relative;
+    position: fixed;
+    inset: 0;
   }
   .chat-app::before,
   .chat-app::after {
@@ -571,11 +572,11 @@
   }
   @media (max-width: 768px) {
     .chat-app {
-      --header-h: 56px;
+      --header-h: 48px;
       --composer-h: 170px;
     }
     .chat-app::before {
-      height: calc(var(--header-h) + 1.5rem);
+      display: none;
     }
     .chat-app::after {
       height: calc(var(--composer-h) + 1.5rem);

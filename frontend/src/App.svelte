@@ -639,6 +639,16 @@
       height: calc(var(--composer-h) + 1.5rem);
     }
   }
+
+  @media (max-width: 768px) and (prefers-reduced-motion: reduce) {
+    .chat-main,
+    .chat-error,
+    :global(.chat-app .composer),
+    :global(.chat-app .chat-header .mobile-bar) {
+      transition: none;
+    }
+  }
+
   .chat-error {
     display: flex;
     align-items: center;

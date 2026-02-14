@@ -34,8 +34,14 @@
   let modelPickerLoading = false;
   let webSearchMenuLoading = false;
   let controlsOpen = false;
+  let lastDrawerOpen: boolean | null = null;
 
-  $: dispatch("drawerToggle", { open: controlsOpen });
+  $: {
+    if (lastDrawerOpen !== controlsOpen) {
+      lastDrawerOpen = controlsOpen;
+      dispatch("drawerToggle", { open: controlsOpen });
+    }
+  }
 
   function closeDrawer(): void {
     controlsOpen = false;
@@ -845,6 +851,12 @@
   @media (max-width: 480px) {
     .preset-badge .name {
       max-width: 20ch;
+    }
+  }
+
+  @media (max-width: 768px) and (prefers-reduced-motion: reduce) {
+    .topbar-content {
+      transition: none;
     }
   }
 </style>

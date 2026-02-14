@@ -281,7 +281,8 @@
       text-align: center;
     }
     .add-btn {
-      width: 100%;
+      width: auto;
+      align-self: flex-start;
     }
     .add-form {
       width: 100%;

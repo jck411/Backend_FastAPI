@@ -82,6 +82,17 @@
   let showInstallBanner = false;
   let pwaMode = false;
 
+  function syncAppViewportHeight(): void {
+    if (typeof window === "undefined" || typeof document === "undefined") {
+      return;
+    }
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    document.documentElement.style.setProperty(
+      "--app-vh",
+      `${Math.round(viewportHeight)}px`,
+    );
+  }
+
   interface BeforeInstallPromptEvent extends Event {
     prompt(): Promise<void>;
     userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
@@ -89,6 +100,15 @@
 
   onMount(async () => {
     if (typeof window !== "undefined") {
+      const handleViewportChange = (): void => {
+        syncAppViewportHeight();
+      };
+
+      syncAppViewportHeight();
+      window.addEventListener("resize", handleViewportChange);
+      window.visualViewport?.addEventListener("resize", handleViewportChange);
+      window.visualViewport?.addEventListener("scroll", handleViewportChange);
+
       // Detect PWA mode (standalone display)
       pwaMode =
         window.matchMedia("(display-mode: standalone)").matches ||
@@ -111,6 +131,18 @@
 
       onDestroy(() => {
         window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
+        window.removeEventListener("resize", handleViewportChange);
+        window.visualViewport?.removeEventListener(
+          "resize",
+          handleViewportChange,
+        );
+        window.visualViewport?.removeEventListener(
+          "scroll",
+          handleViewportChange,
+        );
+        if (typeof document !== "undefined") {
+          document.documentElement.style.removeProperty("--app-vh");
+        }
       });
     }
 
@@ -387,28 +419,31 @@
     on:openCliSettings={() => (cliSettingsOpen = true)}
   />
 
-  {#if !$chatStore.messages.length}
-    <QuickPrompts
-      bind:this={quickPromptsComponent}
-      suggestions={$suggestionsStore.items}
-      deleting={$suggestionsStore.deleting}
-      {pwaMode}
-      on:add={handleSuggestionAdd}
-      on:delete={handleSuggestionDelete}
-      on:select={(event) => handlePromptSelect(event.detail.text)}
-    />
-  {/if}
+  <section class="chat-main">
+    {#if !$chatStore.messages.length}
+      <QuickPrompts
+        bind:this={quickPromptsComponent}
+        suggestions={$suggestionsStore.items}
+        deleting={$suggestionsStore.deleting}
+        {pwaMode}
+        on:add={handleSuggestionAdd}
+        on:delete={handleSuggestionDelete}
+        on:select={(event) => handlePromptSelect(event.detail.text)}
+      />
+    {/if}
 
-  <MessageList
-    messages={$chatStore.messages}
-    on:openGenerationDetails={(event) => openGenerationDetails(event.detail.id)}
-    on:deleteMessage={handleDeleteMessage}
-    on:retryMessage={(event) => handleRetryMessage(event.detail.id)}
-    on:editMessage={(event) => beginEditingMessage(event.detail.id)}
-    on:editAssistantAttachment={(event) =>
-      handleAssistantAttachmentEdit(event.detail)}
-    disableDelete={$chatStore.isStreaming}
-  />
+    <MessageList
+      messages={$chatStore.messages}
+      on:openGenerationDetails={(event) =>
+        openGenerationDetails(event.detail.id)}
+      on:deleteMessage={handleDeleteMessage}
+      on:retryMessage={(event) => handleRetryMessage(event.detail.id)}
+      on:editMessage={(event) => beginEditingMessage(event.detail.id)}
+      on:editAssistantAttachment={(event) =>
+        handleAssistantAttachmentEdit(event.detail)}
+      disableDelete={$chatStore.isStreaming}
+    />
+  </section>
 
   {#if $chatStore.error}
     <div class="chat-error" role="alert">
@@ -512,11 +547,10 @@
   .chat-app {
     --header-h: 64px;
     --composer-h: 140px;
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    height: 100dvh;
-    min-height: 100vh;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    height: var(--app-vh, 100dvh);
+    min-height: 0;
     padding-bottom: env(safe-area-inset-bottom, 0);
     background: radial-gradient(
       circle at top,
@@ -526,8 +560,12 @@
     );
     color: #f3f5ff;
     overflow: hidden;
-    position: fixed;
-    inset: 0;
+    position: relative;
+  }
+  .chat-main {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
   }
   .chat-app::before,
   .chat-app::after {

@@ -40,6 +40,7 @@
   let attachments: AttachmentDraft[] = [];
   let composerError: string | null = null;
   let fileInput: HTMLInputElement | null = null;
+  let promptInput: HTMLTextAreaElement | null = null;
   let previousPreset: AttachmentResource[] | null = null;
 
   $: trimmedPrompt = prompt.trim();
@@ -161,6 +162,15 @@
       return;
     }
     dispatch("startDictation");
+  }
+
+  function ensureComposerVisible(): void {
+    if (typeof window === "undefined" || !promptInput) {
+      return;
+    }
+    window.setTimeout(() => {
+      promptInput?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }, 80);
   }
 
   $: dictationActive =
@@ -349,9 +359,11 @@
       />
 
       <textarea
+        bind:this={promptInput}
         rows="1"
         bind:value={prompt}
         on:keydown={handleKeydown}
+        on:focus={ensureComposerVisible}
         placeholder={isStreaming ? "Waiting for response…" : "Type here…"}
         aria-disabled={isStreaming}
         use:autoResize={prompt}
@@ -637,7 +649,7 @@
   }
   @media (max-width: 768px) {
     .composer {
-      padding: 0 0 0.5rem;
+      padding: 0 0 max(0.5rem, env(safe-area-inset-bottom, 0));
     }
     .composer-content {
       padding: 0 1rem;

@@ -59,14 +59,16 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
-  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
   overflow: hidden;
   overscroll-behavior: none;
   background: var(--color-bg);
 }
 
 body {
-  position: fixed;
+  position: relative;
   width: 100%;
   touch-action: manipulation;
 }

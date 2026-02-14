@@ -27,11 +27,16 @@
   --transition-med: 0.2s ease;
 
   /* Responsive Breakpoints */
-  --bp-xl: 1280px; /* Large desktop / wide header layouts */
-  --bp-lg: 1024px; /* Small desktop / large tablet */
-  --bp-md: 768px; /* Tablet / landscape phone */
-  --bp-sm: 640px; /* Large phone */
-  --bp-xs: 480px; /* Small phone */
+  --bp-xl: 1280px;
+  /* Large desktop / wide header layouts */
+  --bp-lg: 1024px;
+  /* Small desktop / large tablet */
+  --bp-md: 768px;
+  /* Tablet / landscape phone */
+  --bp-sm: 640px;
+  /* Large phone */
+  --bp-xs: 480px;
+  /* Small phone */
 
   font-family: var(--font-sans);
   line-height: var(--line-height);

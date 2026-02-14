@@ -20,6 +20,7 @@
     openKioskSettings: void;
     openCliSettings: void;
     openMcpServers: void;
+    drawerToggle: { open: boolean };
   }>();
 
   export let selectableModels: SelectableModel[] = [];
@@ -33,6 +34,8 @@
   let modelPickerLoading = false;
   let webSearchMenuLoading = false;
   let controlsOpen = false;
+
+  $: dispatch("drawerToggle", { open: controlsOpen });
 
   function closeDrawer(): void {
     controlsOpen = false;
@@ -109,7 +112,11 @@
   }
 </script>
 
-<header class="topbar chat-header" data-pwa-mode={pwaMode} data-drawer-open={controlsOpen}>
+<header
+  class="topbar chat-header"
+  data-pwa-mode={pwaMode}
+  data-drawer-open={controlsOpen}
+>
   <!-- Mobile hamburger bar (≤768px) -->
   <div class="mobile-bar">
     <button
@@ -121,18 +128,42 @@
       on:click={() => (controlsOpen = !controlsOpen)}
     >
       {#if controlsOpen}
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M18 6L6 18M6 6l12 12"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
         </svg>
       {:else}
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M4 6h16M4 12h16M4 18h16"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
         </svg>
       {/if}
     </button>
     <span class="mobile-model-name">
       {#if selectedModel}
-        {selectableModels.find(m => m.id === selectedModel)?.name ?? selectedModel.split('/').pop() ?? 'Chat'}
+        {selectableModels.find((m) => m.id === selectedModel)?.name ??
+          selectedModel.split("/").pop() ??
+          "Chat"}
       {:else}
         Chat
       {/if}
@@ -150,10 +181,7 @@
 
   <!-- Desktop topbar content -->
   <div class="topbar-content">
-    <div
-      class="controls"
-      id="chat-header-controls"
-    >
+    <div class="controls" id="chat-header-controls">
       <button
         class="btn btn-ghost btn-small explorer"
         type="button"
@@ -529,8 +557,12 @@
     animation: spin 0.9s linear infinite;
   }
   @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
   }
   :global(.chat-header .controls select) {
     appearance: none;
@@ -705,7 +737,9 @@
       background: transparent;
       color: #c8d6ef;
       cursor: pointer;
-      transition: background 0.15s ease, color 0.15s ease;
+      transition:
+        background 0.15s ease,
+        color 0.15s ease;
       flex-shrink: 0;
     }
     .hamburger-btn:hover,

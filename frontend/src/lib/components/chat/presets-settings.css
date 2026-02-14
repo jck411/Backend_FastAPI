@@ -2,20 +2,24 @@
   width: min(820px, calc(100% - 2rem));
   max-height: min(80vh, 720px);
 }
+
 :global(.presets-body) {
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
 }
+
 .create-row {
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
 }
+
 .create-row input[type="text"] {
   flex: 1;
   min-width: 200px;
 }
+
 .preset-list {
   list-style: none;
   padding: 0;
@@ -23,6 +27,7 @@
   display: grid;
   gap: 0.5rem;
 }
+
 .preset-item {
   display: flex;
   align-items: center;
@@ -32,16 +37,19 @@
   padding: 0.6rem 0.75rem;
   background: rgba(12, 19, 34, 0.6);
 }
+
 .preset-item .meta {
   flex: 1;
   min-width: 0;
 }
+
 .preset-item .name {
   font-weight: 600;
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
+
 .default-badge {
   display: inline-block;
   padding: 0.15rem 0.5rem;
@@ -52,6 +60,7 @@
   color: #86efac;
   border: 1px solid rgba(34, 197, 94, 0.4);
 }
+
 .filters-badge {
   display: inline-flex;
   align-items: center;
@@ -64,10 +73,12 @@
   color: #93c5fd;
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
+
 .filters-badge svg {
   width: 12px;
   height: 12px;
 }
+
 .preset-item .details {
   display: flex;
   gap: 0.5rem;
@@ -75,14 +86,17 @@
   font-size: 0.85rem;
   flex-wrap: wrap;
 }
+
 .preset-item .details .model {
   color: #c7d7f4;
 }
+
 .preset-item .actions {
   display: inline-flex;
   gap: 0.4rem;
   flex-wrap: wrap;
 }
+
 .preset-item .actions button {
   display: inline-flex;
   align-items: center;
@@ -90,4 +104,35 @@
   gap: 0.35rem;
   white-space: nowrap;
   font: inherit;
+}
+
+@media (max-width: 768px) {
+  .preset-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .preset-item .meta,
+  .preset-item .actions {
+    width: 100%;
+  }
+
+  .preset-item .actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  .preset-item .actions button {
+    width: 100%;
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .preset-item .actions {
+    grid-template-columns: 1fr;
+  }
 }

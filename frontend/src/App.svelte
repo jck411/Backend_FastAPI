@@ -81,6 +81,7 @@
   let deferredInstallPrompt: BeforeInstallPromptEvent | null = null;
   let showInstallBanner = false;
   let pwaMode = false;
+  let mobileDrawerOpen = false;
 
   function syncAppViewportHeight(): void {
     if (typeof window === "undefined" || typeof document === "undefined") {
@@ -397,7 +398,7 @@
   }
 </script>
 
-<main class="chat-app">
+<main class="chat-app" data-drawer-open={mobileDrawerOpen}>
   <ChatHeader
     {selectableModels}
     selectedModel={$chatStore.selectedModel}
@@ -417,6 +418,7 @@
     on:openMcpServers={() => (mcpServersOpen = true)}
     on:openKioskSettings={() => (kioskSettingsOpen = true)}
     on:openCliSettings={() => (cliSettingsOpen = true)}
+    on:drawerToggle={(event) => (mobileDrawerOpen = event.detail.open)}
   />
 
   <section class="chat-main">
@@ -612,7 +614,24 @@
     .chat-app {
       --header-h: 48px;
       --composer-h: 170px;
+      --drawer-shift: min(280px, 74vw);
     }
+
+    .chat-main,
+    .chat-error,
+    :global(.chat-app .composer),
+    :global(.chat-app .chat-header .mobile-bar) {
+      transition: transform 0.25s ease;
+      will-change: transform;
+    }
+
+    .chat-app[data-drawer-open="true"] .chat-main,
+    .chat-app[data-drawer-open="true"] .chat-error,
+    .chat-app[data-drawer-open="true"] :global(.composer),
+    .chat-app[data-drawer-open="true"] :global(.chat-header .mobile-bar) {
+      transform: translateX(var(--drawer-shift));
+    }
+
     .chat-app::before {
       display: none;
     }

@@ -80,6 +80,10 @@
   gap: 0.5rem;
 }
 
+.auth-reconnect-btn {
+  min-width: 7.5rem;
+}
+
 .google-services-list {
   list-style: none;
   margin: 0;

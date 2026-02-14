@@ -154,6 +154,18 @@
     await spotifyAuth.authorize();
   }
 
+  async function handleReconnectMonarch(): Promise<void> {
+    if ($monarchAuth.saving) {
+      return;
+    }
+    const removed = await monarchAuth.remove();
+    if (removed) {
+      monarchPassword = "";
+      monarchMfaSecret = "";
+      showMonarchPassword = false;
+    }
+  }
+
   function formatUpdatedAt(timestamp: string | null): string | null {
     if (!timestamp) return null;
     try {
@@ -215,15 +227,15 @@
         <div class="system-card-actions">
           <button
             type="button"
-            class="btn btn-primary btn-small"
+            class="btn btn-primary btn-small auth-reconnect-btn"
             on:click={() => void startGoogleAuthorization()}
             disabled={$googleAuth.loading || $googleAuth.authorizing}
           >
             {$googleAuth.authorizing
               ? "Authorizing..."
               : $googleAuth.authorized
-                ? "Reconnect Google Services"
-                : "Connect Google Services"}
+                ? "Reconnect"
+                : "Connect"}
           </button>
         </div>
       </header>
@@ -268,8 +280,12 @@
         </ul>
 
         <p class="status muted">
-          Click "Connect Google Services" to authorize these integrations for
-          the assistant.
+          {#if $googleAuth.authorized}
+            Click "Reconnect" to refresh Google authorization for these
+            integrations.
+          {:else}
+            Click "Connect" to authorize these integrations for the assistant.
+          {/if}
         </p>
       </div>
     </article>
@@ -285,15 +301,15 @@
         <div class="system-card-actions">
           <button
             type="button"
-            class="btn btn-primary btn-small"
+            class="btn btn-primary btn-small auth-reconnect-btn"
             on:click={() => void startSpotifyAuthorization()}
             disabled={$spotifyAuth.loading || $spotifyAuth.authorizing}
           >
             {$spotifyAuth.authorizing
               ? "Authorizing..."
               : $spotifyAuth.authorized
-                ? "Reconnect Spotify"
-                : "Connect Spotify"}
+                ? "Reconnect"
+                : "Connect"}
           </button>
         </div>
       </header>
@@ -325,8 +341,11 @@
         {/if}
 
         <p class="status muted">
-          Click "Connect Spotify" to authorize music control and playback
-          features.
+          {#if $spotifyAuth.authorized}
+            Click "Reconnect" to refresh Spotify authorization.
+          {:else}
+            Click "Connect" to authorize music control and playback features.
+          {/if}
         </p>
       </div>
     </article>
@@ -341,16 +360,16 @@
           {#if $monarchAuth.configured}
             <button
               type="button"
-              class="btn btn-ghost btn-small"
-              on:click={() => monarchAuth.remove()}
+              class="btn btn-primary btn-small auth-reconnect-btn"
+              on:click={() => void handleReconnectMonarch()}
               disabled={$monarchAuth.saving}
             >
-              Disconnect
+              Reconnect
             </button>
           {:else}
             <button
               type="button"
-              class="btn btn-primary btn-small"
+              class="btn btn-primary btn-small auth-reconnect-btn"
               on:click={saveMonarch}
               disabled={$monarchAuth.saving ||
                 !monarchEmail ||

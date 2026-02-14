@@ -1,7 +1,7 @@
 """Configuration loader and aggregator for MCP tool servers.
 
-Stage 1 (separation branch): Backend is a pure MCP client.
-Servers are external — the backend only connects to URLs and discovers tools.
+The backend is a pure MCP client.
+Servers are external (LXC 110) — the backend only connects to URLs and discovers tools.
 """
 
 from __future__ import annotations

@@ -1,5 +1,5 @@
-const CACHE_NAME = "fastapi-chat-shell-v1";
-const APP_SHELL = ["/", "/index.html", "/manifest.webmanifest", "/vite.svg"];
+const CACHE_NAME = "fastapi-chat-shell-v2";
+const APP_SHELL = ["/manifest.webmanifest", "/vite.svg"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -22,17 +22,50 @@ self.addEventListener("activate", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") {
+  const request = event.request;
+  if (request.method !== "GET") {
+    return;
+  }
+
+  const url = new URL(request.url);
+
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  if (request.mode === "navigate") {
+    event.respondWith(
+      fetch(request)
+        .then((response) => response)
+        .catch(() => caches.match("/index.html")),
+    );
+    return;
+  }
+
+  if (url.pathname.startsWith("/api/")) {
+    event.respondWith(fetch(request));
+    return;
+  }
+
+  const isStaticAsset =
+    url.pathname.startsWith("/assets/") ||
+    url.pathname.startsWith("/voice/assets/") ||
+    url.pathname.startsWith("/kiosk/assets/") ||
+    url.pathname === "/manifest.webmanifest" ||
+    url.pathname === "/vite.svg";
+
+  if (!isStaticAsset) {
+    event.respondWith(fetch(request));
     return;
   }
 
   event.respondWith(
-    caches.match(event.request).then((cached) => {
+    caches.match(request).then((cached) => {
       if (cached) {
         return cached;
       }
 
-      return fetch(event.request)
+      return fetch(request)
         .then((response) => {
           if (!response || response.status !== 200 || response.type !== "basic") {
             return response;
@@ -40,11 +73,11 @@ self.addEventListener("fetch", (event) => {
 
           const cloned = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, cloned);
+            cache.put(request, cloned);
           });
           return response;
         })
-        .catch(() => caches.match("/index.html"));
+        .catch(() => cached);
     }),
   );
 });

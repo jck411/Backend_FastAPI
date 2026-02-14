@@ -54,6 +54,32 @@ Then deploy from Proxmox console.
 
 ---
 
+### Step 4: Purge Cloudflare cache (recommended after frontend deploy)
+
+If the site looks stale after deploy, purge Cloudflare:
+
+```bash
+cd /home/human/REPOS/Backend_FastAPI
+python scripts/cloudflare_interactive.py
+```
+
+Then choose:
+1. your zone
+2. `4` (Purge cache)
+
+Optional emergency workaround: enable Development Mode for 3 hours (menu option `5`) to bypass edge cache while validating fixes.
+
+---
+
+### If one browser still looks stale
+
+That is usually service-worker cache, not Cloudflare.
+
+- Open site in a new private/incognito window, or
+- In browser DevTools → Application → Service Workers, click `Unregister`, then hard refresh.
+
+---
+
 ### Local full-stack testing
 
 ```bash

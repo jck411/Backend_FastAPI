@@ -55,7 +55,7 @@
   }
 </script>
 
-<section class="suggestions">
+<section class="suggestions" class:pwa-layout={pwaMode}>
   {#each suggestions as prompt, index (prompt.text)}
     <div class="suggestion-item">
       <button
@@ -122,6 +122,23 @@
     margin: 0 auto;
     width: 100%;
     box-sizing: border-box;
+  }
+
+  .suggestions.pwa-layout {
+    max-width: 100%;
+    margin: 0;
+    justify-content: flex-start;
+    padding-left: max(1rem, env(safe-area-inset-left, 0));
+    padding-right: max(1rem, env(safe-area-inset-right, 0));
+  }
+
+  .suggestions.pwa-layout .suggestion-item {
+    width: auto;
+  }
+
+  .suggestions.pwa-layout .suggestion-btn {
+    width: auto;
+    text-align: left;
   }
 
   .suggestion-item {

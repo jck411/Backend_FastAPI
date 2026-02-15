@@ -393,15 +393,35 @@
         </svg>
       {/if}
     </button>
-    <span class="mobile-model-name">
-      {#if selectedModel}
-        {selectableModels.find((m) => m.id === selectedModel)?.name ??
-          selectedModel.split("/").pop() ??
-          "Chat"}
-      {:else}
-        Chat
-      {/if}
-    </span>
+    {#if $presetsStore.applying || $presetsStore.lastApplied}
+      <button
+        class="mobile-model-name mobile-preset-btn"
+        type="button"
+        on:click={forwardOpenSystemSettings}
+        title="Open system settings"
+      >
+        {#if $presetsStore.applying}
+          <span class="mobile-preset-label"
+            >Applying {$presetsStore.applying}…</span
+          >
+        {:else}
+          <span class="mobile-preset-label">
+            <span class="mobile-preset-dot"></span>
+            {$presetsStore.lastApplied}
+          </span>
+        {/if}
+      </button>
+    {:else}
+      <span class="mobile-model-name">
+        {#if selectedModel}
+          {selectableModels.find((m) => m.id === selectedModel)?.name ??
+            selectedModel.split("/").pop() ??
+            "Chat"}
+        {:else}
+          Chat
+        {/if}
+      </span>
+    {/if}
     <button
       class="btn btn-ghost btn-small mobile-save"
       class:active={isSaved}
@@ -1716,6 +1736,34 @@
       text-overflow: ellipsis;
       padding: 0 0.25rem;
     }
+    .mobile-preset-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      color: #c8d6ef;
+    }
+    .mobile-preset-dot {
+      width: 0.4rem;
+      height: 0.4rem;
+      border-radius: 999px;
+      background: #22c55e;
+      flex-shrink: 0;
+    }
+    button.mobile-preset-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font: inherit;
+    }
+    button.mobile-preset-btn:hover,
+    button.mobile-preset-btn:focus-visible {
+      color: #38bdf8;
+      outline: none;
+    }
+    button.mobile-preset-btn:hover .mobile-preset-label,
+    button.mobile-preset-btn:focus-visible .mobile-preset-label {
+      color: #38bdf8;
+    }
     .mobile-clear {
       flex-shrink: 0;
       font-size: 0.78rem;
@@ -1794,8 +1842,7 @@
       width: auto;
     }
     .preset-badge {
-      width: 100%;
-      justify-content: flex-start;
+      display: none;
     }
     .history-wrapper {
       position: static;

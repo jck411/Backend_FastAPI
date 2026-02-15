@@ -178,7 +178,9 @@
         class:on={$webSearch.enabled}
         on:click={handleButtonClick}
         aria-pressed={$webSearch.enabled}
-        aria-label={$webSearch.enabled ? "Turn off web search" : "Turn on web search"}
+        aria-label={$webSearch.enabled
+          ? "Turn off web search"
+          : "Turn on web search"}
       >
         <span class="pwa-toggle-knob"></span>
       </button>
@@ -466,7 +468,9 @@
     background: rgba(30, 40, 60, 0.8);
     cursor: pointer;
     padding: 0;
-    transition: background 0.2s ease, border-color 0.2s ease;
+    transition:
+      background 0.2s ease,
+      border-color 0.2s ease;
   }
   .pwa-toggle.on {
     background: rgba(56, 189, 248, 0.25);
@@ -480,7 +484,9 @@
     height: 1rem;
     border-radius: 999px;
     background: #9fb3d8;
-    transition: transform 0.2s ease, background 0.2s ease;
+    transition:
+      transform 0.2s ease,
+      background 0.2s ease;
   }
   .pwa-toggle.on .pwa-toggle-knob {
     transform: translateX(1.2rem);

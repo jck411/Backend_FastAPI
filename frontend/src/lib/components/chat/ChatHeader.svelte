@@ -93,27 +93,27 @@
   }
 
   function forwardOpenModelSettings(): void {
-    closeDrawer();
+    if (!pwaMode) closeDrawer();
     dispatch("openModelSettings");
   }
 
   function forwardOpenSystemSettings(): void {
-    closeDrawer();
+    if (!pwaMode) closeDrawer();
     dispatch("openSystemSettings");
   }
 
   function forwardOpenKioskSettings(): void {
-    closeDrawer();
+    if (!pwaMode) closeDrawer();
     dispatch("openKioskSettings");
   }
 
   function forwardOpenCliSettings(): void {
-    closeDrawer();
+    if (!pwaMode) closeDrawer();
     dispatch("openCliSettings");
   }
 
   function forwardOpenMcpServers(): void {
-    closeDrawer();
+    if (!pwaMode) closeDrawer();
     dispatch("openMcpServers");
   }
 </script>
@@ -249,7 +249,7 @@
       {/if}
 
       {#if WebSearchMenu}
-        <svelte:component this={WebSearchMenu} />
+        <svelte:component this={WebSearchMenu} {pwaMode} />
       {:else}
         <div
           class="web-search-loading"

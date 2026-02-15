@@ -7,6 +7,7 @@
   import type { ConversationSummary } from "../../api/types";
   import { webSearchStore } from "../../chat/webSearchStore";
   import { presetsStore } from "../../stores/presets";
+  import WebSearchMenu from "./WebSearchMenu.svelte";
 
   interface SelectableModel {
     id: string;
@@ -116,46 +117,6 @@
     if (result) {
       dispatch("presetApplied", { name });
     }
-  }
-
-  function disableWebSearch(): void {
-    webSearchStore.setEnabled(false);
-    webSearchMenuOpen = false;
-  }
-
-  function commitWebSearchEngine(event: Event): void {
-    const value = (event.currentTarget as HTMLSelectElement).value;
-    webSearchStore.update({
-      engine: value === "native" || value === "exa" ? value : null,
-    });
-  }
-
-  function commitWebSearchContext(event: Event): void {
-    const value = (event.currentTarget as HTMLSelectElement).value;
-    webSearchStore.update({
-      contextSize:
-        value === "low" || value === "medium" || value === "high"
-          ? value
-          : null,
-    });
-  }
-
-  function commitWebSearchMaxResults(event: Event): void {
-    const input = event.currentTarget as HTMLInputElement;
-    if (input.value === "") {
-      webSearchStore.update({ maxResults: null });
-      return;
-    }
-    let n = Math.trunc(Number(input.value));
-    if (!Number.isFinite(n)) return;
-    if (n < 1) n = 1;
-    if (n > 25) n = 25;
-    webSearchStore.update({ maxResults: n });
-  }
-
-  function commitWebSearchPrompt(event: Event): void {
-    const value = (event.currentTarget as HTMLTextAreaElement).value;
-    webSearchStore.update({ searchPrompt: value });
   }
 
   function handleExplorerClick(): void {
@@ -580,71 +541,10 @@
         </button>
 
         {#if webSearchMenuOpen && $webSearchStore.enabled}
-          <div class="web-search-menu mobile-web-search-menu" role="dialog">
-            <div class="web-search-fields">
-              <label>
-                <span>Engine</span>
-                <select
-                  class="select-control"
-                  value={$webSearchStore.engine ?? ""}
-                  on:change={commitWebSearchEngine}
-                >
-                  <option value="">Auto</option>
-                  <option value="native">Native</option>
-                  <option value="exa">Exa</option>
-                </select>
-              </label>
-
-              <label>
-                <span>Context</span>
-                <select
-                  class="select-control"
-                  value={$webSearchStore.contextSize ?? ""}
-                  on:change={commitWebSearchContext}
-                >
-                  <option value="">Default</option>
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                </select>
-              </label>
-
-              <label>
-                <span>Max results</span>
-                <input
-                  class="input-control"
-                  type="number"
-                  min="1"
-                  max="25"
-                  step="1"
-                  value={$webSearchStore.maxResults ?? ""}
-                  on:change={commitWebSearchMaxResults}
-                  on:blur={commitWebSearchMaxResults}
-                  inputmode="numeric"
-                  pattern="\\d*"
-                />
-              </label>
-
-              <label class="prompt">
-                <span>Search prompt</span>
-                <textarea
-                  class="textarea-control"
-                  rows="4"
-                  value={$webSearchStore.searchPrompt ?? ""}
-                  placeholder="Default: A web search was conducted on &#123;today's_date&#125;. Incorporate the following web search results into your response."
-                  on:input={commitWebSearchPrompt}
-                ></textarea>
-              </label>
-            </div>
-
-            <button
-              class="btn btn-ghost btn-small web-search-disable"
-              type="button"
-              on:click={disableWebSearch}
-            >
-              Disable Web Search
-            </button>
-          </div>
+          <WebSearchMenu
+            menuClass="mobile-web-search-menu"
+            on:disable={closeWebSearchMenu}
+          />
         {/if}
       </div>
     {/if}
@@ -1148,71 +1048,7 @@
             </button>
 
             {#if webSearchMenuOpen && $webSearchStore.enabled}
-              <div class="web-search-menu" role="dialog">
-                <div class="web-search-fields">
-                  <label>
-                    <span>Engine</span>
-                    <select
-                      class="select-control"
-                      value={$webSearchStore.engine ?? ""}
-                      on:change={commitWebSearchEngine}
-                    >
-                      <option value="">Auto</option>
-                      <option value="native">Native</option>
-                      <option value="exa">Exa</option>
-                    </select>
-                  </label>
-
-                  <label>
-                    <span>Context</span>
-                    <select
-                      class="select-control"
-                      value={$webSearchStore.contextSize ?? ""}
-                      on:change={commitWebSearchContext}
-                    >
-                      <option value="">Default</option>
-                      <option value="low">Low</option>
-                      <option value="medium">Medium</option>
-                      <option value="high">High</option>
-                    </select>
-                  </label>
-
-                  <label>
-                    <span>Max results</span>
-                    <input
-                      class="input-control"
-                      type="number"
-                      min="1"
-                      max="25"
-                      step="1"
-                      value={$webSearchStore.maxResults ?? ""}
-                      on:change={commitWebSearchMaxResults}
-                      on:blur={commitWebSearchMaxResults}
-                      inputmode="numeric"
-                      pattern="\\d*"
-                    />
-                  </label>
-
-                  <label class="prompt">
-                    <span>Search prompt</span>
-                    <textarea
-                      class="textarea-control"
-                      rows="4"
-                      value={$webSearchStore.searchPrompt ?? ""}
-                      placeholder="Default: A web search was conducted on &#123;today's_date&#125;. Incorporate the following web search results into your response."
-                      on:input={commitWebSearchPrompt}
-                    ></textarea>
-                  </label>
-                </div>
-
-                <button
-                  class="btn btn-ghost btn-small web-search-disable"
-                  type="button"
-                  on:click={disableWebSearch}
-                >
-                  Disable Web Search
-                </button>
-              </div>
+              <WebSearchMenu on:disable={closeWebSearchMenu} />
             {/if}
           </div>
 
@@ -2246,14 +2082,6 @@
     align-items: center;
     flex-shrink: 0;
   }
-  .mobile-web-search-menu {
-    position: absolute;
-    top: calc(100% + 0.5rem);
-    left: 0;
-    right: auto;
-    transform: translateX(-60%);
-    z-index: 200;
-  }
 
   .web-search-wrapper {
     position: relative;
@@ -2274,74 +2102,6 @@
     color: #22c55e;
     border-color: #22c55e;
     box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35);
-  }
-  .web-search-menu {
-    position: absolute;
-    top: calc(100% + 0.35rem);
-    left: 0;
-    width: min(300px, 80vw);
-    background: rgba(8, 14, 24, 0.97);
-    border: 1px solid rgba(67, 91, 136, 0.6);
-    border-radius: 0.75rem;
-    padding: 1rem;
-    box-shadow: 0 12px 24px rgba(3, 8, 20, 0.6);
-    z-index: 100;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-  .web-search-fields {
-    display: grid;
-    gap: 0.65rem;
-  }
-  .web-search-fields label {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    font-size: 0.75rem;
-    color: #9fb3d8;
-  }
-  .web-search-fields label span {
-    font-weight: 500;
-  }
-  .web-search-fields .select-control,
-  .web-search-fields .input-control {
-    padding: 0.4rem 0.6rem;
-    border-radius: 0.4rem;
-    background: rgba(9, 14, 26, 0.9);
-    border: 1px solid rgba(37, 49, 77, 0.9);
-    color: #f3f5ff;
-    font: inherit;
-    font-size: 0.8rem;
-  }
-  .web-search-fields .select-control:focus,
-  .web-search-fields .input-control:focus,
-  .web-search-fields .textarea-control:focus {
-    outline: 2px solid #38bdf8;
-    outline-offset: 1px;
-    border-color: #38bdf8;
-  }
-  .web-search-fields .textarea-control {
-    padding: 0.4rem 0.6rem;
-    border-radius: 0.4rem;
-    background: rgba(9, 14, 26, 0.9);
-    border: 1px solid rgba(37, 49, 77, 0.9);
-    color: #f3f5ff;
-    font: inherit;
-    font-size: 0.8rem;
-    resize: vertical;
-    min-height: 3rem;
-  }
-  .web-search-disable {
-    margin-top: 0.25rem;
-    justify-content: center;
-    color: #ef4444;
-    border-color: rgba(239, 68, 68, 0.4);
-  }
-  .web-search-disable:hover {
-    color: #f87171;
-    border-color: rgba(248, 113, 113, 0.6);
-    background: rgba(239, 68, 68, 0.1);
   }
 
   /* ── History wrapper + dropdown ── */

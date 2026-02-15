@@ -8,6 +8,10 @@
     speechSettingsStore,
   } from "../../stores/speechSettings";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
+  import {
+    applyModalVisibility,
+    closeModalWithFlush,
+  } from "./model-settings/modalLifecycle";
   import "./speech-settings.css";
 
   export let open = false;
@@ -22,19 +26,22 @@
   let wasOpen = false;
   let closing = false;
 
-  $: if (open && !wasOpen) {
-    draft = initializeDraft();
-    dirty = false;
-    saving = false;
-    statusMessage = "Changes save when you close this modal.";
-    statusVariant = "info" as const;
-    wasOpen = true;
-  } else if (!open && wasOpen) {
-    wasOpen = false;
-    if (dirty && !saving) {
-      void flushSave();
-    }
-  }
+  $: wasOpen = applyModalVisibility({
+    open,
+    wasOpen,
+    onOpened: () => {
+      draft = initializeDraft();
+      dirty = false;
+      saving = false;
+      statusMessage = "Changes save when you close this modal.";
+      statusVariant = "info";
+    },
+    onClosed: () => {
+      if (dirty && !saving) {
+        void flushSave();
+      }
+    },
+  });
 
   function initializeDraft(): SpeechSettings {
     const current = speechSettingsStore.current ?? getDefaultSpeechSettings();
@@ -45,17 +52,17 @@
   }
 
   function closeModal(): void {
-    if (closing || saving) {
-      return;
-    }
-    closing = true;
-    void (async () => {
-      const success = await flushSave();
-      if (success) {
+    void closeModalWithFlush({
+      closing,
+      saving,
+      setClosing: (value) => {
+        closing = value;
+      },
+      flushSave,
+      onClosed: () => {
         dispatch("close");
-      }
-      closing = false;
-    })();
+      },
+    });
   }
 
   function markDirty(

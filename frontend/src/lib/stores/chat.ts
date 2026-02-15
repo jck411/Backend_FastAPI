@@ -77,6 +77,7 @@ interface ChatState {
   error: string | null;
   selectedModel: string;
   isSaved: boolean;
+  sessionPresetName: string | null;
 }
 
 const initialState: ChatState = {
@@ -86,6 +87,7 @@ const initialState: ChatState = {
   error: null,
   selectedModel: 'openrouter/auto',
   isSaved: false,
+  sessionPresetName: null,
 };
 
 function createId(prefix: string): string {
@@ -737,12 +739,22 @@ function createChatStore() {
     store.update((value) => ({
       ...initialState,
       selectedModel: value.selectedModel,
+      sessionPresetName: value.sessionPresetName,
     }));
   }
 
-  async function toggleSaved(): Promise<void> {
+  async function toggleSaved(
+    options?: { presetName?: string | null },
+  ): Promise<void> {
     const state = get(store);
-    const llmSettings = { model: state.selectedModel };
+    const resolvedPresetName =
+      options?.presetName !== undefined
+        ? options.presetName
+        : state.sessionPresetName;
+    const llmSettings = {
+      model: state.selectedModel,
+      preset_name: resolvedPresetName,
+    };
 
     if (!state.sessionId) {
       // No session yet — create and immediately save
@@ -771,7 +783,9 @@ function createChatStore() {
     }
   }
 
-  async function loadSession(sessionId: string): Promise<void> {
+  async function loadSession(
+    sessionId: string,
+  ): Promise<{ model: string | null; presetName: string | null } | null> {
     currentAbort?.abort();
     currentAbort = null;
 
@@ -800,10 +814,15 @@ function createChatStore() {
       // Restore saved LLM settings if available
       const savedLlmSettings = response.metadata.llm_settings;
       const restoredModel = savedLlmSettings?.model;
+      const restoredPresetName =
+        typeof savedLlmSettings?.preset_name === 'string'
+          ? savedLlmSettings.preset_name
+          : null;
 
       store.update((value) => ({
         ...initialState,
         selectedModel: restoredModel ?? value.selectedModel,
+        sessionPresetName: restoredPresetName,
         sessionId,
         messages: mapped,
         isSaved: response.metadata.saved,
@@ -817,12 +836,17 @@ function createChatStore() {
           console.warn('Failed to load model settings for restored model', error);
         }
       }
+      return {
+        model: restoredModel ?? null,
+        presetName: restoredPresetName,
+      };
     } catch (error) {
       console.error('Failed to load session', error);
       store.update((value) => ({
         ...value,
         error: error instanceof Error ? error.message : 'Failed to load conversation',
       }));
+      return null;
     }
   }
 
@@ -1044,10 +1068,16 @@ function createChatStore() {
     }));
   }
 
-  function setModel(model: string): void {
+  function setModel(model: string, presetName?: string | null): void {
     const state = get(store);
+    const nextPresetName =
+      presetName !== undefined ? presetName : state.sessionPresetName;
     // Update the UI-selected model immediately
-    store.update((value) => ({ ...value, selectedModel: model }));
+    store.update((value) => ({
+      ...value,
+      selectedModel: model,
+      sessionPresetName: nextPresetName,
+    }));
     // Persist selection to backend active model settings so presets capture the correct model
     try {
       modelSettingsStore.clearErrors();
@@ -1058,7 +1088,10 @@ function createChatStore() {
     }
     // If session is saved, persist the model change
     if (state.isSaved && state.sessionId) {
-      updateSessionLlmSettings(state.sessionId, { model }).catch((error) => {
+      updateSessionLlmSettings(state.sessionId, {
+        model,
+        preset_name: nextPresetName,
+      }).catch((error) => {
         console.warn('Failed to persist model change for saved session', error);
       });
     }

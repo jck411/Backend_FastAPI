@@ -7,6 +7,10 @@
   } from "../../stores/cliSettings";
   import { modelStore } from "../../stores/models";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
+  import {
+    applyModalVisibility,
+    closeModalWithFlush,
+  } from "./model-settings/modalLifecycle";
   import { autoSize } from "./autoSize";
   import "./system-settings.css";
 
@@ -24,18 +28,21 @@
   let wasOpen = false;
   let closing = false;
 
-  $: if (open && !wasOpen) {
-    wasOpen = true;
-    dirty = false;
-    saving = false;
-    statusMessage = null;
-    void loadSettings();
-  } else if (!open && wasOpen) {
-    wasOpen = false;
-    if (dirty && !saving) {
-      void flushSave();
-    }
-  }
+  $: wasOpen = applyModalVisibility({
+    open,
+    wasOpen,
+    onOpened: () => {
+      dirty = false;
+      saving = false;
+      statusMessage = null;
+      void loadSettings();
+    },
+    onClosed: () => {
+      if (dirty && !saving) {
+        void flushSave();
+      }
+    },
+  });
 
   async function loadSettings(): Promise<void> {
     loading = true;
@@ -53,17 +60,17 @@
   }
 
   function closeModal(): void {
-    if (closing || saving) {
-      return;
-    }
-    closing = true;
-    void (async () => {
-      const success = await flushSave();
-      if (success) {
+    void closeModalWithFlush({
+      closing,
+      saving,
+      setClosing: (value) => {
+        closing = value;
+      },
+      flushSave,
+      onClosed: () => {
         dispatch("close");
-      }
-      closing = false;
-    })();
+      },
+    });
   }
 
   function markDirty(): void {

@@ -146,7 +146,7 @@
     if (defaultPreset) {
       const applied = await presetsStore.apply(defaultPreset.name);
       if (applied?.model) {
-        setModel(applied.model);
+        setModel(applied.model, defaultPreset.name);
       }
       // Reload suggestions after applying preset
       await suggestionsStore.load();
@@ -429,11 +429,12 @@
       if (defaultPreset) {
         const applied = await presetsStore.apply(defaultPreset.name);
         if (applied?.model) {
-          setModel(applied.model);
+          setModel(applied.model, defaultPreset.name);
         }
         await suggestionsStore.load();
       } else {
         presetsStore.clearLastApplied();
+        setModel(get(chatStore).selectedModel, null);
       }
     }}
     on:presetApplied={(event) => {
@@ -441,20 +442,47 @@
       const presets = presetsStore;
       const result = get(presets).lastResult;
       if (result?.model) {
-        setModel(result.model);
+        setModel(result.model, event.detail.name);
       }
       // Fire suggestions load in parallel - no need to await
       void suggestionsStore.load();
     }}
     on:toggleSaved={async () => {
-      await toggleSaved();
+      const presetName =
+        get(chatStore).sessionPresetName ?? get(presetsStore).lastApplied;
+      await toggleSaved({ presetName });
       void loadConversationList();
     }}
     on:loadConversation={async (event) => {
       const previousSessionId = get(chatStore).sessionId;
-      await loadSession(event.detail.sessionId);
+      const restored = await loadSession(event.detail.sessionId);
       presetAttachments = [];
       prompt = "";
+
+      // Restore the preset used by this saved conversation.
+      if (restored?.presetName) {
+        const presetExists = get(presetsStore).items.some(
+          (item) => item.name === restored.presetName,
+        );
+
+        if (presetExists) {
+          const applied = await presetsStore.apply(restored.presetName);
+          if (applied?.model) {
+            setModel(applied.model, restored.presetName);
+          } else {
+            const fallbackModel = restored.model ?? get(chatStore).selectedModel;
+            setModel(fallbackModel, null);
+            presetsStore.clearLastApplied();
+            presetsStore.clearError();
+          }
+        } else {
+          const fallbackModel = restored.model ?? get(chatStore).selectedModel;
+          setModel(fallbackModel, null);
+          presetsStore.clearLastApplied();
+        }
+        await suggestionsStore.load();
+      }
+
       if (previousSessionId && previousSessionId !== event.detail.sessionId) {
         generateConversationTitle(previousSessionId)
           .catch(() => {})

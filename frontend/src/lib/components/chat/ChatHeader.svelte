@@ -1220,6 +1220,7 @@
       padding: 1rem;
       padding-top: calc(max(0.5rem, env(safe-area-inset-top, 0)) + 3rem);
       overflow-y: auto;
+      overflow-x: hidden;
       z-index: 51;
       transform: translateX(-100%);
       transition: transform 0.25s ease;
@@ -1408,6 +1409,8 @@
     position: static;
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
   }
   .history-wrapper.pwa-full-row .history-dropdown {
     position: static;

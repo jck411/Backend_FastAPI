@@ -624,7 +624,7 @@
     .chat-app {
       --header-h: 48px;
       --composer-h: 170px;
-      --drawer-shift: min(280px, 74vw);
+      --drawer-shift: calc(min(300px, 80vw) + 0.75rem);
     }
 
     .chat-main,

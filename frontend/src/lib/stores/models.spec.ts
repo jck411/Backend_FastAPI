@@ -39,25 +39,31 @@ describe('ensureSelectableModels', () => {
 
   it('returns the base list when no model is selected', () => {
     const base = allModels.slice(1);
-    const result = ensureSelectableModels(base, allModels, null);
+    const result = ensureSelectableModels(base, allModels, null, false);
     expect(result).toBe(base);
   });
 
-  it('prepends the selected model when it is not part of the base list', () => {
+  it('prepends the selected model when it is not part of the base list and no filters are active', () => {
     const base = allModels.slice(1);
-    const result = ensureSelectableModels(base, allModels, 'model-a');
+    const result = ensureSelectableModels(base, allModels, 'model-a', false);
     expect(result[0].id).toBe('model-a');
     expect(result.slice(1)).toEqual(base);
   });
 
+  it('does not prepend the selected model when filters are active', () => {
+    const base = allModels.slice(1);
+    const result = ensureSelectableModels(base, allModels, 'model-a', true);
+    expect(result).toBe(base);
+  });
+
   it('ignores unknown model ids', () => {
     const base = allModels.slice(0, 2);
-    const result = ensureSelectableModels(base, allModels, 'does-not-exist');
+    const result = ensureSelectableModels(base, allModels, 'does-not-exist', false);
     expect(result).toBe(base);
   });
 
   it('returns an empty list when the base list is empty', () => {
-    const result = ensureSelectableModels([], allModels, 'model-a');
+    const result = ensureSelectableModels([], allModels, 'model-a', false);
     expect(result).toEqual([]);
   });
 });

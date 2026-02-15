@@ -442,6 +442,7 @@ function ensureSelectableModels(
   base: ModelRecord[] | undefined,
   allModels: ModelRecord[],
   selectedModelId: string | null | undefined,
+  activeFilters: boolean,
 ): ModelRecord[] {
   if (!Array.isArray(base) || base.length === 0) {
     return [];
@@ -452,6 +453,11 @@ function ensureSelectableModels(
   }
 
   if (base.some((model) => model.id === selectedModelId)) {
+    return base;
+  }
+
+  // When filters are active, don't add back a model that doesn't match
+  if (activeFilters) {
     return base;
   }
 
@@ -734,7 +740,7 @@ function createModelStore() {
     ([$filtered, $models, $activeFilters]) => {
       const base = $activeFilters ? $filtered : $models;
       return (selectedModelId: string | null | undefined) =>
-        ensureSelectableModels(base, $models, selectedModelId);
+        ensureSelectableModels(base, $models, selectedModelId, $activeFilters);
     },
   );
 

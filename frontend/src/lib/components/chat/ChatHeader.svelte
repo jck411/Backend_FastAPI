@@ -133,6 +133,10 @@
   function toggleHistory(): void {
     historyOpen = !historyOpen;
     if (historyOpen && historyWrapperEl) {
+      if (window.innerWidth <= 768) {
+        dropdownStyle = "";
+        return;
+      }
       const rect = historyWrapperEl.getBoundingClientRect();
       const maxH = 400;
       const gap = 4;
@@ -870,7 +874,7 @@
           </div>
 
           <button
-            class="btn btn-ghost btn-small"
+            class="btn btn-ghost btn-small desktop-clear"
             type="button"
             on:click={handleClear}
             disabled={!hasMessages}
@@ -1269,6 +1273,28 @@
     .preset-badge {
       width: 100%;
       justify-content: flex-start;
+    }
+    .history-wrapper {
+      position: static;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .history-wrapper .history-dropdown {
+      position: static;
+      min-width: 0;
+      max-width: 100%;
+      width: 100%;
+      max-height: 250px;
+      margin-top: 0.25rem;
+      box-shadow: none;
+      border-left: none;
+      border-right: none;
+      border-radius: 0;
+      background: rgba(6, 10, 20, 0.95);
+    }
+    .desktop-clear {
+      display: none;
     }
 
     /* Backdrop overlay */

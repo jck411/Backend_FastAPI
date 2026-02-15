@@ -422,6 +422,114 @@
         {/if}
       </span>
     {/if}
+    {#if pwaMode}
+      <div class="mobile-web-search-wrapper" bind:this={webSearchWrapperEl}>
+        <button
+          class="btn btn-ghost btn-small mobile-web-search"
+          class:active={$webSearchStore.enabled}
+          type="button"
+          on:click={handleToggleWebSearch}
+          aria-label={$webSearchStore.enabled
+            ? "Web search enabled"
+            : "Enable web search"}
+          title={$webSearchStore.enabled
+            ? "Web search enabled"
+            : "Enable web search"}
+          aria-haspopup="true"
+          aria-expanded={webSearchMenuOpen}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <circle
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+            <path
+              d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+              stroke="currentColor"
+              stroke-width="1.5"
+            />
+          </svg>
+        </button>
+
+        {#if webSearchMenuOpen && $webSearchStore.enabled}
+          <div class="web-search-menu mobile-web-search-menu" role="dialog">
+            <div class="web-search-fields">
+              <label>
+                <span>Engine</span>
+                <select
+                  class="select-control"
+                  value={$webSearchStore.engine ?? ""}
+                  on:change={commitWebSearchEngine}
+                >
+                  <option value="">Auto</option>
+                  <option value="native">Native</option>
+                  <option value="exa">Exa</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Context</span>
+                <select
+                  class="select-control"
+                  value={$webSearchStore.contextSize ?? ""}
+                  on:change={commitWebSearchContext}
+                >
+                  <option value="">Default</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                </select>
+              </label>
+
+              <label>
+                <span>Max results</span>
+                <input
+                  class="input-control"
+                  type="number"
+                  min="1"
+                  max="25"
+                  step="1"
+                  value={$webSearchStore.maxResults ?? ""}
+                  on:change={commitWebSearchMaxResults}
+                  on:blur={commitWebSearchMaxResults}
+                  inputmode="numeric"
+                  pattern="\\d*"
+                />
+              </label>
+
+              <label class="prompt">
+                <span>Search prompt</span>
+                <textarea
+                  class="textarea-control"
+                  rows="4"
+                  value={$webSearchStore.searchPrompt ?? ""}
+                  placeholder="Default: A web search was conducted on &#123;today's_date&#125;. Incorporate the following web search results into your response."
+                  on:input={commitWebSearchPrompt}
+                ></textarea>
+              </label>
+            </div>
+
+            <button
+              class="btn btn-ghost btn-small web-search-disable"
+              type="button"
+              on:click={disableWebSearch}
+            >
+              Disable Web Search
+            </button>
+          </div>
+        {/if}
+      </div>
+    {/if}
     <button
       class="btn btn-ghost btn-small mobile-save"
       class:active={isSaved}
@@ -1915,7 +2023,38 @@
     box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35);
   }
 
-  /* ── Web search toggle ── */
+  /* ── Web search toggle (desktop + mobile) ── */
+  .mobile-web-search {
+    color: #9fb3d8;
+    flex-shrink: 0;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .mobile-web-search:hover {
+    color: #38bdf8;
+  }
+  .mobile-web-search.active {
+    color: #22c55e;
+    border-color: #22c55e;
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35);
+  }
+  .mobile-web-search-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .mobile-web-search-menu {
+    position: absolute;
+    top: calc(100% + 0.5rem);
+    left: 0;
+    right: auto;
+    transform: translateX(-60%);
+    z-index: 200;
+  }
+
   .web-search-wrapper {
     position: relative;
     display: inline-flex;

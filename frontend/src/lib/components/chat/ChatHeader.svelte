@@ -463,60 +463,61 @@
         Explorer
       </button>
 
-      {#if ModelPicker}
-        <svelte:component
-          this={ModelPicker}
-          {selectableModels}
-          {selectedModel}
-          {modelsLoading}
-          {modelsError}
-          on:modelChange={forwardModelChange}
-        />
-      {:else}
-        <div
-          class="model-picker-loading"
-          data-loading={modelPickerLoading}
-          aria-hidden="true"
-        >
-          <select disabled>
-            <option>Loading…</option>
-          </select>
-        </div>
-      {/if}
+      <div class="model-group">
+        {#if ModelPicker}
+          <svelte:component
+            this={ModelPicker}
+            {selectableModels}
+            {selectedModel}
+            {modelsLoading}
+            {modelsError}
+            on:modelChange={forwardModelChange}
+          />
+        {:else}
+          <div
+            class="model-picker-loading"
+            data-loading={modelPickerLoading}
+            aria-hidden="true"
+          >
+            <select disabled>
+              <option>Loading…</option>
+            </select>
+          </div>
+        {/if}
 
-      <button
-        class="btn btn-ghost btn-small"
-        type="button"
-        on:click={forwardOpenModelSettings}
-        aria-label="Model settings"
-        title="Model settings"
-        disabled={modelsLoading || !selectedModel}
-      >
-        <span>Model</span>
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
+        <button
+          class="btn btn-ghost btn-small model-settings-btn"
+          type="button"
+          on:click={forwardOpenModelSettings}
+          aria-label="Model settings"
+          title="Model settings"
+          disabled={modelsLoading || !selectedModel}
         >
-          <path
-            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.89 3.31.876 2.42 2.42a1.724 1.724 0 0 0 1.066 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.572c.89 1.543-.876 3.31-2.42 2.42a1.724 1.724 0 0 0-2.572 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.89-3.31-.876-2.42-2.42a1.724 1.724 0 0 0-1.066-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.572c-.89-1.543.876-3.31 2.42-2.42.965.557 2.185.21 2.573-1.066Z"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-          <path
-            d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
-      </button>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.89 3.31.876 2.42 2.42a1.724 1.724 0 0 0 1.066 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.572c.89 1.543-.876 3.31-2.42 2.42a1.724 1.724 0 0 0-2.572 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.89-3.31-.876-2.42-2.42a1.724 1.724 0 0 0-1.066-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.572c-.89-1.543.876-3.31 2.42-2.42.965.557 2.185.21 2.573-1.066Z"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
 
       {#if $presetsStore.applying}
         <div class="preset-badge applying" role="group" aria-live="polite">
@@ -1556,6 +1557,19 @@
     width: 1.05rem;
     height: 1.05rem;
   }
+  .model-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .model-settings-btn {
+    padding: 0.45rem;
+    flex-shrink: 0;
+  }
+  .model-settings-btn svg {
+    width: 1.05rem;
+    height: 1.05rem;
+  }
   .model-picker-loading {
     display: inline-flex;
     align-items: center;
@@ -1578,8 +1592,8 @@
     }
     .controls {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      align-items: stretch;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
       width: 100%;
       max-width: 900px;
       margin: 0 auto;
@@ -1587,18 +1601,15 @@
       justify-items: stretch;
     }
     .controls > * {
-      width: 100%;
       min-width: 0;
     }
     :global(.chat-header .controls .btn),
     :global(.chat-header .controls select),
-    .preset-badge,
     .model-picker-loading,
     :global(.chat-header .controls .model-picker) {
       width: 100%;
     }
-    :global(.chat-header .controls .btn),
-    .preset-badge {
+    :global(.chat-header .controls .btn) {
       justify-content: center;
     }
     .icon-row {
@@ -1615,10 +1626,30 @@
     }
     :global(.chat-header .controls .explorer) {
       grid-column: 1;
+      grid-row: 1;
     }
-    :global(.chat-header .controls .model-picker),
-    .model-picker-loading {
+    .preset-badge {
       grid-column: 2;
+      grid-row: 1;
+      width: auto;
+      justify-content: center;
+    }
+    .model-group {
+      grid-column: 3;
+      grid-row: 1;
+      width: 100%;
+    }
+    .model-group .model-settings-btn {
+      width: auto;
+      flex-shrink: 0;
+    }
+    .model-group :global(.model-picker),
+    .model-group .model-picker-loading {
+      flex: 1;
+      min-width: 0;
+    }
+    .model-group :global(.model-picker select) {
+      width: 100%;
     }
   }
   @media (max-width: 1024px) {
@@ -1729,6 +1760,21 @@
     .preset-badge,
     .model-picker-loading,
     :global(.chat-header .controls .model-picker) {
+      width: 100%;
+    }
+    .model-group {
+      width: 100%;
+    }
+    .model-group .model-settings-btn {
+      width: auto;
+      flex-shrink: 0;
+    }
+    .model-group :global(.model-picker),
+    .model-group .model-picker-loading {
+      flex: 1;
+      min-width: 0;
+    }
+    .model-group :global(.model-picker select) {
       width: 100%;
     }
     :global(.chat-header .controls .btn) {

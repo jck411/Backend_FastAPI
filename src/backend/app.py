@@ -261,6 +261,12 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def add_permissions_policy(request, call_next):
+        response = await call_next(request)
+        response.headers["Permissions-Policy"] = "microphone=(self)"
+        return response
+
     app.include_router(chat_router)
     app.include_router(mcp_router)
     app.include_router(stt_router)

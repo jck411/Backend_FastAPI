@@ -606,7 +606,9 @@
                           handleLoadConversation(conv.session_id);
                       }}
                     >
-                      <span class="history-item-title"
+                      <span
+                        class="history-item-title"
+                        title={conv.title || conv.preview || "Untitled"}
                         >{conv.title || conv.preview || "Untitled"}</span
                       >
                       <span class="history-item-meta"
@@ -888,7 +890,9 @@
                             handleLoadConversation(conv.session_id);
                         }}
                       >
-                        <span class="history-item-title"
+                        <span
+                          class="history-item-title"
+                          title={conv.title || conv.preview || "Untitled"}
                           >{conv.title || conv.preview || "Untitled"}</span
                         >
                         <span class="history-item-meta"

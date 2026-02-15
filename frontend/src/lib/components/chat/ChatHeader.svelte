@@ -29,6 +29,7 @@
     toggleSaved: void;
     loadConversation: { sessionId: string };
     deleteConversation: { sessionId: string };
+    resetToDefault: void;
   }>();
 
   export let selectableModels: SelectableModel[] = [];
@@ -280,6 +281,11 @@
 
   $: displayConversations = searchResults ?? conversations;
   $: dateGroups = groupByDate(displayConversations);
+  $: isOnDefaultPreset = $presetsStore.lastApplied
+    ? $presetsStore.items.some(
+        (item) => item.name === $presetsStore.lastApplied && item.is_default,
+      )
+    : false;
 
   function handleClickOutside(event: MouseEvent): void {
     if (!historyOpen) return;
@@ -404,33 +410,62 @@
   <div class="topbar-content">
     <div class="controls" id="chat-header-controls">
       {#if $presetsStore.applying}
-        <button
-          class="preset-badge applying"
-          type="button"
-          on:click={forwardOpenSystemSettings}
-          aria-live="polite"
-          title={`Applying ${$presetsStore.applying}… (open system settings to manage presets)`}
-        >
-          <span class="spinner" aria-hidden="true"></span>
-          <span class="label">Preset</span>
-          <span class="name" title={$presetsStore.applying}
-            >{$presetsStore.applying}</span
+        <div class="preset-badge applying" role="group" aria-live="polite">
+          <button
+            class="preset-main"
+            type="button"
+            on:click={forwardOpenSystemSettings}
+            title={`Applying ${$presetsStore.applying}… (open system settings to manage presets)`}
           >
-        </button>
+            <span class="spinner" aria-hidden="true"></span>
+            <span class="label">Preset</span>
+            <span class="name" title={$presetsStore.applying}
+              >{$presetsStore.applying}</span
+            >
+          </button>
+        </div>
       {:else if $presetsStore.lastApplied}
-        <button
-          class="preset-badge"
-          type="button"
-          on:click={forwardOpenSystemSettings}
-          aria-live="polite"
-          title={`Active preset: ${$presetsStore.lastApplied} (open system settings to manage)`}
-        >
-          <span class="dot" aria-hidden="true"></span>
-          <span class="label">Preset</span>
-          <span class="name" title={$presetsStore.lastApplied}
-            >{$presetsStore.lastApplied}</span
+        <div class="preset-badge" role="group" aria-live="polite">
+          <button
+            class="preset-main"
+            type="button"
+            on:click={forwardOpenSystemSettings}
+            title={`Active preset: ${$presetsStore.lastApplied} (open system settings to manage)`}
           >
-        </button>
+            <span class="dot" aria-hidden="true"></span>
+            <span class="label">Preset</span>
+            <span class="name" title={$presetsStore.lastApplied}
+              >{$presetsStore.lastApplied}</span
+            >
+          </button>
+          {#if isOnDefaultPreset}
+            <span class="preset-default-tag">(default)</span>
+          {:else}
+            <button
+              class="preset-close"
+              type="button"
+              on:click|stopPropagation={() => dispatch("resetToDefault")}
+              title="Reset to default preset"
+              aria-label="Reset to default preset"
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <path
+                  d="M18 6 6 18M6 6l12 12"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                />
+              </svg>
+            </button>
+          {/if}
+        </div>
       {/if}
 
       <button
@@ -1240,15 +1275,13 @@
   .preset-badge {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    padding: 0.35rem 0.65rem;
+    gap: 0;
     border-radius: 999px;
     border: 1px solid #25314d;
     background: rgba(12, 19, 34, 0.7);
     color: #c8d6ef;
     font-size: 0.8rem;
     white-space: nowrap;
-    cursor: pointer;
     transition:
       border-color 0.2s ease,
       background 0.2s ease,
@@ -1256,12 +1289,57 @@
       box-shadow 0.2s ease;
   }
   .preset-badge:hover,
-  .preset-badge:focus-visible {
+  .preset-badge:focus-within {
     border-color: #38bdf8;
     color: #f2f6ff;
     background: rgba(12, 22, 40, 0.85);
-    outline: none;
     box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+  }
+  .preset-main {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.5rem 0.35rem 0.65rem;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    border-radius: 999px 0 0 999px;
+  }
+  .preset-main:focus-visible {
+    outline: none;
+  }
+  .preset-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    margin-right: 0.25rem;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: #6b7f9e;
+    cursor: pointer;
+    transition:
+      color 0.12s ease,
+      background 0.12s ease;
+  }
+  .preset-close:hover {
+    color: #f8fafc;
+    background: rgba(239, 68, 68, 0.25);
+  }
+  .preset-close:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 1px;
+  }
+  .preset-default-tag {
+    font-size: 0.7rem;
+    color: #6b7f9e;
+    padding-right: 0.5rem;
+    white-space: nowrap;
   }
   .preset-badge .label {
     text-transform: uppercase;

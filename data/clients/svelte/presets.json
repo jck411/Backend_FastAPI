@@ -1,0 +1,305 @@
+{
+  "presets": [
+    {
+      "name": "test",
+      "llm": {
+        "model": "openai/gpt-4.1-nano",
+        "system_prompt": null,
+        "temperature": 0.7,
+        "max_tokens": 500,
+        "supports_tools": null,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "newness",
+        "series": null,
+        "providers": null,
+        "supportedParameters": null,
+        "moderation": null
+      },
+      "created_at": "2025-12-19T10:56:16.306632+00:00",
+      "updated_at": "2025-12-25T10:59:16.462362+00:00"
+    },
+    {
+      "name": "shell",
+      "llm": {
+        "model": "minimax/minimax-m2",
+        "system_prompt": "You are a fast, minimal-token desktop control agent operating a Linux workstation via MCP tools.\n\nEnvironment (assume true unless tools report otherwise):\n- OS: EndeavourOS (Arch-based)\n- Desktop: Hyprland on Wayland\n- Browser: Brave (window class: brave-browser)\n- Clipboard: wl-copy / wl-paste\n- Window control via hyprctl\n- Sudo is passwordless\n\nPrimary goal:\n- Execute simple user requests quickly (usually 1 tool call).\n- Avoid unnecessary tool calls, avoid verbose outputs, avoid long explanations.\n\nTool usage rules:\n1) Prefer ONE tool call per user request. Combine steps into a single call when safe.\n2) Use shell_session for multi-step tasks; reuse the same session_id across related steps.\n3) Use shell_execute for one-off commands or launching GUI apps (background=true for GUI).\n4) Do NOT call host_get_profile unless you truly lack needed environment details.\n5) Do NOT take screenshots unless the user asks OR the task cannot be verified otherwise.\n6) If a tool returns truncated output, only call shell_get_full_output if the missing details are required to proceed.\n\nCommand style:\n- Choose the simplest, non-interactive commands.\n- Use quiet/no-pager/json flags when available to reduce output.\n- If you only need success/failure, do not generate chatty commands.\n\nBrowser automation (CRITICAL):\n- Use browser_* MCP tools for ALL web tasks: browser_open, browser_navigate, browser_type, browser_press_key, browser_extract, browser_click, browser_wait, browser_screenshot, browser_close.\n- browser_open(preset='google') launches a fresh Brave window that you control.\n- browser_type to enter text, then browser_press_key('Enter') to submit forms.\n- Do NOT use xdg-open, shell_execute with URLs, or curl for web tasks - these open in an uncontrolled browser.\n- Do NOT try to use ui_key, ui_type, ui_click - these tools do not exist.\n\nError handling:\n- If a command fails, run at most ONE quick diagnostic command, then either fix or report the minimal actionable error.\n- Avoid loops and repeated retries.\n\nResponse style:\n- Be brief. State what you did and the outcome.\n- Don\u2019t describe internal reasoning.",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "price",
+        "series": null,
+        "providers": null,
+        "supportedParameters": {
+          "include": [
+            "tools"
+          ],
+          "exclude": []
+        },
+        "moderation": null
+      },
+      "created_at": "2025-12-19T10:57:12.163449+00:00",
+      "updated_at": "2025-12-27T03:02:46.364072+00:00"
+    },
+    {
+      "name": "newonekosk",
+      "llm": {
+        "model": "microsoft/phi-3.5-mini-128k-instruct",
+        "system_prompt": "You are a helpful assistant.",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "newness",
+        "series": null,
+        "providers": null,
+        "supportedParameters": null,
+        "moderation": null
+      },
+      "created_at": "2025-12-19T11:20:27.054736+00:00",
+      "updated_at": "2025-12-25T10:24:32.395335+00:00"
+    },
+    {
+      "name": "all",
+      "llm": {
+        "model": "microsoft/phi-3.5-mini-128k-instruct",
+        "system_prompt": "You are a helpful assistant.",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "newness",
+        "series": null,
+        "providers": null,
+        "supportedParameters": null,
+        "moderation": null
+      },
+      "created_at": "2025-12-22T07:07:25.314294+00:00",
+      "updated_at": "2025-12-25T10:24:35.012490+00:00"
+    },
+    {
+      "name": "tst",
+      "llm": {
+        "model": "microsoft/phi-3.5-mini-128k-instruct",
+        "system_prompt": "You are a helpful assistant.",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "newness",
+        "series": null,
+        "providers": null,
+        "supportedParameters": null,
+        "moderation": null
+      },
+      "created_at": "2025-12-25T10:24:51.048296+00:00",
+      "updated_at": "2025-12-25T10:24:51.048296+00:00"
+    },
+    {
+      "name": "ShellXPS",
+      "llm": {
+        "model": "minimax/minimax-m2",
+        "system_prompt": "You control a Linux workstation via MCP tools.\n\n## Environment\n- OS: EndeavourOS (Arch-based)\n- Desktop: Hyprland on Wayland\n- Browser: Brave (window class: brave-browser)\n- Clipboard: wl-copy / wl-paste\n- Window control: hyprctl\n- Sudo: passwordless\n\n## Installed Tools\ngit 2.52.0, gh 2.83.2, node 25.2.1, python 3.13.11, npm, curl, wget, vim, nano, hyprctl\n\n## Not Installed\ndocker, podman, kubectl, yarn\n\n## GitHub\nSSH configured (jck411@gmail.com), gh CLI authenticated\n\n## Development\nPython venv at ~/REPOS/Backend_FastAPI/.venv/ (no global pip)\n\n---\n\n## Behavioral Goals\n- Execute simple requests quickly (usually 1 tool call).\n- Avoid unnecessary tool calls, verbose outputs, and long explanations.\n\n## Tool Usage Rules\n1. Prefer ONE tool call per user request. Combine steps into a single call when safe.\n2. Use shell_session for multi-step tasks; reuse the same session_id across related steps.\n3. Use shell_execute for one-off commands or launching GUI apps (background=true for GUI).\n4. Do NOT call host_get_profile unless you truly lack needed environment details.\n5. Do NOT take screenshots unless the user asks OR the task cannot be verified otherwise.\n6. If a tool returns truncated output, only call shell_get_full_output if the missing details are required to proceed.\n\n## Command Style\n- Choose the simplest, non-interactive commands.\n- Use quiet/no-pager/json flags when available to reduce output.\n- If you only need success/failure, avoid chatty commands.\n\n## Error Handling\n- If a command fails, run at most ONE quick diagnostic command, then either fix or report the minimal actionable error.\n- Avoid loops and repeated retries.\n\n## Response Style\n- Be brief. State what you did and the outcome.\n- Don't describe internal reasoning.",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "price",
+        "series": null,
+        "providers": null,
+        "supportedParameters": {
+          "include": [
+            "tools"
+          ],
+          "exclude": []
+        },
+        "moderation": null
+      },
+      "created_at": "2026-01-06T03:34:36.526585+00:00",
+      "updated_at": "2026-01-06T06:17:12.224664+00:00"
+    },
+    {
+      "name": "HOME ASSISTANT",
+      "llm": {
+        "model": "minimax/minimax-m2",
+        "system_prompt": "You control are a personal assistant on a smart home device. You have access to tools to provide context and extend abilities.",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "price",
+        "series": null,
+        "providers": null,
+        "supportedParameters": {
+          "include": [
+            "tools"
+          ],
+          "exclude": []
+        },
+        "moderation": null
+      },
+      "created_at": "2026-01-16T10:44:19.194462+00:00",
+      "updated_at": "2026-01-16T10:44:19.194462+00:00"
+    },
+    {
+      "name": "notes and gdrive",
+      "llm": {
+        "model": "openai/gpt-4.1-nano",
+        "system_prompt": "you are a helpful assistant with access to tools",
+        "temperature": 0.7,
+        "max_tokens": 500,
+        "supports_tools": null,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "newness",
+        "series": null,
+        "providers": null,
+        "supportedParameters": null,
+        "moderation": null
+      },
+      "created_at": "2026-01-31T03:19:01.299239+00:00",
+      "updated_at": "2026-01-31T03:19:01.299239+00:00"
+    },
+    {
+      "name": "newtest",
+      "llm": {
+        "model": "minimax/minimax-m2",
+        "system_prompt": "you are a helpful assistant with tools",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "price",
+        "series": null,
+        "providers": null,
+        "supportedParameters": {
+          "include": [
+            "tools"
+          ],
+          "exclude": []
+        },
+        "moderation": null
+      },
+      "created_at": "2026-02-11T00:12:42.370238+00:00",
+      "updated_at": "2026-02-11T00:12:42.370238+00:00"
+    },
+    {
+      "name": "Alpha",
+      "llm": {
+        "model": "openrouter/aurora-alpha",
+        "system_prompt": "You are a helpful assistant.",
+        "temperature": 0.7,
+        "max_tokens": 4096,
+        "supports_tools": true,
+        "conversation_mode": false,
+        "conversation_timeout_seconds": 10.0
+      },
+      "stt": null,
+      "tts": null,
+      "model_filters": {
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "newness",
+        "series": null,
+        "providers": null,
+        "supportedParameters": null,
+        "moderation": null
+      },
+      "created_at": "2026-02-15T08:21:14.014603+00:00",
+      "updated_at": "2026-02-15T08:21:14.014603+00:00"
+    }
+  ],
+  "active_index": 8
+}

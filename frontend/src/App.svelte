@@ -140,7 +140,8 @@
     await loadModels();
     await suggestionsStore.load();
     void loadConversationList();
-    // Load and apply default preset if one is set
+    // Load presets list and apply default preset if one is set
+    await presetsStore.load();
     const defaultPreset = await presetsStore.loadDefault();
     if (defaultPreset) {
       const applied = await presetsStore.apply(defaultPreset.name);
@@ -423,6 +424,18 @@
     on:openMcpServers={() => (mcpServersOpen = true)}
     on:openKioskSettings={() => (kioskSettingsOpen = true)}
     on:openCliSettings={() => (cliSettingsOpen = true)}
+    on:resetToDefault={async () => {
+      const defaultPreset = await presetsStore.loadDefault();
+      if (defaultPreset) {
+        const applied = await presetsStore.apply(defaultPreset.name);
+        if (applied?.model) {
+          setModel(applied.model);
+        }
+        await suggestionsStore.load();
+      } else {
+        presetsStore.clearLastApplied();
+      }
+    }}
     on:toggleSaved={async () => {
       await toggleSaved();
       void loadConversationList();

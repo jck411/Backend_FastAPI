@@ -41,21 +41,22 @@ export function createPresetsStore() {
     const store = writable<PresetsState>({ ...INITIAL_STATE });
 
     async function load(): Promise<void> {
-        store.set({ ...INITIAL_STATE, loading: true });
+        store.update((s) => ({ ...s, loading: true, error: null }));
         try {
             const items = await fetchPresets();
-            store.set({
-                ...INITIAL_STATE,
+            store.update((s) => ({
+                ...s,
                 loading: false,
+                error: null,
                 items,
-            });
+            }));
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Failed to load presets.';
-            store.set({
-                ...INITIAL_STATE,
+            store.update((s) => ({
+                ...s,
                 loading: false,
                 error: message,
-            });
+            }));
         }
     }
 
@@ -186,6 +187,10 @@ export function createPresetsStore() {
         store.update((s) => ({ ...s, error: null }));
     }
 
+    function clearLastApplied(): void {
+        store.update((s) => ({ ...s, lastApplied: null, lastResult: null }));
+    }
+
     return {
         subscribe: store.subscribe,
         load,
@@ -196,6 +201,7 @@ export function createPresetsStore() {
         setDefault,
         loadDefault,
         clearError,
+        clearLastApplied,
     };
 }
 

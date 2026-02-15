@@ -1,5 +1,5 @@
 {
-  "model": "qwen/qwen-2.5-72b-instruct",
+  "model": "minimax/minimax-m2",
   "system_prompt": "you are a helpful assistant with tools",
   "temperature": 0.7,
   "max_tokens": 4096,

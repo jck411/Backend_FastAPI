@@ -98,7 +98,6 @@
   });
 
   function handleExplorerClick(): void {
-    closeDrawer();
     dispatch("openExplorer");
   }
 

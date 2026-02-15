@@ -129,8 +129,17 @@
       padding: 0.25rem 0;
     }
 
+    .title {
+      display: none;
+    }
+
+    .chip-list {
+      gap: 0.35rem;
+    }
+
     .chip {
       font-size: 0.75rem;
+      flex-shrink: 0;
     }
   }
 </style>

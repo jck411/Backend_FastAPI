@@ -1,7 +1,7 @@
 <script lang="ts">
+  import chatArrow from "../../../assets/arrow_left_alt_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg";
   import type { ModelSort } from "../../stores/models";
   import SortControls from "./SortControls.svelte";
-  import chatArrow from "../../../assets/arrow_left_alt_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg";
 
   export let resultCount = 0;
   export let searchValue = "";
@@ -19,15 +19,14 @@
 
 <header class="explorer-header">
   <div class="title-group">
-    <a
-      class="btn btn-ghost btn-small chat-link"
-      href="/chat"
-      aria-label="Return to chat"
-      on:click|preventDefault={onClose}
+    <button
+      type="button"
+      class="back-btn"
+      aria-label="Go back"
+      on:click={onClose}
     >
       <img src={chatArrow} alt="" aria-hidden="true" class="icon" />
-      <span class="label">Chat</span>
-    </a>
+    </button>
     <h2 id="model-explorer-title">Model Explorer</h2>
   </div>
   <div class="header-controls">
@@ -70,30 +69,40 @@
     flex-wrap: wrap;
   }
 
-  .chat-link {
+  .back-btn {
     display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
-    text-decoration: none;
-    font-size: 0.88rem;
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    justify-content: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border: 1px solid #25314d;
+    border-radius: 50%;
+    background: rgba(11, 17, 29, 0.9);
+    color: #e3e3e3;
+    cursor: pointer;
+    transition:
+      border-color 0.2s ease,
+      background 0.2s ease,
+      transform 0.15s ease;
   }
 
-  .chat-link .label {
-    line-height: 1;
+  .back-btn:hover {
+    border-color: #38bdf8;
+    background: rgba(16, 25, 43, 0.95);
+    transform: translateX(-2px);
   }
 
-  .chat-link .icon {
-    width: 1.1rem;
-    height: 1.1rem;
-    flex-shrink: 0;
-    display: block;
-  }
-
-  .chat-link:focus-visible {
+  .back-btn:focus-visible {
     outline: 2px solid rgba(56, 189, 248, 0.6);
     outline-offset: 2px;
+  }
+
+  .back-btn .icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    display: block;
   }
 
   .summary {

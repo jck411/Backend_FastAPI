@@ -91,6 +91,7 @@
   let showInstallBanner = false;
   let pwaMode = false;
   let mobileDrawerOpen = false;
+  let drawerOpenBeforeExplorer = false;
   let conversations: ConversationSummary[] = [];
 
   async function loadConversationList(): Promise<void> {
@@ -399,7 +400,10 @@
     isSaved={$chatStore.isSaved}
     {conversations}
     bind:controlsOpen={mobileDrawerOpen}
-    on:openExplorer={() => (explorerOpen = true)}
+    on:openExplorer={() => {
+      drawerOpenBeforeExplorer = mobileDrawerOpen;
+      explorerOpen = true;
+    }}
     on:clear={() => {
       const previousSessionId = get(chatStore).sessionId;
       presetAttachments = [];
@@ -537,7 +541,16 @@
     on:close={() => (cliSettingsOpen = false)}
   />
 
-  <ModelExplorer bind:open={explorerOpen} on:select={handleExplorerSelect} />
+  <ModelExplorer
+    bind:open={explorerOpen}
+    on:select={handleExplorerSelect}
+    on:close={() => {
+      if (drawerOpenBeforeExplorer) {
+        mobileDrawerOpen = true;
+      }
+      drawerOpenBeforeExplorer = false;
+    }}
+  />
 
   {#if showInstallBanner}
     <div

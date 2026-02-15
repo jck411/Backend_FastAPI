@@ -7,6 +7,7 @@
     type ModelSort,
     type MultiSelectKey,
   } from "../../stores/models";
+  import ActiveFilterSummary from "./ActiveFilterSummary.svelte";
   import FilterPanel from "./FilterPanel.svelte";
   import ModelExplorerHeader from "./ModelExplorerHeader.svelte";
   import ModelResults from "./ModelResults.svelte";
@@ -210,25 +211,46 @@
           >
             <span class="filters-toggle__label">Filters</span>
             {#if filtersActive}
-              <span class="filters-toggle__status">Active</span>
+              <span class="filters-toggle__count">{filterChips.length}</span>
             {/if}
+            <span class="filters-toggle__chevron" class:open={filtersVisible}
+              >▼</span
+            >
           </button>
+
+          {#if filtersVisible}
+            <div id="model-explorer-filters" class="filters-dropdown">
+              {#if filterChips.length > 0}
+                <div class="filters-panel-active">
+                  <ActiveFilterSummary
+                    chips={filterChips}
+                    on:clear={handleFilterChipClear}
+                  />
+                </div>
+              {/if}
+              <FilterPanel />
+            </div>
+          {/if}
+        </div>
+
+        {#if filterChips.length > 0 && !filtersVisible}
+          <div class="mobile-active-filters">
+            <ActiveFilterSummary
+              chips={filterChips}
+              on:clear={handleFilterChipClear}
+            />
+          </div>
+        {/if}
+      {:else}
+        <div id="model-explorer-filters" class="filters-panel-container">
+          <FilterPanel />
         </div>
       {/if}
-
-      <div
-        id="model-explorer-filters"
-        class="filters-panel-container"
-        data-compact={compactLayout}
-        data-open={filtersVisible}
-      >
-        <FilterPanel />
-      </div>
 
       <ModelResults
         models={filteredModels}
         {filtersActive}
-        {filterChips}
+        filterChips={compactLayout ? [] : filterChips}
         onSelect={handleSelect}
         on:clearFilter={handleFilterChipClear}
       />
@@ -321,14 +343,38 @@
     background: rgba(16, 25, 43, 0.95);
   }
 
-  .filters-toggle__status {
+  .filters-toggle__count {
     font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #041225;
-    background: rgba(56, 189, 248, 0.28);
+    font-weight: 700;
+    min-width: 1.4em;
+    height: 1.4em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #38bdf8;
+    color: #030a16;
     border-radius: 999px;
-    padding: 0.12rem 0.5rem;
+    padding: 0.1rem 0.35rem;
+  }
+
+  .filters-toggle__chevron {
+    font-size: 0.7rem;
+    transition: transform 0.25s ease;
+    opacity: 0.7;
+    margin-left: 0.25rem;
+  }
+
+  .filters-toggle:hover .filters-toggle__chevron {
+    opacity: 1;
+  }
+
+  .filters-toggle__chevron.open {
+    transform: rotate(180deg);
+    opacity: 1;
+  }
+
+  .mobile-active-filters {
+    margin-top: -0.5rem;
   }
 
   .filters-panel-container {
@@ -339,7 +385,7 @@
     display: contents;
   }
 
-  .filters-panel-container[data-compact="true"]:not([data-open="true"]) {
+  .filters-dropdown {
     display: none;
   }
 
@@ -366,12 +412,61 @@
 
     .body-toolbar {
       display: flex;
-      justify-content: space-between;
-      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: flex-start;
+      flex-shrink: 0;
+      position: relative;
+      z-index: 25;
+      gap: 0.5rem;
     }
 
-    .filters-panel-container[data-compact="true"] :global(.filters-panel) {
-      max-height: min(60vh, 540px);
+    .filters-dropdown {
+      display: block;
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      margin-top: 0.5rem;
+      z-index: 20;
+      background: rgba(8, 13, 24, 0.98);
+      border: 1px solid #1f2a45;
+      border-radius: 0.75rem;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+      max-height: min(60vh, 480px);
+      overflow-y: auto;
+    }
+
+    .filters-dropdown :global(.filters-panel) {
+      border: none;
+      border-radius: 0;
+      background: transparent;
+    }
+
+    .filters-panel-active {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(8, 13, 24, 0.98);
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #1f2a45;
+    }
+
+    .filters-panel-active :global(.active-filters) {
+      padding: 0;
+    }
+
+    .filters-panel-active :global(.title) {
+      display: none;
+    }
+
+    .body[data-compact="true"] {
+      position: relative;
+    }
+
+    .body[data-compact="true"] :global(.results) {
+      flex: 1;
+      min-height: 0;
       overflow-y: auto;
     }
   }
@@ -389,22 +484,39 @@
       border-radius: 0;
       height: 100dvh;
       max-height: none;
-      overflow-y: auto;
+      overflow: hidden;
       padding: 1rem 1rem calc(1rem + env(safe-area-inset-bottom));
     }
 
     .body {
-      gap: 1rem;
+      gap: 0.75rem;
+    }
+
+    .body[data-compact="true"] {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
     }
 
     .filters-toggle {
       width: 100%;
-      justify-content: space-between;
+      justify-content: center;
     }
 
-    .filters-panel-container[data-compact="true"] :global(.filters-panel) {
-      max-height: none;
-      box-shadow: 0 18px 36px rgba(4, 9, 18, 0.45);
+    .filters-dropdown {
+      max-height: 60vh;
+      border-radius: 0.75rem;
+    }
+
+    .mobile-active-filters {
+      flex-shrink: 0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .mobile-active-filters :global(.chip-list) {
+      flex-wrap: nowrap;
     }
   }
 </style>

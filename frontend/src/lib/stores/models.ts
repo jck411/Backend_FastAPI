@@ -445,6 +445,15 @@ function ensureSelectableModels(
   activeFilters: boolean,
 ): ModelRecord[] {
   if (!Array.isArray(base) || base.length === 0) {
+    // Still need to show selected model even if base is empty
+    if (selectedModelId) {
+      const selectedModel = allModels.find((model) => model.id === selectedModelId);
+      if (selectedModel) {
+        return [selectedModel];
+      }
+      // Create synthetic entry for models no longer in the API
+      return [{ id: selectedModelId, name: `${selectedModelId} (unavailable)` }];
+    }
     return [];
   }
 
@@ -456,13 +465,15 @@ function ensureSelectableModels(
     return base;
   }
 
-  // When filters are active, don't add back a model that doesn't match
-  if (activeFilters) {
-    return base;
-  }
-
+  // When filters are active, don't add back a model that doesn't match filters,
+  // but still show it if it doesn't exist in the API at all (e.g., deprecated model from a preset)
   const selectedModel = allModels.find((model) => model.id === selectedModelId);
   if (!selectedModel) {
+    // Model doesn't exist in API - create synthetic entry so user can see what's selected
+    return [{ id: selectedModelId, name: `${selectedModelId} (unavailable)` }, ...base];
+  }
+
+  if (activeFilters) {
     return base;
   }
 

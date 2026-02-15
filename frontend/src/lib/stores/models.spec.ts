@@ -56,14 +56,29 @@ describe('ensureSelectableModels', () => {
     expect(result).toBe(base);
   });
 
-  it('ignores unknown model ids', () => {
+  it('creates synthetic entry for unknown model ids', () => {
     const base = allModels.slice(0, 2);
     const result = ensureSelectableModels(base, allModels, 'does-not-exist', false);
-    expect(result).toBe(base);
+    expect(result[0].id).toBe('does-not-exist');
+    expect(result[0].name).toContain('unavailable');
+    expect(result.slice(1)).toEqual(base);
   });
 
-  it('returns an empty list when the base list is empty', () => {
+  it('creates synthetic entry for unknown model even when filters are active', () => {
+    const base = allModels.slice(0, 2);
+    const result = ensureSelectableModels(base, allModels, 'deprecated-model', true);
+    expect(result[0].id).toBe('deprecated-model');
+    expect(result[0].name).toContain('unavailable');
+  });
+
+  it('returns synthetic entry when base list is empty but model is selected', () => {
     const result = ensureSelectableModels([], allModels, 'model-a', false);
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('model-a');
+  });
+
+  it('returns empty list when base is empty and no model selected', () => {
+    const result = ensureSelectableModels([], allModels, null, false);
     expect(result).toEqual([]);
   });
 });

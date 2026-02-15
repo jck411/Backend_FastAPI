@@ -135,9 +135,11 @@ export function createPresetsStore() {
         store.update((s) => ({ ...s, applying: name, error: null, lastApplied: null, lastResult: null }));
         try {
             const result = await applyPreset(name);
-            // Restore model filters if present in preset (preserves current filters if null/undefined)
+            // Always apply model filters from preset: set them if present, reset if absent
             if (result?.model_filters) {
                 modelStore.setFilters(result.model_filters);
+            } else {
+                modelStore.resetFilters();
             }
             // Do not reload here; timestamps in list aren't critical on apply.
             store.update((s) => ({

@@ -14,7 +14,6 @@
   }
 
   type ModelPickerComponent = typeof import("./ModelPicker.svelte").default;
-  type WebSearchMenuComponent = typeof import("./WebSearchMenu.svelte").default;
 
   const dispatch = createEventDispatcher<{
     openExplorer: void;
@@ -50,9 +49,9 @@
   let searching = false;
   let searchInputEl: HTMLInputElement | undefined;
   let ModelPicker: ModelPickerComponent | null = null;
-  let WebSearchMenu: WebSearchMenuComponent | null = null;
   let modelPickerLoading = false;
-  let webSearchMenuLoading = false;
+  let webSearchMenuOpen = false;
+  let webSearchWrapperEl: HTMLElement | undefined;
   export let controlsOpen = false;
   let lastDrawerOpen: boolean | null = null;
 
@@ -80,23 +79,64 @@
     }
   }
 
-  async function loadWebSearchMenu(): Promise<void> {
-    if (WebSearchMenu) return;
-    webSearchMenuLoading = true;
-    try {
-      const module = await import("./WebSearchMenu.svelte");
-      WebSearchMenu = module.default;
-    } catch (error) {
-      console.error("Failed to load WebSearchMenu", error);
-    } finally {
-      webSearchMenuLoading = false;
+  onMount(() => {
+    void loadModelPicker();
+  });
+
+  function handleToggleWebSearch(): void {
+    if (webSearchStore.current.enabled) {
+      // If already enabled, toggle the settings menu
+      webSearchMenuOpen = !webSearchMenuOpen;
+    } else {
+      // Enable and open settings
+      webSearchStore.setEnabled(true);
+      webSearchMenuOpen = true;
     }
   }
 
-  onMount(() => {
-    void loadModelPicker();
-    void loadWebSearchMenu();
-  });
+  function closeWebSearchMenu(): void {
+    webSearchMenuOpen = false;
+  }
+
+  function disableWebSearch(): void {
+    webSearchStore.setEnabled(false);
+    webSearchMenuOpen = false;
+  }
+
+  function commitWebSearchEngine(event: Event): void {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    webSearchStore.update({
+      engine: value === "native" || value === "exa" ? value : null,
+    });
+  }
+
+  function commitWebSearchContext(event: Event): void {
+    const value = (event.currentTarget as HTMLSelectElement).value;
+    webSearchStore.update({
+      contextSize:
+        value === "low" || value === "medium" || value === "high"
+          ? value
+          : null,
+    });
+  }
+
+  function commitWebSearchMaxResults(event: Event): void {
+    const input = event.currentTarget as HTMLInputElement;
+    if (input.value === "") {
+      webSearchStore.update({ maxResults: null });
+      return;
+    }
+    let n = Math.trunc(Number(input.value));
+    if (!Number.isFinite(n)) return;
+    if (n < 1) n = 1;
+    if (n > 25) n = 25;
+    webSearchStore.update({ maxResults: n });
+  }
+
+  function commitWebSearchPrompt(event: Event): void {
+    const value = (event.currentTarget as HTMLTextAreaElement).value;
+    webSearchStore.update({ searchPrompt: value });
+  }
 
   function handleExplorerClick(): void {
     dispatch("openExplorer");
@@ -288,11 +328,17 @@
     : false;
 
   function handleClickOutside(event: MouseEvent): void {
-    if (!historyOpen) return;
     const target = event.target as HTMLElement;
-    if (!target.closest(".history-wrapper")) {
+    if (historyOpen && !target.closest(".history-wrapper")) {
       clearSearch();
       historyOpen = false;
+    }
+    if (
+      webSearchMenuOpen &&
+      webSearchWrapperEl &&
+      !webSearchWrapperEl.contains(target)
+    ) {
+      closeWebSearchMenu();
     }
   }
 </script>
@@ -409,6 +455,69 @@
   <!-- Desktop topbar content -->
   <div class="topbar-content">
     <div class="controls" id="chat-header-controls">
+      <button
+        class="btn btn-ghost btn-small explorer"
+        type="button"
+        on:click={handleExplorerClick}
+      >
+        Explorer
+      </button>
+
+      {#if ModelPicker}
+        <svelte:component
+          this={ModelPicker}
+          {selectableModels}
+          {selectedModel}
+          {modelsLoading}
+          {modelsError}
+          on:modelChange={forwardModelChange}
+        />
+      {:else}
+        <div
+          class="model-picker-loading"
+          data-loading={modelPickerLoading}
+          aria-hidden="true"
+        >
+          <select disabled>
+            <option>Loading…</option>
+          </select>
+        </div>
+      {/if}
+
+      <button
+        class="btn btn-ghost btn-small"
+        type="button"
+        on:click={forwardOpenModelSettings}
+        aria-label="Model settings"
+        title="Model settings"
+        disabled={modelsLoading || !selectedModel}
+      >
+        <span>Model</span>
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <path
+            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.89 3.31.876 2.42 2.42a1.724 1.724 0 0 0 1.066 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.572c.89 1.543-.876 3.31-2.42 2.42a1.724 1.724 0 0 0-2.572 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.89-3.31-.876-2.42-2.42a1.724 1.724 0 0 0-1.066-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.572c-.89-1.543.876-3.31 2.42-2.42.965.557 2.185.21 2.573-1.066Z"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+
       {#if $presetsStore.applying}
         <div class="preset-badge applying" role="group" aria-live="polite">
           <button
@@ -467,90 +576,6 @@
           {/if}
         </div>
       {/if}
-
-      <button
-        class="btn btn-ghost btn-small explorer"
-        type="button"
-        on:click={handleExplorerClick}
-      >
-        Explorer
-      </button>
-
-      {#if ModelPicker}
-        <svelte:component
-          this={ModelPicker}
-          {selectableModels}
-          {selectedModel}
-          {modelsLoading}
-          {modelsError}
-          on:modelChange={forwardModelChange}
-        />
-      {:else}
-        <div
-          class="model-picker-loading"
-          data-loading={modelPickerLoading}
-          aria-hidden="true"
-        >
-          <select disabled>
-            <option>Loading…</option>
-          </select>
-        </div>
-      {/if}
-
-      {#if WebSearchMenu}
-        <svelte:component this={WebSearchMenu} {pwaMode} />
-      {:else}
-        <div
-          class="web-search-loading"
-          data-loading={webSearchMenuLoading}
-          aria-hidden="true"
-        >
-          <button
-            class="btn btn-ghost btn-small web-search-summary"
-            type="button"
-            disabled
-          >
-            <span>Web search</span>
-            <span class="status" data-enabled={$webSearchStore.enabled}>
-              {$webSearchStore.enabled ? "On" : "Off"}
-            </span>
-          </button>
-        </div>
-      {/if}
-
-      <button
-        class="btn btn-ghost btn-small"
-        type="button"
-        on:click={forwardOpenModelSettings}
-        aria-label="Model settings"
-        title="Model settings"
-        disabled={modelsLoading || !selectedModel}
-      >
-        <span>Model</span>
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 24 24"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-          aria-hidden="true"
-        >
-          <path
-            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.89 3.31.876 2.42 2.42a1.724 1.724 0 0 0 1.066 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.572c.89 1.543-.876 3.31-2.42 2.42a1.724 1.724 0 0 0-2.572 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.89-3.31-.876-2.42-2.42a1.724 1.724 0 0 0-1.066-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.572c-.89-1.543.876-3.31 2.42-2.42.965.557 2.185.21 2.573-1.066Z"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-          <path
-            d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
-      </button>
 
       {#if pwaMode}
         <button
@@ -837,6 +862,113 @@
 
       <div class="icon-row">
         {#if !pwaMode}
+          <div class="web-search-wrapper" bind:this={webSearchWrapperEl}>
+            <button
+              class="btn btn-ghost btn-small web-search-toggle"
+              class:active={$webSearchStore.enabled}
+              type="button"
+              on:click={handleToggleWebSearch}
+              aria-label={$webSearchStore.enabled
+                ? "Web search enabled"
+                : "Enable web search"}
+              title={$webSearchStore.enabled
+                ? "Web search enabled"
+                : "Enable web search"}
+              aria-haspopup="true"
+              aria-expanded={webSearchMenuOpen}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                />
+                <path
+                  d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                />
+              </svg>
+            </button>
+
+            {#if webSearchMenuOpen && $webSearchStore.enabled}
+              <div class="web-search-menu" role="dialog">
+                <div class="web-search-fields">
+                  <label>
+                    <span>Engine</span>
+                    <select
+                      class="select-control"
+                      value={$webSearchStore.engine ?? ""}
+                      on:change={commitWebSearchEngine}
+                    >
+                      <option value="">Auto</option>
+                      <option value="native">Native</option>
+                      <option value="exa">Exa</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Context</span>
+                    <select
+                      class="select-control"
+                      value={$webSearchStore.contextSize ?? ""}
+                      on:change={commitWebSearchContext}
+                    >
+                      <option value="">Default</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </label>
+
+                  <label>
+                    <span>Max results</span>
+                    <input
+                      class="input-control"
+                      type="number"
+                      min="1"
+                      max="25"
+                      step="1"
+                      value={$webSearchStore.maxResults ?? ""}
+                      on:change={commitWebSearchMaxResults}
+                      on:blur={commitWebSearchMaxResults}
+                      inputmode="numeric"
+                      pattern="\\d*"
+                    />
+                  </label>
+
+                  <label class="prompt">
+                    <span>Search prompt</span>
+                    <textarea
+                      class="textarea-control"
+                      rows="4"
+                      value={$webSearchStore.searchPrompt ?? ""}
+                      placeholder="Default: A web search was conducted on &#123;today's_date&#125;. Incorporate the following web search results into your response."
+                      on:input={commitWebSearchPrompt}
+                    ></textarea>
+                  </label>
+                </div>
+
+                <button
+                  class="btn btn-ghost btn-small web-search-disable"
+                  type="button"
+                  on:click={disableWebSearch}
+                >
+                  Disable Web Search
+                </button>
+              </div>
+            {/if}
+          </div>
+
           <button
             class="btn btn-ghost btn-small settings-icon mcp-btn"
             type="button"
@@ -1424,20 +1556,10 @@
     width: 1.05rem;
     height: 1.05rem;
   }
-  .model-picker-loading,
-  .web-search-loading {
+  .model-picker-loading {
     display: inline-flex;
     align-items: center;
     gap: 0.75rem;
-  }
-  .web-search-loading .status {
-    font-size: 0.7rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    padding: 0.1rem 0.4rem;
-    border-radius: 999px;
-    border: 1px solid rgba(62, 90, 140, 0.6);
-    color: #9fb3d8;
   }
 
   /* ── Tablet breakpoint ── */
@@ -1472,9 +1594,7 @@
     :global(.chat-header .controls select),
     .preset-badge,
     .model-picker-loading,
-    .web-search-loading,
-    :global(.chat-header .controls .model-picker),
-    :global(.chat-header .controls .web-search) {
+    :global(.chat-header .controls .model-picker) {
       width: 100%;
     }
     :global(.chat-header .controls .btn),
@@ -1499,13 +1619,6 @@
     :global(.chat-header .controls .model-picker),
     .model-picker-loading {
       grid-column: 2;
-    }
-    .preset-badge {
-      grid-column: 1 / -1;
-      order: -1;
-    }
-    .web-search-loading {
-      justify-content: center;
     }
   }
   @media (max-width: 1024px) {
@@ -1615,9 +1728,7 @@
     :global(.chat-header .controls select),
     .preset-badge,
     .model-picker-loading,
-    .web-search-loading,
-    :global(.chat-header .controls .model-picker),
-    :global(.chat-header .controls .web-search) {
+    :global(.chat-header .controls .model-picker) {
       width: 100%;
     }
     :global(.chat-header .controls .btn) {
@@ -1709,6 +1820,96 @@
     color: #22c55e;
     border-color: #22c55e;
     box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35);
+  }
+
+  /* ── Web search toggle ── */
+  .web-search-wrapper {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+  }
+  .web-search-toggle {
+    color: #9fb3d8;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .web-search-toggle:hover {
+    color: #38bdf8;
+  }
+  .web-search-toggle.active {
+    color: #22c55e;
+    border-color: #22c55e;
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35);
+  }
+  .web-search-menu {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    left: 0;
+    width: min(300px, 80vw);
+    background: rgba(8, 14, 24, 0.97);
+    border: 1px solid rgba(67, 91, 136, 0.6);
+    border-radius: 0.75rem;
+    padding: 1rem;
+    box-shadow: 0 12px 24px rgba(3, 8, 20, 0.6);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .web-search-fields {
+    display: grid;
+    gap: 0.65rem;
+  }
+  .web-search-fields label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    font-size: 0.75rem;
+    color: #9fb3d8;
+  }
+  .web-search-fields label span {
+    font-weight: 500;
+  }
+  .web-search-fields .select-control,
+  .web-search-fields .input-control {
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.4rem;
+    background: rgba(9, 14, 26, 0.9);
+    border: 1px solid rgba(37, 49, 77, 0.9);
+    color: #f3f5ff;
+    font: inherit;
+    font-size: 0.8rem;
+  }
+  .web-search-fields .select-control:focus,
+  .web-search-fields .input-control:focus,
+  .web-search-fields .textarea-control:focus {
+    outline: 2px solid #38bdf8;
+    outline-offset: 1px;
+    border-color: #38bdf8;
+  }
+  .web-search-fields .textarea-control {
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.4rem;
+    background: rgba(9, 14, 26, 0.9);
+    border: 1px solid rgba(37, 49, 77, 0.9);
+    color: #f3f5ff;
+    font: inherit;
+    font-size: 0.8rem;
+    resize: vertical;
+    min-height: 3rem;
+  }
+  .web-search-disable {
+    margin-top: 0.25rem;
+    justify-content: center;
+    color: #ef4444;
+    border-color: rgba(239, 68, 68, 0.4);
+  }
+  .web-search-disable:hover {
+    color: #f87171;
+    border-color: rgba(248, 113, 113, 0.6);
+    background: rgba(239, 68, 68, 0.1);
   }
 
   /* ── History wrapper + dropdown ── */

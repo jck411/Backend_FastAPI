@@ -487,6 +487,11 @@ export interface SttSettingsUpdate {
 
 /* Conversation History */
 
+export interface ConversationLlmSettings {
+  model: string;
+  preset_name?: string | null;
+}
+
 export interface ConversationSummary {
   session_id: string;
   title: string | null;
@@ -510,6 +515,7 @@ export interface SessionMessagesResponse {
     title: string | null;
     saved: boolean;
     updated_at: string | null;
+    llm_settings?: ConversationLlmSettings | null;
   };
   messages: Array<{
     role: string;
@@ -528,4 +534,5 @@ export interface SaveSessionResponse {
   saved: boolean;
   session_id: string;
   title: string | null;
+  llm_settings?: ConversationLlmSettings | null;
 }

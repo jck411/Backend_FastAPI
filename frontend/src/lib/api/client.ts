@@ -645,6 +645,7 @@ export async function updateSttSettings(update: SttSettingsUpdate): Promise<SttS
 
 import type {
   ConversationListResponse,
+  ConversationLlmSettings,
   ConversationSummary,
   SaveSessionResponse,
   SessionMessagesResponse,
@@ -674,12 +675,19 @@ export async function loadSessionMessages(
 
 export async function saveConversation(
   sessionId: string,
-  title?: string,
+  options?: { title?: string; llmSettings?: ConversationLlmSettings },
 ): Promise<SaveSessionResponse> {
   const path = `/api/chat/session/${encodeURIComponent(sessionId)}/save`;
+  const body: Record<string, unknown> = {};
+  if (options?.title) {
+    body.title = options.title;
+  }
+  if (options?.llmSettings) {
+    body.llm_settings = options.llmSettings;
+  }
   return requestJson<SaveSessionResponse>(resolveApiPath(path), {
     method: 'POST',
-    body: JSON.stringify(title ? { title } : {}),
+    body: JSON.stringify(body),
   });
 }
 
@@ -710,6 +718,20 @@ export async function updateConversationTitle(
     method: 'PATCH',
     body: JSON.stringify({ title }),
   });
+}
+
+export async function updateSessionLlmSettings(
+  sessionId: string,
+  llmSettings: ConversationLlmSettings,
+): Promise<void> {
+  const path = `/api/chat/session/${encodeURIComponent(sessionId)}`;
+  await requestJson<{ session_id: string; llm_settings: ConversationLlmSettings }>(
+    resolveApiPath(path),
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ llm_settings: llmSettings }),
+    },
+  );
 }
 
 export async function generateConversationTitle(

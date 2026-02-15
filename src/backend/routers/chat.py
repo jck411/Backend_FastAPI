@@ -136,12 +136,19 @@ async def save_session(
         title = title.strip() or None
     else:
         title = None
-    await repo.save_session(session_id, title=title)
+
+    # Extract LLM settings if provided
+    llm_settings = body.get("llm_settings") if isinstance(body, dict) else None
+    if llm_settings is not None and not isinstance(llm_settings, dict):
+        llm_settings = None
+
+    await repo.save_session(session_id, title=title, llm_settings=llm_settings)
     meta = await repo.get_session_metadata(session_id)
     return {
         "saved": True,
         "session_id": session_id,
         "title": meta.get("title") if meta else title,
+        "llm_settings": meta.get("llm_settings") if meta else llm_settings,
     }
 
 
@@ -164,19 +171,39 @@ async def update_session(
     session_id: str,
     request: Request,
 ) -> dict[str, Any]:
-    """Update session metadata (title)."""
+    """Update session metadata (title and/or llm_settings)."""
 
     body = await request.json()
-    title = body.get("title")
-    if not isinstance(title, str) or not title.strip():
-        raise HTTPException(status_code=400, detail="Title is required")
     orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
-    updated = await orchestrator.repository.update_session_title(
-        session_id, title.strip()
-    )
-    if not updated:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return {"session_id": session_id, "title": title.strip()}
+    repo = orchestrator.repository
+
+    title = body.get("title")
+    llm_settings = body.get("llm_settings")
+
+    # At least one field must be provided
+    has_title = isinstance(title, str) and title.strip()
+    has_llm_settings = isinstance(llm_settings, dict)
+
+    if not has_title and not has_llm_settings:
+        raise HTTPException(
+            status_code=400, detail="At least title or llm_settings is required"
+        )
+
+    result: dict[str, Any] = {"session_id": session_id}
+
+    if has_title:
+        updated = await repo.update_session_title(session_id, title.strip())
+        if not updated:
+            raise HTTPException(status_code=404, detail="Session not found")
+        result["title"] = title.strip()
+
+    if has_llm_settings:
+        updated = await repo.update_session_llm_settings(session_id, llm_settings)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Session not found")
+        result["llm_settings"] = llm_settings
+
+    return result
 
 
 @router.delete("/chat/conversations/{session_id}", status_code=204)

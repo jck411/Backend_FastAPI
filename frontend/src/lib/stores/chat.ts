@@ -1,5 +1,5 @@
 import { get, writable } from 'svelte/store';
-import { ApiError, deleteChatMessage, loadSessionMessages, saveConversation, unsaveConversation } from '../api/client';
+import { ApiError, deleteChatMessage, loadSessionMessages, saveConversation, unsaveConversation, updateSessionLlmSettings } from '../api/client';
 import type {
   AttachmentResource,
   ChatCompletionRequest,
@@ -742,12 +742,14 @@ function createChatStore() {
 
   async function toggleSaved(): Promise<void> {
     const state = get(store);
+    const llmSettings = { model: state.selectedModel };
+
     if (!state.sessionId) {
       // No session yet — create and immediately save
       const sessionId = createId('session');
       store.update((value) => ({ ...value, sessionId, isSaved: true }));
       try {
-        await saveConversation(sessionId);
+        await saveConversation(sessionId, { llmSettings });
       } catch (error) {
         console.error('Failed to save conversation', error);
         store.update((value) => ({ ...value, isSaved: false }));
@@ -759,7 +761,7 @@ function createChatStore() {
     store.update((value) => ({ ...value, isSaved: newSaved }));
     try {
       if (newSaved) {
-        await saveConversation(state.sessionId);
+        await saveConversation(state.sessionId, { llmSettings });
       } else {
         await unsaveConversation(state.sessionId);
       }
@@ -795,13 +797,26 @@ function createChatStore() {
           };
         });
 
+      // Restore saved LLM settings if available
+      const savedLlmSettings = response.metadata.llm_settings;
+      const restoredModel = savedLlmSettings?.model;
+
       store.update((value) => ({
         ...initialState,
-        selectedModel: value.selectedModel,
+        selectedModel: restoredModel ?? value.selectedModel,
         sessionId,
         messages: mapped,
         isSaved: response.metadata.saved,
       }));
+
+      // Load model settings for the restored model
+      if (restoredModel) {
+        try {
+          await modelSettingsStore.load(restoredModel);
+        } catch (error) {
+          console.warn('Failed to load model settings for restored model', error);
+        }
+      }
     } catch (error) {
       console.error('Failed to load session', error);
       store.update((value) => ({
@@ -1030,6 +1045,7 @@ function createChatStore() {
   }
 
   function setModel(model: string): void {
+    const state = get(store);
     // Update the UI-selected model immediately
     store.update((value) => ({ ...value, selectedModel: model }));
     // Persist selection to backend active model settings so presets capture the correct model
@@ -1039,6 +1055,12 @@ function createChatStore() {
       void modelSettingsStore.load(model);
     } catch {
       // no-op
+    }
+    // If session is saved, persist the model change
+    if (state.isSaved && state.sessionId) {
+      updateSessionLlmSettings(state.sessionId, { model }).catch((error) => {
+        console.warn('Failed to persist model change for saved session', error);
+      });
     }
   }
 

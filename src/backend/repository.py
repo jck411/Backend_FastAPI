@@ -129,6 +129,7 @@ class ChatRepository:
         await self._ensure_column(
             "conversations", "title_source", "TEXT DEFAULT 'auto'"
         )
+        await self._ensure_column("conversations", "llm_settings", "TEXT")
 
     async def _ensure_column(self, table: str, column: str, definition: str) -> None:
         """Ensure a column exists on a table, adding it if necessary."""
@@ -178,7 +179,7 @@ class ChatRepository:
         assert self._connection is not None
         cursor = await self._connection.execute(
             """
-            SELECT session_id, created_at, timezone, title, saved, updated_at
+            SELECT session_id, created_at, timezone, title, saved, updated_at, llm_settings
             FROM conversations
             WHERE session_id = ?
             LIMIT 1
@@ -192,6 +193,13 @@ class ChatRepository:
 
         created_at = normalize_db_timestamp(row["created_at"])
         timezone_value = row["timezone"]
+        llm_settings_raw = row["llm_settings"]
+        llm_settings = None
+        if llm_settings_raw:
+            try:
+                llm_settings = json.loads(llm_settings_raw)
+            except json.JSONDecodeError:
+                pass
         return {
             "session_id": row["session_id"],
             "created_at": created_at,
@@ -201,6 +209,7 @@ class ChatRepository:
             "updated_at": normalize_db_timestamp(row["updated_at"])
             if row["updated_at"]
             else None,
+            "llm_settings": llm_settings,
         }
 
     async def clear_session(self, session_id: str) -> None:
@@ -884,20 +893,42 @@ class ChatRepository:
         session_id: str,
         *,
         title: str | None = None,
+        llm_settings: dict[str, Any] | None = None,
     ) -> bool:
-        """Mark a session as saved, optionally setting its title."""
+        """Mark a session as saved, optionally setting its title and LLM settings."""
 
         assert self._connection is not None
+        llm_settings_json = json.dumps(llm_settings) if llm_settings else None
         if title:
             await self._connection.execute(
-                "UPDATE conversations SET saved = 1, title = ?, title_source = 'user', updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
-                (title, session_id),
+                "UPDATE conversations SET saved = 1, title = ?, title_source = 'user', llm_settings = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+                (title, llm_settings_json, session_id),
             )
         else:
             await self._connection.execute(
-                "UPDATE conversations SET saved = 1, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
-                (session_id,),
+                "UPDATE conversations SET saved = 1, llm_settings = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+                (llm_settings_json, session_id),
             )
+        await self._connection.commit()
+        return True
+
+    async def update_session_llm_settings(
+        self,
+        session_id: str,
+        llm_settings: dict[str, Any] | None,
+    ) -> bool:
+        """Update the LLM settings for a session."""
+
+        assert self._connection is not None
+        llm_settings_json = json.dumps(llm_settings) if llm_settings else None
+        cursor = await self._connection.execute(
+            "UPDATE conversations SET llm_settings = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+            (llm_settings_json, session_id),
+        )
+        updated = cursor.rowcount
+        await cursor.close()
+        await self._connection.commit()
+        return bool(updated)
         await self._connection.commit()
         return True
 

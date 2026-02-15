@@ -67,6 +67,7 @@ These live only on the server and must not be overwritten:
 - MCP tools are external (LXC 110, ports 9001–9015) — never embed tool logic in backend
 - `ChatOrchestrator` coordinates streaming, tools, and persistence
 - `StreamingHandler` manages SSE events and tool execution loops
+- **Mobile/PWA mode**: The main frontend detects phone vs desktop and adapts the UI. See `docs/PWA_MOBILE_MODE.md` for full details, troubleshooting, and deployment notes.
 
 ## Code Style
 

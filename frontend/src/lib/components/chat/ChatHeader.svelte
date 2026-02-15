@@ -189,6 +189,36 @@
   <!-- Desktop topbar content -->
   <div class="topbar-content">
     <div class="controls" id="chat-header-controls">
+      {#if $presetsStore.applying}
+        <button
+          class="preset-badge applying"
+          type="button"
+          on:click={forwardOpenSystemSettings}
+          aria-live="polite"
+          title={`Applying ${$presetsStore.applying}… (open system settings to manage presets)`}
+        >
+          <span class="spinner" aria-hidden="true"></span>
+          <span class="label">Preset</span>
+          <span class="name" title={$presetsStore.applying}
+            >{$presetsStore.applying}</span
+          >
+        </button>
+      {:else if $presetsStore.lastApplied}
+        <button
+          class="preset-badge"
+          type="button"
+          on:click={forwardOpenSystemSettings}
+          aria-live="polite"
+          title={`Active preset: ${$presetsStore.lastApplied} (open system settings to manage)`}
+        >
+          <span class="dot" aria-hidden="true"></span>
+          <span class="label">Preset</span>
+          <span class="name" title={$presetsStore.lastApplied}
+            >{$presetsStore.lastApplied}</span
+          >
+        </button>
+      {/if}
+
       <button
         class="btn btn-ghost btn-small explorer"
         type="button"
@@ -273,39 +303,9 @@
         </svg>
       </button>
 
-      {#if $presetsStore.applying}
+      {#if pwaMode}
         <button
-          class="preset-badge applying"
-          type="button"
-          on:click={forwardOpenSystemSettings}
-          aria-live="polite"
-          title={`Applying ${$presetsStore.applying}… (open system settings to manage presets)`}
-        >
-          <span class="spinner" aria-hidden="true"></span>
-          <span class="label">Preset</span>
-          <span class="name" title={$presetsStore.applying}
-            >{$presetsStore.applying}</span
-          >
-        </button>
-      {:else if $presetsStore.lastApplied}
-        <button
-          class="preset-badge"
-          type="button"
-          on:click={forwardOpenSystemSettings}
-          aria-live="polite"
-          title={`Active preset: ${$presetsStore.lastApplied} (open system settings to manage)`}
-        >
-          <span class="dot" aria-hidden="true"></span>
-          <span class="label">Preset</span>
-          <span class="name" title={$presetsStore.lastApplied}
-            >{$presetsStore.lastApplied}</span
-          >
-        </button>
-      {/if}
-
-      <div class="icon-row">
-        <button
-          class="btn btn-ghost btn-small settings-icon mcp-btn"
+          class="btn btn-ghost btn-small pwa-full-row mcp-btn"
           type="button"
           on:click={forwardOpenMcpServers}
           aria-label="MCP servers"
@@ -338,10 +338,11 @@
               stroke-linecap="round"
             />
           </svg>
+          <span>MCP Servers</span>
         </button>
 
         <button
-          class="btn btn-ghost btn-small settings-icon system-settings"
+          class="btn btn-ghost btn-small pwa-full-row system-settings"
           type="button"
           on:click={forwardOpenSystemSettings}
           aria-label="System settings"
@@ -377,76 +378,158 @@
               stroke-linecap="round"
             />
           </svg>
+          <span>System Settings</span>
         </button>
+      {/if}
 
-        <button
-          class="btn btn-ghost btn-small settings-icon kiosk-btn"
-          type="button"
-          on:click={forwardOpenKioskSettings}
-          aria-label="Kiosk settings"
-          title="Kiosk settings"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
+      <div class="icon-row">
+        {#if !pwaMode}
+          <button
+            class="btn btn-ghost btn-small settings-icon mcp-btn"
+            type="button"
+            on:click={forwardOpenMcpServers}
+            aria-label="MCP servers"
+            title="MCP servers"
           >
-            <!-- Screen/display -->
-            <rect
-              x="4"
-              y="2"
-              width="16"
-              height="12"
-              rx="1.5"
-              stroke="currentColor"
-              stroke-width="1.5"
-            />
-            <!-- Stand -->
-            <path
-              d="M12 14v4M8 22h8M8 18h8"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-            />
-          </svg>
-        </button>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 195 195"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M25 97.8528L92.8823 29.9706C102.255 20.598 117.451 20.598 126.823 29.9706V29.9706C136.196 39.3431 136.196 54.5391 126.823 63.9117L75.5581 115.177"
+                stroke="currentColor"
+                stroke-width="12"
+                stroke-linecap="round"
+              />
+              <path
+                d="M76.2653 114.47L126.823 63.9117C136.196 54.5391 151.392 54.5391 160.765 63.9117L161.118 64.2652C170.491 73.6378 170.491 88.8338 161.118 98.2063L99.7248 159.6C96.6006 162.724 96.6006 167.789 99.7248 170.913L112.331 183.52"
+                stroke="currentColor"
+                stroke-width="12"
+                stroke-linecap="round"
+              />
+              <path
+                d="M109.853 46.9411L59.6482 97.1457C50.2757 106.518 50.2757 121.714 59.6482 131.087V131.087C69.0208 140.459 84.2168 140.459 93.5894 131.087L143.794 80.8822"
+                stroke="currentColor"
+                stroke-width="12"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
 
-        <button
-          class="btn btn-ghost btn-small settings-icon cli-btn"
-          type="button"
-          on:click={forwardOpenCliSettings}
-          aria-label="CLI settings"
-          title="CLI settings"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
+          <button
+            class="btn btn-ghost btn-small settings-icon system-settings"
+            type="button"
+            on:click={forwardOpenSystemSettings}
+            aria-label="System settings"
+            title="System settings"
           >
-            <path
-              d="M4 17l6-6-6-6M12 19h8"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </button>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <rect
+                x="3"
+                y="4"
+                width="18"
+                height="12"
+                rx="2"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <path
+                d="M8 20h8"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+              <path
+                d="M3 8h18"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+        {/if}
 
-        <button
-          class="btn btn-ghost btn-small"
-          type="button"
-          on:click={handleClear}
-          disabled={!hasMessages}
-        >
-          Clear
-        </button>
+        {#if !pwaMode}
+          <button
+            class="btn btn-ghost btn-small settings-icon kiosk-btn"
+            type="button"
+            on:click={forwardOpenKioskSettings}
+            aria-label="Kiosk settings"
+            title="Kiosk settings"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <!-- Screen/display -->
+              <rect
+                x="4"
+                y="2"
+                width="16"
+                height="12"
+                rx="1.5"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <!-- Stand -->
+              <path
+                d="M12 14v4M8 22h8M8 18h8"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+
+          <button
+            class="btn btn-ghost btn-small settings-icon cli-btn"
+            type="button"
+            on:click={forwardOpenCliSettings}
+            aria-label="CLI settings"
+            title="CLI settings"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 17l6-6-6-6M12 19h8"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+
+          <button
+            class="btn btn-ghost btn-small"
+            type="button"
+            on:click={handleClear}
+            disabled={!hasMessages}
+          >
+            Clear
+          </button>
+        {/if}
       </div>
     </div>
   </div>
@@ -496,6 +579,12 @@
   }
   .controls > * {
     flex: 0 0 auto;
+  }
+  .pwa-full-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
   }
   .icon-row {
     display: flex;
@@ -695,7 +784,7 @@
     }
     .preset-badge {
       grid-column: 1 / -1;
-      order: 9;
+      order: -1;
     }
     .web-search-loading {
       justify-content: center;

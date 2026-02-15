@@ -90,12 +90,14 @@
 
   onMount(async () => {
     if (typeof window !== "undefined") {
-      // Detect PWA mode (standalone display)
-      pwaMode = true; // TODO: revert to auto-detection after testing
-      // pwaMode =
-      //   window.matchMedia("(display-mode: standalone)").matches ||
-      //   ("standalone" in navigator &&
-      //     (navigator as { standalone?: boolean }).standalone === true);
+      // Detect mobile mode: touch device with narrow screen, OR true PWA standalone
+      pwaMode =
+        (window.matchMedia("(pointer: coarse)").matches &&
+          window.innerWidth <= 768) ||
+        window.matchMedia("(display-mode: standalone)").matches ||
+        window.matchMedia("(display-mode: minimal-ui)").matches ||
+        ("standalone" in navigator &&
+          (navigator as { standalone?: boolean }).standalone === true);
 
       // PWA install prompt
       const handleBeforeInstall = (e: Event): void => {

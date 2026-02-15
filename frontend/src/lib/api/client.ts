@@ -589,13 +589,32 @@ export async function deletePreset(name: string): Promise<{ deleted: boolean }> 
   return { deleted: true };
 }
 
-export async function applyPreset(name: string): Promise<PresetConfig> {
+export async function applyPreset(name: string, hasFilters = true): Promise<PresetConfig> {
   // Apply preset by name
   const path = `/api/clients/svelte/presets/by-name/${encodeURIComponent(name)}/apply`;
-  await requestJson<{ llm: Record<string, unknown> }>(resolveApiPath(path), {
+  const response = await requestJson<{ llm: Record<string, unknown> }>(resolveApiPath(path), {
     method: 'POST',
     body: JSON.stringify({}),
   });
+
+  // If no filters, we can skip the second fetch and use the applied LLM data
+  if (!hasFilters) {
+    const llm = response.llm as { model?: string; system_prompt?: string; supports_tools?: boolean } | undefined;
+    return {
+      name,
+      model: llm?.model ?? 'unknown',
+      provider: null,
+      parameters: null,
+      supports_tools: llm?.supports_tools ?? null,
+      system_prompt: llm?.system_prompt ?? null,
+      suggestions: null,
+      model_filters: null,
+      is_default: false,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  }
+
   // Fetch the full preset to restore filters + prompt metadata on the client.
   return fetchPreset(name);
 }

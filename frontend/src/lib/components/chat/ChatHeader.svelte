@@ -29,6 +29,8 @@
     loadConversation: { sessionId: string };
     deleteConversation: { sessionId: string };
     resetToDefault: void;
+    presetApplied: { name: string };
+    refreshConversations: void;
   }>();
 
   export let selectableModels: SelectableModel[] = [];
@@ -52,6 +54,8 @@
   let modelPickerLoading = false;
   let webSearchMenuOpen = false;
   let webSearchWrapperEl: HTMLElement | undefined;
+  let presetDropdownOpen = false;
+  let presetDropdownEl: HTMLElement | undefined;
   export let controlsOpen = false;
   let lastDrawerOpen: boolean | null = null;
 
@@ -96,6 +100,22 @@
 
   function closeWebSearchMenu(): void {
     webSearchMenuOpen = false;
+  }
+
+  function togglePresetDropdown(): void {
+    presetDropdownOpen = !presetDropdownOpen;
+  }
+
+  function closePresetDropdown(): void {
+    presetDropdownOpen = false;
+  }
+
+  async function handlePresetSelect(name: string): Promise<void> {
+    closePresetDropdown();
+    const result = await presetsStore.apply(name);
+    if (result) {
+      dispatch("presetApplied", { name });
+    }
   }
 
   function disableWebSearch(): void {
@@ -340,6 +360,13 @@
     ) {
       closeWebSearchMenu();
     }
+    if (
+      presetDropdownOpen &&
+      presetDropdownEl &&
+      !presetDropdownEl.contains(target)
+    ) {
+      closePresetDropdown();
+    }
   }
 </script>
 
@@ -394,23 +421,114 @@
       {/if}
     </button>
     {#if $presetsStore.applying || $presetsStore.lastApplied}
-      <button
-        class="mobile-model-name mobile-preset-btn"
-        type="button"
-        on:click={forwardOpenSystemSettings}
-        title="Open system settings"
-      >
-        {#if $presetsStore.applying}
-          <span class="mobile-preset-label"
-            >Applying {$presetsStore.applying}…</span
-          >
-        {:else}
-          <span class="mobile-preset-label">
-            <span class="mobile-preset-dot"></span>
-            {$presetsStore.lastApplied}
-          </span>
+      <div class="mobile-preset-wrapper" bind:this={presetDropdownEl}>
+        <button
+          class="mobile-model-name mobile-preset-btn"
+          type="button"
+          on:click|stopPropagation={togglePresetDropdown}
+          title="Switch preset"
+          aria-haspopup="true"
+          aria-expanded={presetDropdownOpen}
+        >
+          {#if $presetsStore.applying}
+            <span class="mobile-preset-label"
+              >Applying {$presetsStore.applying}…</span
+            >
+          {:else}
+            <span class="mobile-preset-label">
+              <span class="mobile-preset-dot"></span>
+              {$presetsStore.lastApplied}
+              <svg
+                class="preset-chevron"
+                class:open={presetDropdownOpen}
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M6 9l6 6 6-6"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </span>
+          {/if}
+        </button>
+
+        {#if presetDropdownOpen && !$presetsStore.applying}
+          <div class="preset-dropdown" role="menu">
+            {#each $presetsStore.items as preset (preset.name)}
+              <button
+                class="preset-dropdown-item"
+                class:active={preset.name === $presetsStore.lastApplied}
+                type="button"
+                role="menuitem"
+                on:click={() => handlePresetSelect(preset.name)}
+              >
+                <span class="preset-dropdown-name">{preset.name}</span>
+                {#if preset.is_default}
+                  <span class="preset-dropdown-default">default</span>
+                {/if}
+                {#if preset.name === $presetsStore.lastApplied}
+                  <svg
+                    class="preset-dropdown-check"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M20 6L9 17l-5-5"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                {/if}
+              </button>
+            {/each}
+            <div class="preset-dropdown-divider"></div>
+            <button
+              class="preset-dropdown-item preset-dropdown-settings"
+              type="button"
+              on:click={() => {
+                closePresetDropdown();
+                forwardOpenSystemSettings();
+              }}
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                aria-hidden="true"
+              >
+                <path
+                  d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543-.89 3.31.876 2.42 2.42a1.724 1.724 0 0 0 1.066 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 0 0-1.066 2.572c.89 1.543-.876 3.31-2.42 2.42a1.724 1.724 0 0 0-2.572 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 0 0-2.573-1.066c-1.543.89-3.31-.876-2.42-2.42a1.724 1.724 0 0 0-1.066-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 0 0 1.066-2.572c-.89-1.543.876-3.31 2.42-2.42.965.557 2.185.21 2.573-1.066Z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <span>Manage Presets</span>
+            </button>
+          </div>
         {/if}
-      </button>
+      </div>
     {:else}
       <span class="mobile-model-name">
         {#if selectedModel}
@@ -1876,6 +1994,88 @@
       flex-shrink: 0;
       font-size: 0.78rem;
       padding: 0.3rem 0.7rem;
+    }
+
+    /* ── PWA Preset Dropdown ── */
+    .mobile-preset-wrapper {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      flex: 1;
+      justify-content: center;
+    }
+    .preset-chevron {
+      margin-left: 0.15rem;
+      transition: transform 0.2s ease;
+    }
+    .preset-chevron.open {
+      transform: rotate(180deg);
+    }
+    .preset-dropdown {
+      position: absolute;
+      top: calc(100% + 0.5rem);
+      left: 50%;
+      transform: translateX(-50%);
+      min-width: 200px;
+      max-width: min(280px, 90vw);
+      background: rgba(8, 14, 24, 0.97);
+      border: 1px solid rgba(67, 91, 136, 0.6);
+      border-radius: 0.75rem;
+      padding: 0.5rem 0;
+      box-shadow: 0 12px 24px rgba(3, 8, 20, 0.6);
+      z-index: 200;
+      overflow: hidden;
+    }
+    .preset-dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 0.6rem 1rem;
+      border: none;
+      background: transparent;
+      color: #c8d6ef;
+      font: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.12s ease;
+    }
+    .preset-dropdown-item:hover {
+      background: rgba(56, 189, 248, 0.08);
+    }
+    .preset-dropdown-item.active {
+      color: #38bdf8;
+    }
+    .preset-dropdown-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .preset-dropdown-default {
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #6b7f9e;
+      padding: 0.15rem 0.35rem;
+      border-radius: 0.25rem;
+      background: rgba(107, 127, 158, 0.15);
+    }
+    .preset-dropdown-check {
+      flex-shrink: 0;
+      color: #22c55e;
+    }
+    .preset-dropdown-divider {
+      height: 1px;
+      background: rgba(67, 91, 136, 0.4);
+      margin: 0.35rem 0;
+    }
+    .preset-dropdown-settings {
+      color: #9fb3d8;
+    }
+    .preset-dropdown-settings:hover {
+      color: #38bdf8;
     }
 
     /* Desktop topbar-content becomes the drawer */

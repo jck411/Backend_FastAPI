@@ -436,6 +436,16 @@
         presetsStore.clearLastApplied();
       }
     }}
+    on:presetApplied={(event) => {
+      // Applied presets may change the model and suggestions
+      const presets = presetsStore;
+      const result = get(presets).lastResult;
+      if (result?.model) {
+        setModel(result.model);
+      }
+      // Fire suggestions load in parallel - no need to await
+      void suggestionsStore.load();
+    }}
     on:toggleSaved={async () => {
       await toggleSaved();
       void loadConversationList();

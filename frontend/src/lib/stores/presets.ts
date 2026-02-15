@@ -1,4 +1,4 @@
-import { writable } from 'svelte/store';
+import { get, writable } from 'svelte/store';
 import {
     applyPreset,
     createPreset,
@@ -134,7 +134,12 @@ export function createPresetsStore() {
     async function apply(name: string): Promise<PresetConfig | null> {
         store.update((s) => ({ ...s, applying: name, error: null, lastApplied: null, lastResult: null }));
         try {
-            const result = await applyPreset(name);
+            // Check if the preset has filters from cached items to avoid extra fetch
+            const currentState = get(store);
+            const presetItem = currentState.items.find((item) => item.name === name);
+            const hasFilters = presetItem?.has_filters ?? true; // Default to true if unknown
+
+            const result = await applyPreset(name, hasFilters);
             // Always apply model filters from preset: set them if present, reset if absent
             if (result?.model_filters) {
                 modelStore.setFilters(result.model_filters);

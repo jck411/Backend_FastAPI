@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from "svelte";
+  import { generateConversationTitle } from "../../api/client";
   import type { ConversationSummary } from "../../api/types";
   import { webSearchStore } from "../../chat/webSearchStore";
   import { presetsStore } from "../../stores/presets";
@@ -38,6 +39,7 @@
   let historyOpen = false;
   let historyWrapperEl: HTMLElement | undefined;
   let dropdownStyle = "";
+  let regeneratingSessionId: string | null = null;
   let ModelPicker: ModelPickerComponent | null = null;
   let WebSearchMenu: WebSearchMenuComponent | null = null;
   let modelPickerLoading = false;
@@ -169,6 +171,22 @@
   function handleDeleteConversation(event: Event, sessionId: string): void {
     event.stopPropagation();
     dispatch("deleteConversation", { sessionId });
+  }
+
+  async function handleRegenerateTitle(
+    event: MouseEvent,
+    sessionId: string,
+  ): Promise<void> {
+    event.stopPropagation();
+    regeneratingSessionId = sessionId;
+    try {
+      await generateConversationTitle(sessionId);
+      dispatch("refreshConversations");
+    } catch (error) {
+      console.error("Failed to regenerate title", error);
+    } finally {
+      regeneratingSessionId = null;
+    }
   }
 
   interface DateGroup {
@@ -594,6 +612,41 @@
                       <span class="history-item-meta"
                         >{conv.message_count} msgs</span
                       >
+                      {#if conv.title_source !== "user"}
+                        <button
+                          class="history-item-refresh"
+                          class:spinning={regeneratingSessionId ===
+                            conv.session_id}
+                          type="button"
+                          aria-label="Regenerate title"
+                          on:click={(e) =>
+                            handleRegenerateTitle(e, conv.session_id)}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M1 4v6h6M23 20v-6h-6"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            />
+                            <path
+                              d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            />
+                          </svg>
+                        </button>
+                      {/if}
                       <button
                         class="history-item-delete"
                         type="button"
@@ -841,6 +894,41 @@
                         <span class="history-item-meta"
                           >{conv.message_count} msgs</span
                         >
+                        {#if conv.title_source !== "user"}
+                          <button
+                            class="history-item-refresh"
+                            class:spinning={regeneratingSessionId ===
+                              conv.session_id}
+                            type="button"
+                            aria-label="Regenerate title"
+                            on:click={(e) =>
+                              handleRegenerateTitle(e, conv.session_id)}
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              xmlns="http://www.w3.org/2000/svg"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M1 4v6h6M23 20v-6h-6"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                              />
+                              <path
+                                d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"
+                                stroke="currentColor"
+                                stroke-width="1.5"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                              />
+                            </svg>
+                          </button>
+                        {/if}
                         <button
                           class="history-item-delete"
                           type="button"
@@ -1407,6 +1495,36 @@
     flex-shrink: 0;
     font-size: 0.72rem;
     color: #6b7f9e;
+  }
+  .history-item-refresh {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: #6b7f9e;
+    cursor: pointer;
+    opacity: 0.4;
+    transition:
+      color 0.12s ease,
+      background 0.12s ease,
+      opacity 0.12s ease;
+  }
+  .history-item:hover .history-item-refresh {
+    opacity: 0.8;
+  }
+  .history-item-refresh:hover {
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+    opacity: 1;
+  }
+  .history-item-refresh.spinning svg {
+    animation: spin 0.9s linear infinite;
   }
   .history-item-delete {
     display: flex;

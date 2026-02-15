@@ -67,6 +67,10 @@ class Settings(BaseSettings):
             "default_model",
         ),
     )
+    title_model: str = Field(
+        default="google/gemini-2.0-flash-lite-001",
+        validation_alias=AliasChoices("TITLE_MODEL", "title_model"),
+    )
     openrouter_system_prompt: Optional[str] = Field(
         default=(
             "You are a helpful assistant who follows OpenRouter best practices. "
@@ -180,7 +184,9 @@ class Settings(BaseSettings):
     # Voice Assistant Settings
     pi_websocket_heartbeat_interval: int = Field(
         default=10,
-        validation_alias=AliasChoices("PI_WEBSOCKET_HEARTBEAT_INTERVAL", "heartbeat_interval"),
+        validation_alias=AliasChoices(
+            "PI_WEBSOCKET_HEARTBEAT_INTERVAL", "heartbeat_interval"
+        ),
     )
     stt_silence_timeout: int = Field(
         default=10,

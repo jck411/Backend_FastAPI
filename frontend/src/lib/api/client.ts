@@ -707,4 +707,11 @@ export async function updateConversationTitle(
   });
 }
 
+export async function generateConversationTitle(
+  sessionId: string,
+): Promise<{ session_id: string; title: string; title_source: string }> {
+  const path = `/api/chat/session/${encodeURIComponent(sessionId)}/generate-title`;
+  return requestJson(resolveApiPath(path), { method: 'POST' });
+}
+
 export { ApiError };

@@ -192,6 +192,36 @@ async def delete_saved_conversation(
     return Response(status_code=204)
 
 
+@router.post("/chat/session/{session_id}/generate-title", status_code=200)
+async def generate_session_title(
+    session_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    """Generate an AI title for a conversation using a cheap LLM model."""
+
+    orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+    repo = orchestrator.repository
+    messages = await repo.get_session_messages_for_title(session_id)
+    if not messages:
+        raise HTTPException(status_code=404, detail="No messages found")
+
+    from ..services.title_service import generate_title
+
+    title = await generate_title(orchestrator.settings, messages)
+    if title:
+        await repo.update_session_ai_title(session_id, title)
+        return {"session_id": session_id, "title": title, "title_source": "ai"}
+
+    # Fallback: return existing title
+    conv = await repo.get_conversation_metadata(session_id)
+    return {
+        "session_id": session_id,
+        "title": conv.get("title") if conv else None,
+        "title_source": conv.get("title_source", "auto") if conv else "auto",
+        "generated": False,
+    }
+
+
 @router.delete(
     "/chat/session/{session_id}/messages/{client_message_id}", status_code=204
 )

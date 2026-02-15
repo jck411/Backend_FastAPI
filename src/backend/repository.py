@@ -126,6 +126,9 @@ class ChatRepository:
         await self._ensure_column("conversations", "title", "TEXT")
         await self._ensure_column("conversations", "saved", "INTEGER DEFAULT 0")
         await self._ensure_column("conversations", "updated_at", "DATETIME")
+        await self._ensure_column(
+            "conversations", "title_source", "TEXT DEFAULT 'auto'"
+        )
 
     async def _ensure_column(self, table: str, column: str, definition: str) -> None:
         """Ensure a column exists on a table, adding it if necessary."""
@@ -821,6 +824,7 @@ class ChatRepository:
             SELECT
                 c.session_id,
                 c.title,
+                c.title_source,
                 c.created_at,
                 c.updated_at,
                 (SELECT COUNT(*) FROM messages m WHERE m.session_id = c.session_id) AS message_count,
@@ -849,6 +853,7 @@ class ChatRepository:
                 {
                     "session_id": row["session_id"],
                     "title": row["title"],
+                    "title_source": row["title_source"] or "auto",
                     "created_at": created_at,
                     "updated_at": updated_at,
                     "message_count": row["message_count"],
@@ -868,7 +873,7 @@ class ChatRepository:
         assert self._connection is not None
         if title:
             await self._connection.execute(
-                "UPDATE conversations SET saved = 1, title = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+                "UPDATE conversations SET saved = 1, title = ?, title_source = 'user', updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
                 (title, session_id),
             )
         else:
@@ -897,7 +902,7 @@ class ChatRepository:
 
         assert self._connection is not None
         cursor = await self._connection.execute(
-            "UPDATE conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+            "UPDATE conversations SET title = ?, title_source = 'user', updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
             (title, session_id),
         )
         updated = cursor.rowcount
@@ -950,7 +955,7 @@ class ChatRepository:
             title = title[:57] + "..."
         if title:
             await self._connection.execute(
-                "UPDATE conversations SET title = ? WHERE session_id = ? AND title IS NULL",
+                "UPDATE conversations SET title = ?, title_source = 'auto' WHERE session_id = ? AND title IS NULL",
                 (title, session_id),
             )
             await self._connection.commit()
@@ -967,6 +972,78 @@ class ChatRepository:
         await cursor.close()
         await self._connection.commit()
         return bool(deleted)
+
+    async def get_session_messages_for_title(
+        self, session_id: str
+    ) -> list[dict[str, str]]:
+        """Fetch user/assistant messages for title generation, capped at ~4000 chars."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            "SELECT role, content FROM messages WHERE session_id = ? AND role IN ('user', 'assistant') ORDER BY id ASC",
+            (session_id,),
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        messages: list[dict[str, str]] = []
+        total_chars = 0
+        for row in rows:
+            content = row["content"] or ""
+            # Handle structured content (JSON arrays with text parts)
+            try:
+                parsed = json.loads(content)
+                if isinstance(parsed, list):
+                    text_parts = [
+                        item.get("text", "")
+                        for item in parsed
+                        if isinstance(item, dict) and item.get("type") == "text"
+                    ]
+                    content = " ".join(text_parts)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            if total_chars + len(content) > 4000:
+                content = content[: 4000 - total_chars]
+                messages.append({"role": row["role"], "content": content})
+                break
+            messages.append({"role": row["role"], "content": content})
+            total_chars += len(content)
+        return messages
+
+    async def update_session_ai_title(self, session_id: str, title: str) -> bool:
+        """Set an AI-generated title and mark title_source as 'ai'."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            "UPDATE conversations SET title = ?, title_source = 'ai', updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+            (title, session_id),
+        )
+        updated = cursor.rowcount
+        await cursor.close()
+        await self._connection.commit()
+        return bool(updated)
+
+    async def get_conversation_metadata(self, session_id: str) -> dict[str, Any] | None:
+        """Return basic metadata for a single conversation."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            "SELECT session_id, title, title_source, saved, created_at, updated_at FROM conversations WHERE session_id = ?",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row is None:
+            return None
+        return {
+            "session_id": row["session_id"],
+            "title": row["title"],
+            "title_source": row["title_source"] or "auto",
+            "saved": bool(row["saved"]),
+            "created_at": normalize_db_timestamp(row["created_at"]),
+            "updated_at": normalize_db_timestamp(row["updated_at"])
+            if row["updated_at"]
+            else None,
+        }
 
 
 __all__ = ["ChatRepository", "format_timestamp_for_client"]

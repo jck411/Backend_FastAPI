@@ -3,6 +3,7 @@
   import {
     deleteSavedConversation,
     fetchGenerationDetails,
+    generateConversationTitle,
     listConversations,
   } from "./lib/api/client";
   import type {
@@ -22,6 +23,7 @@
   import QuickPrompts from "./lib/components/chat/QuickPrompts.svelte";
   import SystemSettingsModal from "./lib/components/chat/SystemSettingsModal.svelte";
 
+  import { get } from "svelte/store";
   import CliSettingsModal from "./lib/components/chat/CliSettingsModal.svelte";
   import KioskSettingsModal from "./lib/components/chat/KioskSettingsModal.svelte";
   import McpServersModal from "./lib/components/chat/McpServersModal.svelte";
@@ -399,10 +401,17 @@
     bind:controlsOpen={mobileDrawerOpen}
     on:openExplorer={() => (explorerOpen = true)}
     on:clear={() => {
+      const previousSessionId = get(chatStore).sessionId;
       presetAttachments = [];
       prompt = "";
       clearConversation();
-      void loadConversationList();
+      if (previousSessionId) {
+        generateConversationTitle(previousSessionId)
+          .catch(() => {})
+          .finally(() => void loadConversationList());
+      } else {
+        void loadConversationList();
+      }
     }}
     on:modelChange={(event) => handleModelChange(event.detail.id)}
     on:openModelSettings={() => (modelSettingsOpen = true)}
@@ -415,9 +424,15 @@
       void loadConversationList();
     }}
     on:loadConversation={async (event) => {
+      const previousSessionId = get(chatStore).sessionId;
       await loadSession(event.detail.sessionId);
       presetAttachments = [];
       prompt = "";
+      if (previousSessionId && previousSessionId !== event.detail.sessionId) {
+        generateConversationTitle(previousSessionId)
+          .catch(() => {})
+          .finally(() => void loadConversationList());
+      }
     }}
     on:deleteConversation={async (event) => {
       try {
@@ -427,6 +442,7 @@
         console.error("Failed to delete conversation", error);
       }
     }}
+    on:refreshConversations={() => void loadConversationList()}
   />
 
   <section class="chat-main">

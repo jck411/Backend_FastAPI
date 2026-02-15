@@ -490,6 +490,7 @@ export interface SttSettingsUpdate {
 export interface ConversationSummary {
   session_id: string;
   title: string | null;
+  title_source?: 'auto' | 'ai' | 'user';
   created_at: string | null;
   updated_at: string | null;
   message_count: number;

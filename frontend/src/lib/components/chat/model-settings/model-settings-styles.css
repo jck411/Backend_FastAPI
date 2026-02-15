@@ -83,6 +83,23 @@
   color: var(--color-danger-strong);
 }
 
+.status.success {
+  color: #34d399;
+}
+
+.status.warning {
+  color: #fbbf24;
+}
+
+.status.muted {
+  color: #8094bb;
+}
+
+.modal-empty-state {
+  text-align: center;
+  padding: 2rem 1rem;
+}
+
 .settings-grid {
   display: grid;
   gap: 1rem;

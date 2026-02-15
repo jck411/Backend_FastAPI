@@ -31,7 +31,7 @@
         </svelte:fragment>
 
         {#if citations.length === 0}
-            <p class="status">No web citations found.</p>
+            <p class="status modal-empty-state">No web citations found.</p>
         {:else}
             <ul class="citations-modal-list">
                 {#each citations as citation, index}
@@ -78,12 +78,6 @@
 {/if}
 
 <style>
-    .status {
-        font-size: 0.9rem;
-        color: rgba(199, 210, 254, 0.7);
-        text-align: center;
-        padding: 2rem 1rem;
-    }
     .citations-modal-list {
         list-style: none;
         padding: 0;

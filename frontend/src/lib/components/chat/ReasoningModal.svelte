@@ -1,6 +1,7 @@
 <script lang="ts">
   import { afterUpdate, createEventDispatcher } from "svelte";
   import type { ReasoningSegment, ReasoningStatus } from "../../chat/reasoning";
+  import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -9,7 +10,6 @@
   export let segments: ReasoningSegment[] = [];
   export let status: ReasoningStatus | null = null;
 
-  let dialogEl: HTMLElement | null = null;
   let bodyEl: HTMLElement | null = null;
   let reasoningText = "";
   const SCROLL_LOCK_THRESHOLD = 12;
@@ -69,9 +69,6 @@
     }
     wasOpen = open;
 
-    if (open && dialogEl) {
-      dialogEl.focus();
-    }
     if (open && bodyEl && status === "streaming" && autoScroll) {
       bodyEl.scrollTop = bodyEl.scrollHeight;
     }
@@ -91,144 +88,54 @@
   function handleClose(): void {
     dispatch("close");
   }
-
-  function handleKeydown(event: KeyboardEvent): void {
-    if (!open) return;
-    if (event.key === "Escape") {
-      event.preventDefault();
-      handleClose();
-    }
-  }
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
-
 {#if open}
-  <div class="reasoning-modal-layer">
-    <button
-      type="button"
-      class="reasoning-modal-backdrop"
-      aria-label="Close reasoning details"
-      on:click={handleClose}
-    ></button>
-    <div
-      class="reasoning-modal"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="reasoning-modal-title"
-      tabindex="-1"
-      bind:this={dialogEl}
-    >
-      <header class="reasoning-modal-header">
-        <div>
-          <h2 id="reasoning-modal-title">Reasoning trace</h2>
-          {#if messageId}
-            <p class="reasoning-modal-subtitle">Message ID: {messageId}</p>
-          {/if}
-        </div>
-        <div class="reasoning-modal-actions">
-          {#if status}
-            <span class={`reasoning-status ${status}`} aria-live="polite">
-              <span class="reasoning-status-indicator" aria-hidden="true"></span>
-              {status === "streaming" ? "Streaming" : "Complete"}
-            </span>
-          {/if}
-          <button
-            type="button"
-            class="modal-close"
-            on:click={handleClose}
-            aria-label="Close reasoning details"
-          >
-            Close
-          </button>
-        </div>
-      </header>
-      <section class="reasoning-modal-body" bind:this={bodyEl} on:scroll={handleBodyScroll}>
-        {#if reasoningText.length === 0}
-          <p class="reasoning-modal-status">No reasoning data received yet.</p>
-        {:else}
-          <pre class="reasoning-modal-text">{reasoningText}</pre>
-        {/if}
-      </section>
+  <ModelSettingsDialog
+    {open}
+    labelledBy="reasoning-modal-title"
+    modalClass="reasoning-modal"
+    bodyClass="reasoning-modal-body"
+    closeLabel="Close reasoning details"
+    on:close={handleClose}
+  >
+    <svelte:fragment slot="heading">
+      <h2 id="reasoning-modal-title">Reasoning trace</h2>
+      {#if messageId}
+        <p class="model-settings-subtitle reasoning-modal-subtitle">Message ID: {messageId}</p>
+      {/if}
+    </svelte:fragment>
+
+    <svelte:fragment slot="actions">
+      {#if status}
+        <span class={`reasoning-status ${status}`} aria-live="polite">
+          <span class="reasoning-status-indicator" aria-hidden="true"></span>
+          {status === "streaming" ? "Streaming" : "Complete"}
+        </span>
+      {/if}
+    </svelte:fragment>
+
+    <div class="reasoning-modal-scroll" bind:this={bodyEl} on:scroll={handleBodyScroll}>
+      {#if reasoningText.length === 0}
+        <p class="reasoning-modal-status">No reasoning data received yet.</p>
+      {:else}
+        <pre class="reasoning-modal-text">{reasoningText}</pre>
+      {/if}
     </div>
-  </div>
+  </ModelSettingsDialog>
 {/if}
 
 <style>
-  .reasoning-modal-layer {
-    position: fixed;
-    inset: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem;
-    z-index: 140;
-  }
-  .reasoning-modal-backdrop {
-    position: absolute;
-    inset: 0;
-    background: rgba(4, 8, 20, 0.6);
-    border: none;
-    padding: 0;
-    margin: 0;
-    cursor: pointer;
-  }
-  .reasoning-modal-backdrop:focus-visible {
-    outline: 2px solid #38bdf8;
-  }
-  .reasoning-modal {
-    position: relative;
+  :global(.reasoning-modal) {
     width: min(520px, 100%);
     max-height: min(75vh, 640px);
-    background: rgba(10, 16, 28, 0.95);
-    border: 1px solid rgba(78, 54, 128, 0.4);
-    border-radius: 1rem;
-    box-shadow: 0 18px 48px rgba(3, 8, 20, 0.55);
-    backdrop-filter: blur(12px);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    z-index: 1;
   }
-  .reasoning-modal-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1.25rem;
-    padding: 1.25rem 1.5rem 1rem;
-    border-bottom: 1px solid rgba(78, 54, 128, 0.35);
-  }
-  .reasoning-modal-header h2 {
-    margin: 0;
-    font-size: 1.05rem;
-    font-weight: 600;
-  }
+
   .reasoning-modal-subtitle {
-    margin: 0.35rem 0 0;
-    font-size: 0.75rem;
     color: #9f8ed2;
     word-break: break-all;
   }
-  .reasoning-modal-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-  .modal-close {
-    background: none;
-    border: 1px solid rgba(124, 58, 237, 0.4);
-    border-radius: 999px;
-    color: #f3f5ff;
-    padding: 0.35rem 0.9rem;
-    cursor: pointer;
-    font-size: 0.75rem;
-  }
-  .modal-close:hover,
-  .modal-close:focus-visible {
-    border-color: #c084fc;
-    color: #c084fc;
-    outline: none;
-  }
+
   .reasoning-status {
     display: inline-flex;
     align-items: center;
@@ -253,10 +160,18 @@
     background: #c084fc;
     position: relative;
   }
-  .reasoning-modal-body {
+
+  :global(.reasoning-modal-body) {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .reasoning-modal-scroll {
     padding: 1.25rem 1.5rem 1.5rem;
     overflow-y: auto;
+    max-height: 100%;
   }
+
   .reasoning-modal-status {
     margin: 0;
     font-size: 0.9rem;
@@ -274,6 +189,7 @@
     color: #f3f5ff;
     overflow-x: auto;
   }
+
   @keyframes reasoningStatusPulse {
     0% {
       box-shadow: 0 0 0 0 rgba(192, 132, 252, 0.45);

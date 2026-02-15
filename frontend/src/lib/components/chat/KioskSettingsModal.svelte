@@ -16,7 +16,6 @@
   import { modelStore } from "../../stores/models";
   import { autoSize } from "./autoSize";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
-  import "./model-settings/model-settings-styles.css";
   import "./system-settings.css";
 
   const { filtered } = modelStore;

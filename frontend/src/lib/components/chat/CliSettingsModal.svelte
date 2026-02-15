@@ -7,7 +7,6 @@
   } from "../../stores/cliSettings";
   import { modelStore } from "../../stores/models";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
-  import "./model-settings/model-settings-styles.css";
   import { autoSize } from "./autoSize";
   import "./system-settings.css";
 

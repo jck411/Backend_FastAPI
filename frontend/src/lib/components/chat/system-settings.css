@@ -61,10 +61,6 @@
   justify-content: flex-end;
 }
 
-.status.success {
-  color: #34d399;
-}
-
 .google-auth-body {
   gap: 0.65rem;
 }
@@ -187,11 +183,11 @@
   cursor: not-allowed;
 }
 
-.btn-danger {
+.system-settings-body .btn-danger {
   color: #f87171;
 }
 
-.btn-danger:hover:not(:disabled) {
+.system-settings-body .btn-danger:hover:not(:disabled) {
   color: #fca5a5;
   background: rgba(248, 113, 113, 0.1);
 }
@@ -359,14 +355,6 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-}
-
-.status.warning {
-  color: #fbbf24;
-}
-
-.status.muted {
-  color: #8094bb;
 }
 
 .monarch-form {

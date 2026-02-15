@@ -43,7 +43,9 @@
         </svelte:fragment>
 
         {#if !details}
-            <p class="status">No web search details available.</p>
+            <p class="status modal-empty-state">
+                No web search details available.
+            </p>
         {:else}
             <div class="details-grid">
                 <div class="detail-item">
@@ -101,13 +103,6 @@
 {/if}
 
 <style>
-    .status {
-        font-size: 0.9rem;
-        color: rgba(199, 210, 254, 0.7);
-        text-align: center;
-        padding: 2rem 1rem;
-    }
-
     .details-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));

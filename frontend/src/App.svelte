@@ -1,8 +1,13 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { fetchGenerationDetails } from "./lib/api/client";
+  import {
+    deleteSavedConversation,
+    fetchGenerationDetails,
+    listConversations,
+  } from "./lib/api/client";
   import type {
     AttachmentResource,
+    ConversationSummary,
     GenerationDetails,
     ModelRecord,
   } from "./lib/api/types";
@@ -43,6 +48,8 @@
     editMessage: applyMessageEdit,
     clearError,
     setModel,
+    toggleSaved,
+    loadSession,
   } = chatStore;
   const {
     loadModels,
@@ -82,6 +89,15 @@
   let showInstallBanner = false;
   let pwaMode = false;
   let mobileDrawerOpen = false;
+  let conversations: ConversationSummary[] = [];
+
+  async function loadConversationList(): Promise<void> {
+    try {
+      conversations = await listConversations();
+    } catch (error) {
+      console.error("Failed to load conversation list", error);
+    }
+  }
 
   interface BeforeInstallPromptEvent extends Event {
     prompt(): Promise<void>;
@@ -120,6 +136,7 @@
 
     await loadModels();
     await suggestionsStore.load();
+    void loadConversationList();
     // Load and apply default preset if one is set
     const defaultPreset = await presetsStore.loadDefault();
     if (defaultPreset) {
@@ -377,12 +394,15 @@
     modelsError={$modelsError}
     hasMessages={$chatStore.messages.length > 0}
     {pwaMode}
+    isSaved={$chatStore.isSaved}
+    {conversations}
     bind:controlsOpen={mobileDrawerOpen}
     on:openExplorer={() => (explorerOpen = true)}
     on:clear={() => {
       presetAttachments = [];
       prompt = "";
       clearConversation();
+      void loadConversationList();
     }}
     on:modelChange={(event) => handleModelChange(event.detail.id)}
     on:openModelSettings={() => (modelSettingsOpen = true)}
@@ -390,6 +410,23 @@
     on:openMcpServers={() => (mcpServersOpen = true)}
     on:openKioskSettings={() => (kioskSettingsOpen = true)}
     on:openCliSettings={() => (cliSettingsOpen = true)}
+    on:toggleSaved={async () => {
+      await toggleSaved();
+      void loadConversationList();
+    }}
+    on:loadConversation={async (event) => {
+      await loadSession(event.detail.sessionId);
+      presetAttachments = [];
+      prompt = "";
+    }}
+    on:deleteConversation={async (event) => {
+      try {
+        await deleteSavedConversation(event.detail.sessionId);
+        void loadConversationList();
+      } catch (error) {
+        console.error("Failed to delete conversation", error);
+      }
+    }}
   />
 
   <section class="chat-main">

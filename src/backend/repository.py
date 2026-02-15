@@ -7,13 +7,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+import aiosqlite
+
 from backend.utils.datetime_utils import (
     format_timestamp_for_client,
     normalize_db_timestamp,
     parse_db_timestamp,
 )
-
-import aiosqlite
 
 MessageRecord = dict[str, Any]
 AttachmentRecord = dict[str, Any]
@@ -122,9 +122,10 @@ class ChatRepository:
         await self._ensure_column("messages", "parent_client_message_id", "TEXT")
         await self._ensure_column("attachments", "gcs_blob", "TEXT")
         await self._ensure_column("attachments", "signed_url", "TEXT")
-        await self._ensure_column(
-            "attachments", "signed_url_expires_at", "TEXT"
-        )
+        await self._ensure_column("attachments", "signed_url_expires_at", "TEXT")
+        await self._ensure_column("conversations", "title", "TEXT")
+        await self._ensure_column("conversations", "saved", "INTEGER DEFAULT 0")
+        await self._ensure_column("conversations", "updated_at", "DATETIME")
 
     async def _ensure_column(self, table: str, column: str, definition: str) -> None:
         """Ensure a column exists on a table, adding it if necessary."""
@@ -174,7 +175,7 @@ class ChatRepository:
         assert self._connection is not None
         cursor = await self._connection.execute(
             """
-            SELECT session_id, created_at, timezone
+            SELECT session_id, created_at, timezone, title, saved, updated_at
             FROM conversations
             WHERE session_id = ?
             LIMIT 1
@@ -192,6 +193,11 @@ class ChatRepository:
             "session_id": row["session_id"],
             "created_at": created_at,
             "timezone": timezone_value,
+            "title": row["title"],
+            "saved": bool(row["saved"]),
+            "updated_at": normalize_db_timestamp(row["updated_at"])
+            if row["updated_at"]
+            else None,
         }
 
     async def clear_session(self, session_id: str) -> None:
@@ -266,6 +272,16 @@ class ChatRepository:
         created_at: str | None = None
         if timestamp_row is not None:
             created_at = normalize_db_timestamp(timestamp_row["created_at"])
+
+        # Touch updated_at and auto-title saved sessions
+        await self._connection.execute(
+            "UPDATE conversations SET updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+            (session_id,),
+        )
+        await self._connection.commit()
+        if role == "user":
+            await self._auto_title_if_needed(session_id)
+
         return int(inserted_id), created_at
 
     async def get_messages(self, session_id: str) -> list[MessageRecord]:
@@ -324,9 +340,7 @@ class ChatRepository:
             messages.append(message)
         return messages
 
-    async def update_latest_system_message(
-        self, session_id: str, content: Any
-    ) -> bool:
+    async def update_latest_system_message(self, session_id: str, content: Any) -> bool:
         """Update the most recent system message for a session."""
 
         assert self._connection is not None
@@ -792,6 +806,167 @@ class ChatRepository:
         await cursor.close()
         await self._connection.commit()
         return deleted
+
+    async def list_saved_conversations(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """Return saved conversations with title, date, and message preview."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            """
+            SELECT
+                c.session_id,
+                c.title,
+                c.created_at,
+                c.updated_at,
+                (SELECT COUNT(*) FROM messages m WHERE m.session_id = c.session_id) AS message_count,
+                (SELECT m.content FROM messages m
+                 WHERE m.session_id = c.session_id AND m.role = 'user'
+                 ORDER BY m.id ASC LIMIT 1) AS preview
+            FROM conversations c
+            WHERE c.saved = 1
+            ORDER BY COALESCE(c.updated_at, c.created_at) DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        )
+        rows = await cursor.fetchall()
+        await cursor.close()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            preview_text = row["preview"] or ""
+            if len(preview_text) > 200:
+                preview_text = preview_text[:200]
+            created_at = normalize_db_timestamp(row["created_at"])
+            updated_at = (
+                normalize_db_timestamp(row["updated_at"]) if row["updated_at"] else None
+            )
+            results.append(
+                {
+                    "session_id": row["session_id"],
+                    "title": row["title"],
+                    "created_at": created_at,
+                    "updated_at": updated_at,
+                    "message_count": row["message_count"],
+                    "preview": preview_text,
+                }
+            )
+        return results
+
+    async def save_session(
+        self,
+        session_id: str,
+        *,
+        title: str | None = None,
+    ) -> bool:
+        """Mark a session as saved, optionally setting its title."""
+
+        assert self._connection is not None
+        if title:
+            await self._connection.execute(
+                "UPDATE conversations SET saved = 1, title = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+                (title, session_id),
+            )
+        else:
+            await self._connection.execute(
+                "UPDATE conversations SET saved = 1, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+                (session_id,),
+            )
+        await self._connection.commit()
+        return True
+
+    async def unsave_session(self, session_id: str) -> bool:
+        """Remove the saved flag from a session."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            "UPDATE conversations SET saved = 0 WHERE session_id = ?",
+            (session_id,),
+        )
+        updated = cursor.rowcount
+        await cursor.close()
+        await self._connection.commit()
+        return bool(updated)
+
+    async def update_session_title(self, session_id: str, title: str) -> bool:
+        """Update the display title for a session."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            "UPDATE conversations SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE session_id = ?",
+            (title, session_id),
+        )
+        updated = cursor.rowcount
+        await cursor.close()
+        await self._connection.commit()
+        return bool(updated)
+
+    async def _auto_title_if_needed(self, session_id: str) -> None:
+        """Set a title from the first user message if the session has no title."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            "SELECT title FROM conversations WHERE session_id = ?",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        if row is None or row["title"]:
+            return
+
+        cursor = await self._connection.execute(
+            """
+            SELECT content FROM messages
+            WHERE session_id = ? AND role = 'user'
+            ORDER BY id ASC LIMIT 1
+            """,
+            (session_id,),
+        )
+        msg_row = await cursor.fetchone()
+        await cursor.close()
+        if msg_row is None or not msg_row["content"]:
+            return
+
+        content = msg_row["content"]
+        # Handle structured content (JSON array)
+        try:
+            parsed = json.loads(content)
+            if isinstance(parsed, list):
+                text_parts = [
+                    item.get("text", "")
+                    for item in parsed
+                    if isinstance(item, dict) and item.get("type") == "text"
+                ]
+                content = " ".join(text_parts)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        title = content.strip()
+        if len(title) > 60:
+            title = title[:57] + "..."
+        if title:
+            await self._connection.execute(
+                "UPDATE conversations SET title = ? WHERE session_id = ? AND title IS NULL",
+                (title, session_id),
+            )
+            await self._connection.commit()
+
+    async def delete_saved_conversation(self, session_id: str) -> bool:
+        """Permanently delete a saved conversation and all its data."""
+
+        assert self._connection is not None
+        cursor = await self._connection.execute(
+            "DELETE FROM conversations WHERE session_id = ?",
+            (session_id,),
+        )
+        deleted = cursor.rowcount
+        await cursor.close()
+        await self._connection.commit()
+        return bool(deleted)
 
 
 __all__ = ["ChatRepository", "format_timestamp_for_client"]

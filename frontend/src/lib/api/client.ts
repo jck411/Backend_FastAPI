@@ -641,4 +641,70 @@ export async function updateSttSettings(update: SttSettingsUpdate): Promise<SttS
   });
 }
 
+// ============== Conversation History ==============
+
+import type {
+  ConversationListResponse,
+  ConversationSummary,
+  SaveSessionResponse,
+  SessionMessagesResponse,
+} from './types';
+
+export async function listConversations(
+  limit = 50,
+  offset = 0,
+): Promise<ConversationSummary[]> {
+  const response = await requestJson<ConversationListResponse>(
+    resolveApiPath(`/api/chat/conversations?limit=${limit}&offset=${offset}`),
+  );
+  return response.conversations;
+}
+
+export async function loadSessionMessages(
+  sessionId: string,
+): Promise<SessionMessagesResponse> {
+  const path = `/api/chat/session/${encodeURIComponent(sessionId)}/messages`;
+  return requestJson<SessionMessagesResponse>(resolveApiPath(path));
+}
+
+export async function saveConversation(
+  sessionId: string,
+  title?: string,
+): Promise<SaveSessionResponse> {
+  const path = `/api/chat/session/${encodeURIComponent(sessionId)}/save`;
+  return requestJson<SaveSessionResponse>(resolveApiPath(path), {
+    method: 'POST',
+    body: JSON.stringify(title ? { title } : {}),
+  });
+}
+
+export async function unsaveConversation(
+  sessionId: string,
+): Promise<void> {
+  const path = `/api/chat/session/${encodeURIComponent(sessionId)}/unsave`;
+  await requestJson<{ saved: boolean }>(resolveApiPath(path), {
+    method: 'POST',
+  });
+}
+
+export async function deleteSavedConversation(
+  sessionId: string,
+): Promise<void> {
+  const path = `/api/chat/conversations/${encodeURIComponent(sessionId)}`;
+  await requestVoid(resolveApiPath(path), {
+    method: 'DELETE',
+  });
+}
+
+export async function updateConversationTitle(
+  sessionId: string,
+  title: string,
+): Promise<void> {
+  const path = `/api/chat/session/${encodeURIComponent(sessionId)}`;
+  await requestJson<{ session_id: string; title: string }>(resolveApiPath(path), {
+    method: 'PATCH',
+    body: JSON.stringify({ title }),
+  });
+}
+
 export { ApiError };

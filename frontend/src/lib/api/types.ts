@@ -484,3 +484,47 @@ export interface SttSettingsUpdate {
   command_utterance_end_ms?: number;
   command_endpointing?: number;
 }
+
+/* Conversation History */
+
+export interface ConversationSummary {
+  session_id: string;
+  title: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  message_count: number;
+  preview: string;
+}
+
+export interface ConversationListResponse {
+  conversations: ConversationSummary[];
+}
+
+export interface SessionMessagesResponse {
+  session_id: string;
+  metadata: {
+    session_id: string;
+    created_at: string | null;
+    timezone: string | null;
+    title: string | null;
+    saved: boolean;
+    updated_at: string | null;
+  };
+  messages: Array<{
+    role: string;
+    content: ChatMessageContent;
+    message_id?: number;
+    client_message_id?: string;
+    parent_client_message_id?: string;
+    tool_call_id?: string;
+    created_at?: string;
+    created_at_utc?: string;
+    [key: string]: unknown;
+  }>;
+}
+
+export interface SaveSessionResponse {
+  saved: boolean;
+  session_id: string;
+  title: string | null;
+}

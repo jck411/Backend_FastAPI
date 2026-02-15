@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher, onMount } from "svelte";
+  import type { ConversationSummary } from "../../api/types";
   import { webSearchStore } from "../../chat/webSearchStore";
   import { presetsStore } from "../../stores/presets";
 
@@ -21,6 +22,9 @@
     openCliSettings: void;
     openMcpServers: void;
     drawerToggle: { open: boolean };
+    toggleSaved: void;
+    loadConversation: { sessionId: string };
+    deleteConversation: { sessionId: string };
   }>();
 
   export let selectableModels: SelectableModel[] = [];
@@ -29,6 +33,11 @@
   export let modelsError: string | null = null;
   export let hasMessages = false;
   export let pwaMode = false;
+  export let isSaved = false;
+  export let conversations: ConversationSummary[] = [];
+  let historyOpen = false;
+  let historyWrapperEl: HTMLElement | undefined;
+  let dropdownStyle = "";
   let ModelPicker: ModelPickerComponent | null = null;
   let WebSearchMenu: WebSearchMenuComponent | null = null;
   let modelPickerLoading = false;
@@ -116,7 +125,110 @@
     if (!pwaMode) closeDrawer();
     dispatch("openMcpServers");
   }
+
+  function handleToggleSaved(): void {
+    dispatch("toggleSaved");
+  }
+
+  function toggleHistory(): void {
+    historyOpen = !historyOpen;
+    if (historyOpen && historyWrapperEl) {
+      const rect = historyWrapperEl.getBoundingClientRect();
+      const maxH = 400;
+      const gap = 4;
+      const dropW = 320;
+      const spaceBelow = window.innerHeight - rect.bottom - gap;
+      const spaceAbove = rect.top - gap;
+      let top: number;
+      let mh: number;
+      if (spaceBelow >= 200 || spaceBelow >= spaceAbove) {
+        top = rect.bottom + gap;
+        mh = Math.min(maxH, spaceBelow);
+      } else {
+        mh = Math.min(maxH, spaceAbove);
+        top = rect.top - gap - mh;
+      }
+      const left = Math.max(
+        8,
+        Math.min(rect.left, window.innerWidth - dropW - 8),
+      );
+      dropdownStyle = `position:fixed;top:${top}px;left:${left}px;max-height:${mh}px;width:${Math.min(dropW, window.innerWidth - 16)}px;`;
+    }
+  }
+
+  function handleLoadConversation(sessionId: string): void {
+    historyOpen = false;
+    closeDrawer();
+    dispatch("loadConversation", { sessionId });
+  }
+
+  function handleDeleteConversation(event: Event, sessionId: string): void {
+    event.stopPropagation();
+    dispatch("deleteConversation", { sessionId });
+  }
+
+  interface DateGroup {
+    label: string;
+    items: ConversationSummary[];
+  }
+
+  function groupByDate(items: ConversationSummary[]): DateGroup[] {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 86400000);
+    const weekAgo = new Date(today.getTime() - 7 * 86400000);
+    const monthAgo = new Date(today.getTime() - 30 * 86400000);
+
+    const groups: Record<string, ConversationSummary[]> = {};
+    const order: string[] = [];
+
+    function addToGroup(label: string, item: ConversationSummary) {
+      if (!groups[label]) {
+        groups[label] = [];
+        order.push(label);
+      }
+      groups[label].push(item);
+    }
+
+    for (const item of items) {
+      const dateStr = item.updated_at || item.created_at;
+      if (!dateStr) {
+        addToGroup("Older", item);
+        continue;
+      }
+      const d = new Date(dateStr);
+      if (d >= today) {
+        addToGroup("Today", item);
+      } else if (d >= yesterday) {
+        addToGroup("Yesterday", item);
+      } else if (d >= weekAgo) {
+        addToGroup("Previous 7 Days", item);
+      } else if (d >= monthAgo) {
+        addToGroup("Previous 30 Days", item);
+      } else {
+        const monthLabel = d.toLocaleDateString("en-US", {
+          month: "long",
+          year: "numeric",
+        });
+        addToGroup(monthLabel, item);
+      }
+    }
+
+    return order.map((label) => ({ label, items: groups[label] }));
+  }
+
+  $: dateGroups = groupByDate(conversations);
+
+  function handleClickOutside(event: MouseEvent): void {
+    if (!historyOpen) return;
+    const target = event.target as HTMLElement;
+    if (!target.closest(".history-wrapper")) {
+      historyOpen = false;
+    }
+  }
 </script>
+
+<svelte:window on:click={handleClickOutside} />
 
 <header
   class="topbar chat-header"
@@ -175,6 +287,45 @@
         Chat
       {/if}
     </span>
+    <button
+      class="btn btn-ghost btn-small mobile-save"
+      class:active={isSaved}
+      type="button"
+      on:click={handleToggleSaved}
+      aria-label={isSaved ? "Conversation saved" : "Save conversation"}
+      title={isSaved ? "Conversation saved" : "Save conversation"}
+    >
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
+      >
+        <path
+          d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <polyline
+          points="17 21 17 13 7 13 7 21"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <polyline
+          points="7 3 7 8 15 8"
+          stroke="currentColor"
+          stroke-width="1.5"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
     <button
       class="btn btn-ghost btn-small mobile-clear"
       type="button"
@@ -380,6 +531,96 @@
           </svg>
           <span>System Settings</span>
         </button>
+
+        <div class="history-wrapper pwa-full-row">
+          <button
+            class="btn btn-ghost btn-small pwa-full-row"
+            type="button"
+            on:click={toggleHistory}
+            aria-label="Conversation history"
+            title="Conversation history"
+            aria-expanded={historyOpen}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <circle
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="1.5"
+              />
+              <polyline
+                points="12 6 12 12 16 14"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <span>History</span>
+          </button>
+          {#if historyOpen}
+            <div class="history-dropdown" role="menu">
+              {#if conversations.length === 0}
+                <div class="history-empty">No saved conversations</div>
+              {:else}
+                {#each dateGroups as group}
+                  <div class="history-group-label">{group.label}</div>
+                  {#each group.items as conv}
+                    <div
+                      class="history-item"
+                      role="menuitem"
+                      tabindex="0"
+                      on:click={() => handleLoadConversation(conv.session_id)}
+                      on:keydown={(e) => {
+                        if (e.key === "Enter" || e.key === " ")
+                          handleLoadConversation(conv.session_id);
+                      }}
+                    >
+                      <span class="history-item-title"
+                        >{conv.title || conv.preview || "Untitled"}</span
+                      >
+                      <span class="history-item-meta"
+                        >{conv.message_count} msgs</span
+                      >
+                      <button
+                        class="history-item-delete"
+                        type="button"
+                        aria-label="Delete conversation"
+                        on:click={(e) =>
+                          handleDeleteConversation(e, conv.session_id)}
+                      >
+                        <svg
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          xmlns="http://www.w3.org/2000/svg"
+                          aria-hidden="true"
+                        >
+                          <path
+                            d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      </button>
+                    </div>
+                  {/each}
+                {/each}
+              {/if}
+            </div>
+          {/if}
+        </div>
       {/if}
 
       <div class="icon-row">
@@ -520,6 +761,113 @@
               />
             </svg>
           </button>
+
+          <button
+            class="btn btn-ghost btn-small save-toggle"
+            class:active={isSaved}
+            type="button"
+            on:click={handleToggleSaved}
+            aria-label={isSaved ? "Conversation saved" : "Save conversation"}
+            title={isSaved ? "Conversation saved" : "Save conversation"}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <polyline
+                points="17 21 17 13 7 13 7 21"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <polyline
+                points="7 3 7 8 15 8"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+
+          <div class="history-wrapper" bind:this={historyWrapperEl}>
+            <button
+              class="btn btn-ghost btn-small"
+              type="button"
+              on:click={toggleHistory}
+              aria-label="Conversation history"
+              title="Conversation history"
+              aria-expanded={historyOpen}
+            >
+              History
+            </button>
+            {#if historyOpen}
+              <div class="history-dropdown" style={dropdownStyle} role="menu">
+                {#if conversations.length === 0}
+                  <div class="history-empty">No saved conversations</div>
+                {:else}
+                  {#each dateGroups as group}
+                    <div class="history-group-label">{group.label}</div>
+                    {#each group.items as conv}
+                      <div
+                        class="history-item"
+                        role="menuitem"
+                        tabindex="0"
+                        on:click={() => handleLoadConversation(conv.session_id)}
+                        on:keydown={(e) => {
+                          if (e.key === "Enter" || e.key === " ")
+                            handleLoadConversation(conv.session_id);
+                        }}
+                      >
+                        <span class="history-item-title"
+                          >{conv.title || conv.preview || "Untitled"}</span
+                        >
+                        <span class="history-item-meta"
+                          >{conv.message_count} msgs</span
+                        >
+                        <button
+                          class="history-item-delete"
+                          type="button"
+                          aria-label="Delete conversation"
+                          on:click={(e) =>
+                            handleDeleteConversation(e, conv.session_id)}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                    {/each}
+                  {/each}
+                {/if}
+              </div>
+            {/if}
+          </div>
 
           <button
             class="btn btn-ghost btn-small"
@@ -948,5 +1296,132 @@
     .topbar-content {
       transition: none;
     }
+  }
+
+  /* ── Save toggle ── */
+  .save-toggle,
+  .mobile-save {
+    color: #9fb3d8;
+    transition:
+      color 0.15s ease,
+      border-color 0.15s ease,
+      box-shadow 0.15s ease;
+  }
+  .save-toggle:hover,
+  .mobile-save:hover {
+    color: #38bdf8;
+  }
+  .save-toggle.active,
+  .mobile-save.active {
+    color: #22c55e;
+    border-color: #22c55e;
+    box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.35);
+  }
+
+  /* ── History wrapper + dropdown ── */
+  .history-wrapper {
+    position: relative;
+  }
+  .history-dropdown {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    min-width: 280px;
+    max-width: 360px;
+    max-height: 400px;
+    overflow-y: auto;
+    background: rgba(9, 14, 26, 0.97);
+    border: 1px solid rgba(37, 49, 77, 0.9);
+    border-radius: 0.5rem;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    z-index: 100;
+    padding: 0.5rem 0;
+    margin-top: 0.25rem;
+  }
+  .history-empty {
+    padding: 1rem;
+    text-align: center;
+    color: #6b7f9e;
+    font-size: 0.85rem;
+  }
+  .history-group-label {
+    padding: 0.5rem 0.75rem 0.25rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6b7f9e;
+    font-weight: 600;
+  }
+  .history-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: none;
+    background: transparent;
+    color: #c8d6ef;
+    font: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.12s ease;
+  }
+  .history-item:hover {
+    background: rgba(56, 189, 248, 0.08);
+  }
+  .history-item-title {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .history-item-meta {
+    flex-shrink: 0;
+    font-size: 0.72rem;
+    color: #6b7f9e;
+  }
+  .history-item-delete {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: #6b7f9e;
+    cursor: pointer;
+    transition:
+      color 0.12s ease,
+      background 0.12s ease;
+  }
+  .history-item-delete:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.12);
+  }
+
+  /* ── PWA drawer history dropdown: always inline below the button ── */
+  .history-wrapper.pwa-full-row {
+    position: static;
+    display: flex;
+    flex-direction: column;
+  }
+  .history-wrapper.pwa-full-row .history-dropdown {
+    position: static;
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+    max-height: 250px;
+    margin-top: 0.25rem;
+    box-shadow: none;
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+    background: rgba(6, 10, 20, 0.95);
+    right: auto;
+    top: auto;
   }
 </style>

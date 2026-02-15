@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -154,3 +155,130 @@ async def test_update_latest_system_message_resets_structured_flag(repository):
 
     messages = await repository.get_messages("session-1")
     assert messages[0]["content"] == "Updated"
+
+
+# ─── Conversation persistence tests ───
+
+
+@pytest.mark.anyio
+async def test_save_and_list_conversations(repository):
+    await repository.add_message("session-1", role="user", content="Hello world")
+    await repository.save_session("session-1")
+
+    results = await repository.list_saved_conversations()
+    assert len(results) == 1
+    assert results[0]["session_id"] == "session-1"
+    assert results[0]["message_count"] == 1
+
+
+@pytest.mark.anyio
+async def test_save_with_title(repository):
+    await repository.save_session("session-1", title="My Chat")
+    results = await repository.list_saved_conversations()
+    assert results[0]["title"] == "My Chat"
+
+
+@pytest.mark.anyio
+async def test_unsave_session(repository):
+    await repository.save_session("session-1")
+    results = await repository.list_saved_conversations()
+    assert len(results) == 1
+
+    await repository.unsave_session("session-1")
+    results = await repository.list_saved_conversations()
+    assert len(results) == 0
+
+
+@pytest.mark.anyio
+async def test_update_session_title(repository):
+    await repository.save_session("session-1", title="Old Title")
+    updated = await repository.update_session_title("session-1", "New Title")
+    assert updated is True
+
+    results = await repository.list_saved_conversations()
+    assert results[0]["title"] == "New Title"
+
+
+@pytest.mark.anyio
+async def test_auto_title_from_first_user_message(repository):
+    await repository.add_message(
+        "session-1", role="user", content="Tell me about Python programming"
+    )
+
+    metadata = await repository.get_session_metadata("session-1")
+    assert metadata is not None
+    assert metadata["title"] == "Tell me about Python programming"
+
+
+@pytest.mark.anyio
+async def test_auto_title_truncates_long_messages(repository):
+    long_msg = "A" * 100
+    await repository.add_message("session-1", role="user", content=long_msg)
+
+    metadata = await repository.get_session_metadata("session-1")
+    assert metadata is not None
+    assert metadata["title"] == "A" * 57 + "..."
+    assert len(metadata["title"]) == 60
+
+
+@pytest.mark.anyio
+async def test_auto_title_handles_structured_content(repository):
+    payload = [{"type": "text", "text": "Structured message"}]
+    import json
+
+    await repository.add_message("session-1", role="user", content=json.dumps(payload))
+
+    metadata = await repository.get_session_metadata("session-1")
+    assert metadata is not None
+    assert metadata["title"] == "Structured message"
+
+
+@pytest.mark.anyio
+async def test_auto_title_does_not_overwrite_existing(repository):
+    await repository.save_session("session-1", title="Custom Title")
+    await repository.add_message(
+        "session-1", role="user", content="This should not become the title"
+    )
+
+    metadata = await repository.get_session_metadata("session-1")
+    assert metadata["title"] == "Custom Title"
+
+
+@pytest.mark.anyio
+async def test_delete_saved_conversation(repository):
+    await repository.add_message("session-1", role="user", content="Hello")
+    await repository.save_session("session-1")
+
+    deleted = await repository.delete_saved_conversation("session-1")
+    assert deleted is True
+
+    results = await repository.list_saved_conversations()
+    assert len(results) == 0
+
+
+@pytest.mark.anyio
+async def test_delete_nonexistent_conversation(repository):
+    deleted = await repository.delete_saved_conversation("nonexistent")
+    assert deleted is False
+
+
+@pytest.mark.anyio
+async def test_list_conversations_pagination(repository):
+    for i in range(5):
+        sid = f"session-page-{i}"
+        await repository.ensure_session(sid)
+        await repository.add_message(sid, role="user", content=f"Message {i}")
+        await repository.save_session(sid)
+
+    page1 = await repository.list_saved_conversations(limit=2, offset=0)
+    page2 = await repository.list_saved_conversations(limit=2, offset=2)
+    assert len(page1) == 2
+    assert len(page2) == 2
+    assert page1[0]["session_id"] != page2[0]["session_id"]
+
+
+@pytest.mark.anyio
+async def test_unsaved_sessions_not_in_list(repository):
+    await repository.add_message("session-1", role="user", content="Hello")
+    results = await repository.list_saved_conversations()
+    assert len(results) == 0

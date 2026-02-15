@@ -1,5 +1,5 @@
 import { get, writable } from 'svelte/store';
-import { ApiError, deleteChatMessage } from '../api/client';
+import { ApiError, deleteChatMessage, loadSessionMessages, saveConversation, unsaveConversation } from '../api/client';
 import type {
   AttachmentResource,
   ChatCompletionRequest,
@@ -76,6 +76,7 @@ interface ChatState {
   isStreaming: boolean;
   error: string | null;
   selectedModel: string;
+  isSaved: boolean;
 }
 
 const initialState: ChatState = {
@@ -84,6 +85,7 @@ const initialState: ChatState = {
   isStreaming: false,
   error: null,
   selectedModel: 'openrouter/auto',
+  isSaved: false,
 };
 
 function createId(prefix: string): string {
@@ -554,7 +556,7 @@ function createChatStore() {
           let toolContent: ChatMessageContent;
           let toolText: string;
           let toolAttachments: AttachmentResource[] = [];
-          
+
           if (Array.isArray(payloadContent)) {
             // Multimodal content with potential attachments
             const normalized = normalizeMessageContent(payloadContent);
@@ -731,10 +733,82 @@ function createChatStore() {
   function clearConversation(): void {
     currentAbort?.abort();
     currentAbort = null;
+    // Don't delete saved sessions from the backend — just reset UI
     store.update((value) => ({
       ...initialState,
       selectedModel: value.selectedModel,
     }));
+  }
+
+  async function toggleSaved(): Promise<void> {
+    const state = get(store);
+    if (!state.sessionId) {
+      // No session yet — create and immediately save
+      const sessionId = createId('session');
+      store.update((value) => ({ ...value, sessionId, isSaved: true }));
+      try {
+        await saveConversation(sessionId);
+      } catch (error) {
+        console.error('Failed to save conversation', error);
+        store.update((value) => ({ ...value, isSaved: false }));
+      }
+      return;
+    }
+
+    const newSaved = !state.isSaved;
+    store.update((value) => ({ ...value, isSaved: newSaved }));
+    try {
+      if (newSaved) {
+        await saveConversation(state.sessionId);
+      } else {
+        await unsaveConversation(state.sessionId);
+      }
+    } catch (error) {
+      console.error('Failed to toggle save state', error);
+      store.update((value) => ({ ...value, isSaved: !newSaved }));
+    }
+  }
+
+  async function loadSession(sessionId: string): Promise<void> {
+    currentAbort?.abort();
+    currentAbort = null;
+
+    try {
+      const response = await loadSessionMessages(sessionId);
+      const mapped: ConversationMessage[] = response.messages
+        .filter((m) => m.role !== 'system')
+        .map((m) => {
+          const content = m.content ?? '';
+          const text = typeof content === 'string' ? content : '';
+          return {
+            id: m.client_message_id || `db-${m.message_id ?? Math.random()}`,
+            role: m.role as ConversationRole,
+            content,
+            text,
+            attachments: [],
+            pending: false,
+            createdAt: m.created_at ?? null,
+            createdAtUtc: m.created_at_utc ?? null,
+            details: m.tool_call_id
+              ? { toolName: (m as Record<string, unknown>).name as string | undefined ?? undefined }
+              : undefined,
+          };
+        });
+
+      store.update((value) => ({
+        ...initialState,
+        selectedModel: value.selectedModel,
+        sessionId,
+        messages: mapped,
+        isSaved: response.metadata.saved,
+      }));
+    } catch (error) {
+      console.error('Failed to load session', error);
+      store.update((value) => ({
+        ...value,
+        error: error instanceof Error ? error.message : 'Failed to load conversation',
+      }));
+    }
   }
 
   function pruneMessages(state: ChatState, messageId: string): ChatState {
@@ -989,6 +1063,8 @@ function createChatStore() {
     clearError,
     setModel,
     ensureSessionId,
+    toggleSaved,
+    loadSession,
   };
 }
 

@@ -1,10 +1,10 @@
-// Self-destruct: unregister this service worker and clear all caches.
-// This file exists only so browsers that cached the old SW will pick up
-// this version, clean up, and never intercept requests again.
+// Minimal service worker — required for PWA installability.
+// Network-first: all requests go straight to the network (no offline caching).
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
-      .then(() => self.registration.unregister())
-  );
+  event.waitUntil(self.clients.claim());
+});
+self.addEventListener("fetch", () => {
+  // Let the browser handle all fetches normally (network-only).
+  // This handler must exist for Chrome to consider the SW "functional".
 });

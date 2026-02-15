@@ -64,10 +64,131 @@ async def clear_chat_session(
     session_id: str,
     request: Request,
 ) -> Response:
-    """Clear stored conversation state for a session."""
+    """Clear stored conversation state for a session.
+
+    Saved sessions are preserved — only unsaved sessions are deleted.
+    """
 
     orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+    repo = orchestrator.repository
+    meta = await repo.get_session_metadata(session_id)
+    if meta and meta.get("saved"):
+        # Session is saved — don't delete it, just return success
+        return Response(status_code=204)
     await orchestrator.clear_session(session_id)
+    return Response(status_code=204)
+
+
+@router.get("/chat/conversations", status_code=200)
+async def list_conversations(
+    request: Request,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """List saved conversations."""
+
+    orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+    conversations = await orchestrator.repository.list_saved_conversations(
+        limit=limit, offset=offset
+    )
+    return {"conversations": conversations}
+
+
+@router.get("/chat/session/{session_id}/messages", status_code=200)
+async def get_session_messages(
+    session_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    """Load all messages for a saved session."""
+
+    orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+    repo = orchestrator.repository
+    metadata = await repo.get_session_metadata(session_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    messages = await repo.get_messages(session_id)
+    return {"session_id": session_id, "metadata": metadata, "messages": messages}
+
+
+@router.post("/chat/session/{session_id}/save", status_code=200)
+async def save_session(
+    session_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    """Mark session as saved."""
+
+    orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+    repo = orchestrator.repository
+    exists = await repo.session_exists(session_id)
+    if not exists:
+        # Session doesn't exist yet — create it so the save flag is stored
+        await repo.ensure_session(session_id)
+
+    body: dict[str, Any] = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    title = body.get("title") if isinstance(body, dict) else None
+    if isinstance(title, str):
+        title = title.strip() or None
+    else:
+        title = None
+    await repo.save_session(session_id, title=title)
+    meta = await repo.get_session_metadata(session_id)
+    return {
+        "saved": True,
+        "session_id": session_id,
+        "title": meta.get("title") if meta else title,
+    }
+
+
+@router.post("/chat/session/{session_id}/unsave", status_code=200)
+async def unsave_session(
+    session_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    """Remove the saved flag from a session."""
+
+    orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+    updated = await orchestrator.repository.unsave_session(session_id)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"saved": False, "session_id": session_id}
+
+
+@router.patch("/chat/session/{session_id}", status_code=200)
+async def update_session(
+    session_id: str,
+    request: Request,
+) -> dict[str, Any]:
+    """Update session metadata (title)."""
+
+    body = await request.json()
+    title = body.get("title")
+    if not isinstance(title, str) or not title.strip():
+        raise HTTPException(status_code=400, detail="Title is required")
+    orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+    updated = await orchestrator.repository.update_session_title(
+        session_id, title.strip()
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"session_id": session_id, "title": title.strip()}
+
+
+@router.delete("/chat/conversations/{session_id}", status_code=204)
+async def delete_saved_conversation(
+    session_id: str,
+    request: Request,
+) -> Response:
+    """Permanently delete a saved conversation."""
+
+    orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
+    deleted = await orchestrator.repository.delete_saved_conversation(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
     return Response(status_code=204)
 
 

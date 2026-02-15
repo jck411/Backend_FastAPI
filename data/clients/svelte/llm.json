@@ -1,6 +1,6 @@
 {
-  "model": "microsoft/phi-3.5-mini-128k-instruct",
-  "system_prompt": "You are a helpful assistant.",
+  "model": "minimax/minimax-m2",
+  "system_prompt": "you are a helpful assistant with tools",
   "temperature": 0.7,
   "max_tokens": 4096,
   "supports_tools": true,

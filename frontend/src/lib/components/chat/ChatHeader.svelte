@@ -1395,6 +1395,7 @@
     background-size: 0.9rem;
     min-width: 160px;
     font: inherit;
+    font-size: 0.8rem;
   }
   :global(.chat-header .controls select:hover) {
     border-color: #38bdf8;

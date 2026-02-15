@@ -2,7 +2,8 @@
 
 from typing import Any
 
-from src.backend.chat.streaming import _finalize_tool_calls, _merge_tool_calls
+from backend.chat.streaming.tooling import finalize_tool_calls as _finalize_tool_calls
+from backend.chat.streaming.tooling import merge_tool_calls as _merge_tool_calls
 
 
 class TestFinalizeToolCalls:

@@ -815,12 +815,29 @@ class ChatRepository:
         *,
         limit: int = 50,
         offset: int = 0,
+        search: str | None = None,
     ) -> list[dict[str, Any]]:
         """Return saved conversations with title, date, and message preview."""
 
         assert self._connection is not None
+        params: list[Any] = []
+        where_clauses = ["c.saved = 1"]
+
+        if search:
+            where_clauses.append(
+                "(c.title LIKE ? OR "
+                "(SELECT m.content FROM messages m "
+                "WHERE m.session_id = c.session_id AND m.role = 'user' "
+                "ORDER BY m.id ASC LIMIT 1) LIKE ?)"
+            )
+            like_term = f"%{search}%"
+            params.extend([like_term, like_term])
+
+        where_sql = " AND ".join(where_clauses)
+        params.extend([limit, offset])
+
         cursor = await self._connection.execute(
-            """
+            f"""
             SELECT
                 c.session_id,
                 c.title,
@@ -832,11 +849,11 @@ class ChatRepository:
                  WHERE m.session_id = c.session_id AND m.role = 'user'
                  ORDER BY m.id ASC LIMIT 1) AS preview
             FROM conversations c
-            WHERE c.saved = 1
+            WHERE {where_sql}
             ORDER BY COALESCE(c.updated_at, c.created_at) DESC
             LIMIT ? OFFSET ?
             """,
-            (limit, offset),
+            tuple(params),
         )
         rows = await cursor.fetchall()
         await cursor.close()

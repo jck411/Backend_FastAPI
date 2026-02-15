@@ -653,9 +653,14 @@ import type {
 export async function listConversations(
   limit = 50,
   offset = 0,
+  search?: string,
 ): Promise<ConversationSummary[]> {
+  let url = `/api/chat/conversations?limit=${limit}&offset=${offset}`;
+  if (search) {
+    url += `&search=${encodeURIComponent(search)}`;
+  }
   const response = await requestJson<ConversationListResponse>(
-    resolveApiPath(`/api/chat/conversations?limit=${limit}&offset=${offset}`),
+    resolveApiPath(url),
   );
   return response.conversations;
 }

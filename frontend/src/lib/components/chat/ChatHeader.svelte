@@ -1,6 +1,9 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from "svelte";
-  import { generateConversationTitle } from "../../api/client";
+  import { createEventDispatcher, onMount, tick } from "svelte";
+  import {
+    generateConversationTitle,
+    listConversations,
+  } from "../../api/client";
   import type { ConversationSummary } from "../../api/types";
   import { webSearchStore } from "../../chat/webSearchStore";
   import { presetsStore } from "../../stores/presets";
@@ -40,6 +43,11 @@
   let historyWrapperEl: HTMLElement | undefined;
   let dropdownStyle = "";
   let regeneratingSessionId: string | null = null;
+  let searchQuery = "";
+  let searchResults: ConversationSummary[] | null = null;
+  let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let searching = false;
+  let searchInputEl: HTMLInputElement | undefined;
   let ModelPicker: ModelPickerComponent | null = null;
   let WebSearchMenu: WebSearchMenuComponent | null = null;
   let modelPickerLoading = false;
@@ -132,37 +140,42 @@
     dispatch("toggleSaved");
   }
 
-  function toggleHistory(): void {
+  async function toggleHistory(): Promise<void> {
     historyOpen = !historyOpen;
     if (historyOpen && historyWrapperEl) {
       if (window.innerWidth <= 768) {
         dropdownStyle = "";
-        return;
-      }
-      const rect = historyWrapperEl.getBoundingClientRect();
-      const maxH = 400;
-      const gap = 4;
-      const dropW = 320;
-      const spaceBelow = window.innerHeight - rect.bottom - gap;
-      const spaceAbove = rect.top - gap;
-      let top: number;
-      let mh: number;
-      if (spaceBelow >= 200 || spaceBelow >= spaceAbove) {
-        top = rect.bottom + gap;
-        mh = Math.min(maxH, spaceBelow);
       } else {
-        mh = Math.min(maxH, spaceAbove);
-        top = rect.top - gap - mh;
+        const rect = historyWrapperEl.getBoundingClientRect();
+        const maxH = 400;
+        const gap = 4;
+        const dropW = 320;
+        const spaceBelow = window.innerHeight - rect.bottom - gap;
+        const spaceAbove = rect.top - gap;
+        let top: number;
+        let mh: number;
+        if (spaceBelow >= 200 || spaceBelow >= spaceAbove) {
+          top = rect.bottom + gap;
+          mh = Math.min(maxH, spaceBelow);
+        } else {
+          mh = Math.min(maxH, spaceAbove);
+          top = rect.top - gap - mh;
+        }
+        const left = Math.max(
+          8,
+          Math.min(rect.left, window.innerWidth - dropW - 8),
+        );
+        dropdownStyle = `position:fixed;top:${top}px;left:${left}px;max-height:${mh}px;width:${Math.min(dropW, window.innerWidth - 16)}px;`;
       }
-      const left = Math.max(
-        8,
-        Math.min(rect.left, window.innerWidth - dropW - 8),
-      );
-      dropdownStyle = `position:fixed;top:${top}px;left:${left}px;max-height:${mh}px;width:${Math.min(dropW, window.innerWidth - 16)}px;`;
+      await tick();
+      searchInputEl?.focus();
+    } else {
+      clearSearch();
     }
   }
 
   function handleLoadConversation(sessionId: string): void {
+    clearSearch();
     historyOpen = false;
     closeDrawer();
     dispatch("loadConversation", { sessionId });
@@ -171,6 +184,33 @@
   function handleDeleteConversation(event: Event, sessionId: string): void {
     event.stopPropagation();
     dispatch("deleteConversation", { sessionId });
+  }
+
+  function clearSearch(): void {
+    searchQuery = "";
+    searchResults = null;
+    searching = false;
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  }
+
+  function dispatchSearch(): void {
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+    if (!searchQuery.trim()) {
+      searchResults = null;
+      searching = false;
+      return;
+    }
+    searching = true;
+    searchDebounceTimer = setTimeout(async () => {
+      try {
+        searchResults = await listConversations(50, 0, searchQuery.trim());
+      } catch (error) {
+        console.error("Search failed", error);
+        searchResults = null;
+      } finally {
+        searching = false;
+      }
+    }, 300);
   }
 
   async function handleRegenerateTitle(
@@ -239,12 +279,14 @@
     return order.map((label) => ({ label, items: groups[label] }));
   }
 
-  $: dateGroups = groupByDate(conversations);
+  $: displayConversations = searchResults ?? conversations;
+  $: dateGroups = groupByDate(displayConversations);
 
   function handleClickOutside(event: MouseEvent): void {
     if (!historyOpen) return;
     const target = event.target as HTMLElement;
     if (!target.closest(".history-wrapper")) {
+      clearSearch();
       historyOpen = false;
     }
   }
@@ -555,43 +597,120 @@
         </button>
 
         <div class="history-wrapper pwa-full-row">
-          <button
-            class="btn btn-ghost btn-small pwa-full-row"
-            type="button"
-            on:click={toggleHistory}
-            aria-label="Conversation history"
-            title="Conversation history"
-            aria-expanded={historyOpen}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-              aria-hidden="true"
+          {#if historyOpen}
+            <div class="history-search-wrapper pwa-full-row">
+              <svg
+                class="history-search-icon"
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="11"
+                  cy="11"
+                  r="8"
+                  stroke="currentColor"
+                  stroke-width="2"
+                />
+                <path
+                  d="m21 21-4.35-4.35"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <input
+                class="history-search-input"
+                type="text"
+                placeholder="Search..."
+                bind:value={searchQuery}
+                bind:this={searchInputEl}
+                on:input={dispatchSearch}
+                on:keydown={(e) => {
+                  if (e.key === "Escape") {
+                    historyOpen = false;
+                    clearSearch();
+                  }
+                }}
+              />
+              <button
+                class="history-search-close"
+                type="button"
+                aria-label="Close history"
+                on:click={() => {
+                  historyOpen = false;
+                  clearSearch();
+                }}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M18 6 6 18M6 6l12 12"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          {:else}
+            <button
+              class="btn btn-ghost btn-small pwa-full-row"
+              type="button"
+              on:click|stopPropagation={toggleHistory}
+              aria-label="Conversation history"
+              title="Conversation history"
+              aria-expanded={historyOpen}
             >
-              <circle
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="1.5"
-              />
-              <polyline
-                points="12 6 12 12 16 14"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-            <span>History</span>
-          </button>
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                />
+                <polyline
+                  points="12 6 12 12 16 14"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+              <span>History</span>
+            </button>
+          {/if}
           {#if historyOpen}
             <div class="history-dropdown" role="menu">
-              {#if conversations.length === 0}
-                <div class="history-empty">No saved conversations</div>
+              {#if displayConversations.length === 0}
+                <div class="history-empty">
+                  {#if searchQuery.trim()}
+                    {#if searching}
+                      Searching…
+                    {:else}
+                      No matching conversations
+                    {/if}
+                  {:else}
+                    No saved conversations
+                  {/if}
+                </div>
               {:else}
                 {#each dateGroups as group}
                   <div class="history-group-label">{group.label}</div>
@@ -862,20 +981,97 @@
           </button>
 
           <div class="history-wrapper" bind:this={historyWrapperEl}>
-            <button
-              class="btn btn-ghost btn-small"
-              type="button"
-              on:click={toggleHistory}
-              aria-label="Conversation history"
-              title="Conversation history"
-              aria-expanded={historyOpen}
-            >
-              History
-            </button>
+            {#if historyOpen}
+              <div class="history-search-wrapper">
+                <svg
+                  class="history-search-icon"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="11"
+                    cy="11"
+                    r="8"
+                    stroke="currentColor"
+                    stroke-width="2"
+                  />
+                  <path
+                    d="m21 21-4.35-4.35"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+                <input
+                  class="history-search-input"
+                  type="text"
+                  placeholder="Search..."
+                  bind:value={searchQuery}
+                  bind:this={searchInputEl}
+                  on:input={dispatchSearch}
+                  on:keydown={(e) => {
+                    if (e.key === "Escape") {
+                      historyOpen = false;
+                      clearSearch();
+                    }
+                  }}
+                />
+                <button
+                  class="history-search-close"
+                  type="button"
+                  aria-label="Close history"
+                  on:click={() => {
+                    historyOpen = false;
+                    clearSearch();
+                  }}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M18 6 6 18M6 6l12 12"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </svg>
+                </button>
+              </div>
+            {:else}
+              <button
+                class="btn btn-ghost btn-small"
+                type="button"
+                on:click|stopPropagation={toggleHistory}
+                aria-label="Conversation history"
+                title="Conversation history"
+                aria-expanded={historyOpen}
+              >
+                History
+              </button>
+            {/if}
             {#if historyOpen}
               <div class="history-dropdown" style={dropdownStyle} role="menu">
-                {#if conversations.length === 0}
-                  <div class="history-empty">No saved conversations</div>
+                {#if displayConversations.length === 0}
+                  <div class="history-empty">
+                    {#if searchQuery.trim()}
+                      {#if searching}
+                        Searching…
+                      {:else}
+                        No matching conversations
+                      {/if}
+                    {:else}
+                      No saved conversations
+                    {/if}
+                  </div>
                 {:else}
                   {#each dateGroups as group}
                     <div class="history-group-label">{group.label}</div>
@@ -1574,5 +1770,67 @@
     background: rgba(6, 10, 20, 0.95);
     right: auto;
     top: auto;
+  }
+
+  /* ── History search ── */
+  .history-search-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(37, 49, 77, 0.9);
+    background: rgba(9, 14, 26, 0.92);
+    transition: border-color 0.2s ease;
+  }
+  .history-search-wrapper:focus-within {
+    border-color: #38bdf8;
+  }
+  .history-search-icon {
+    flex-shrink: 0;
+    color: #6b7f9e;
+  }
+  .history-search-input {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    color: #f3f5ff;
+    font: inherit;
+    font-size: 0.85rem;
+    outline: none;
+    padding: 0.15rem 0;
+  }
+  .history-search-input::placeholder {
+    color: #6b7f9e;
+  }
+  .history-search-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: #6b7f9e;
+    cursor: pointer;
+    transition:
+      color 0.12s ease,
+      background 0.12s ease;
+  }
+  .history-search-close:hover {
+    color: #c8d6ef;
+    background: rgba(56, 189, 248, 0.12);
+  }
+  .history-wrapper.pwa-full-row .history-search-wrapper {
+    width: 100%;
+  }
+  @media (max-width: 768px) {
+    .history-search-wrapper {
+      width: 100%;
+    }
   }
 </style>

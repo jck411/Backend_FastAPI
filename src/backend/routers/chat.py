@@ -84,12 +84,13 @@ async def list_conversations(
     request: Request,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    search: str | None = Query(None, min_length=1, max_length=200),
 ) -> dict[str, Any]:
-    """List saved conversations."""
+    """List saved conversations, optionally filtered by search term."""
 
     orchestrator: ChatOrchestrator = request.app.state.chat_orchestrator
     conversations = await orchestrator.repository.list_saved_conversations(
-        limit=limit, offset=offset
+        limit=limit, offset=offset, search=search
     )
     return {"conversations": conversations}
 

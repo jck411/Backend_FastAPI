@@ -282,3 +282,50 @@ async def test_unsaved_sessions_not_in_list(repository):
     await repository.add_message("session-1", role="user", content="Hello")
     results = await repository.list_saved_conversations()
     assert len(results) == 0
+
+
+# ─── Search tests ───
+
+
+@pytest.mark.anyio
+async def test_search_conversations_by_title(repository):
+    await repository.save_session("session-1", title="Python programming tips")
+    await repository.ensure_session("session-2")
+    await repository.save_session("session-2", title="Cooking recipes")
+
+    results = await repository.list_saved_conversations(search="Python")
+    assert len(results) == 1
+    assert results[0]["session_id"] == "session-1"
+
+
+@pytest.mark.anyio
+async def test_search_conversations_by_preview(repository):
+    await repository.add_message(
+        "session-1", role="user", content="Tell me about quantum physics"
+    )
+    await repository.save_session("session-1")
+    await repository.ensure_session("session-2")
+    await repository.add_message("session-2", role="user", content="Best pasta recipes")
+    await repository.save_session("session-2")
+
+    results = await repository.list_saved_conversations(search="quantum")
+    assert len(results) == 1
+    assert results[0]["session_id"] == "session-1"
+
+
+@pytest.mark.anyio
+async def test_search_conversations_no_match(repository):
+    await repository.save_session("session-1", title="Python tips")
+
+    results = await repository.list_saved_conversations(search="nonexistent")
+    assert len(results) == 0
+
+
+@pytest.mark.anyio
+async def test_search_conversations_empty_returns_all(repository):
+    await repository.save_session("session-1", title="Topic A")
+    await repository.ensure_session("session-2")
+    await repository.save_session("session-2", title="Topic B")
+
+    results = await repository.list_saved_conversations(search=None)
+    assert len(results) == 2

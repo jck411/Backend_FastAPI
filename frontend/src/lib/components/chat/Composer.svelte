@@ -10,6 +10,7 @@
   export let prompt = "";
   export let isStreaming = false;
   export let presetAttachments: AttachmentResource[] = [];
+  export let pwaMode = false;
 
   type AttachmentStatus = "uploading" | "ready" | "error";
 
@@ -325,29 +326,31 @@
       <div class="composer-error voice" role="alert">{speechError}</div>
     {/if}
 
-    <div class="input-shell">
-      <button
-        type="button"
-        class="icon-button leading"
-        aria-label="Attach image"
-        on:click={openFileDialog}
-        disabled={isStreaming || attachments.length >= MAX_ATTACHMENTS}
-      >
-        <svg
-          width="18"
-          height="18"
-          viewBox="0 0 18 18"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
+    <div class="input-shell" class:pwa-layout={pwaMode}>
+      {#if !pwaMode}
+        <button
+          type="button"
+          class="icon-button leading"
+          aria-label="Attach image"
+          on:click={openFileDialog}
+          disabled={isStreaming || attachments.length >= MAX_ATTACHMENTS}
         >
-          <path
-            d="M9 2v14M2 9h14"
-            stroke="currentColor"
-            stroke-width="1.5"
-            stroke-linecap="round"
-          />
-        </svg>
-      </button>
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 18 18"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M9 2v14M2 9h14"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      {/if}
 
       <input
         bind:this={fileInput}
@@ -374,6 +377,30 @@
           <button type="button" class="stop-inline" on:click={handleCancel}>
             <span aria-hidden="true" class="stop-indicator"></span>
             Stop
+          </button>
+        {/if}
+        {#if pwaMode}
+          <button
+            type="button"
+            class="icon-button leading"
+            aria-label="Attach image"
+            on:click={openFileDialog}
+            disabled={isStreaming || attachments.length >= MAX_ATTACHMENTS}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 18 18"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M9 2v14M2 9h14"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </svg>
           </button>
         {/if}
         <button
@@ -646,6 +673,23 @@
     .composer-content {
       padding: 0 1.5rem;
     }
+  }
+  /* PWA standalone mode: textarea on top, action row below */
+  .input-shell.pwa-layout {
+    flex-wrap: wrap;
+    border-radius: 1.5rem;
+  }
+  .input-shell.pwa-layout textarea {
+    flex-basis: 100%;
+    order: 0;
+    min-height: 2.5rem;
+  }
+  .input-shell.pwa-layout .composer-actions {
+    order: 1;
+    width: 100%;
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
   }
   @media (max-width: 768px) {
     .composer {

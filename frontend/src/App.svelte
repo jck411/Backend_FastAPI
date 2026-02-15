@@ -467,6 +467,7 @@
     <Composer
       bind:prompt
       {presetAttachments}
+      {pwaMode}
       isStreaming={$chatStore.isStreaming}
       on:submit={(event) => sendMessage(event.detail)}
       on:cancel={cancelStream}

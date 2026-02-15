@@ -27,6 +27,7 @@
     submit: { text: string; attachments: AttachmentResource[] };
     cancel: void;
     startDictation: void;
+    inputFocus: void;
   }>();
 
   const ALLOWED_TYPES = new Set([
@@ -366,7 +367,9 @@
         rows="1"
         bind:value={prompt}
         on:keydown={handleKeydown}
-        on:focus={ensureComposerVisible}
+        on:focus={() => {
+          dispatch("inputFocus");
+        }}
         placeholder={isStreaming ? "Waiting for response…" : "Type here…"}
         aria-disabled={isStreaming}
         use:autoResize={prompt}
@@ -575,7 +578,7 @@
     transition: background 0.12s ease;
   }
   .icon-button.leading {
-    background: rgba(29, 41, 69, 0.9);
+    background: rgba(23, 32, 52, 0.85);
   }
   .icon-button:hover,
   .icon-button:focus {
@@ -678,6 +681,8 @@
   .input-shell.pwa-layout {
     flex-wrap: wrap;
     border-radius: 1.5rem;
+    padding: 0.75rem 0.85rem;
+    gap: 0.6rem;
   }
   .input-shell.pwa-layout textarea {
     flex-basis: 100%;
@@ -688,8 +693,18 @@
     order: 1;
     width: 100%;
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
+    flex-wrap: nowrap;
     gap: 0.5rem;
+  }
+  .input-shell.pwa-layout .composer-actions .icon-button,
+  .input-shell.pwa-layout .composer-actions .send-button {
+    flex: 0 0 auto;
+    min-width: 0;
+    width: auto;
+  }
+  .input-shell.pwa-layout .composer-actions .send-button {
+    margin-left: auto;
   }
   @media (max-width: 768px) {
     .composer {
@@ -749,5 +764,14 @@
     .send-button {
       width: 100%;
     }
+  }
+  /* PWA overrides for small screens — keep buttons in one row */
+  .input-shell.pwa-layout .composer-actions {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+  .input-shell.pwa-layout .composer-actions > * {
+    flex: 0 0 auto;
+    width: auto;
   }
 </style>

@@ -33,7 +33,7 @@
   let WebSearchMenu: WebSearchMenuComponent | null = null;
   let modelPickerLoading = false;
   let webSearchMenuLoading = false;
-  let controlsOpen = false;
+  export let controlsOpen = false;
   let lastDrawerOpen: boolean | null = null;
 
   $: {
@@ -142,10 +142,11 @@
           aria-hidden="true"
         >
           <path
-            d="M18 6L6 18M6 6l12 12"
+            d="M15 19l-7-7 7-7"
             stroke="currentColor"
             stroke-width="2"
             stroke-linecap="round"
+            stroke-linejoin="round"
           />
         </svg>
       {:else}

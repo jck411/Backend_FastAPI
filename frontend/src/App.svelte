@@ -83,17 +83,6 @@
   let pwaMode = false;
   let mobileDrawerOpen = false;
 
-  function syncAppViewportHeight(): void {
-    if (typeof window === "undefined" || typeof document === "undefined") {
-      return;
-    }
-    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
-    document.documentElement.style.setProperty(
-      "--app-vh",
-      `${Math.round(viewportHeight)}px`,
-    );
-  }
-
   interface BeforeInstallPromptEvent extends Event {
     prompt(): Promise<void>;
     userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
@@ -101,20 +90,12 @@
 
   onMount(async () => {
     if (typeof window !== "undefined") {
-      const handleViewportChange = (): void => {
-        syncAppViewportHeight();
-      };
-
-      syncAppViewportHeight();
-      window.addEventListener("resize", handleViewportChange);
-      window.visualViewport?.addEventListener("resize", handleViewportChange);
-      window.visualViewport?.addEventListener("scroll", handleViewportChange);
-
       // Detect PWA mode (standalone display)
-      pwaMode =
-        window.matchMedia("(display-mode: standalone)").matches ||
-        ("standalone" in navigator &&
-          (navigator as { standalone?: boolean }).standalone === true);
+      pwaMode = true; // TODO: revert to auto-detection after testing
+      // pwaMode =
+      //   window.matchMedia("(display-mode: standalone)").matches ||
+      //   ("standalone" in navigator &&
+      //     (navigator as { standalone?: boolean }).standalone === true);
 
       // PWA install prompt
       const handleBeforeInstall = (e: Event): void => {
@@ -132,18 +113,6 @@
 
       onDestroy(() => {
         window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
-        window.removeEventListener("resize", handleViewportChange);
-        window.visualViewport?.removeEventListener(
-          "resize",
-          handleViewportChange,
-        );
-        window.visualViewport?.removeEventListener(
-          "scroll",
-          handleViewportChange,
-        );
-        if (typeof document !== "undefined") {
-          document.documentElement.style.removeProperty("--app-vh");
-        }
       });
     }
 
@@ -406,6 +375,7 @@
     modelsError={$modelsError}
     hasMessages={$chatStore.messages.length > 0}
     {pwaMode}
+    bind:controlsOpen={mobileDrawerOpen}
     on:openExplorer={() => (explorerOpen = true)}
     on:clear={() => {
       presetAttachments = [];
@@ -418,7 +388,6 @@
     on:openMcpServers={() => (mcpServersOpen = true)}
     on:openKioskSettings={() => (kioskSettingsOpen = true)}
     on:openCliSettings={() => (cliSettingsOpen = true)}
-    on:drawerToggle={(event) => (mobileDrawerOpen = event.detail.open)}
   />
 
   <section class="chat-main">
@@ -472,6 +441,7 @@
       on:submit={(event) => sendMessage(event.detail)}
       on:cancel={cancelStream}
       on:startDictation={handleStartDictation}
+      on:inputFocus={() => (mobileDrawerOpen = false)}
     />
   {/if}
 
@@ -552,7 +522,7 @@
     --composer-h: 140px;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr) auto;
-    height: var(--app-vh, 100dvh);
+    height: 100dvh;
     min-height: 0;
     padding-bottom: env(safe-area-inset-bottom, 0);
     background: radial-gradient(

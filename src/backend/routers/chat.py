@@ -207,7 +207,7 @@ async def generate_session_title(
 
     from ..services.title_service import generate_title
 
-    title = await generate_title(orchestrator.settings, messages)
+    title = await generate_title(orchestrator._settings, messages)
     if title:
         await repo.update_session_ai_title(session_id, title)
         return {"session_id": session_id, "title": title, "title_source": "ai"}

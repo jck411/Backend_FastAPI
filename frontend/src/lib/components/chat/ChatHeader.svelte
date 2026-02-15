@@ -1888,7 +1888,7 @@
       background: rgba(6, 10, 20, 0.98);
       border-right: 1px solid rgba(37, 49, 77, 0.6);
       padding: 1rem;
-      padding-top: calc(max(0.5rem, env(safe-area-inset-top, 0)) + 3rem);
+      padding-top: calc(max(0.5rem, env(safe-area-inset-top, 0)) + 1rem);
       overflow-y: auto;
       overflow-x: hidden;
       z-index: 51;

@@ -1,90 +1,30 @@
 # Copilot Instructions — Backend_FastAPI
 
-FastAPI backend for AI chat with MCP tool orchestration. Deployed to Proxmox LXC 111. Public: `https://chat.jackshome.com`.
-
-## Project Structure
-
-- **Backend**: `src/backend/` — FastAPI with MCP client, AI orchestration, data management
-- **Frontends** (SPAs served from `src/backend/static/`):
-  - `frontend/` — Main web UI (Svelte), settings modals shared by other frontends
-  - `frontend-cli/` — Terminal chat (Python)
-  - `frontend-kiosk/` — Kiosk display (`/`)
-  - `frontend-voice/` — Voice PWA (`/voice/`)
+FastAPI backend for AI chat with MCP tool orchestration.
 
 ## Deployment
 
-**Server**: LXC 111 at `/opt/backend-fastapi/`, branch `master`, systemd `backend-fastapi-dev` (auto-reloads Python changes).
-**Public URL**: `https://chat.jackshome.com` (Cloudflare Tunnel).
-
-### What type of change did you make?
-
-#### Backend Python only (`src/backend/`)
-Auto-reloads — just push and pull:
-```bash
-git push
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git pull"
-```
-
-#### Frontend source (`frontend/`, `frontend-voice/`, `frontend-kiosk/`)
-**The server does NOT build frontends.** It serves pre-built files from `src/backend/static/`.
-Use the deploy script (recommended):
-```bash
-./scripts/deploy.sh "feat: my changes"   # Cleans, builds, verifies, commits, pushes, deploys
-```
-
-Manual process (if needed):
-```bash
-# 1. Clean old assets to prevent stale file issues
-rm -rf src/backend/static/assets/*
-
-# 2. Rebuild whichever frontend(s) you changed:
-cd frontend && npm run build && cd ..           # → src/backend/static/
-cd frontend-voice && npm run build && cd ..     # → src/backend/static/voice/
-cd frontend-kiosk && npm run build && cd ..     # → src/backend/static/kiosk/
-
-# 3. Commit the built output + your source changes:
-git add src/backend/static/ && git commit -m "build: rebuild frontends"
-git push
-
-# 4. Deploy with reset (ensures all files are restored):
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/src/backend/data/"
-```
-
-#### Dependencies changed (`pyproject.toml`)
-```bash
-git push
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git pull && uv sync && systemctl restart backend-fastapi-dev"
-```
-
-#### Nuclear option (full reset)
-Use when git pull fails or you need a clean slate. Safe — this preserves `data/` and `.env`:
-```bash
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/src/backend/data/ && systemctl restart backend-fastapi-dev"
-```
-
-### Server-only files (never in git)
-These live only on the server and must not be overwritten:
-- `.env` — API keys, production URLs
-- `data/mcp_servers.json` — MCP server URLs pointing to `192.168.1.110` (laptop uses localhost)
-- `certs/` — self-signed SSL certs
-- `credentials/` — Google service accounts and OAuth secrets
-- `data/tokens/` — pre-authenticated OAuth tokens
+- Use `./scripts/deploy.sh "commit message"` for all frontend changes — cleans, builds, verifies, commits, pushes, deploys
+- Backend Python changes auto-reload — just `git push` then `git pull` on server
+- Server is LXC 111 at `192.168.1.111`, public URL `https://chat.jackshome.com`
+- See `docs/PROXMOX_DEPLOYMENT.md` for manual deployment steps
 
 ## Architecture
 
 - MCP tools are external (LXC 110, ports 9001–9015) — never embed tool logic in backend
-- `ChatOrchestrator` coordinates streaming, tools, and persistence
+- `ChatOrchestrator` coordinates streaming, tools, persistence
 - `StreamingHandler` manages SSE events and tool execution loops
-- **Mobile/PWA mode**: The main frontend detects phone vs desktop and adapts the UI. See `docs/PWA_MOBILE_MODE.md` for full details, troubleshooting, and deployment notes.
+- Frontends build to `src/backend/static/` — server does NOT build them
 
 ## Code Style
 
-- Python ≥3.11; use `from __future__ import annotations`
-- Async for all I/O; always set timeouts
-- Type hints on all signatures; Pydantic for schemas
+- Use Python ≥3.11 with `from __future__ import annotations`
+- Use async for all I/O with explicit timeouts
+- Add type hints on all signatures; use Pydantic for schemas
 - Prefer minimal targeted edits over rewrites
 
 ## Security
 
 - Never commit `.env`, `credentials/`, `certs/`, or `data/tokens/`
+- Server-only files that differ from local: `data/mcp_servers.json`, `.env`
 - Check `.env.example` for required environment variables

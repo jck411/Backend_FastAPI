@@ -92,18 +92,35 @@ ssh root@192.168.1.111 "cd /opt/backend-fastapi && git pull"
 ### Frontend source (`frontend/`, `frontend-voice/`, `frontend-kiosk/`)
 
 **The server does NOT build frontends.** If you skip the rebuild, the deployed site stays STALE.
+
+**Use the deploy script (recommended):**
 ```bash
-# 1. Rebuild whichever frontend(s) you changed:
+./scripts/deploy.sh "feat: my changes"   # Cleans, builds, verifies, commits, pushes, deploys
+```
+
+The script:
+1. Cleans old assets (prevents stale file mixing)
+2. Builds the frontend
+3. Verifies all CSS/JS references are valid
+4. Commits and pushes
+5. Deploys with `git reset --hard` (ensures exact git state on server)
+
+**Manual process (if needed):**
+```bash
+# 1. Clean old assets to prevent stale file issues
+rm -rf src/backend/static/assets/*
+
+# 2. Rebuild whichever frontend(s) you changed:
 cd frontend && npm run build && cd ..           # → src/backend/static/
 cd frontend-voice && npm run build && cd ..     # → src/backend/static/voice/
 cd frontend-kiosk && npm run build && cd ..     # → src/backend/static/kiosk/
 
-# 2. Commit the built output + your source changes:
+# 3. Commit the built output + your source changes:
 git add src/backend/static/ && git commit -m "build: rebuild frontends"
 git push
 
-# 3. Pull on server:
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git pull"
+# 4. Deploy with reset (ensures all files are restored):
+ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/src/backend/data/"
 ```
 
 ### Dependencies changed (`pyproject.toml`)
@@ -165,4 +182,5 @@ Credential files:
 | Service won't start | `journalctl -u backend-fastapi-dev -n 50` |
 | MCP tools unavailable | `curl http://192.168.1.110:9003/mcp` (check LXC 110) |
 | Tunnel not working | `ssh root@192.168.1.11 "systemctl status cloudflared"` |
-| Frontend stale | Rebuild on laptop, commit static/, push, pull on server |
+| Frontend stale/broken | Run `./scripts/deploy.sh` — it cleans, rebuilds, and deploys properly |
+| Missing assets on server | `git reset --hard origin/master` on server (or use deploy script) |

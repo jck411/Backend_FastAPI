@@ -75,7 +75,16 @@
       "stt": null,
       "tts": null,
       "model_filters": {
-        "sort": "newness"
+        "inputModalities": null,
+        "outputModalities": null,
+        "minContext": null,
+        "minPromptPrice": null,
+        "maxPromptPrice": null,
+        "sort": "newness",
+        "series": null,
+        "providers": null,
+        "supportedParameters": null,
+        "moderation": null
       },
       "created_at": "2025-12-19T11:20:27.054736+00:00",
       "updated_at": "2026-02-15T11:05:06.523166+00:00"
@@ -292,5 +301,5 @@
       "updated_at": "2026-02-15T08:21:14.014603+00:00"
     }
   ],
-  "active_index": 2
+  "active_index": 9
 }

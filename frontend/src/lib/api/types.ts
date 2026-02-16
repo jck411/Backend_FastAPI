@@ -467,22 +467,32 @@ export type SttModelId = (typeof STT_MODELS)[number]['id'];
 
 export interface SttSettings {
   mode: 'conversation' | 'command';
+  // Command mode (Nova) settings
   command_model: string;
-  // Conversation mode settings
-  eot_threshold: number;
-  eot_timeout_ms: number;
-  // Command mode settings
   command_utterance_end_ms: number;
   command_endpointing: number;
+  command_interim_results: boolean;
+  command_smart_format: boolean;
+  command_numerals: boolean;
+  // Conversation mode (Flux) settings
+  eot_threshold: number;
+  eot_timeout_ms: number;
+  keyterms: string[];
 }
 
 export interface SttSettingsUpdate {
   mode?: 'conversation' | 'command';
+  // Command mode (Nova) settings
   command_model?: string;
-  eot_threshold?: number;
-  eot_timeout_ms?: number;
   command_utterance_end_ms?: number;
   command_endpointing?: number;
+  command_interim_results?: boolean;
+  command_smart_format?: boolean;
+  command_numerals?: boolean;
+  // Conversation mode (Flux) settings
+  eot_threshold?: number;
+  eot_timeout_ms?: number;
+  keyterms?: string[];
 }
 
 /* Conversation History */

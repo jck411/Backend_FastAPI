@@ -106,7 +106,16 @@
     try {
       serverSttSettings = await updateSttSettings({
         mode: serverSttSettings.mode,
+        // Command mode (Nova) settings
         command_model: serverSttSettings.command_model,
+        command_utterance_end_ms: serverSttSettings.command_utterance_end_ms,
+        command_endpointing: serverSttSettings.command_endpointing,
+        command_interim_results: serverSttSettings.command_interim_results,
+        command_smart_format: serverSttSettings.command_smart_format,
+        command_numerals: serverSttSettings.command_numerals,
+        // Conversation mode (Flux) settings
+        eot_threshold: serverSttSettings.eot_threshold,
+        eot_timeout_ms: serverSttSettings.eot_timeout_ms,
       });
       serverSttDirty = false;
       serverSttError = null;
@@ -600,6 +609,126 @@
               </select>
             </div>
 
+            <!-- Nova timing settings -->
+            <div class="speech-field-row">
+              <div class="speech-field">
+                <label class="field-label" for="stt-utterance-end"
+                  >Utterance end (ms)</label
+                >
+                <input
+                  id="stt-utterance-end"
+                  class="input-control"
+                  type="number"
+                  min="500"
+                  max="5000"
+                  step="100"
+                  value={serverSttSettings.command_utterance_end_ms}
+                  disabled={serverSttSaving}
+                  on:change={(event) => {
+                    if (serverSttSettings) {
+                      serverSttSettings = {
+                        ...serverSttSettings,
+                        command_utterance_end_ms: Number(
+                          (event.target as HTMLInputElement).value,
+                        ),
+                      };
+                      serverSttDirty = true;
+                    }
+                  }}
+                />
+                <p class="speech-hint">Silence duration to end utterance</p>
+              </div>
+
+              <div class="speech-field">
+                <label class="field-label" for="stt-endpointing"
+                  >Endpointing (ms)</label
+                >
+                <input
+                  id="stt-endpointing"
+                  class="input-control"
+                  type="number"
+                  min="10"
+                  max="5000"
+                  step="50"
+                  value={serverSttSettings.command_endpointing}
+                  disabled={serverSttSaving}
+                  on:change={(event) => {
+                    if (serverSttSettings) {
+                      serverSttSettings = {
+                        ...serverSttSettings,
+                        command_endpointing: Number(
+                          (event.target as HTMLInputElement).value,
+                        ),
+                      };
+                      serverSttDirty = true;
+                    }
+                  }}
+                />
+                <p class="speech-hint">Threshold for segment boundaries</p>
+              </div>
+            </div>
+
+            <!-- Nova feature toggles -->
+            <div class="speech-toggles">
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  checked={serverSttSettings.command_smart_format}
+                  disabled={serverSttSaving}
+                  on:change={(event) => {
+                    if (serverSttSettings) {
+                      serverSttSettings = {
+                        ...serverSttSettings,
+                        command_smart_format: (event.target as HTMLInputElement)
+                          .checked,
+                      };
+                      serverSttDirty = true;
+                    }
+                  }}
+                />
+                <span>Smart format</span>
+              </label>
+
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  checked={serverSttSettings.command_numerals}
+                  disabled={serverSttSaving}
+                  on:change={(event) => {
+                    if (serverSttSettings) {
+                      serverSttSettings = {
+                        ...serverSttSettings,
+                        command_numerals: (event.target as HTMLInputElement)
+                          .checked,
+                      };
+                      serverSttDirty = true;
+                    }
+                  }}
+                />
+                <span>Numbers as digits</span>
+              </label>
+
+              <label class="toggle">
+                <input
+                  type="checkbox"
+                  checked={serverSttSettings.command_interim_results}
+                  disabled={serverSttSaving}
+                  on:change={(event) => {
+                    if (serverSttSettings) {
+                      serverSttSettings = {
+                        ...serverSttSettings,
+                        command_interim_results: (
+                          event.target as HTMLInputElement
+                        ).checked,
+                      };
+                      serverSttDirty = true;
+                    }
+                  }}
+                />
+                <span>Interim results</span>
+              </label>
+            </div>
+
             <!-- Auto-submit toggle -->
             <div class="speech-field">
               <label class="inline-checkbox">
@@ -618,50 +747,110 @@
             </div>
 
             {#if speechDraft.stt.autoSubmit}
-              <!-- Timing presets -->
-              <div class="speech-field">
-                <span class="field-label">Submit delay</span>
-                <div class="speech-presets">
-                  <button
-                    class="btn btn-soft btn-small"
-                    type="button"
-                    on:click={() => applySpeechPreset("fast")}>Instant</button
-                  >
-                  <button
-                    class="btn btn-soft btn-small"
-                    type="button"
-                    on:click={() => applySpeechPreset("normal")}
-                    >Normal (300ms)</button
-                  >
-                  <button
-                    class="btn btn-soft btn-small"
-                    type="button"
-                    on:click={() => applySpeechPreset("slow")}
-                    >Slow (800ms)</button
-                  >
-                </div>
-              </div>
-
-              <!-- Custom delay input -->
+              <!-- Timing presets and custom delay -->
               <div class="speech-field">
                 <label class="field-label" for="auto-submit-delay-input"
-                  >Custom delay (ms)</label
+                  >Submit delay (ms)</label
+                >
+                <div class="delay-row">
+                  <div class="delay-presets">
+                    <button
+                      class="btn btn-soft btn-small"
+                      type="button"
+                      on:click={() => applySpeechPreset("fast")}>Instant</button
+                    >
+                    <button
+                      class="btn btn-soft btn-small"
+                      type="button"
+                      on:click={() => applySpeechPreset("normal")}
+                      >Normal</button
+                    >
+                    <button
+                      class="btn btn-soft btn-small"
+                      type="button"
+                      on:click={() => applySpeechPreset("slow")}>Slow</button
+                    >
+                  </div>
+                  <input
+                    id="auto-submit-delay-input"
+                    class="input-control delay-input"
+                    type="number"
+                    min="0"
+                    max="10000"
+                    step="50"
+                    value={speechDraft.stt.autoSubmitDelayMs}
+                    on:change={(event) =>
+                      handleSpeechNumberInput(event, (value) =>
+                        updateSpeechStt("autoSubmitDelayMs", value),
+                      )}
+                  />
+                </div>
+              </div>
+            {/if}
+          {:else}
+            <!-- Conversation mode (Flux) settings -->
+            <div class="speech-field-row">
+              <div class="speech-field">
+                <label class="field-label" for="stt-eot-threshold"
+                  >EOT threshold</label
                 >
                 <input
-                  id="auto-submit-delay-input"
+                  id="stt-eot-threshold"
                   class="input-control"
                   type="number"
                   min="0"
-                  max="10000"
-                  step="50"
-                  value={speechDraft.stt.autoSubmitDelayMs}
-                  on:change={(event) =>
-                    handleSpeechNumberInput(event, (value) =>
-                      updateSpeechStt("autoSubmitDelayMs", value),
-                    )}
+                  max="1"
+                  step="0.05"
+                  value={serverSttSettings.eot_threshold}
+                  disabled={serverSttSaving}
+                  on:change={(event) => {
+                    if (serverSttSettings) {
+                      serverSttSettings = {
+                        ...serverSttSettings,
+                        eot_threshold: Number(
+                          (event.target as HTMLInputElement).value,
+                        ),
+                      };
+                      serverSttDirty = true;
+                    }
+                  }}
                 />
+                <p class="speech-hint">End-of-turn confidence (0–1)</p>
               </div>
-            {/if}
+
+              <div class="speech-field">
+                <label class="field-label" for="stt-eot-timeout"
+                  >EOT timeout (ms)</label
+                >
+                <input
+                  id="stt-eot-timeout"
+                  class="input-control"
+                  type="number"
+                  min="100"
+                  max="30000"
+                  step="100"
+                  value={serverSttSettings.eot_timeout_ms}
+                  disabled={serverSttSaving}
+                  on:change={(event) => {
+                    if (serverSttSettings) {
+                      serverSttSettings = {
+                        ...serverSttSettings,
+                        eot_timeout_ms: Number(
+                          (event.target as HTMLInputElement).value,
+                        ),
+                      };
+                      serverSttDirty = true;
+                    }
+                  }}
+                />
+                <p class="speech-hint">Max wait for turn end</p>
+              </div>
+            </div>
+
+            <p class="speech-hint">
+              Flux uses AI-based turn detection. Speech auto-submits when Flux
+              detects you've finished speaking.
+            </p>
           {/if}
         {/if}
       </div>
@@ -701,7 +890,8 @@
             Logout
           </a>
           <p class="speech-hint">
-            Ends your Cloudflare Access session. You'll need to re-authenticate with your email.
+            Ends your Cloudflare Access session. You'll need to re-authenticate
+            with your email.
           </p>
         </div>
       </div>

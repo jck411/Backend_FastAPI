@@ -161,16 +161,16 @@ textarea {
 }
 
 .btn-soft {
-  --btn-bg: rgba(79, 70, 229, 0.16);
-  --btn-border: rgba(79, 70, 229, 0.35);
-  --btn-color: #c7d2fe;
+  --btn-bg: rgba(56, 189, 248, 0.12);
+  --btn-border: rgba(56, 189, 248, 0.35);
+  --btn-color: #bae6fd;
 }
 
 .btn-soft:hover:not(:disabled),
 .btn-soft:focus-visible:not(:disabled) {
-  border-color: rgba(99, 102, 241, 0.55);
-  color: #e0e7ff;
-  background: rgba(79, 70, 229, 0.22);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #e0f2fe;
+  background: rgba(56, 189, 248, 0.18);
 }
 
 .btn-quiet {

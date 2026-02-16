@@ -112,6 +112,7 @@
   .preset-item {
     align-items: flex-start;
     flex-direction: column;
+    border-color: rgba(37, 49, 77, 0.35);
   }
 
   .preset-item .meta,
@@ -120,9 +121,9 @@
   }
 
   .preset-item .actions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
   }
 
   .preset-item .actions button {
@@ -130,6 +131,22 @@
     min-width: 0;
     white-space: normal;
     text-align: center;
+    border: none;
+    background: rgba(56, 189, 248, 0.08);
+    padding: 0.6rem 1rem;
+  }
+
+  .preset-item .actions button:hover:not(:disabled) {
+    background: rgba(56, 189, 248, 0.15);
+  }
+
+  .preset-item .actions button.btn-danger {
+    background: rgba(248, 113, 113, 0.1);
+    border: none;
+  }
+
+  .preset-item .actions button.btn-danger:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.18);
   }
 }
 

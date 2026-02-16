@@ -420,4 +420,179 @@
   flex-shrink: 0;
 }
 
+/* Speech presets in system settings */
+.speech-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.speech-presets .btn {
+  padding: 0.6rem 1.1rem;
+  font-size: 0.88rem;
+}
+
+/* Speech field row for side-by-side inputs */
+.speech-field-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 1rem;
+}
+
+/* Speech feature toggles */
+.speech-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  padding: 0.75rem 1rem;
+  background: rgba(10, 16, 28, 0.6);
+  border: 1px solid rgba(71, 99, 150, 0.35);
+  border-radius: 0.65rem;
+}
+
+/* Delay row: presets + number input inline */
+.delay-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.delay-presets {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.delay-presets .btn {
+  padding: 0.5rem 0.9rem;
+  font-size: 0.85rem;
+}
+
+.delay-input {
+  width: 100px;
+}
+
+/* Mobile improvements for system settings */
+@media (max-width: 560px) {
+  .system-card {
+    padding: 1rem;
+    gap: 0.75rem;
+  }
+
+  .system-card-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .system-card-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .system-card-actions .btn {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .speech-field .input-control {
+    padding: 0.75rem;
+    font-size: 0.95rem;
+  }
+
+  .speech-presets {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+
+  .speech-presets .btn {
+    justify-content: center;
+    padding: 0.75rem 1.25rem;
+    font-size: 0.95rem;
+  }
+
+  .inline-checkbox {
+    padding: 0.5rem 0;
+  }
+
+  .create-row {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .create-row .btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .preset-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.75rem;
+    border-color: rgba(37, 49, 77, 0.35);
+  }
+
+  .preset-item .actions {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .preset-item .actions .btn {
+    width: 100%;
+    justify-content: center;
+    border: none;
+    background: rgba(56, 189, 248, 0.08);
+    padding: 0.6rem 1rem;
+  }
+
+  .preset-item .actions .btn:hover:not(:disabled) {
+    background: rgba(56, 189, 248, 0.15);
+  }
+
+  .preset-item .actions .btn-danger {
+    background: rgba(248, 113, 113, 0.1);
+  }
+
+  .preset-item .actions .btn-danger:hover:not(:disabled) {
+    background: rgba(248, 113, 113, 0.18);
+  }
+
+  .speech-field-row {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .speech-toggles {
+    flex-direction: column;
+    gap: 0.65rem;
+    padding: 0.75rem;
+  }
+
+  .speech-toggles .toggle {
+    padding: 0.35rem 0;
+  }
+
+  .delay-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .delay-presets {
+    width: 100%;
+  }
+
+  .delay-presets .btn {
+    flex: 1;
+  }
+
+  .delay-input {
+    width: 100%;
+  }
+}
+
 /* end */

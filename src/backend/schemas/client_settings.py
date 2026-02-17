@@ -341,6 +341,10 @@ class ClientPreset(BaseModel):
         default=None,
         description="MCP server IDs enabled for this client (null = all)",
     )
+    disabled_tools: Optional[dict[str, list[str]]] = Field(
+        default=None,
+        description="Per-server disabled tool names: {server_id: [tool_name, ...]}",
+    )
     created_at: Optional[str] = Field(
         default=None, description="ISO timestamp when preset was created"
     )
@@ -358,6 +362,7 @@ class ClientPresetUpdate(BaseModel):
     tts: Optional[TtsSettingsUpdate] = None
     model_filters: Optional[PresetModelFilters] = None
     enabled_servers: Optional[list[str]] = None
+    disabled_tools: Optional[dict[str, list[str]]] = None
 
 
 class ClientPresets(BaseModel):

@@ -519,18 +519,40 @@ export async function fetchPreset(name: string): Promise<PresetConfig> {
 }
 
 
-export async function createPreset(payload: PresetCreatePayload): Promise<PresetConfig> {
-  // Fetch current LLM settings and MCP client preferences in parallel
-  const [currentLlm, mcpPrefs] = await Promise.all([
-    requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm')),
+/** Build a disabled_tools map from the current MCP server status. */
+async function fetchMcpSnapshot(): Promise<{
+  enabled_servers: string[] | null;
+  disabled_tools: Record<string, string[]> | null;
+}> {
+  const [mcpPrefs, mcpServers] = await Promise.all([
     requestJson<ClientPreferences>(resolveApiPath('/api/mcp/preferences/svelte')),
+    requestJson<McpServersResponse>(resolveApiPath('/api/mcp/servers/')),
+  ]);
+
+  const disabledTools: Record<string, string[]> = {};
+  for (const server of mcpServers.servers) {
+    if (server.disabled_tools.length > 0) {
+      disabledTools[server.id] = server.disabled_tools;
+    }
+  }
+
+  return {
+    enabled_servers: mcpPrefs.enabled_servers.length > 0 ? mcpPrefs.enabled_servers : null,
+    disabled_tools: Object.keys(disabledTools).length > 0 ? disabledTools : null,
+  };
+}
+
+export async function createPreset(payload: PresetCreatePayload): Promise<PresetConfig> {
+  const [currentLlm, mcp] = await Promise.all([
+    requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm')),
+    fetchMcpSnapshot(),
   ]);
 
   const presetPayload = {
     name: payload.name,
     llm: currentLlm,
     model_filters: payload.model_filters,
-    enabled_servers: mcpPrefs.enabled_servers.length > 0 ? mcpPrefs.enabled_servers : null,
+    ...mcp,
   };
 
   const result = await requestJson<BackendPresetsResponse>(
@@ -553,11 +575,10 @@ export async function savePresetSnapshot(
   name: string,
   _payload?: PresetSaveSnapshotPayload | null,
 ): Promise<PresetConfig> {
-  // Fetch presets, current LLM settings, and MCP preferences in parallel
-  const [presets, currentLlm, mcpPrefs] = await Promise.all([
+  const [presets, currentLlm, mcp] = await Promise.all([
     requestJson<BackendPresetsResponse>(resolveApiPath('/api/clients/svelte/presets')),
     requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm')),
-    requestJson<ClientPreferences>(resolveApiPath('/api/mcp/preferences/svelte')),
+    fetchMcpSnapshot(),
   ]);
 
   const index = presets.presets.findIndex((entry) => entry.name === name);
@@ -570,7 +591,7 @@ export async function savePresetSnapshot(
       body: JSON.stringify({
         llm: currentLlm,
         model_filters: _payload?.model_filters ?? null,
-        enabled_servers: mcpPrefs.enabled_servers.length > 0 ? mcpPrefs.enabled_servers : null,
+        ...mcp,
       }),
     }
   );

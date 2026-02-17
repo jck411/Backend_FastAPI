@@ -7,8 +7,9 @@ This router handles settings for all clients using the pattern:
   /api/clients/{client_id}/presets
 """
 
-import logging
 from __future__ import annotations
+
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 
@@ -31,6 +32,7 @@ from backend.services.client_settings_service import (
     get_client_settings_service,
 )
 from backend.services.client_tool_preferences import ClientToolPreferences
+from backend.services.mcp_management import MCPManagementService
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,13 @@ def get_tool_preferences(request: Request) -> ClientToolPreferences:
     service = getattr(request.app.state, "client_tool_preferences", None)
     if service is None:
         raise RuntimeError("Client tool preferences service is not configured")
+    return service
+
+
+def get_mcp_management(request: Request) -> MCPManagementService:
+    service = getattr(request.app.state, "mcp_management_service", None)
+    if service is None:
+        raise RuntimeError("MCP management service is not configured")
     return service
 
 
@@ -295,20 +304,37 @@ async def delete_preset(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+async def _apply_mcp_snapshot(
+    preset: ClientPreset,
+    client_id: str,
+    prefs: ClientToolPreferences,
+    mgmt: MCPManagementService,
+) -> None:
+    """Restore MCP preferences and tool toggles from a preset."""
+    if preset.enabled_servers is not None:
+        await prefs.set_enabled_servers(client_id, preset.enabled_servers)
+    if preset.disabled_tools:
+        for server_id, tools in preset.disabled_tools.items():
+            try:
+                await mgmt.update_disabled_tools(server_id, tools)
+            except KeyError:
+                logger.debug("Skipping unknown server '%s' in preset", server_id)
+
+
 @router.post("/{client_id}/presets/{index}/activate", response_model=ClientSettings)
 async def activate_preset(
     index: int,
     client_id: str = Depends(validate_client_id),
     service: ClientSettingsService = Depends(get_service),
     prefs: ClientToolPreferences = Depends(get_tool_preferences),
+    mgmt: MCPManagementService = Depends(get_mcp_management),
 ) -> ClientSettings:
     """Activate a preset and apply its settings."""
     try:
         presets = service.get_presets()
         preset = presets.presets[index]
         result = service.activate_preset(index)
-        if preset.enabled_servers is not None:
-            await prefs.set_enabled_servers(client_id, preset.enabled_servers)
+        await _apply_mcp_snapshot(preset, client_id, prefs, mgmt)
         return result
     except (ValueError, IndexError) as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -325,10 +351,11 @@ async def apply_preset_by_name(
     client_id: str = Depends(validate_client_id),
     service: ClientSettingsService = Depends(get_service),
     prefs: ClientToolPreferences = Depends(get_tool_preferences),
+    mgmt: MCPManagementService = Depends(get_mcp_management),
 ) -> ClientSettings:
     """Apply a preset by name.
 
-    Applies LLM, STT, TTS settings and MCP client preferences.
+    Applies LLM, STT, TTS settings, MCP client preferences, and tool toggles.
     """
     presets = service.get_presets()
     preset_index = None
@@ -342,13 +369,8 @@ async def apply_preset_by_name(
     if preset_index is None or preset is None:
         raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
 
-    # Apply LLM/STT/TTS settings
     result = service.load_preset_settings(preset_index)
-
-    # Apply MCP client preferences if stored in the preset
-    if preset.enabled_servers is not None:
-        await prefs.set_enabled_servers(client_id, preset.enabled_servers)
-
+    await _apply_mcp_snapshot(preset, client_id, prefs, mgmt)
     return result
 
 
@@ -371,14 +393,14 @@ async def set_active_preset_by_name(
     client_id: str = Depends(validate_client_id),
     service: ClientSettingsService = Depends(get_service),
     prefs: ClientToolPreferences = Depends(get_tool_preferences),
+    mgmt: MCPManagementService = Depends(get_mcp_management),
 ) -> ClientPresets:
     """Set a preset as the active one by name."""
     presets = service.get_presets()
     for i, preset in enumerate(presets.presets):
         if preset.name == name:
             service.activate_preset(i)
-            if preset.enabled_servers is not None:
-                await prefs.set_enabled_servers(client_id, preset.enabled_servers)
+            await _apply_mcp_snapshot(preset, client_id, prefs, mgmt)
             return service.get_presets()
     raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
 

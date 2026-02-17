@@ -7,6 +7,10 @@
   width: min(720px, 100%);
 }
 
+.mcp-settings-modal .mcp-heading-actions {
+  margin-top: 0.5rem;
+}
+
 .system-settings-header {
   align-items: center;
 }

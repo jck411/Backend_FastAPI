@@ -194,6 +194,18 @@
       <p class="model-settings-subtitle">
         Manage MCP server tools and client access.
       </p>
+      <div class="mcp-heading-actions">
+        <button
+          type="button"
+          class="btn btn-ghost btn-small"
+          on:click={() => void mcpServers.selectNone()}
+          disabled={$mcpServers.saving ||
+            $mcpServers.refreshing ||
+            !$mcpServers.servers.length}
+        >
+          Select none
+        </button>
+      </div>
     </svelte:fragment>
 
     <article class="system-card">

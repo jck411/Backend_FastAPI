@@ -258,11 +258,12 @@ export function createMcpServersStore() {
 
     try {
       const prefs = await updateClientPreferences(clientId, updated);
+      // Store response as-is: [] = none selected (don't convert to null or all tick back)
       store.update((state) => ({
         ...state,
         clientPreferences: {
           ...state.clientPreferences,
-          [clientId]: prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null,
+          [clientId]: prefs.enabled_servers,
         },
         saving: false,
       }));

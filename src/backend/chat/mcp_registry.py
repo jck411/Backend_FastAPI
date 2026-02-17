@@ -44,9 +44,6 @@ class MCPServerConfig(BaseModel):
         ...,
         description="Full MCP endpoint URL (e.g. http://192.168.1.110:9003/mcp)",
     )
-    enabled: bool = Field(
-        default=True, description="Whether the backend should connect"
-    )
     disabled_tools: set[str] = Field(
         default_factory=set, description="Tool names to hide from LLM"
     )
@@ -222,7 +219,7 @@ class MCPToolAggregator:
     # ------------------------------------------------------------------
 
     async def connect(self) -> None:
-        """Connect to all enabled MCP servers and build the tool registry.
+        """Connect to all configured MCP servers and build the tool registry.
 
         In lazy_mode this is a no-op (use discover_and_connect instead).
         """
@@ -241,8 +238,6 @@ class MCPToolAggregator:
             )
 
             for config in self._configs:
-                if not config.enabled:
-                    continue
                 await self._launch_server(config)
 
             if not self._clients:
@@ -273,8 +268,6 @@ class MCPToolAggregator:
                     logger.info("MCP server on port %d has no config, skipping", port)
                     continue
                 if config.id in self._clients:
-                    continue
-                if not config.enabled:
                     continue
 
                 logger.info(
@@ -347,11 +340,7 @@ class MCPToolAggregator:
             return server_id
 
     async def apply_configs(self, configs: Sequence[MCPServerConfig]) -> None:
-        """Apply a new configuration set, reconnecting as needed.
-
-        This always attempts to connect to enabled servers — it works on both
-        first call (startup) and subsequent calls (config changes).
-        """
+        """Apply a new configuration set, reconnecting as needed."""
         async with self._lock:
             new_configs = list(configs)
             new_map: dict[str, MCPServerConfig] = {c.id: c for c in new_configs}
@@ -359,22 +348,21 @@ class MCPToolAggregator:
             self._configs = new_configs
             self._config_map = new_map
 
-            # Disconnect servers that were removed or disabled.
+            # Disconnect servers that were removed or whose URL changed.
             for server_id, client in list(self._clients.items()):
                 new_cfg = new_map.get(server_id)
-                if new_cfg is None or not new_cfg.enabled:
+                if new_cfg is None:
                     await client.close()
                     self._clients.pop(server_id, None)
                     continue
-                # If the URL changed, reconnect.
                 old_cfg = old_map.get(server_id)
                 if old_cfg and old_cfg.url != new_cfg.url:
                     await client.close()
                     self._clients.pop(server_id, None)
 
-            # Connect new/re-enabled servers.
+            # Connect new servers.
             for config in new_configs:
-                if not config.enabled or config.id in self._clients:
+                if config.id in self._clients:
                     continue
                 await self._launch_server(config)
 
@@ -489,7 +477,6 @@ class MCPToolAggregator:
                 {
                     "id": config.id,
                     "url": config.url,
-                    "enabled": config.enabled,
                     "connected": config.id in self._clients,
                     "tool_count": len(active_map),
                     "tools": tool_entries,
@@ -546,8 +533,6 @@ class MCPToolAggregator:
             previous = self._tool_catalog.get(config.id, [])
             tool_catalog[config.id] = list(previous)
 
-            if not config.enabled:
-                continue
             client = self._clients.get(config.id)
             if client is None:
                 continue

@@ -162,14 +162,6 @@
   font-weight: 500;
 }
 
-.running-toggle {
-  color: #34d399;
-}
-
-.running-toggle input {
-  accent-color: #34d399;
-}
-
 .client-toggle {
   color: #38bdf8;
 }

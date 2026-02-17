@@ -68,7 +68,6 @@ async def _build_status_response(
             MCPServerStatus(
                 id=entry["id"],
                 url=entry.get("url", ""),
-                enabled=entry.get("enabled", True),
                 connected=entry.get("connected", False),
                 tool_count=entry.get("tool_count", 0),
                 tools=tools,
@@ -110,7 +109,6 @@ async def connect_mcp_server(
     return MCPServerStatus(
         id=entry["id"],
         url=entry.get("url", payload.url),
-        enabled=entry.get("enabled", True),
         connected=entry.get("connected", False),
         tool_count=entry.get("tool_count", 0),
         tools=tools,
@@ -153,10 +151,8 @@ async def update_mcp_server(
     mgmt: MCPManagementService = Depends(get_mcp_management),
     settings: MCPServerSettingsService = Depends(get_mcp_settings_service),
 ) -> MCPServerStatusResponse:
-    """Toggle a server enabled/disabled or update its disabled_tools."""
+    """Update disabled_tools for a server."""
     try:
-        if payload.enabled is not None:
-            await mgmt.toggle_server(server_id, payload.enabled)
         if payload.disabled_tools is not None:
             await mgmt.update_disabled_tools(server_id, payload.disabled_tools)
     except KeyError:

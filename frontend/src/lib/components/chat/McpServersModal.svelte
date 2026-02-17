@@ -1,6 +1,5 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
-  import { get } from "svelte/store";
   import { createGoogleAuthStore } from "../../stores/googleAuth";
   import {
     CLIENT_IDS,
@@ -22,7 +21,6 @@
   const spotifyAuth = createSpotifyAuthStore();
 
   let hasInitialized = false;
-  let closing = false;
   let expandedServers: Set<string> = new Set();
   let monarchEmail = "";
   let monarchPassword = "";
@@ -53,21 +51,11 @@
     ]);
   }
 
-  async function closeModal(): Promise<void> {
-    if (closing || $mcpServers.saving || $googleAuth.authorizing) {
+  function closeModal(): void {
+    if ($mcpServers.saving || $googleAuth.authorizing) {
       return;
     }
-
-    closing = true;
-
-    const serversSaved = await mcpServers.flushPending();
-    const serversState = get(mcpServers);
-
-    if (serversSaved && !serversState.saveError) {
-      dispatch("close");
-    }
-
-    closing = false;
+    dispatch("close");
   }
 
   function saveMonarch(): void {
@@ -77,13 +65,6 @@
       password: monarchPassword,
       mfa_secret: monarchMfaSecret || null,
     });
-  }
-
-  function toggleServer(serverId: string, enabled: boolean): void {
-    if ($mcpServers.saving) {
-      return;
-    }
-    mcpServers.setServerEnabled(serverId, enabled);
   }
 
   function toggleClientServer(
@@ -101,7 +82,7 @@
     if ($mcpServers.saving) {
       return;
     }
-    mcpServers.setToolEnabled(serverId, tool, enabled);
+    void mcpServers.setToolEnabled(serverId, tool, enabled);
   }
 
   async function handleConnectServer(): Promise<void> {
@@ -119,8 +100,7 @@
   }
 
   function refreshServers(): void {
-    const snapshot = get(mcpServers);
-    if (snapshot.dirty || snapshot.saving) {
+    if ($mcpServers.saving) {
       return;
     }
     void mcpServers.refresh();
@@ -207,12 +187,12 @@
     layerClass="system-settings-layer"
     closeLabel="Close MCP servers"
     closeDisabled={$mcpServers.saving || $googleAuth.authorizing}
-    on:close={() => void closeModal()}
+    on:close={closeModal}
   >
     <svelte:fragment slot="heading">
       <h2 id="mcp-settings-title">MCP servers</h2>
       <p class="model-settings-subtitle">
-        Manage MCP server availability, tools, and client access.
+        Manage MCP server tools and client access.
       </p>
     </svelte:fragment>
 
@@ -501,9 +481,7 @@
             type="button"
             class="btn btn-ghost btn-small"
             on:click={refreshServers}
-            disabled={$mcpServers.refreshing ||
-              $mcpServers.saving ||
-              $mcpServers.dirty}
+            disabled={$mcpServers.refreshing || $mcpServers.saving}
           >
             {$mcpServers.refreshing ? "Refreshing..." : "Refresh"}
           </button>
@@ -548,12 +526,6 @@
                 <li
                   class="server-row"
                   data-connected={server.connected}
-                  data-pending={$mcpServers.pending[server.id]
-                    ? "true"
-                    : "false"}
-                  data-dirty={$mcpServers.pendingChanges[server.id]
-                    ? "true"
-                    : "false"}
                 >
                   <div class="server-row-header">
                     <div class="server-heading">
@@ -586,9 +558,7 @@
                                 $mcpServers.clientPreferences[
                                   clientId
                                 ]?.includes(server.id)}
-                              disabled={!server.enabled ||
-                                !server.connected ||
-                                $mcpServers.pending[server.id] ||
+                              disabled={!server.connected ||
                                 $mcpServers.saving}
                               on:change={(event) =>
                                 toggleClientServer(
@@ -601,29 +571,11 @@
                           </label>
                         {/each}
                       </div>
-                      <label
-                        class="toggle running-toggle"
-                        title="Enable or disable this server globally"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={server.enabled}
-                          disabled={$mcpServers.pending[server.id] ||
-                            $mcpServers.saving}
-                          on:change={(event) =>
-                            toggleServer(
-                              server.id,
-                              (event.target as HTMLInputElement).checked,
-                            )}
-                        />
-                        <span>{server.enabled ? "Enabled" : "Disabled"}</span>
-                      </label>
                       <button
                         type="button"
                         class="btn btn-ghost btn-small btn-danger"
                         title="Remove this server"
-                        disabled={$mcpServers.pending[server.id] ||
-                          $mcpServers.saving}
+                        disabled={$mcpServers.saving}
                         on:click={() => void handleRemoveServer(server.id)}
                       >
                         Remove
@@ -680,9 +632,7 @@
                                   <input
                                     type="checkbox"
                                     checked={tool.enabled}
-                                    disabled={!server.enabled ||
-                                      $mcpServers.pending[server.id] ||
-                                      $mcpServers.saving}
+                                    disabled={$mcpServers.saving}
                                     on:change={(event) =>
                                       toggleTool(
                                         server.id,
@@ -721,24 +671,17 @@
           {#if $mcpServers.saveError}
             <p class="status error">{$mcpServers.saveError}</p>
           {/if}
-          {#if $mcpServers.dirty}
-            <p class="status warning">
-              Pending changes save when you close this modal.
-            </p>
-          {/if}
         {/if}
       </div>
     </article>
 
     <footer slot="footer" class="model-settings-footer system-settings-footer">
       {#if $mcpServers.saveError}
-        <p class="status error">Resolve the errors above before closing.</p>
+        <p class="status error">{$mcpServers.saveError}</p>
       {:else if $mcpServers.saving}
-        <p class="status">Saving changes...</p>
-      {:else if $mcpServers.dirty}
-        <p class="status">Pending changes; closing this modal will save.</p>
+        <p class="status">Saving...</p>
       {:else}
-        <p class="status">Changes save when you close this modal.</p>
+        <p class="status muted">Changes are saved automatically.</p>
       {/if}
     </footer>
   </ModelSettingsDialog>

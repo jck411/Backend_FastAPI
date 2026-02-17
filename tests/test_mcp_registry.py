@@ -130,7 +130,6 @@ def test_config_new_format() -> None:
     cfg = MCPServerConfig(id="test", url="http://host:9000/mcp")
     assert cfg.id == "test"
     assert cfg.url == "http://host:9000/mcp"
-    assert cfg.enabled is True
     assert cfg.disabled_tools == set()
 
 
@@ -168,7 +167,7 @@ def test_load_server_configs_from_file(tmp_path: Path) -> None:
             {
                 "servers": [
                     {"id": "a", "url": "http://host:9001/mcp"},
-                    {"id": "b", "url": "http://host:9002/mcp", "enabled": False},
+                    {"id": "b", "url": "http://host:9002/mcp"},
                 ]
             }
         ),
@@ -177,7 +176,7 @@ def test_load_server_configs_from_file(tmp_path: Path) -> None:
     configs = load_server_configs(path)
     assert len(configs) == 2
     assert configs[0].id == "a"
-    assert configs[1].enabled is False
+    assert configs[1].id == "b"
 
 
 def test_load_server_configs_uses_fallback(tmp_path: Path) -> None:
@@ -195,7 +194,7 @@ def test_load_server_configs_overrides_fallback(tmp_path: Path) -> None:
         json.dumps(
             {
                 "servers": [
-                    {"id": "local", "url": "http://host:9100/mcp", "enabled": False}
+                    {"id": "local", "url": "http://host:9100/mcp"}
                 ]
             }
         ),
@@ -205,7 +204,6 @@ def test_load_server_configs_overrides_fallback(tmp_path: Path) -> None:
     configs = load_server_configs(path, fallback=fallback)
     assert len(configs) == 1
     assert configs[0].url == "http://host:9100/mcp"
-    assert configs[0].enabled is False
 
 
 # ------------------------------------------------------------------

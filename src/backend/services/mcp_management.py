@@ -166,12 +166,6 @@ class MCPManagementService:
         """Return all servers with connection status and tools."""
         return self._aggregator.describe_servers()
 
-    async def toggle_server(self, server_id: str, enabled: bool) -> None:
-        """Enable or disable a server."""
-        await self._settings.patch_server(server_id, enabled=enabled)
-        configs = await self._settings.get_configs()
-        await self._aggregator.apply_configs(configs)
-
     async def toggle_tool(self, server_id: str, tool_name: str, enabled: bool) -> None:
         """Enable or disable a specific tool."""
         await self._settings.toggle_tool(server_id, tool_name, enabled=enabled)

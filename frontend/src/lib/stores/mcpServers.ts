@@ -10,7 +10,6 @@ import {
 } from '../api/client';
 import type {
   McpServerStatus,
-  McpServerUpdatePayload,
   McpServersResponse,
 } from '../api/types';
 
@@ -30,13 +29,10 @@ interface McpServersState {
   loading: boolean;
   refreshing: boolean;
   saving: boolean;
-  dirty: boolean;
   error: string | null;
   saveError: string | null;
   servers: McpServerStatus[];
   updatedAt: string | null;
-  pending: Record<string, boolean>;
-  pendingChanges: Record<string, McpServerUpdatePayload>;
   /** Server IDs enabled per client (null = all allowed for that client). */
   clientPreferences: Record<ClientId, string[] | null>;
   /** Whether preferences have been loaded. */
@@ -47,13 +43,10 @@ const INITIAL_STATE: McpServersState = {
   loading: false,
   refreshing: false,
   saving: false,
-  dirty: false,
   error: null,
   saveError: null,
   servers: [],
   updatedAt: null,
-  pending: {},
-  pendingChanges: {},
   clientPreferences: {
     svelte: null,
     voice: null,
@@ -115,72 +108,47 @@ export function createMcpServersStore() {
     }
   }
 
-  function setServerEnabled(serverId: string, enabled: boolean): void {
-    store.update((state) => {
-      const servers = state.servers.map((server) =>
-        server.id === serverId ? { ...server, enabled } : server,
-      );
-      const pendingChanges = {
-        ...state.pendingChanges,
-        [serverId]: {
-          ...(state.pendingChanges[serverId] ?? {}),
-          enabled,
-        },
-      };
-      return {
-        ...state,
-        servers,
-        dirty: true,
-        saveError: null,
-        pendingChanges,
-      };
-    });
-  }
+  async function setToolEnabled(serverId: string, tool: string, enabled: boolean): Promise<void> {
+    const snapshot = get(store);
+    const target = snapshot.servers.find((item) => item.id === serverId);
+    if (!target) return;
 
-  function setToolEnabled(serverId: string, tool: string, enabled: boolean): void {
-    store.update((state) => {
-      const target = state.servers.find((item) => item.id === serverId);
-      if (!target) {
-        return state;
-      }
+    const disabled = new Set(target.disabled_tools ?? []);
+    if (enabled) {
+      disabled.delete(tool);
+    } else {
+      disabled.add(tool);
+    }
+    const disabledList = Array.from(disabled).sort();
 
-      const disabled = new Set(target.disabled_tools ?? []);
-      if (enabled) {
-        disabled.delete(tool);
-      } else {
-        disabled.add(tool);
-      }
-      const disabledList = Array.from(disabled).sort();
+    // Optimistic update
+    store.update((state) => ({
+      ...state,
+      saving: true,
+      saveError: null,
+      servers: state.servers.map((server) =>
+        server.id !== serverId
+          ? server
+          : {
+              ...server,
+              disabled_tools: disabledList,
+              tools: server.tools.map((item) =>
+                item.name === tool ? { ...item, enabled } : item,
+              ),
+            },
+      ),
+    }));
 
-      const servers = state.servers.map((server) => {
-        if (server.id !== serverId) {
-          return server;
-        }
-        return {
-          ...server,
-          disabled_tools: disabledList,
-          tools: server.tools.map((item) =>
-            item.name === tool ? { ...item, enabled } : item,
-          ),
-        };
-      });
-
-      const pendingChanges = {
-        ...state.pendingChanges,
-        [serverId]: {
-          ...(state.pendingChanges[serverId] ?? {}),
-          disabled_tools: disabledList,
-        },
-      };
-
-      return {
-        ...state,
-        servers,
-        dirty: true,
-        saveError: null,
-        pendingChanges,
-      };
-    });
+    try {
+      const response = await patchMcpServer(serverId, { disabled_tools: disabledList });
+      store.update((state) => ({
+        ...mergeResponse(state, response),
+        saving: false,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update tool.';
+      store.update((state) => ({ ...state, saving: false, saveError: message }));
+    }
   }
 
   async function refresh(): Promise<void> {
@@ -205,100 +173,10 @@ export function createMcpServersStore() {
     }
   }
 
-  function getServer(serverId: string): McpServerStatus | undefined {
-    const snapshot = get(store);
-    return snapshot.servers.find((item) => item.id === serverId);
-  }
-
-  function isPending(serverId: string): boolean {
-    const snapshot = get(store);
-    return Boolean(snapshot.pending[serverId]);
-  }
-
-  async function flushPending(): Promise<boolean> {
-    const snapshot = get(store);
-    if (!snapshot.dirty) {
-      return true;
-    }
-
-    const entries = Object.entries(snapshot.pendingChanges);
-    if (!entries.length) {
-      store.update((state) => ({ ...state, dirty: false }));
-      return true;
-    }
-
-    store.update((state) => ({ ...state, saving: true, saveError: null }));
-
-    let success = true;
-
-    for (const [serverId, payload] of entries) {
-      store.update((state) => ({
-        ...state,
-        pending: { ...state.pending, [serverId]: true },
-      }));
-
-      try {
-        const response = await patchMcpServer(serverId, payload);
-        store.update((state) => {
-          const nextPending = { ...state.pending };
-          delete nextPending[serverId];
-
-          const nextChanges = { ...state.pendingChanges };
-          delete nextChanges[serverId];
-
-          const merged = mergeResponse(state, response);
-          const dirty = Object.keys(nextChanges).length > 0;
-
-          return {
-            ...merged,
-            pending: nextPending,
-            pendingChanges: nextChanges,
-            dirty,
-          };
-        });
-      } catch (error) {
-        let message = 'Failed to update MCP server.';
-        if (error instanceof Error) {
-          message = error.message;
-        } else if (typeof error === 'object' && error !== null) {
-          const errObj = error as Record<string, unknown>;
-          message = String(errObj.detail || errObj.message || errObj.error || JSON.stringify(error));
-        } else if (typeof error === 'string') {
-          message = error;
-        }
-        // Ensure we never show [object Object]
-        if (message.includes('[object Object]')) {
-          message = 'Failed to save MCP server settings. Check server logs for details.';
-        }
-        store.update((state) => {
-          const nextPending = { ...state.pending };
-          delete nextPending[serverId];
-          return {
-            ...state,
-            pending: nextPending,
-            saving: false,
-            saveError: message,
-          };
-        });
-        success = false;
-        break;
-      }
-    }
-
-    if (success) {
-      store.update((state) => ({ ...state, saving: false, dirty: false }));
-      return true;
-    }
-
-    store.update((state) => ({ ...state, saving: false, dirty: true }));
-    return false;
-  }
-
   async function connectServer(url: string): Promise<McpServerStatus | null> {
     store.update((state) => ({ ...state, saving: true, saveError: null }));
     try {
       const server = await connectMcpServer(url);
-      // Reload the full list to get consistent state
       const response = await fetchMcpServers();
 
       // Auto-enable the new server in svelte client preferences
@@ -317,7 +195,6 @@ export function createMcpServersStore() {
             saving: false,
           }));
         } catch {
-          // Preference update failed, but server is still connected
           store.update((state) => ({
             ...mergeResponse(state, response),
             saving: false,
@@ -338,32 +215,18 @@ export function createMcpServersStore() {
   }
 
   async function removeServer(serverId: string): Promise<boolean> {
-    store.update((state) => ({
-      ...state,
-      saving: true,
-      saveError: null,
-      pending: { ...state.pending, [serverId]: true },
-    }));
+    store.update((state) => ({ ...state, saving: true, saveError: null }));
     try {
       await removeMcpServer(serverId);
       const response = await fetchMcpServers();
-      store.update((state) => {
-        const nextPending = { ...state.pending };
-        delete nextPending[serverId];
-        return {
-          ...mergeResponse(state, response),
-          saving: false,
-          pending: nextPending,
-        };
-      });
+      store.update((state) => ({
+        ...mergeResponse(state, response),
+        saving: false,
+      }));
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to remove MCP server.';
-      store.update((state) => {
-        const nextPending = { ...state.pending };
-        delete nextPending[serverId];
-        return { ...state, saving: false, saveError: message, pending: nextPending };
-      });
+      store.update((state) => ({ ...state, saving: false, saveError: message }));
       return false;
     }
   }
@@ -430,17 +293,12 @@ export function createMcpServersStore() {
     subscribe: store.subscribe,
     load,
     refresh,
-    setServerEnabled,
     setToolEnabled,
     connectServer,
     removeServer,
     setClientServerEnabled,
     isServerEnabledForClient,
-    getServer,
-    isPending,
-    flushPending,
   };
 }
 
 export type { ClientId, McpServersState };
-

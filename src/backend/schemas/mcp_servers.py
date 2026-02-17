@@ -28,7 +28,6 @@ class MCPServerStatus(BaseModel):
 
     id: str
     url: str
-    enabled: bool
     connected: bool
     tool_count: int = 0
     tools: list[MCPToolInfo] = Field(default_factory=list)
@@ -63,7 +62,6 @@ class MCPServerDiscoverPayload(BaseModel):
 class MCPServerUpdatePayload(BaseModel):
     """Partial update for a single server."""
 
-    enabled: bool | None = None
     disabled_tools: list[str] | None = None
 
 

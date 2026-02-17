@@ -329,7 +329,6 @@ export interface McpServerToolStatus {
 export interface McpServerStatus {
   id: string;
   url: string;
-  enabled: boolean;
   connected: boolean;
   tool_count: number;
   tools: McpServerToolStatus[];
@@ -342,7 +341,6 @@ export interface McpServersResponse {
 }
 
 export interface McpServerUpdatePayload {
-  enabled?: boolean;
   disabled_tools?: string[];
 }
 

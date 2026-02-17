@@ -45,7 +45,6 @@ class StubMCPManagement:
         self._servers = list(servers or [])
         self.reconnect_all_calls = 0
         self.refresh_calls = 0
-        self.toggle_server_calls: list[tuple[str, bool]] = []
         self.toggle_tool_calls: list[tuple[str, str, bool]] = []
         self._aggregator = StubAggregator()
 
@@ -57,7 +56,6 @@ class StubMCPManagement:
             "id": "new-server",
             "url": url,
             "connected": True,
-            "enabled": True,
             "tools": [],
             "tool_count": 0,
             "disabled_tools": [],
@@ -78,14 +76,6 @@ class StubMCPManagement:
 
     async def reconnect_all(self) -> None:
         self.reconnect_all_calls += 1
-
-    async def toggle_server(self, server_id: str, enabled: bool) -> None:
-        self.toggle_server_calls.append((server_id, enabled))
-        for s in self._servers:
-            if s["id"] == server_id:
-                s["enabled"] = enabled
-                return
-        raise KeyError(server_id)
 
     async def toggle_tool(self, server_id: str, tool_name: str, enabled: bool) -> None:
         self.toggle_tool_calls.append((server_id, tool_name, enabled))
@@ -108,15 +98,11 @@ class StubSettingsService:
         self,
         server_id: str,
         *,
-        enabled: bool | None = None,
         disabled_tools: Any | None = None,
-        overrides: dict[str, Any] | None = None,
     ) -> MCPServerConfig:
         for i, cfg in enumerate(self._configs):
             if cfg.id == server_id:
                 data = cfg.model_dump(exclude_none=False)
-                if enabled is not None:
-                    data["enabled"] = enabled
                 if disabled_tools is not None:
                     data["disabled_tools"] = list(disabled_tools)
                 updated = MCPServerConfig.model_validate(data)
@@ -176,14 +162,11 @@ async def test_service_loads_fallback_and_persists(tmp_path: Path) -> None:
     assert configs[0].id == "alpha"
     assert configs[0].url == "http://127.0.0.1:9101/mcp"
 
-    new_config = MCPServerConfig(
-        id="beta", url="http://127.0.0.1:9102/mcp", enabled=False
-    )
+    new_config = MCPServerConfig(id="beta", url="http://127.0.0.1:9102/mcp")
     await service.replace_configs([new_config])
 
     raw = json.loads(path.read_text(encoding="utf-8"))
     assert raw["servers"][0]["id"] == "beta"
-    assert raw["servers"][0]["enabled"] is False
     assert raw["servers"][0]["url"] == "http://127.0.0.1:9102/mcp"
 
 
@@ -230,10 +213,6 @@ async def test_service_patch_and_toggle_tool(tmp_path: Path) -> None:
 
     service = MCPServerSettingsService(path)
 
-    await service.patch_server("alpha", enabled=False)
-    configs = await service.get_configs()
-    assert configs[0].enabled is False
-
     await service.toggle_tool("alpha", "echo", enabled=False)
     configs = await service.get_configs()
     assert configs[0].disabled_tools == {"echo"}
@@ -264,7 +243,6 @@ async def test_router_list_servers() -> None:
         {
             "id": "alpha",
             "url": "http://host:9001/mcp",
-            "enabled": True,
             "connected": True,
             "tool_count": 1,
             "tools": [{"name": "ping", "enabled": True}],
@@ -292,12 +270,11 @@ async def test_router_list_servers() -> None:
 # ------------------------------------------------------------------
 
 
-async def test_router_patch_toggles_server() -> None:
+async def test_router_patch_disabled_tools() -> None:
     servers = [
         {
             "id": "alpha",
             "url": "http://host:9001/mcp",
-            "enabled": True,
             "connected": True,
             "tool_count": 0,
             "tools": [],
@@ -312,10 +289,11 @@ async def test_router_patch_toggles_server() -> None:
     app = _make_app(mgmt=mgmt, settings=settings)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        resp = await client.patch("/api/mcp/servers/alpha", json={"enabled": False})
+        resp = await client.patch(
+            "/api/mcp/servers/alpha", json={"disabled_tools": ["ping"]}
+        )
 
     assert resp.status_code == 200
-    assert mgmt.toggle_server_calls == [("alpha", False)]
 
 
 async def test_router_patch_unknown_server_404() -> None:
@@ -326,7 +304,7 @@ async def test_router_patch_unknown_server_404() -> None:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.patch(
-            "/api/mcp/servers/nonexistent", json={"enabled": False}
+            "/api/mcp/servers/nonexistent", json={"disabled_tools": ["x"]}
         )
 
     assert resp.status_code == 404
@@ -380,7 +358,6 @@ async def test_router_delete_server() -> None:
         {
             "id": "alpha",
             "url": "http://host:9001/mcp",
-            "enabled": True,
             "connected": True,
             "tool_count": 0,
             "tools": [],
@@ -419,7 +396,6 @@ async def test_router_toggle_tool() -> None:
         {
             "id": "alpha",
             "url": "http://host:9001/mcp",
-            "enabled": True,
             "connected": True,
             "tool_count": 1,
             "tools": [{"name": "ping", "enabled": True}],

@@ -19,7 +19,6 @@ def _config_to_payload(config: MCPServerConfig) -> dict[str, Any]:
     data: dict[str, Any] = {
         "id": config.id,
         "url": config.url,
-        "enabled": config.enabled,
     }
     if config.disabled_tools:
         data["disabled_tools"] = sorted(config.disabled_tools)
@@ -136,13 +135,10 @@ class MCPServerSettingsService:
         self,
         server_id: str,
         *,
-        enabled: bool | None = None,
         disabled_tools: Iterable[str] | None = None,
     ) -> MCPServerConfig:
         """Apply targeted updates to an individual server configuration."""
         patch_data: dict[str, Any] = {}
-        if enabled is not None:
-            patch_data["enabled"] = enabled
         if disabled_tools is not None:
             patch_data["disabled_tools"] = list(disabled_tools)
 

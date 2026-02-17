@@ -42,8 +42,8 @@ class StubAggregator:
     async def apply_configs(self, configs: Any) -> None:
         self.apply_configs_calls += 1
         self._configs = list(configs)
-        # Remove clients whose server was removed or disabled
-        new_ids = {c.id for c in configs if c.enabled}
+        # Remove clients whose server was removed
+        new_ids = {c.id for c in configs}
         self._connected = {k: v for k, v in self._connected.items() if k in new_ids}
 
     async def refresh(self) -> None:
@@ -69,7 +69,6 @@ class StubAggregator:
                 {
                     "id": cfg.id,
                     "url": cfg.url,
-                    "enabled": cfg.enabled,
                     "connected": cfg.id in self._connected,
                     "tool_count": 0,
                     "tools": [],
@@ -147,22 +146,6 @@ async def test_remove_unknown_raises(tmp_path: Path) -> None:
 
     with pytest.raises(KeyError):
         await mgmt.remove_server("nope")
-
-
-async def test_toggle_server(tmp_path: Path) -> None:
-    settings_path = tmp_path / "servers.json"
-    settings_path.write_text(
-        json.dumps({"servers": [{"id": "alpha", "url": "http://127.0.0.1:9001/mcp"}]}),
-        encoding="utf-8",
-    )
-    settings = MCPServerSettingsService(settings_path)
-    agg = StubAggregator()
-    mgmt = MCPManagementService(agg, settings)  # type: ignore[arg-type]
-
-    await mgmt.toggle_server("alpha", False)
-    configs = await settings.get_configs()
-    assert configs[0].enabled is False
-    assert agg.apply_configs_calls >= 1
 
 
 async def test_toggle_tool(tmp_path: Path) -> None:

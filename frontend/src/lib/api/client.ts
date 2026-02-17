@@ -458,6 +458,7 @@ interface BackendPreset {
   name: string;
   llm?: BackendPresetLlm | null;
   model_filters?: PresetModelFilters | null;
+  enabled_servers?: string[] | null;
   created_at?: string | null;
   updated_at?: string | null;
   [key: string]: unknown;
@@ -519,14 +520,17 @@ export async function fetchPreset(name: string): Promise<PresetConfig> {
 
 
 export async function createPreset(payload: PresetCreatePayload): Promise<PresetConfig> {
-  // Get current LLM settings (includes model and system_prompt)
-  const currentLlm = await requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm'));
+  // Fetch current LLM settings and MCP client preferences in parallel
+  const [currentLlm, mcpPrefs] = await Promise.all([
+    requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm')),
+    requestJson<ClientPreferences>(resolveApiPath('/api/mcp/preferences/svelte')),
+  ]);
 
-  // Create preset via POST with LLM settings only (MCP is separate)
   const presetPayload = {
     name: payload.name,
     llm: currentLlm,
     model_filters: payload.model_filters,
+    enabled_servers: mcpPrefs.enabled_servers.length > 0 ? mcpPrefs.enabled_servers : null,
   };
 
   const result = await requestJson<BackendPresetsResponse>(
@@ -537,7 +541,6 @@ export async function createPreset(payload: PresetCreatePayload): Promise<Preset
     }
   );
 
-  // Return the newly created preset (last in list)
   const newPreset = result.presets.find((entry) => entry.name === payload.name);
   if (!newPreset) throw new ApiError(500, 'Failed to create preset');
   const index = result.presets.indexOf(newPreset);
@@ -550,18 +553,16 @@ export async function savePresetSnapshot(
   name: string,
   _payload?: PresetSaveSnapshotPayload | null,
 ): Promise<PresetConfig> {
-  // Get current presets to find the index
-  const presets = await requestJson<BackendPresetsResponse>(
-    resolveApiPath('/api/clients/svelte/presets')
-  );
+  // Fetch presets, current LLM settings, and MCP preferences in parallel
+  const [presets, currentLlm, mcpPrefs] = await Promise.all([
+    requestJson<BackendPresetsResponse>(resolveApiPath('/api/clients/svelte/presets')),
+    requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm')),
+    requestJson<ClientPreferences>(resolveApiPath('/api/mcp/preferences/svelte')),
+  ]);
 
   const index = presets.presets.findIndex((entry) => entry.name === name);
   if (index === -1) throw new ApiError(404, `Preset not found: ${name}`);
 
-  // Get current LLM settings (includes model and system_prompt)
-  const currentLlm = await requestJson<Record<string, unknown>>(resolveApiPath('/api/clients/svelte/llm'));
-
-  // Update preset at index with current LLM settings only (MCP is separate)
   const result = await requestJson<BackendPresetsResponse>(
     resolveApiPath(`/api/clients/svelte/presets/${index}`),
     {
@@ -569,6 +570,7 @@ export async function savePresetSnapshot(
       body: JSON.stringify({
         llm: currentLlm,
         model_filters: _payload?.model_filters ?? null,
+        enabled_servers: mcpPrefs.enabled_servers.length > 0 ? mcpPrefs.enabled_servers : null,
       }),
     }
   );

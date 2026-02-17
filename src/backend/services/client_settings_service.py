@@ -339,16 +339,9 @@ class ClientSettingsService:
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc).isoformat()
-        # Set timestamps if not provided
         if preset.created_at is None:
-            preset = ClientPreset(
-                name=preset.name,
-                llm=preset.llm,
-                stt=preset.stt,
-                tts=preset.tts,
-                model_filters=preset.model_filters,
-                created_at=now,
-                updated_at=now,
+            preset = preset.model_copy(
+                update={"created_at": now, "updated_at": now}
             )
         presets = self.get_presets()
         presets.presets.append(preset)

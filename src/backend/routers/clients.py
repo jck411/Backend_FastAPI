@@ -8,7 +8,7 @@ This router handles settings for all clients using the pattern:
 """
 
 import logging
-from typing import Any, Optional
+from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request
 
@@ -30,6 +30,7 @@ from backend.services.client_settings_service import (
     ClientSettingsService,
     get_client_settings_service,
 )
+from backend.services.client_tool_preferences import ClientToolPreferences
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,13 @@ def get_service(
 ) -> ClientSettingsService:
     """Get the settings service for a client."""
     return get_client_settings_service(client_id)
+
+
+def get_tool_preferences(request: Request) -> ClientToolPreferences:
+    service = getattr(request.app.state, "client_tool_preferences", None)
+    if service is None:
+        raise RuntimeError("Client tool preferences service is not configured")
+    return service
 
 
 
@@ -290,12 +298,19 @@ async def delete_preset(
 @router.post("/{client_id}/presets/{index}/activate", response_model=ClientSettings)
 async def activate_preset(
     index: int,
+    client_id: str = Depends(validate_client_id),
     service: ClientSettingsService = Depends(get_service),
+    prefs: ClientToolPreferences = Depends(get_tool_preferences),
 ) -> ClientSettings:
     """Activate a preset and apply its settings."""
     try:
-        return service.activate_preset(index)
-    except ValueError as e:
+        presets = service.get_presets()
+        preset = presets.presets[index]
+        result = service.activate_preset(index)
+        if preset.enabled_servers is not None:
+            await prefs.set_enabled_servers(client_id, preset.enabled_servers)
+        return result
+    except (ValueError, IndexError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 
@@ -309,24 +324,32 @@ async def apply_preset_by_name(
     name: str,
     client_id: str = Depends(validate_client_id),
     service: ClientSettingsService = Depends(get_service),
+    prefs: ClientToolPreferences = Depends(get_tool_preferences),
 ) -> ClientSettings:
     """Apply a preset by name.
 
-    This applies the preset's LLM, STT, and TTS settings.
-    MCP server configuration is managed separately via /api/mcp/servers/.
+    Applies LLM, STT, TTS settings and MCP client preferences.
     """
     presets = service.get_presets()
     preset_index = None
+    preset: ClientPreset | None = None
     for i, p in enumerate(presets.presets):
         if p.name == name:
             preset_index = i
+            preset = p
             break
 
-    if preset_index is None:
+    if preset_index is None or preset is None:
         raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
 
-    # Activate the preset (applies LLM/STT/TTS settings)
-    return service.load_preset_settings(preset_index)
+    # Apply LLM/STT/TTS settings
+    result = service.load_preset_settings(preset_index)
+
+    # Apply MCP client preferences if stored in the preset
+    if preset.enabled_servers is not None:
+        await prefs.set_enabled_servers(client_id, preset.enabled_servers)
+
+    return result
 
 
 @router.delete("/{client_id}/presets/by-name/{name}", response_model=ClientPresets)
@@ -345,13 +368,17 @@ async def delete_preset_by_name(
 @router.post("/{client_id}/presets/by-name/{name}/set-active", response_model=ClientPresets)
 async def set_active_preset_by_name(
     name: str,
+    client_id: str = Depends(validate_client_id),
     service: ClientSettingsService = Depends(get_service),
+    prefs: ClientToolPreferences = Depends(get_tool_preferences),
 ) -> ClientPresets:
     """Set a preset as the active one by name."""
     presets = service.get_presets()
     for i, preset in enumerate(presets.presets):
         if preset.name == name:
             service.activate_preset(i)
+            if preset.enabled_servers is not None:
+                await prefs.set_enabled_servers(client_id, preset.enabled_servers)
             return service.get_presets()
     raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
 

@@ -328,7 +328,7 @@ class PresetModelFilters(BaseModel):
 
 
 class ClientPreset(BaseModel):
-    """A preset configuration bundle (LLM settings only - MCP servers are separate)."""
+    """A preset configuration bundle including LLM settings and MCP preferences."""
 
     name: str = Field(description="Display name for the preset")
     llm: LlmSettings = Field(default_factory=LlmSettings)
@@ -336,6 +336,10 @@ class ClientPreset(BaseModel):
     tts: Optional[TtsSettings] = None
     model_filters: Optional[PresetModelFilters] = Field(
         default=None, description="Saved model explorer filters"
+    )
+    enabled_servers: Optional[list[str]] = Field(
+        default=None,
+        description="MCP server IDs enabled for this client (null = all)",
     )
     created_at: Optional[str] = Field(
         default=None, description="ISO timestamp when preset was created"
@@ -353,6 +357,7 @@ class ClientPresetUpdate(BaseModel):
     stt: Optional[SttSettingsUpdate] = None
     tts: Optional[TtsSettingsUpdate] = None
     model_filters: Optional[PresetModelFilters] = None
+    enabled_servers: Optional[list[str]] = None
 
 
 class ClientPresets(BaseModel):

@@ -289,6 +289,59 @@ export function createMcpServersStore() {
     return prefs.includes(serverId);
   }
 
+  /** Uncheck all MCP servers for all clients and disable all tools. */
+  async function selectNone(): Promise<void> {
+    const snapshot = get(store);
+    if (!snapshot.servers.length) return;
+
+    store.update((state) => ({ ...state, saving: true, saveError: null }));
+
+    try {
+      // Clear client preferences: no servers enabled for any client
+      await Promise.all(
+        CLIENT_IDS.map((clientId) => updateClientPreferences(clientId, [])),
+      );
+
+      // Disable all tools on every server
+      await Promise.all(
+        snapshot.servers.map((server) => {
+          const allToolNames = server.tools.map((t) => t.name);
+          if (allToolNames.length === 0) return Promise.resolve();
+          return patchMcpServer(server.id, { disabled_tools: allToolNames });
+        }),
+      );
+
+      const response = await fetchMcpServers();
+      const prefsResults = await Promise.all(
+        CLIENT_IDS.map((id) => fetchClientPreferences(id)),
+      );
+      const clientPreferences: Record<ClientId, string[] | null> = {
+        svelte: null,
+        voice: null,
+        kiosk: null,
+        cli: null,
+      };
+      CLIENT_IDS.forEach((clientId, index) => {
+        const prefs = prefsResults[index];
+        // After selectNone the API returns []; keep [] so UI shows none selected
+        clientPreferences[clientId] =
+          prefs.enabled_servers.length > 0 ? prefs.enabled_servers : [];
+      });
+
+      store.update((state) => ({
+        ...state,
+        servers: response.servers,
+        updatedAt: response.updated_at ?? null,
+        clientPreferences,
+        saving: false,
+      }));
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to select none.';
+      store.update((state) => ({ ...state, saving: false, saveError: message }));
+    }
+  }
+
   return {
     subscribe: store.subscribe,
     load,
@@ -298,6 +351,7 @@ export function createMcpServersStore() {
     removeServer,
     setClientServerEnabled,
     isServerEnabledForClient,
+    selectNone,
   };
 }
 

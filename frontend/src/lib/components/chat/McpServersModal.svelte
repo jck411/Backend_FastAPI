@@ -480,6 +480,16 @@
           <button
             type="button"
             class="btn btn-ghost btn-small"
+            on:click={() => void mcpServers.selectNone()}
+            disabled={$mcpServers.saving ||
+              $mcpServers.refreshing ||
+              !$mcpServers.servers.length}
+          >
+            Select none
+          </button>
+          <button
+            type="button"
+            class="btn btn-ghost btn-small"
             on:click={refreshServers}
             disabled={$mcpServers.refreshing || $mcpServers.saving}
           >

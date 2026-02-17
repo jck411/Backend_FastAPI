@@ -122,6 +122,21 @@ class ClientSettingsService:
         current = self.get_llm()
         update_data = update.model_dump(exclude_none=True)
         merged = current.model_copy(update=update_data)
+
+        # Sync top-level fields from the parameters dict so backend
+        # services that read temperature/max_tokens directly stay correct.
+        if merged.parameters:
+            if "temperature" in merged.parameters:
+                try:
+                    merged.temperature = float(merged.parameters["temperature"])
+                except (TypeError, ValueError):
+                    pass
+            if "max_tokens" in merged.parameters:
+                try:
+                    merged.max_tokens = int(merged.parameters["max_tokens"])
+                except (TypeError, ValueError):
+                    pass
+
         self._save_json("llm", merged.model_dump())
         self._cache["llm"] = merged
         return merged

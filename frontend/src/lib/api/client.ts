@@ -117,9 +117,20 @@ export async function fetchModelSettings(): Promise<ActiveModelSettingsResponse>
 export async function updateModelSettings(
   payload: ActiveModelSettingsPayload,
 ): Promise<ActiveModelSettingsResponse> {
+  // Also send temperature/max_tokens as top-level fields so the backend
+  // LlmSettingsUpdate schema picks them up alongside the full parameters dict.
+  const body: Record<string, unknown> = { ...payload };
+  if (payload.parameters) {
+    if (payload.parameters.temperature != null) {
+      body.temperature = payload.parameters.temperature;
+    }
+    if (payload.parameters.max_tokens != null) {
+      body.max_tokens = payload.parameters.max_tokens;
+    }
+  }
   return requestJson<ActiveModelSettingsResponse>(resolveApiPath('/api/clients/svelte/llm'), {
     method: 'PUT',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
 }
 

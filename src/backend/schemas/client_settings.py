@@ -4,7 +4,7 @@ These schemas are shared across all clients (kiosk, svelte, cli).
 Each client stores its own data but uses the same structure.
 """
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -42,6 +42,10 @@ class LlmSettings(BaseModel):
         default=None,
         description="Whether model supports tool calling",
     )
+    parameters: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Full OpenRouter model parameters for the frontend",
+    )
     # Kiosk-specific conversation mode
     conversation_mode: bool = Field(
         default=False,
@@ -63,6 +67,7 @@ class LlmSettingsUpdate(BaseModel):
     temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=None, ge=1, le=128000)
     supports_tools: Optional[bool] = None
+    parameters: Optional[dict[str, Any]] = None
     conversation_mode: Optional[bool] = None
     conversation_timeout_seconds: Optional[float] = Field(default=None, ge=1.0, le=60.0)
 

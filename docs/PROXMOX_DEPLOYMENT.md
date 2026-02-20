@@ -47,7 +47,7 @@
 |-|-|
 | **OS** | Debian 13 (unprivileged, nesting=1, onboot=1) |
 | **Resources** | 2 cores · 2GB RAM · 512MB swap · 24GB disk (local-lvm) |
-| **Service user** | `backend` (nologin) |
+| **Service user** | `backend` (nologin) — all runtime `data/` must be owned by this user |
 | **Code** | `/opt/backend-fastapi/` |
 | **Python** | uv-managed venv at `.venv/` |
 
@@ -120,7 +120,7 @@ git add src/backend/static/ && git commit -m "build: rebuild frontends"
 git push
 
 # 4. Deploy with reset (ensures all files are restored):
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/src/backend/data/"
+ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/data/ && systemctl restart backend-fastapi-dev"
 ```
 
 ### Dependencies changed (`pyproject.toml`)
@@ -133,7 +133,28 @@ ssh root@192.168.1.111 "cd /opt/backend-fastapi && git pull && uv sync && system
 
 Use when `git pull` fails or you need a clean slate. Safe — preserves `.env` and `data/`:
 ```bash
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/src/backend/data/ && systemctl restart backend-fastapi-dev"
+ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/data/ && systemctl restart backend-fastapi-dev"
+```
+
+## File Ownership (Critical)
+
+The backend runs as `User=backend`. Git operations run as `root`, so `git pull` or `git reset --hard` can reset file ownership to `root:root`. The `data/` directory must stay writable by `backend`.
+
+**Every deployment must include:**
+```bash
+chown -R backend:backend /opt/backend-fastapi/data/
+```
+
+The deploy script does this automatically. If deploying manually, always run the chown.
+
+**Symptoms of broken ownership:**
+- 500 errors on PUT/POST endpoints that write settings
+- `PermissionError` in `journalctl -u backend-fastapi-dev`
+- Checkboxes / toggles in the UI appear unresponsive (changes fail silently)
+
+**Quick fix:**
+```bash
+ssh root@192.168.1.111 "chown -R backend:backend /opt/backend-fastapi/data/"
 ```
 
 ### Logs
@@ -178,6 +199,7 @@ Credential files:
 
 | Symptom | Check |
 |---------|-------|
+| 500 on settings / preferences | `ssh root@192.168.1.111 "chown -R backend:backend /opt/backend-fastapi/data/"` (ownership) |
 | Health check fails | `ssh root@192.168.1.111 "curl -sk https://localhost:8000/health"` |
 | Service won't start | `journalctl -u backend-fastapi-dev -n 50` |
 | MCP tools unavailable | `curl http://192.168.1.110:9003/mcp` (check LXC 110) |

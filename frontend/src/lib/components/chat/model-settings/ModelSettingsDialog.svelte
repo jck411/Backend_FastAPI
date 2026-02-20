@@ -1,16 +1,17 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-  import './model-settings-styles.css';
+  import { createEventDispatcher } from "svelte";
+  import "./model-settings-styles.css";
 
   export let open = false;
   export let labelledBy: string | null = null;
-  export let modalClass = '';
-  export let bodyClass = '';
-  export let layerClass = '';
-  export let closeLabel = 'Close modal';
+  export let modalClass = "";
+  export let bodyClass = "";
+  export let layerClass = "";
+  export let closeLabel = "Close modal";
   export let closeOnBackdrop = true;
   export let focusOnOpen = true;
   export let closeDisabled = false;
+  export let onclose: (() => void) | undefined = undefined;
 
   const dispatch = createEventDispatcher<{ close: void }>();
 
@@ -26,12 +27,17 @@
     wasOpen = false;
   }
 
+  function emitClose(): void {
+    if (onclose) onclose();
+    else dispatch("close");
+  }
+
   function handleBackdrop(event: MouseEvent): void {
     if (!closeOnBackdrop || closeDisabled) {
       return;
     }
     if (event.target === event.currentTarget) {
-      dispatch('close');
+      emitClose();
     }
   }
 
@@ -39,14 +45,14 @@
     if (closeDisabled) {
       return;
     }
-    dispatch('close');
+    emitClose();
   }
 
   function handleKeydown(event: KeyboardEvent): void {
     if (!open || closeDisabled) return;
-    if (event.key === 'Escape') {
+    if (event.key === "Escape") {
       event.preventDefault();
-      dispatch('close');
+      emitClose();
     }
   }
 </script>

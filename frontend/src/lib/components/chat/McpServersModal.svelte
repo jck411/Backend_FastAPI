@@ -187,7 +187,7 @@
     layerClass="system-settings-layer"
     closeLabel="Close MCP servers"
     closeDisabled={$mcpServers.saving || $googleAuth.authorizing}
-    on:close={closeModal}
+    onclose={closeModal}
   >
     <svelte:fragment slot="heading">
       <h2 id="mcp-settings-title">MCP servers</h2>
@@ -198,7 +198,7 @@
         <button
           type="button"
           class="btn btn-ghost btn-small"
-          on:click={() => void mcpServers.selectNone()}
+          onclick={() => void mcpServers.selectNone()}
           disabled={$mcpServers.saving ||
             $mcpServers.refreshing ||
             !$mcpServers.servers.length}
@@ -220,7 +220,7 @@
           <button
             type="button"
             class="btn btn-primary btn-small auth-reconnect-btn"
-            on:click={() => void startGoogleAuthorization()}
+            onclick={() => void startGoogleAuthorization()}
             disabled={$googleAuth.loading || $googleAuth.authorizing}
           >
             {$googleAuth.authorizing
@@ -241,7 +241,7 @@
             <button
               type="button"
               class="btn btn-ghost btn-small"
-              on:click={refreshGoogleAuth}
+              onclick={refreshGoogleAuth}
               disabled={$googleAuth.loading || $googleAuth.authorizing}
             >
               Try again
@@ -294,7 +294,7 @@
           <button
             type="button"
             class="btn btn-primary btn-small auth-reconnect-btn"
-            on:click={() => void startSpotifyAuthorization()}
+            onclick={() => void startSpotifyAuthorization()}
             disabled={$spotifyAuth.loading || $spotifyAuth.authorizing}
           >
             {$spotifyAuth.authorizing
@@ -315,7 +315,7 @@
             <button
               type="button"
               class="btn btn-ghost btn-small"
-              on:click={refreshSpotifyAuth}
+              onclick={refreshSpotifyAuth}
               disabled={$spotifyAuth.loading || $spotifyAuth.authorizing}
             >
               Try again
@@ -353,7 +353,7 @@
             <button
               type="button"
               class="btn btn-primary btn-small auth-reconnect-btn"
-              on:click={() => void handleReconnectMonarch()}
+              onclick={() => void handleReconnectMonarch()}
               disabled={$monarchAuth.saving}
             >
               Reconnect
@@ -362,7 +362,7 @@
             <button
               type="button"
               class="btn btn-primary btn-small auth-reconnect-btn"
-              on:click={saveMonarch}
+              onclick={saveMonarch}
               disabled={$monarchAuth.saving ||
                 !monarchEmail ||
                 !monarchPassword}
@@ -405,7 +405,7 @@
                 <button
                   type="button"
                   class="btn btn-ghost btn-icon btn-small"
-                  on:click={() => (showMonarchPassword = !showMonarchPassword)}
+                  onclick={() => (showMonarchPassword = !showMonarchPassword)}
                   title={showMonarchPassword
                     ? "Hide password"
                     : "Show password"}
@@ -492,7 +492,7 @@
           <button
             type="button"
             class="btn btn-ghost btn-small"
-            on:click={() => void mcpServers.selectNone()}
+            onclick={() => void mcpServers.selectNone()}
             disabled={$mcpServers.saving ||
               $mcpServers.refreshing ||
               !$mcpServers.servers.length}
@@ -502,7 +502,7 @@
           <button
             type="button"
             class="btn btn-ghost btn-small"
-            on:click={refreshServers}
+            onclick={refreshServers}
             disabled={$mcpServers.refreshing || $mcpServers.saving}
           >
             {$mcpServers.refreshing ? "Refreshing..." : "Refresh"}
@@ -524,14 +524,14 @@
               placeholder="http://192.168.1.110:9003/mcp"
               bind:value={newServerUrl}
               disabled={connectingServer || $mcpServers.saving}
-              on:keydown={(e) => {
+              onkeydown={(e) => {
                 if (e.key === "Enter") void handleConnectServer();
               }}
             />
             <button
               type="button"
               class="btn btn-primary btn-small"
-              on:click={() => void handleConnectServer()}
+              onclick={() => void handleConnectServer()}
               disabled={connectingServer ||
                 !newServerUrl.trim() ||
                 $mcpServers.saving}
@@ -545,10 +545,7 @@
           {:else}
             <ul class="server-list">
               {#each $mcpServers.servers as server}
-                <li
-                  class="server-row"
-                  data-connected={server.connected}
-                >
+                <li class="server-row" data-connected={server.connected}>
                   <div class="server-row-header">
                     <div class="server-heading">
                       <h4>{server.id}</h4>
@@ -580,13 +577,12 @@
                                 $mcpServers.clientPreferences[
                                   clientId
                                 ]?.includes(server.id)}
-                              disabled={!server.connected ||
-                                $mcpServers.saving}
-                              on:change={(event) =>
+                              disabled={!server.connected || $mcpServers.saving}
+                              onchange={(event) =>
                                 toggleClientServer(
                                   clientId,
                                   server.id,
-                                  (event.target as HTMLInputElement).checked,
+                                  event.currentTarget.checked,
                                 )}
                             />
                             <span>{CLIENT_LABELS[clientId]}</span>
@@ -598,7 +594,7 @@
                         class="btn btn-ghost btn-small btn-danger"
                         title="Remove this server"
                         disabled={$mcpServers.saving}
-                        on:click={() => void handleRemoveServer(server.id)}
+                        onclick={() => void handleRemoveServer(server.id)}
                       >
                         Remove
                       </button>
@@ -610,7 +606,7 @@
                       type="button"
                       class="tools-toggle"
                       class:open={expandedServers.has(server.id)}
-                      on:click={() => toggleServerTools(server.id)}
+                      onclick={() => toggleServerTools(server.id)}
                       aria-expanded={expandedServers.has(server.id)}
                       aria-controls="tools-{server.id}"
                     >
@@ -655,12 +651,11 @@
                                     type="checkbox"
                                     checked={tool.enabled}
                                     disabled={$mcpServers.saving}
-                                    on:change={(event) =>
+                                    onchange={(event) =>
                                       toggleTool(
                                         server.id,
                                         tool.name,
-                                        (event.target as HTMLInputElement)
-                                          .checked,
+                                        event.currentTarget.checked,
                                       )}
                                   />
                                   <span

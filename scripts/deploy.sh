@@ -69,7 +69,7 @@ git push
 
 # 7. Deploy to server
 echo -e "${YELLOW}Deploying to server...${NC}"
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/src/backend/data/ && systemctl restart backend-fastapi-dev"
+ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/data/ && systemctl restart backend-fastapi-dev"
 
 echo -e "${GREEN}=== Deploy complete ===${NC}"
 echo -e "Test at: https://chat.jackshome.com"

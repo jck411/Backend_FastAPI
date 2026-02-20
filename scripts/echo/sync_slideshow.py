@@ -20,13 +20,7 @@ DEFAULT_MAX_PHOTOS = 30  # Default for Echo device memory constraints
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 CACHE_DIR = PROJECT_ROOT / "data" / "slideshow" / "photos"
 KIOSK_UI_SETTINGS_PATH = (
-    PROJECT_ROOT
-    / "src"
-    / "backend"
-    / "data"
-    / "clients"
-    / "kiosk"
-    / "ui.json"
+    PROJECT_ROOT / "src" / "backend" / "data" / "clients" / "kiosk" / "ui.json"
 )
 
 # Ensure cache directory exists

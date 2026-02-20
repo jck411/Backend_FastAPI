@@ -38,8 +38,12 @@ def get_max_photos_from_settings() -> int:
     return DEFAULT_MAX_PHOTOS
 
 
-def get_album_data(url: str) -> list[dict]:
-    """Fetch and parse the shared album page to extract photo data."""
+def get_album_data(url: str, landscape_only: bool = True) -> list[dict]:
+    """Fetch and parse the shared album page to extract photo data.
+
+    Returns a list of dicts with keys: url, width, height.
+    If landscape_only is True, only photos wider than they are tall are returned.
+    """
 
     print(f"Fetching album from: {url}")
 
@@ -54,7 +58,7 @@ def get_album_data(url: str) -> list[dict]:
 
     # Pattern to find image URLs in the page
     # Google Photos uses URLs like lh3.googleusercontent.com/...
-    photo_urls = []
+    photo_entries = []
 
     # Find all lh3.googleusercontent.com URLs with photo data
     # These are typically in format: ["https://lh3.googleusercontent.com/pw/...",width,height]
@@ -62,41 +66,51 @@ def get_album_data(url: str) -> list[dict]:
     matches = re.findall(pattern, html)
 
     for match in matches:
-        url = match[0]
-        if url and "/pw/" in url:
+        photo_url = match[0]
+        width = int(match[1]) if match[1] else 0
+        height = int(match[2]) if match[2] else 0
+        if photo_url and "/pw/" in photo_url:
             # Clean up the URL (remove escape characters)
-            url = url.replace("\\u003d", "=").replace("\\u0026", "&")
-            photo_urls.append(url)
+            photo_url = photo_url.replace("\\u003d", "=").replace("\\u0026", "&")
+            photo_entries.append({"url": photo_url, "width": width, "height": height})
 
     # Deduplicate while preserving order
     seen = set()
-    unique_urls = []
-    for url in photo_urls:
+    unique_entries = []
+    for entry in photo_entries:
         # Use base URL without size params for deduplication
-        base = url.split("=")[0]
+        base = entry["url"].split("=")[0]
         if base not in seen:
             seen.add(base)
-            unique_urls.append(url)
+            unique_entries.append(entry)
 
-    print(f"Found {len(unique_urls)} unique photos")
-    return unique_urls
+    print(f"Found {len(unique_entries)} unique photos in album")
+
+    # Filter to landscape-only if requested
+    if landscape_only:
+        landscape = [e for e in unique_entries if e["width"] > e["height"] and e["width"] > 0]
+        skipped = len(unique_entries) - len(landscape)
+        print(f"🖼️  Landscape filter: keeping {len(landscape)}, skipped {skipped} portrait/square/unknown")
+        return landscape
+
+    return unique_entries
 
 
-def download_photo(url: str, index: int) -> Path | None:
+def download_photo(photo_url: str, index: int) -> Path | None:
     """Download a photo and save it to the cache."""
 
     # Echo Show 5 screen is 960x480 (2:1 aspect) - use 1024x512 to match screen aspect
     # This matches screen aspect ratio perfectly and optimizes memory usage
     # =w1024-h512 requests exact size, Google Photos will scale/crop appropriately
-    if "=" not in url:
-        download_url = f"{url}=w1024-h512"
+    if "=" not in photo_url:
+        download_url = f"{photo_url}=w1024-h512"
     else:
         # Replace any existing size params
-        base = url.split("=")[0]
+        base = photo_url.split("=")[0]
         download_url = f"{base}=w1024-h512"
 
     # Generate filename from URL hash
-    url_hash = hashlib.md5(url.encode()).hexdigest()[:16]
+    url_hash = hashlib.md5(photo_url.encode()).hexdigest()[:16]
     filename = f"photo_{index:03d}_{url_hash}.jpg"
     filepath = CACHE_DIR / filename
 
@@ -117,6 +131,15 @@ def download_photo(url: str, index: int) -> Path | None:
     except Exception as e:
         print(f"  Failed to download: {e}")
         return None
+
+
+def cleanup_all_photos():
+    """Remove all existing photos from the cache before a fresh sync."""
+    photos = list(CACHE_DIR.glob("photo_*.jpg"))
+    if photos:
+        for photo in photos:
+            photo.unlink()
+        print(f"  Cleared {len(photos)} old photos from cache")
 
 
 def cleanup_old_photos(keep_count: int):
@@ -144,30 +167,37 @@ def trigger_frontend_preload():
 def main():
     print("=" * 50)
     print("Google Photos Shared Album Sync")
+    print(f"Mode: {'All orientations' if INCLUDE_PORTRAIT else 'Landscape only'}")
     print("=" * 50)
 
-    # Get photo URLs from the album
+    # Get photo entries from the album
     try:
-        photo_urls = get_album_data(SHARED_ALBUM_URL)
+        photo_entries = get_album_data(
+            SHARED_ALBUM_URL, landscape_only=not INCLUDE_PORTRAIT
+        )
     except Exception as e:
         print(f"Error fetching album: {e}")
         sys.exit(1)
 
-    if not photo_urls:
+    if not photo_entries:
         print("No photos found in album!")
         sys.exit(1)
 
+    # Clear old photos before downloading fresh set
+    print("\nClearing old photo cache...")
+    cleanup_all_photos()
+
     # Download the latest photos
-    limit = min(MAX_PHOTOS, len(photo_urls))
-    print(f"\nDownloading up to {limit} photos...")
+    limit = min(MAX_PHOTOS, len(photo_entries))
+    print(f"\nDownloading up to {limit} landscape photos...")
 
     downloaded = 0
-    for i, url in enumerate(photo_urls[:limit]):
-        result = download_photo(url, i)
+    for i, entry in enumerate(photo_entries[:limit]):
+        result = download_photo(entry["url"], i)
         if result:
             downloaded += 1
 
-    # Cleanup old photos
+    # Cleanup old photos beyond limit
     print(f"\nCleaning up old photos (keeping {MAX_PHOTOS})...")
     cleanup_old_photos(MAX_PHOTOS)
 
@@ -196,6 +226,12 @@ if __name__ == "__main__":
         default=None,
         help=f"Maximum number of photos to sync (default: from settings or {DEFAULT_MAX_PHOTOS})",
     )
+    parser.add_argument(
+        "--include-portrait",
+        action="store_true",
+        default=False,
+        help="Include portrait and square photos (default: landscape only)",
+    )
     args = parser.parse_args()
 
     # Determine max photos: CLI arg > settings > default
@@ -204,6 +240,10 @@ if __name__ == "__main__":
     else:
         MAX_PHOTOS = get_max_photos_from_settings()
 
+    INCLUDE_PORTRAIT = args.include_portrait
+
     print(f"🖼️  Limiting to {MAX_PHOTOS} photos for optimal memory usage")
+    if not INCLUDE_PORTRAIT:
+        print("📐 Landscape-only mode (use --include-portrait to override)")
 
     main()

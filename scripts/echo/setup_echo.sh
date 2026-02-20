@@ -124,10 +124,16 @@ echo ""
 echo "[5/11] Clearing recovery boot flags (prevents update/recovery loops)..."
 $ADB_CMD shell 'if [ -d /cache/recovery ]; then rm -f /cache/recovery/command /cache/recovery/last_log /cache/recovery/last_install; fi' || true
 $ADB_CMD shell 'if [ -d /data/cache/recovery ]; then rm -f /data/cache/recovery/command /data/cache/recovery/last_log /data/cache/recovery/last_install; fi' || true
-if $ADB_CMD shell 'command -v su >/dev/null 2>&1'; then
-    $ADB_CMD shell 'su -c "if [ -f /system/etc/install-recovery.sh ]; then mount -o rw,remount /system && mv /system/etc/install-recovery.sh /system/etc/install-recovery.sh.disabled; fi"' || true
-fi
-echo "✅ Recovery flags cleared (when present)"
+
+# Disable vendor recovery reflash script (requires root + rw remount)
+$ADB_CMD shell 'mount -o rw,remount / 2>/dev/null && if [ -f /vendor/bin/install-recovery.sh ]; then mv /vendor/bin/install-recovery.sh /vendor/bin/install-recovery.sh.disabled; fi' || true
+$ADB_CMD shell 'if [ -f /system/etc/install-recovery.sh ]; then mount -o rw,remount / 2>/dev/null && mv /system/etc/install-recovery.sh /system/etc/install-recovery.sh.disabled; fi' || true
+
+# Disable recovery_update property (prevents bootloader from preferring recovery)
+$ADB_CMD shell setprop persist.vendor.recovery_update false
+$ADB_CMD shell setprop persist.sys.recovery_update false
+
+echo "✅ Recovery flags cleared and recovery update disabled"
 
 # ============================================
 # DISABLE BLOATWARE APPS

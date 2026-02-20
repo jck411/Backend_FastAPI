@@ -279,6 +279,10 @@ If WebView keeps crashing, try:
 3. Set to "ADB only" or "Apps and ADB"
 4. Run `adb root` again
 
+### Device Boots Into TWRP Recovery
+
+See the [MT8163 recovery boot problem](ECHO_KIOSK_SETUP.md#mt8163-recovery-boot-problem-echo-show-5) section in ECHO_KIOSK_SETUP.md. The setup script fixes this automatically; re-run it if needed.
+
 ### Package Won't Disable
 
 Some system packages can't be disabled without system partition modification:

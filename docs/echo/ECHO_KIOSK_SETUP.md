@@ -53,20 +53,36 @@ What the script applies:
 
 ## Boot straight into Fully Kiosk
 
-If the device reboots into recovery, it is usually due to a leftover OTA/recovery command or a boot flag in the cache. The setup script now clears these flags and attempts to disable recovery scripts on rooted devices.
+### MT8163 recovery boot problem (Echo Show 5)
 
-Manual commands (if you need to run them again):
+The Amazon Echo Show 5 uses a MediaTek MT8163 SoC whose bootloader (LK) defaults to TWRP recovery on dirty shutdown (power loss, abrupt unplug). Three things cause this:
+
+1. **`persist.vendor.recovery_update=true`** — Tells the bootloader to prefer recovery. On a clean reboot the OS handles it, but on power loss the bootloader reads this flag before the OS starts and routes to TWRP.
+2. **`/vendor/bin/install-recovery.sh`** — A vendor script that reflashes the stock recovery image on every boot (part of the recovery update mechanism).
+3. **MT8163 boot_reason=4 behavior** — On watchdog/power-loss, the bootloader checks the recovery_update flag and if true, enters recovery instead of system.
+
+The setup script now fixes all three automatically:
+- Sets `persist.vendor.recovery_update=false`
+- Renames `/vendor/bin/install-recovery.sh` to `.disabled` (requires root)
+- Clears recovery command files in `/cache/recovery/` and `/data/cache/recovery/`
+
+**This is a one-time fix per device** — the persist property and renamed file survive reboots.
+
+### Manual fix (if needed)
 
 ```bash
-adb -s SERIAL shell 'rm -f /cache/recovery/command /cache/recovery/last_log /cache/recovery/last_install'
-adb -s SERIAL shell 'rm -f /data/cache/recovery/command /data/cache/recovery/last_log /data/cache/recovery/last_install'
+adb root
+adb shell setprop persist.vendor.recovery_update false
+adb shell setprop persist.sys.recovery_update false
+adb shell 'mount -o rw,remount / && mv /vendor/bin/install-recovery.sh /vendor/bin/install-recovery.sh.disabled'
+adb shell 'rm -f /cache/recovery/command /data/cache/recovery/command'
 ```
 
-If the device still boots into recovery:
+### If recovery persists after the fix
 
-- Confirm `org.lineageos.updater` is disabled (`adb shell pm list packages | rg updater`).
-- Boot once into system and re-run `scripts/echo/setup_echo.sh`.
-- If recovery persists, the OS image may be applying updates on boot; reflash the system image or remove the update trigger if present in `/system/etc/install-recovery.sh` (root required).
+- Confirm `org.lineageos.updater` is disabled: `adb shell pm list packages -d | grep updater`
+- Check for stuck hardware buttons (`TW_HACKED_BL_BUTTON` in TWRP log means volume buttons can trigger recovery)
+- As a last resort, reflash the boot image
 
 Fully Kiosk should come up on boot as long as it is the HOME activity. The script attempts to set this automatically. If it does not stick, open Fully Kiosk settings on the device and enable:
 

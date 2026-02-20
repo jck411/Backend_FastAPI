@@ -108,19 +108,28 @@ adb shell setprop debug.hwui.renderer skiagl
 adb shell setprop debug.hwui.profile false
 ```
 
-### 6. ADB Reverse Port Forwarding
+### 6. ADB Over WiFi (Production)
 
-**Critical**: ADB reverse port forwarding does NOT persist across reboots. The device uses `localhost:5174` and `localhost:8000` which must be forwarded from the host machine.
+In production mode, ADB-over-WiFi is enabled during setup so the USB cable can be removed. The device connects directly to the backend on the LAN.
 
-After each reboot:
+To reconnect ADB after USB removal:
 ```bash
-adb reverse tcp:5174 tcp:5174  # Kiosk frontend
+adb connect <device-wifi-ip>:5555
+```
+
+### ADB Reverse Port Forwarding (Dev Only)
+
+**Only needed for development mode** (`--dev`). ADB reverse port forwarding does NOT persist across reboots.
+
+After each reboot (dev mode only):
+```bash
+adb reverse tcp:5174 tcp:5174  # Kiosk frontend (dev server)
 adb reverse tcp:8000 tcp:8000  # Backend API
 ```
 
 Or re-run the full setup script:
 ```bash
-./scripts/echo/setup_echo.sh SERIAL
+scripts/echo/setup_echo.sh --dev SERIAL
 ```
 
 ## Fully Kiosk Browser Settings
@@ -131,7 +140,8 @@ Access via: `http://<device-ip>:2323` (password: 1234)
 
 | Setting | Value | Reason |
 |---------|-------|--------|
-| **Start URL** | `https://localhost:5174` | Your kiosk frontend (via ADB reverse) |
+| **Start URL** | `https://192.168.1.111:8000/kiosk/` | Kiosk frontend served by backend on LAN |
+| **Ignore SSL Errors** | ON | Self-signed certificate on LAN |
 | **Enable JavaScript** | ON | Required for app |
 | **Enable Web SQL** | OFF | Not needed |
 | **Enable App Cache** | OFF | Manual caching |
@@ -290,13 +300,17 @@ Add to your backend startup script:
 
 ### Scheduled Slideshow Sync
 
-Automate photo syncing with a cron job:
-```bash
-# Daily at 3 AM
-0 3 * * * /path/to/scripts/echo/sync_slideshow.sh >> /path/to/logs/slideshow.log 2>&1
+Photo syncing runs daily at 3 AM via cron on the server (LXC 111).
+
+The cron job is at `/etc/cron.d/slideshow-sync`:
+```
+0 3 * * * root cd /opt/backend-fastapi && .venv/bin/python scripts/echo/sync_slideshow.py >> /opt/backend-fastapi/logs/slideshow_sync.log 2>&1
 ```
 
-The shell wrapper (`sync_slideshow.sh`) handles venv activation and runs the Python sync script.
+Manual sync:
+```bash
+cd /opt/backend-fastapi && .venv/bin/python scripts/echo/sync_slideshow.py
+```
 
 ### Scheduled Cache Clear
 

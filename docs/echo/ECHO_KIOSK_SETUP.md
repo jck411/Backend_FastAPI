@@ -1,23 +1,30 @@
 # Echo Kiosk Initial Setup
 
-One-time device configuration for Echo Show kiosks: boot settings, port forwarding, bloatware removal, and TTS setup.
+One-time device configuration for Echo Show kiosks: boot settings, bloatware removal, network mode, and TTS setup.
 
 **For memory optimization after setup**, see [ECHO_DEVICE_SETUP.md](ECHO_DEVICE_SETUP.md).
 
 ## Prereqs
 
 - Rooted Echo device (LineageOS-based)
-- ADB access enabled
+- ADB access enabled (USB for initial setup)
 - Fully Kiosk Browser installed (`de.ozerov.fully`)
-- Backend running on the host
-- Kiosk UI built and available:
+- Backend running on server (LXC 111 at `192.168.1.111:8000`)
+- Kiosk UI built and deployed to `src/backend/static/kiosk/`:
   ```bash
-  # Build frontend to src/backend/static
-  ./scripts/echo/build_kiosk.sh build
-
-  # Or run dev server on https://0.0.0.0:5174
-  ./scripts/echo/build_kiosk.sh serve
+  scripts/echo/build_kiosk.sh build
   ```
+
+## Network Modes
+
+The setup script supports two modes:
+
+| Mode | URL | Connection | Use Case |
+|------|-----|------------|----------|
+| **Production** (default) | `https://192.168.1.111:8000/kiosk/` | Direct LAN, no USB needed | Normal operation |
+| **Development** (`--dev`) | `https://localhost:5174` | ADB reverse port forwarding | Local dev/testing |
+
+Production mode enables ADB-over-WiFi so the USB cable can be removed after setup.
 
 ## One-time device setup (per Echo)
 
@@ -25,7 +32,12 @@ Run the setup script for each device. If multiple devices are connected, pass th
 
 ```bash
 adb devices
-scripts/echo/setup_echo.sh SERIAL
+
+# Production mode (default) — connects to server on LAN
+scripts/echo/setup_echo.sh [SERIAL]
+
+# Development mode — uses ADB reverse port forwarding
+scripts/echo/setup_echo.sh --dev [SERIAL]
 ```
 
 What the script applies:
@@ -34,10 +46,10 @@ What the script applies:
 - Background/update services disabled
 - Recovery boot flags cleared (prevents update/recovery loops)
 - Bloatware packages disabled
-- ADB reverse port forwarding for kiosk + backend
 - Fully Kiosk permissions granted
 - Fully Kiosk set as HOME activity (best effort)
-- Fully Kiosk launched with the kiosk URL
+- **Production**: ADB-over-WiFi enabled, Fully Kiosk launched with LAN URL
+- **Dev**: ADB reverse port forwarding, Fully Kiosk launched with localhost URL
 
 ## Boot straight into Fully Kiosk
 
@@ -62,20 +74,33 @@ Fully Kiosk should come up on boot as long as it is the HOME activity. The scrip
 - Set as default launcher / HOME
 - Kiosk mode (optional, locks down navigation)
 
-## Reboots and port forwarding
+## Reboots and reconnection
+
+### Production mode
+
+After a reboot, Fully Kiosk will auto-launch and connect to the server on LAN — no intervention needed as long as:
+- Fully Kiosk is set as the default launcher/HOME
+- WiFi reconnects automatically
+- The backend is running at `192.168.1.111:8000`
+
+To reconnect ADB after USB is removed:
+```bash
+adb connect <device-wifi-ip>:5555
+```
+
+### Development mode
 
 ADB reverse port forwarding does not persist across reboots.
 
 After reboot:
-
 ```bash
 adb -s SERIAL reverse tcp:5174 tcp:5174
 adb -s SERIAL reverse tcp:8000 tcp:8000
 ```
 
-Or re-run the setup script (which includes port forwarding):
+Or re-run the setup script:
 ```bash
-scripts/echo/setup_echo.sh SERIAL
+scripts/echo/setup_echo.sh --dev SERIAL
 ```
 
 ## Memory optimization

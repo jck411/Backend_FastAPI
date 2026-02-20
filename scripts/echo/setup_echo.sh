@@ -5,8 +5,14 @@
 # Run this script after rooting an Amazon Echo
 # to configure it for dedicated kiosk mode.
 #
-# Usage: ./setup_echo.sh [DEVICE_SERIAL]
-#        If no serial provided, uses first connected device
+# Usage: ./setup_echo.sh [--dev] [DEVICE_SERIAL]
+#
+# Modes:
+#   (default)  Production: connects to backend on LAN via WiFi
+#   --dev      Development: uses ADB reverse port forwarding to localhost
+#
+# Production connects to https://SERVER_IP:8000/kiosk/
+# Development connects to https://localhost:5174 (via ADB reverse)
 #
 # This script:
 #   - Sets display to max brightness
@@ -14,21 +20,38 @@
 #   - Disables bloatware and unnecessary apps
 #   - Disables system updates
 #   - Optimizes for performance
-#   - Sets up ADB port forwarding
+#   - Enables ADB over WiFi (production)
 #   - Launches Fully Kiosk
 # ============================================
 
 set -e
 
-DEVICE_SERIAL="${1:-}"
-ADB_CMD="adb"
+# --- Parse arguments ---
+MODE="production"
+DEVICE_SERIAL=""
+SERVER_IP="192.168.1.111"
 
+for arg in "$@"; do
+    case "$arg" in
+        --dev) MODE="dev" ;;
+        --help|-h)
+            echo "Usage: $0 [--dev] [DEVICE_SERIAL]"
+            echo ""
+            echo "  --dev    Development mode (ADB reverse port forwarding to localhost)"
+            echo "  default  Production mode (direct LAN connection to $SERVER_IP:8000)"
+            exit 0
+            ;;
+        *) DEVICE_SERIAL="$arg" ;;
+    esac
+done
+
+ADB_CMD="adb"
 if [ -n "$DEVICE_SERIAL" ]; then
     ADB_CMD="adb -s $DEVICE_SERIAL"
 fi
 
 echo "============================================"
-echo "Echo Kiosk Setup Script (Dedicated Mode)"
+echo "Echo Kiosk Setup Script ($MODE mode)"
 echo "============================================"
 
 # Check device connection
@@ -195,15 +218,31 @@ done
 echo "✅ Background processes terminated"
 
 # ============================================
-# ADB REVERSE PORT FORWARDING
+# NETWORK SETUP (mode-dependent)
 # ============================================
 echo ""
-echo "[8/11] Setting up ADB reverse port forwarding..."
-$ADB_CMD reverse tcp:5174 tcp:5174  # Kiosk UI
-$ADB_CMD reverse tcp:8000 tcp:8000  # Backend API
-echo "✅ Port forwarding established:"
-echo "   - localhost:5174 → Kiosk UI"
-echo "   - localhost:8000 → Backend API"
+if [ "$MODE" = "dev" ]; then
+    echo "[8/11] Setting up ADB reverse port forwarding (dev mode)..."
+    $ADB_CMD reverse tcp:5174 tcp:5174  # Kiosk UI (dev server)
+    $ADB_CMD reverse tcp:8000 tcp:8000  # Backend API
+    KIOSK_URL="https://localhost:5174"
+    echo "✅ Port forwarding established:"
+    echo "   - localhost:5174 → Kiosk UI (dev server)"
+    echo "   - localhost:8000 → Backend API"
+else
+    echo "[8/11] Enabling ADB over WiFi (production mode)..."
+    # Get device WiFi IP for reference
+    DEVICE_IP=$($ADB_CMD shell ip addr show wlan0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1)
+    # Remove any leftover reverse forwarding
+    $ADB_CMD reverse --remove-all 2>/dev/null || true
+    # Enable ADB over WiFi so USB can be disconnected
+    $ADB_CMD tcpip 5555
+    KIOSK_URL="https://${SERVER_IP}:8000/kiosk/"
+    echo "✅ ADB WiFi enabled on port 5555"
+    echo "   Device WiFi IP: ${DEVICE_IP:-unknown}"
+    echo "   Reconnect after USB removal: adb connect ${DEVICE_IP:-<device-ip>}:5555"
+    echo "   Kiosk URL: $KIOSK_URL"
+fi
 
 # ============================================
 # GRANT FULLY KIOSK PERMISSIONS
@@ -231,8 +270,8 @@ echo ""
 echo "[11/11] Launching Fully Kiosk Browser..."
 $ADB_CMD shell am start -n de.ozerov.fully/.MainActivity \
     -a android.intent.action.VIEW \
-    -d "https://localhost:5174"
-echo "✅ Fully Kiosk launched with kiosk URL"
+    -d "$KIOSK_URL"
+echo "✅ Fully Kiosk launched with $KIOSK_URL"
 
 # ============================================
 # SUMMARY
@@ -243,6 +282,7 @@ echo "✅ Setup Complete!"
 echo "============================================"
 echo ""
 echo "Device: $SERIAL"
+echo "Mode: $MODE"
 echo ""
 echo "Settings applied:"
 echo "  • Brightness: 100% (auto-brightness OFF)"
@@ -254,9 +294,17 @@ echo "  • Bloatware: $DISABLED_COUNT apps disabled"
 echo "  • Animations: Reduced for performance"
 echo "  • Microphone: Permission granted"
 echo "  • Home activity: Fully Kiosk (best effort)"
-echo "  • ADB reverse: 5174, 8000"
-echo "  • Fully Kiosk: https://localhost:5174"
-echo ""
-echo "NOTE: Port forwarding resets on device reboot."
-echo "      Re-run this script after reboot."
+if [ "$MODE" = "dev" ]; then
+    echo "  • ADB reverse: 5174, 8000"
+    echo "  • Fully Kiosk: https://localhost:5174"
+    echo ""
+    echo "NOTE: Port forwarding resets on device reboot."
+    echo "      Re-run this script after reboot."
+else
+    echo "  • ADB WiFi: port 5555 (USB can be removed)"
+    echo "  • Fully Kiosk: https://${SERVER_IP}:8000/kiosk/"
+    echo ""
+    echo "NOTE: After removing USB, reconnect via:"
+    echo "      adb connect ${DEVICE_IP:-<device-ip>}:5555"
+fi
 echo "============================================"

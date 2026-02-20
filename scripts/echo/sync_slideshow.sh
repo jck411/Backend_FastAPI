@@ -3,7 +3,7 @@
 # Run this via cron or systemd timer for automatic updates
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+PROJECT_DIR="$(dirname "$(dirname "$SCRIPT_DIR")")"
 
 echo "$(date): Starting slideshow sync..."
 

@@ -588,14 +588,14 @@ export default function Clock() {
                 {weather?.current && (
                     <div className="text-right">
                         <div className="flex items-center justify-end gap-2">
-                            <span className="text-4xl max-[520px]:text-3xl drop-shadow-lg">
+                            <span className="text-7xl max-[520px]:text-5xl opacity-80 drop-shadow-lg">
                                 {getWeatherIcon(weather.current.icon)}
                             </span>
-                            <span className="text-4xl max-[520px]:text-3xl font-light text-white drop-shadow-lg">
+                            <span className="text-7xl max-[520px]:text-5xl font-light text-white/85 drop-shadow-lg">
                                 {weather.current.temp}°
                             </span>
                         </div>
-                        <div className="text-sm text-white/70 mt-0.5 drop-shadow">
+                        <div className="text-lg text-white/60 mt-0.5 drop-shadow">
                             {weather.current.phrase}
                         </div>
                     </div>
@@ -645,29 +645,29 @@ export default function Clock() {
             {/* 5-Day Forecast Strip - Bottom Right */}
             {weather?.daily && (
                 <div className="absolute bottom-5 right-5 z-10">
-                    <div className="flex gap-3">
+                    <div className="flex gap-4">
                         {weather.daily.map((day, idx) => (
-                            <div key={idx} className="text-center min-w-[44px]">
+                            <div key={idx} className="text-center min-w-[56px]">
                                 {/* Day name */}
-                                <div className="text-[10px] font-medium text-white/60 uppercase tracking-wider drop-shadow">
+                                <div className="text-sm font-medium text-white/50 uppercase tracking-wider drop-shadow">
                                     {day.day}
                                 </div>
 
                                 {/* Weather icon */}
-                                <div className="text-5xl my-0.5 drop-shadow-lg">
+                                <div className="text-6xl my-1 opacity-80 drop-shadow-lg">
                                     {getWeatherIcon(day.icon)}
                                 </div>
 
                                 {/* Rain probability - highlighted if > 30% (from API PrecipitationProbability) */}
-                                <div className={`text-xs font-medium drop-shadow ${day.rain_chance > 30
-                                    ? 'text-blue-300'
+                                <div className={`text-sm font-medium drop-shadow ${day.rain_chance > 30
+                                    ? 'text-blue-300/90'
                                     : 'text-white/40'
                                     }`}>
                                     {day.rain_chance}%
                                 </div>
 
                                 {/* High/Low temps */}
-                                <div className="text-[10px] text-white/50 drop-shadow">
+                                <div className="text-sm text-white/45 drop-shadow">
                                     {day.high}°/{day.low}°
                                 </div>
                             </div>

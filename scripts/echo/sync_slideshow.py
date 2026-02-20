@@ -17,9 +17,10 @@ import httpx
 # Configuration
 SHARED_ALBUM_URL = "https://photos.app.goo.gl/n1VAf2qghCxX3FEr8"
 DEFAULT_MAX_PHOTOS = 30  # Default for Echo device memory constraints
-CACHE_DIR = Path(__file__).parent.parent / "data" / "slideshow" / "photos"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+CACHE_DIR = PROJECT_ROOT / "data" / "slideshow" / "photos"
 KIOSK_UI_SETTINGS_PATH = (
-    Path(__file__).parent.parent
+    PROJECT_ROOT
     / "src"
     / "backend"
     / "data"
@@ -139,7 +140,7 @@ def trigger_frontend_preload():
     print("\nTriggering frontend preload...")
 
     # Create a timestamp file to signal frontend refresh
-    timestamp_file = CACHE_DIR.parent / "slideshow_updated.txt"
+    timestamp_file = PROJECT_ROOT / "data" / "slideshow_updated.txt"
     timestamp_file.write_text(f"{int(time.time())}\n")
 
     print("✅ Frontend will preload photos on next load")

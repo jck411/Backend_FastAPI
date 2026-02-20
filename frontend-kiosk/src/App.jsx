@@ -334,13 +334,7 @@ export default function App() {
         pendingSampleCountRef.current = 0;
         ttsStreamEndedRef.current = false;
 
-        // Close and recreate audio context for clean slate
-        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-            audioContextRef.current.close();
-            audioContextRef.current = null;
-        }
-
-        // Reset playback state
+        // Reset playback state (keep AudioContext alive to avoid recreation stutter)
         nextPlayTimeRef.current = 0;
         ttsMicLockedRef.current = false; // Unlock mic on barge-in
 
@@ -433,17 +427,24 @@ export default function App() {
                     clearTtsMicResumeTimeout();
                     ttsMicLockedRef.current = true;
 
+                    // Stop any lingering sources from previous stream
+                    for (const source of scheduledSourcesRef.current) {
+                        try { source.stop(); } catch (e) { /* already finished */ }
+                    }
+
                     // Reset state for new audio stream
                     nextPlayTimeRef.current = 0;
                     hasStartedRef.current = false;
                     isPlayingTtsRef.current = false;
                     scheduledSourcesRef.current = [];
+                    lastScheduledSourceRef.current = null;
                     pendingChunksRef.current = [];
                     pendingSampleCountRef.current = 0;
                     ttsStreamEndedRef.current = false;
 
                     // Store sample rate for AudioContext creation
-                    ttsSampleRateRef.current = data.sample_rate || VOICE_CONFIG.tts.defaultSampleRate;
+                    const newSampleRate = data.sample_rate || VOICE_CONFIG.tts.defaultSampleRate;
+                    ttsSampleRateRef.current = newSampleRate;
 
                     // Update buffer settings from backend (allows runtime tuning)
                     if (data.buffering_enabled !== undefined) {
@@ -465,11 +466,9 @@ export default function App() {
                         ttsMinChunkSecRef.current = data.min_chunk_sec;
                     }
 
-                    // Close existing context if sample rate or latency mode changed
-                    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-                        audioContextRef.current.close();
-                        audioContextRef.current = null;
-                    }
+                    // AudioContext is reused across turns (sample rate is a manual
+                    // setting that won't change mid-session). This eliminates the
+                    // startup stutter caused by recreating it on every response.
                 } else if (data.type === 'tts_audio_chunk') {
                     // Play audio chunk IMMEDIATELY using Web Audio API
                     if (data.data) {
@@ -546,6 +545,19 @@ export default function App() {
                         console.log('Backend idle - releasing microphone');
                         releaseMic();
                         setToolStatus(null);
+
+                        // Flux optimization: LISTENING → IDLE means the STT listen timeout fired.
+                        // Return to home screen immediately — the listen timeout IS the return-to-home
+                        // timeout in conversation mode. No separate idle delay needed.
+                        // For command mode (SPEAKING/PROCESSING → IDLE), the idle return delay still
+                        // applies via the useEffect below so the user can read the response.
+                        if (prevState === 'LISTENING') {
+                            console.log('Listen timeout - returning to home immediately');
+                            sendMessage(JSON.stringify({ type: "clear_session" }));
+                            setShowTranscription(false);
+                            setMessages([]);
+                            setLiveTranscript("");
+                        }
                     }
                 } else if (data.type === 'tool_status') {
                     // Handle tool status updates
@@ -583,18 +595,20 @@ export default function App() {
         }
     }, [lastMessage, activeAlarm, clearTtsMicResumeTimeout, handleSessionReady, pauseCapture, resumeCapture, resumeCaptureIfListening, releaseMic, stopAudio, updateBackendState, sendMessage]);
 
-    // Idle Timeout Logic - Close transcription overlay after delay
+    // Idle Timeout Logic - Close transcription overlay after delay.
+    // Only applies for command mode (SPEAKING/PROCESSING → IDLE) so user can read the response.
+    // In conversation mode, LISTENING → IDLE skips this entirely (handled above in state handler).
     useEffect(() => {
         if (backendState === 'IDLE' && showTranscription) {
             const timer = setTimeout(() => {
+                sendMessage(JSON.stringify({ type: "clear_session" }));
                 setShowTranscription(false);
                 setMessages([]);
             }, idleReturnDelayMs);
 
-            // Cleanup: cancel timer if state changes before delay completes
             return () => clearTimeout(timer);
         }
-    }, [backendState, showTranscription, idleReturnDelayMs]);
+    }, [backendState, showTranscription, idleReturnDelayMs, sendMessage]);
 
     /**
      * Start a new voice interaction.

@@ -30,10 +30,16 @@ import {
 // Combined settings type for the UI
 export interface KioskSettings {
     // STT settings
+    stt_mode: 'conversation' | 'command';
     eot_threshold: number;
     eot_timeout_ms: number;
-    eager_eot_threshold: number | null;
     keyterms: string[];
+    command_model: string;
+    command_utterance_end_ms: number;
+    command_endpointing: number;
+    command_interim_results: boolean;
+    command_smart_format: boolean;
+    command_numerals: boolean;
     // TTS settings (OpenAI)
     enabled: boolean;
     provider: string;  // Always 'openai'
@@ -70,10 +76,16 @@ export interface KioskSettingsUpdate extends Partial<KioskSettings> { }
 
 export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
     // STT
+    stt_mode: 'command',
     eot_threshold: 0.7,
-    eot_timeout_ms: 5000,
-    eager_eot_threshold: null,
+    eot_timeout_ms: 1000,
     keyterms: [],
+    command_model: 'nova-3',
+    command_utterance_end_ms: 1000,
+    command_endpointing: 300,
+    command_interim_results: true,
+    command_smart_format: true,
+    command_numerals: true,
     // TTS (OpenAI)
     enabled: true,
     provider: 'openai',
@@ -133,10 +145,16 @@ function createKioskSettingsStore() {
             ]);
             const combined: KioskSettings = {
                 // STT
+                stt_mode: sttSettings.mode,
                 eot_threshold: sttSettings.eot_threshold,
                 eot_timeout_ms: sttSettings.eot_timeout_ms,
-                eager_eot_threshold: sttSettings.eager_eot_threshold ?? null,
                 keyterms: sttSettings.keyterms,
+                command_model: sttSettings.command_model,
+                command_utterance_end_ms: sttSettings.command_utterance_end_ms,
+                command_endpointing: sttSettings.command_endpointing,
+                command_interim_results: sttSettings.command_interim_results,
+                command_smart_format: sttSettings.command_smart_format,
+                command_numerals: sttSettings.command_numerals,
                 // TTS
                 enabled: ttsSettings.enabled,
                 provider: ttsSettings.provider,
@@ -186,10 +204,16 @@ function createKioskSettingsStore() {
             const llmUpdate: KioskLlmSettingsUpdate = {};
 
             // STT fields
+            if (update.stt_mode !== undefined) sttUpdate.mode = update.stt_mode;
             if (update.eot_threshold !== undefined) sttUpdate.eot_threshold = update.eot_threshold;
             if (update.eot_timeout_ms !== undefined) sttUpdate.eot_timeout_ms = update.eot_timeout_ms;
-            if (update.eager_eot_threshold !== undefined) sttUpdate.eager_eot_threshold = update.eager_eot_threshold;
             if (update.keyterms !== undefined) sttUpdate.keyterms = update.keyterms;
+            if (update.command_model !== undefined) sttUpdate.command_model = update.command_model;
+            if (update.command_utterance_end_ms !== undefined) sttUpdate.command_utterance_end_ms = update.command_utterance_end_ms;
+            if (update.command_endpointing !== undefined) sttUpdate.command_endpointing = update.command_endpointing;
+            if (update.command_interim_results !== undefined) sttUpdate.command_interim_results = update.command_interim_results;
+            if (update.command_smart_format !== undefined) sttUpdate.command_smart_format = update.command_smart_format;
+            if (update.command_numerals !== undefined) sttUpdate.command_numerals = update.command_numerals;
 
             // TTS fields
             if (update.enabled !== undefined) ttsUpdate.enabled = update.enabled;
@@ -272,10 +296,16 @@ function createKioskSettingsStore() {
             const current = get(store);
             const combined: KioskSettings = {
                 // STT
+                stt_mode: sttSettings.mode,
                 eot_threshold: sttSettings.eot_threshold,
                 eot_timeout_ms: sttSettings.eot_timeout_ms,
-                eager_eot_threshold: sttSettings.eager_eot_threshold ?? null,
                 keyterms: sttSettings.keyterms,
+                command_model: sttSettings.command_model,
+                command_utterance_end_ms: sttSettings.command_utterance_end_ms,
+                command_endpointing: sttSettings.command_endpointing,
+                command_interim_results: sttSettings.command_interim_results,
+                command_smart_format: sttSettings.command_smart_format,
+                command_numerals: sttSettings.command_numerals,
                 // TTS
                 enabled: ttsSettings.enabled,
                 provider: ttsSettings.provider,

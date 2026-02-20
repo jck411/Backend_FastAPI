@@ -1,0 +1,14 @@
+{
+  "mode": "conversation",
+  "eot_threshold": 0.7,
+  "eot_timeout_ms": 5000,
+  "keyterms": [],
+  "pause_timeout_seconds": 30,
+  "listen_timeout_seconds": 15,
+  "command_model": "nova-3",
+  "command_utterance_end_ms": 1000,
+  "command_endpointing": 300,
+  "command_interim_results": true,
+  "command_smart_format": true,
+  "command_numerals": true
+}

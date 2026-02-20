@@ -2,8 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useDisplayTimezone } from '../context/ConfigContext';
 import { usePreloadedPhotos } from '../hooks/usePreloadedPhotos.js';
 
-/** API base URL - auto-detect protocol based on page */
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
+/** API base URL - same origin in production, port 8000 in dev */
+const API_BASE_URL = import.meta.env.DEV
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : '';
 
 /** Slideshow settings */
 const SLIDESHOW_INTERVAL = 30 * 1000; // 30 seconds between photos

@@ -4,22 +4,13 @@
  */
 
 import { API_BASE_URL } from './config';
+import type { SttSettings, SttSettingsUpdate } from './types';
 
 // ============== STT Settings ==============
+// Reuse shared STT types from types.ts (DRY)
 
-export interface KioskSttSettings {
-    eot_threshold: number;
-    eot_timeout_ms: number;
-    eager_eot_threshold?: number | null;
-    keyterms: string[];
-}
-
-export interface KioskSttSettingsUpdate {
-    eot_threshold?: number;
-    eot_timeout_ms?: number;
-    eager_eot_threshold?: number | null;
-    keyterms?: string[];
-}
+export type KioskSttSettings = SttSettings;
+export type KioskSttSettingsUpdate = SttSettingsUpdate;
 
 /**
  * Fetch current kiosk STT settings from the backend.

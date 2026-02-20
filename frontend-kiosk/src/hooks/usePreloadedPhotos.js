@@ -10,7 +10,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
+const API_BASE_URL = import.meta.env.DEV
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : '';
 
 /**
  * Hook to preload all slideshow photos into memory for smooth transitions

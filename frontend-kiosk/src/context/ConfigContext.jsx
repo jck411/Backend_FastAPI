@@ -15,7 +15,9 @@ import { createContext, useContext, useEffect, useState } from 'react';
 const DEFAULT_DISPLAY_TIMEZONE = 'America/New_York';
 
 /** API base URL - auto-detect protocol based on page */
-const API_BASE_URL = `${window.location.protocol}//${window.location.hostname}:8000`;
+const API_BASE_URL = import.meta.env.DEV
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : '';
 
 const ConfigContext = createContext({
     displayTimezone: DEFAULT_DISPLAY_TIMEZONE,

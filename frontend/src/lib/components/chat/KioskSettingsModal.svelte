@@ -8,6 +8,7 @@
     type KioskPresets,
     type TtsVoice,
   } from "../../api/kiosk";
+  import { STT_MODELS } from "../../api/types";
   import {
     getDefaultKioskSttSettings,
     kioskSettingsStore,
@@ -155,6 +156,8 @@
     statusMessage = null;
 
     try {
+      // Auto-sync conversation_mode from STT mode (Flux = continuous conversation)
+      draft.conversation_mode = draft.stt_mode === "conversation";
       const saved = await kioskSettingsStore.save(draft);
       draft = { ...saved };
       dirty = false;
@@ -406,194 +409,341 @@
         <div class="setting reasoning">
           <div class="setting-header">
             <span class="setting-label">Speech Recognition</span>
-            <span class="setting-hint"
-              >Deepgram Flux end-of-turn detection settings.</span
-            >
+            <span class="setting-hint">Deepgram STT engine configuration.</span>
           </div>
 
           <div class="reasoning-controls">
-            <!-- EOT Threshold -->
-            <div class="reasoning-field">
-              <div class="setting-range">
-                <div class="setting-range-header">
-                  <span
-                    class="setting-label"
-                    title="Confidence level (0.5-0.9) required before the system considers you've finished speaking. Lower = faster response but may cut you off. Higher = waits longer to be sure you're done."
-                    >EOT Threshold</span
-                  >
-                  <span class="range-value"
-                    >{draft.eot_threshold.toFixed(2)}</span
-                  >
-                </div>
-                <input
-                  type="range"
-                  class="range-input"
-                  min="0.5"
-                  max="0.9"
-                  step="0.05"
-                  value={draft.eot_threshold}
-                  disabled={saving}
-                  style="--slider-fill: {getSliderFill(
-                    draft.eot_threshold,
-                    0.5,
-                    0.9,
-                  )}"
-                  on:input={(e) => {
-                    draft = {
-                      ...draft,
-                      eot_threshold: parseFloat(
-                        (e.target as HTMLInputElement).value,
-                      ),
-                    };
-                    markDirty();
-                  }}
-                />
-                <div class="range-extents">
-                  <span>0.5 (fast)</span>
-                  <span>0.9 (reliable)</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- EOT Timeout -->
-            <div class="reasoning-field">
-              <div class="setting-range">
-                <div class="setting-range-header">
-                  <span
-                    class="setting-label"
-                    title="Maximum time (ms) to wait after speech before forcing end-of-turn, regardless of confidence. Shorter = faster response. Longer = allows for natural pauses."
-                    >EOT Timeout</span
-                  >
-                  <span class="range-value">{draft.eot_timeout_ms}ms</span>
-                </div>
-                <input
-                  type="range"
-                  class="range-input"
-                  min="500"
-                  max="10000"
-                  step="250"
-                  value={draft.eot_timeout_ms}
-                  disabled={saving}
-                  style="--slider-fill: {getSliderFill(
-                    draft.eot_timeout_ms,
-                    500,
-                    10000,
-                  )}"
-                  on:input={(e) => {
-                    draft = {
-                      ...draft,
-                      eot_timeout_ms: parseInt(
-                        (e.target as HTMLInputElement).value,
-                        10,
-                      ),
-                    };
-                    markDirty();
-                  }}
-                />
-                <div class="range-extents">
-                  <span>500ms</span>
-                  <span>10s</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Keyterms -->
+            <!-- Mode Selection -->
             <div class="reasoning-field" style="grid-column: 1 / -1;">
-              <div class="setting-header">
-                <span
+              <div class="setting-select">
+                <label
                   class="setting-label"
-                  title="Words or phrases the speech recognition should pay extra attention to. Useful for device names, product terms, or commands specific to your home automation setup."
-                  >Keyterms</span
+                  for="stt-mode"
+                  title="Conversation mode uses Deepgram Flux with AI turn detection. Command mode uses Nova with silence-based detection."
+                  >Recognition Mode</label
                 >
-                <span class="setting-hint"
-                  >Words to boost recognition (one per line, up to 100).</span
+                <select
+                  id="stt-mode"
+                  class="select-input"
+                  value={draft.stt_mode}
+                  disabled={saving}
+                  on:change={(e) => {
+                    draft = {
+                      ...draft,
+                      stt_mode: (e.target as HTMLSelectElement).value as
+                        | "conversation"
+                        | "command",
+                    };
+                    markDirty();
+                  }}
                 >
+                  <option value="conversation">Conversation (Flux)</option>
+                  <option value="command">Command (Nova)</option>
+                </select>
+                <span class="setting-hint">
+                  {#if draft.stt_mode === "conversation"}
+                    AI-based turn detection for natural dialogue.
+                  {:else}
+                    Silence-based detection optimized for commands.
+                  {/if}
+                </span>
               </div>
-              <textarea
-                class="keyterms-input"
-                rows="3"
-                disabled={saving}
-                placeholder="lights&#10;thermostat&#10;turn on"
-                on:input={(e) => {
-                  const text = (e.target as HTMLTextAreaElement).value;
-                  const terms = text
-                    .split("\n")
-                    .map((t) => t.trim())
-                    .filter((t) => t.length > 0)
-                    .slice(0, 100);
-                  draft = { ...draft, keyterms: terms };
-                  markDirty();
-                }}>{draft.keyterms.join("\n")}</textarea
+            </div>
+
+            {#if draft.stt_mode === "command"}
+              <!-- Command Mode: Model Selection -->
+              <div class="reasoning-field" style="grid-column: 1 / -1;">
+                <div class="setting-select">
+                  <label
+                    class="setting-label"
+                    for="stt-command-model"
+                    title="Select the Deepgram Nova model for command-mode speech recognition."
+                    >Model</label
+                  >
+                  <select
+                    id="stt-command-model"
+                    class="select-input"
+                    value={draft.command_model}
+                    disabled={saving}
+                    on:change={(e) => {
+                      draft = {
+                        ...draft,
+                        command_model: (e.target as HTMLSelectElement).value,
+                      };
+                      markDirty();
+                    }}
+                  >
+                    {#each STT_MODELS as model (model.id)}
+                      <option value={model.id}>{model.name}</option>
+                    {/each}
+                  </select>
+                </div>
+              </div>
+
+              <!-- Command Mode: Utterance End -->
+              <div class="reasoning-field">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="Silence duration (ms) after speech stops before the utterance is considered complete. Higher = allows longer pauses."
+                      >Utterance End</span
+                    >
+                    <span class="range-value"
+                      >{draft.command_utterance_end_ms}ms</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="500"
+                    max="5000"
+                    step="100"
+                    value={draft.command_utterance_end_ms}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.command_utterance_end_ms,
+                      500,
+                      5000,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        command_utterance_end_ms: parseInt(
+                          (e.target as HTMLInputElement).value,
+                          10,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>500ms</span>
+                    <span>5000ms</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Command Mode: Endpointing -->
+              <div class="reasoning-field">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="Endpointing threshold (ms) for detecting segment boundaries. Lower = faster response but may split sentences."
+                      >Endpointing</span
+                    >
+                    <span class="range-value"
+                      >{draft.command_endpointing}ms</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="10"
+                    max="5000"
+                    step="50"
+                    value={draft.command_endpointing}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.command_endpointing,
+                      10,
+                      5000,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        command_endpointing: parseInt(
+                          (e.target as HTMLInputElement).value,
+                          10,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>10ms (fast)</span>
+                    <span>5000ms (patient)</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Command Mode: Feature Toggles -->
+              <label
+                class="setting-boolean"
+                title="Apply smart formatting like punctuation and capitalization."
               >
-            </div>
-          </div>
-        </div>
+                <input
+                  type="checkbox"
+                  checked={draft.command_smart_format}
+                  disabled={saving}
+                  on:change={(e) => {
+                    draft = {
+                      ...draft,
+                      command_smart_format: (e.target as HTMLInputElement)
+                        .checked,
+                    };
+                    markDirty();
+                  }}
+                />
+                <span>Smart format</span>
+              </label>
 
-        <!-- Advanced Settings Section -->
-        <div class="setting">
-          <div class="setting-header">
-            <span class="setting-label">Advanced</span>
-            <span class="setting-hint">Optional fine-tuning options.</span>
-          </div>
+              <label
+                class="setting-boolean"
+                title="Convert spoken numbers to digits (e.g. 'five' → '5')."
+              >
+                <input
+                  type="checkbox"
+                  checked={draft.command_numerals}
+                  disabled={saving}
+                  on:change={(e) => {
+                    draft = {
+                      ...draft,
+                      command_numerals: (e.target as HTMLInputElement).checked,
+                    };
+                    markDirty();
+                  }}
+                />
+                <span>Numbers as digits</span>
+              </label>
 
-          <label
-            class="setting-boolean"
-            title="When enabled, the system can speculatively start processing before you fully finish speaking. This reduces latency but may cause 'false starts' if you pause mid-sentence."
-          >
-            <input
-              type="checkbox"
-              checked={draft.eager_eot_threshold !== null}
-              disabled={saving}
-              on:change={(e) => {
-                const checked = (e.target as HTMLInputElement).checked;
-                draft = { ...draft, eager_eot_threshold: checked ? 0.5 : null };
-                markDirty();
-              }}
-            />
-            <span>Enable eager end-of-turn</span>
-          </label>
+              <label
+                class="setting-boolean"
+                title="Show partial transcription results as you speak."
+              >
+                <input
+                  type="checkbox"
+                  checked={draft.command_interim_results}
+                  disabled={saving}
+                  on:change={(e) => {
+                    draft = {
+                      ...draft,
+                      command_interim_results: (e.target as HTMLInputElement)
+                        .checked,
+                    };
+                    markDirty();
+                  }}
+                />
+                <span>Interim results</span>
+              </label>
+            {:else}
+              <!-- Conversation Mode: EOT Threshold -->
+              <div class="reasoning-field">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="Confidence level (0.5-0.9) required before the system considers you've finished speaking. Lower = faster response but may cut you off. Higher = waits longer to be sure you're done."
+                      >EOT Threshold</span
+                    >
+                    <span class="range-value"
+                      >{draft.eot_threshold.toFixed(2)}</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="0.5"
+                    max="0.9"
+                    step="0.05"
+                    value={draft.eot_threshold}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.eot_threshold,
+                      0.5,
+                      0.9,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        eot_threshold: parseFloat(
+                          (e.target as HTMLInputElement).value,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>0.5 (fast)</span>
+                    <span>0.9 (reliable)</span>
+                  </div>
+                </div>
+              </div>
 
-          {#if draft.eager_eot_threshold !== null}
-            <div class="setting-range" style="margin-top: 0.75rem;">
-              <div class="setting-range-header">
-                <span
-                  class="setting-label"
-                  title="Confidence level for triggering early processing. Lower = starts processing sooner (more false starts). Higher = waits longer before speculating."
-                  >Eager EOT Threshold</span
-                >
-                <span class="range-value"
-                  >{draft.eager_eot_threshold?.toFixed(2) ?? "—"}</span
+              <!-- Conversation Mode: EOT Timeout -->
+              <div class="reasoning-field">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="Maximum time (ms) to wait after speech before forcing end-of-turn, regardless of confidence. Shorter = faster response. Longer = allows for natural pauses."
+                      >EOT Timeout</span
+                    >
+                    <span class="range-value">{draft.eot_timeout_ms}ms</span>
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="500"
+                    max="10000"
+                    step="250"
+                    value={draft.eot_timeout_ms}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.eot_timeout_ms,
+                      500,
+                      10000,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        eot_timeout_ms: parseInt(
+                          (e.target as HTMLInputElement).value,
+                          10,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>500ms</span>
+                    <span>10s</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Conversation Mode: Keyterms -->
+              <div class="reasoning-field" style="grid-column: 1 / -1;">
+                <div class="setting-header">
+                  <span
+                    class="setting-label"
+                    title="Words or phrases the speech recognition should pay extra attention to. Useful for device names, product terms, or commands specific to your home automation setup."
+                    >Keyterms</span
+                  >
+                  <span class="setting-hint"
+                    >Words to boost recognition (one per line, up to 100).</span
+                  >
+                </div>
+                <textarea
+                  class="keyterms-input"
+                  rows="3"
+                  disabled={saving}
+                  placeholder="lights&#10;thermostat&#10;turn on"
+                  on:input={(e) => {
+                    const text = (e.target as HTMLTextAreaElement).value;
+                    const terms = text
+                      .split("\n")
+                      .map((t) => t.trim())
+                      .filter((t) => t.length > 0)
+                      .slice(0, 100);
+                    draft = { ...draft, keyterms: terms };
+                    markDirty();
+                  }}>{draft.keyterms.join("\n")}</textarea
                 >
               </div>
-              <input
-                type="range"
-                class="range-input"
-                min="0.3"
-                max="0.9"
-                step="0.05"
-                value={draft.eager_eot_threshold ?? 0.5}
-                disabled={saving}
-                style="--slider-fill: {getSliderFill(
-                  draft.eager_eot_threshold ?? 0.5,
-                  0.3,
-                  0.9,
-                )}"
-                on:input={(e) => {
-                  draft = {
-                    ...draft,
-                    eager_eot_threshold: parseFloat(
-                      (e.target as HTMLInputElement).value,
-                    ),
-                  };
-                  markDirty();
-                }}
-              />
-              <div class="range-extents">
-                <span>0.3 (eager)</span>
-                <span>0.9 (conservative)</span>
-              </div>
-            </div>
-          {/if}
+            {/if}
+          </div>
         </div>
 
         <!-- Display Settings Section -->
@@ -604,27 +754,6 @@
           </div>
 
           <div class="reasoning-controls">
-            <!-- Conversation Mode Toggle - full width at top -->
-            <label
-              class="setting-boolean"
-              title="When enabled, the microphone re-opens after the assistant speaks, allowing continuous conversation without needing the wake word."
-              style="grid-column: 1 / -1;"
-            >
-              <input
-                type="checkbox"
-                checked={draft.conversation_mode}
-                disabled={saving}
-                on:change={(e) => {
-                  draft = {
-                    ...draft,
-                    conversation_mode: (e.target as HTMLInputElement).checked,
-                  };
-                  markDirty();
-                }}
-              />
-              <span>Continuous conversation mode</span>
-            </label>
-
             <!-- Return to Clock slider -->
             <div class="reasoning-field">
               <div class="setting-range">
@@ -669,51 +798,50 @@
               </div>
             </div>
 
-            <!-- Conversation Timeout slider -->
-            <div
-              class="reasoning-field"
-              class:disabled-field={!draft.conversation_mode}
-            >
-              <div class="setting-range">
-                <div class="setting-range-header">
-                  <span
-                    class="setting-label"
-                    title="How long (seconds) to wait for speech before ending the conversation session and returning to the clock."
-                    >Conversation Timeout</span
-                  >
-                  <span class="range-value"
-                    >{draft.conversation_timeout_seconds.toFixed(0)}s</span
-                  >
-                </div>
-                <input
-                  type="range"
-                  class="range-input"
-                  min="1"
-                  max="60"
-                  step="1"
-                  value={draft.conversation_timeout_seconds}
-                  disabled={saving || !draft.conversation_mode}
-                  style="--slider-fill: {getSliderFill(
-                    draft.conversation_timeout_seconds,
-                    1,
-                    60,
-                  )}"
-                  on:input={(e) => {
-                    draft = {
-                      ...draft,
-                      conversation_timeout_seconds: parseFloat(
-                        (e.target as HTMLInputElement).value,
-                      ),
-                    };
-                    markDirty();
-                  }}
-                />
-                <div class="range-extents">
-                  <span>1s</span>
-                  <span>60s</span>
+            <!-- Conversation Timeout slider (only relevant in Flux/conversation STT mode) -->
+            {#if draft.stt_mode === "conversation"}
+              <div class="reasoning-field">
+                <div class="setting-range">
+                  <div class="setting-range-header">
+                    <span
+                      class="setting-label"
+                      title="How long (seconds) to wait for speech before ending the conversation session and returning to the clock."
+                      >Conversation Timeout</span
+                    >
+                    <span class="range-value"
+                      >{draft.conversation_timeout_seconds.toFixed(0)}s</span
+                    >
+                  </div>
+                  <input
+                    type="range"
+                    class="range-input"
+                    min="1"
+                    max="60"
+                    step="1"
+                    value={draft.conversation_timeout_seconds}
+                    disabled={saving}
+                    style="--slider-fill: {getSliderFill(
+                      draft.conversation_timeout_seconds,
+                      1,
+                      60,
+                    )}"
+                    on:input={(e) => {
+                      draft = {
+                        ...draft,
+                        conversation_timeout_seconds: parseFloat(
+                          (e.target as HTMLInputElement).value,
+                        ),
+                      };
+                      markDirty();
+                    }}
+                  />
+                  <div class="range-extents">
+                    <span>1s</span>
+                    <span>60s</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            {/if}
 
             <!-- Slideshow Max Photos slider -->
             <div class="reasoning-field">

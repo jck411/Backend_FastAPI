@@ -160,6 +160,9 @@ BLOATWARE=(
     "com.android.server.telecom"     # Telecom
     "com.android.simappdialog"       # SIM dialog
     "com.android.companiondevicemanager" # Companion devices
+
+    # System services not needed for kiosk
+    "com.android.dynsystem"          # Dynamic System Updates
 )
 
 DISABLED_COUNT=0
@@ -181,6 +184,9 @@ PROCESSES_TO_KILL=(
     "org.lineageos.updater"
     "com.android.launcher3"
     "com.android.systemui.plugin.globalactions.wallet"
+    "org.lineageos.audiofx"
+    "com.android.settings"
+    "com.android.dynsystem"
 )
 
 for proc in "${PROCESSES_TO_KILL[@]}"; do

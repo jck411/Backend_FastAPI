@@ -81,7 +81,7 @@ class ClientPreferences(BaseModel):
     """Tool preferences for a single frontend."""
 
     client_id: str
-    enabled_servers: list[str]
+    enabled_servers: list[str] | None
 
 
 class ClientPreferencesUpdate(BaseModel):

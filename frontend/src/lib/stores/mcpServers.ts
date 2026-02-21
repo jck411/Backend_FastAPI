@@ -86,8 +86,7 @@ export function createMcpServersStore() {
 
       CLIENT_IDS.forEach((clientId, index) => {
         const prefs = prefsResults[index];
-        clientPreferences[clientId] =
-          prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null;
+        clientPreferences[clientId] = prefs.enabled_servers;
       });
 
       store.set({
@@ -130,12 +129,12 @@ export function createMcpServersStore() {
         server.id !== serverId
           ? server
           : {
-              ...server,
-              disabled_tools: disabledList,
-              tools: server.tools.map((item) =>
-                item.name === tool ? { ...item, enabled } : item,
-              ),
-            },
+            ...server,
+            disabled_tools: disabledList,
+            tools: server.tools.map((item) =>
+              item.name === tool ? { ...item, enabled } : item,
+            ),
+          },
       ),
     }));
 
@@ -190,7 +189,7 @@ export function createMcpServersStore() {
             ...mergeResponse(state, response),
             clientPreferences: {
               ...state.clientPreferences,
-              svelte: prefs.enabled_servers.length > 0 ? prefs.enabled_servers : null,
+              svelte: prefs.enabled_servers,
             },
             saving: false,
           }));
@@ -324,9 +323,7 @@ export function createMcpServersStore() {
       };
       CLIENT_IDS.forEach((clientId, index) => {
         const prefs = prefsResults[index];
-        // After selectNone the API returns []; keep [] so UI shows none selected
-        clientPreferences[clientId] =
-          prefs.enabled_servers.length > 0 ? prefs.enabled_servers : [];
+        clientPreferences[clientId] = prefs.enabled_servers ?? [];
       });
 
       store.update((state) => ({

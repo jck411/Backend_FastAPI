@@ -360,7 +360,7 @@ export interface McpToolTogglePayload {
 
 export interface ClientPreferences {
   client_id: string;
-  enabled_servers: string[];
+  enabled_servers: string[] | null;
 }
 
 export interface ClientPreferencesUpdate {

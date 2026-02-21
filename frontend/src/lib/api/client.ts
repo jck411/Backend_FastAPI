@@ -548,7 +548,7 @@ async function fetchMcpSnapshot(): Promise<{
   }
 
   return {
-    enabled_servers: mcpPrefs.enabled_servers.length > 0 ? mcpPrefs.enabled_servers : null,
+    enabled_servers: mcpPrefs.enabled_servers,
     disabled_tools: Object.keys(disabledTools).length > 0 ? disabledTools : null,
   };
 }

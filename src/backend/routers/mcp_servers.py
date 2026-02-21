@@ -199,7 +199,7 @@ async def get_client_preferences(
     servers = await prefs.get_enabled_servers(client_id)
     return ClientPreferences(
         client_id=client_id,
-        enabled_servers=servers or [],
+        enabled_servers=servers,
     )
 
 

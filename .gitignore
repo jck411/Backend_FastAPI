@@ -31,13 +31,16 @@ dist/
 .env
 .env.*
 
+# Runtime mutable data — never in git
+# (bundled read-only defaults live in src/backend/data/)
+data/
+
 # Database files
 *.db
 *.db-shm
 *.db-wal
 *.sqlite
 *.sqlite3
-data/chat_sessions.db
 
 # Log files
 logs/*
@@ -53,7 +56,6 @@ backend.pid
 google_tasks_credentials.json
 google_tasks_token.json
 credentials/
-data/tokens/
 .credentials/
 secrets/
 
@@ -64,12 +66,5 @@ node_modules/
 # uv.lock can be committed; comment out next line if you want it tracked
 # uv.lock
 
-# Model settings
-data/model_settings.json
-
 # Kreuzberg cache
 .kreuzberg/
-
-# Slideshow photos
-data/slideshow/photos/
-data/mcp_servers.json

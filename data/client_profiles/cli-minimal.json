@@ -1,7 +1,0 @@
-{
-    "description": "Minimal CLI profile with only shell control",
-    "enabled_servers": [
-        "shell-control"
-    ],
-    "profile_id": "cli-minimal"
-}

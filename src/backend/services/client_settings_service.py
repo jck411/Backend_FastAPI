@@ -276,6 +276,12 @@ class ClientSettingsService:
 
         update_data = update.model_dump(exclude_unset=True)
 
+        # Drop null MCP fields — null is not a valid value in the new schema.
+        # The frontend sends concrete [] / {} instead; null here means stale client.
+        for mcp_key in ("enabled_servers", "disabled_tools"):
+            if mcp_key in update_data and update_data[mcp_key] is None:
+                update_data.pop(mcp_key)
+
         # Handle nested LLM update - replace entirely instead of merging
         if "llm" in update_data and update_data["llm"]:
             llm_update = update_data.pop("llm")

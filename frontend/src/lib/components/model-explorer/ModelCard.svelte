@@ -14,6 +14,24 @@
 
   const TOKENS_PER_MILLION = 1_000_000;
 
+  let aboutExpanded = false;
+
+  $: descriptionText = model.description?.trim() || null;
+  $: isLongDescription =
+    descriptionText !== null && descriptionText.length > 120;
+
+  function toggleAbout(event: MouseEvent | KeyboardEvent): void {
+    event.stopPropagation();
+    aboutExpanded = !aboutExpanded;
+  }
+
+  function handleAboutKeydown(event: KeyboardEvent): void {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      toggleAbout(event);
+    }
+  }
+
   $: modelLabel = model.name ?? model.id;
   $: inputTokenPrice = deriveInputTokenPrice(model);
   $: outputTokenPrice = deriveOutputTokenPrice(model);
@@ -186,6 +204,46 @@
       {/each}
     </dl>
   </section>
+
+  {#if descriptionText}
+    <section class="about-section" class:expanded={aboutExpanded}>
+      <!-- svelte-ignore a11y-no-static-element-interactions -->
+      <div
+        class="about-toggle"
+        role="button"
+        tabindex="0"
+        aria-expanded={aboutExpanded}
+        on:click={toggleAbout}
+        on:keydown={handleAboutKeydown}
+      >
+        <span class="about-label">About</span>
+        <span class="about-chevron" class:open={aboutExpanded}>&#9660;</span>
+      </div>
+      {#if aboutExpanded}
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <div
+          class="about-body"
+          on:click|stopPropagation
+          on:keydown|stopPropagation
+        >
+          <p class="about-text">{descriptionText}</p>
+        </div>
+      {:else if isLongDescription}
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <div
+          class="about-body truncated"
+          on:click={toggleAbout}
+          on:keydown={handleAboutKeydown}
+        >
+          <p class="about-text">{descriptionText}</p>
+        </div>
+      {:else}
+        <div class="about-body">
+          <p class="about-text">{descriptionText}</p>
+        </div>
+      {/if}
+    </section>
+  {/if}
 </article>
 
 <style>
@@ -265,6 +323,81 @@
     font-weight: 600;
     line-height: 1.2;
     color: #e2e8f0;
+    word-break: break-word;
+  }
+
+  /* About section */
+  .about-section {
+    border-top: 1px solid rgba(56, 83, 132, 0.25);
+    padding-top: 0.5rem;
+  }
+
+  .about-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    cursor: pointer;
+    user-select: none;
+    padding: 0.2rem 0;
+  }
+
+  .about-toggle:focus-visible {
+    outline: 2px solid rgba(56, 189, 248, 0.9);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  .about-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #7d87a2;
+    font-weight: 600;
+    transition: color 0.15s ease;
+  }
+
+  .about-toggle:hover .about-label {
+    color: #38bdf8;
+  }
+
+  .about-chevron {
+    font-size: 0.55rem;
+    color: #7d87a2;
+    transition:
+      transform 0.2s ease,
+      color 0.15s ease;
+  }
+
+  .about-toggle:hover .about-chevron {
+    color: #38bdf8;
+  }
+
+  .about-chevron.open {
+    transform: rotate(180deg);
+  }
+
+  .about-body {
+    margin-top: 0.35rem;
+  }
+
+  .about-body.truncated {
+    cursor: pointer;
+  }
+
+  .about-body.truncated .about-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    mask-image: linear-gradient(to bottom, #fff 50%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #fff 50%, transparent 100%);
+  }
+
+  .about-text {
+    margin: 0;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    color: #a3adc4;
     word-break: break-word;
   }
 </style>

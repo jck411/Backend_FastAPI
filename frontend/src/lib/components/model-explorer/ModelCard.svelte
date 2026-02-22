@@ -387,6 +387,7 @@
   .about-body.truncated .about-text {
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
     mask-image: linear-gradient(to bottom, #fff 50%, transparent 100%);

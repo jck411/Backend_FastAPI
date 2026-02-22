@@ -42,7 +42,9 @@ router = APIRouter(prefix="/api/clients", tags=["Client Settings"])
 VALID_CLIENTS = {"kiosk", "svelte", "cli", "voice"}
 
 
-def validate_client_id(client_id: str = Path(..., description="Client identifier")) -> str:
+def validate_client_id(
+    client_id: str = Path(..., description="Client identifier"),
+) -> str:
     """Validate that the client_id is known."""
     if client_id not in VALID_CLIENTS:
         raise HTTPException(
@@ -71,8 +73,6 @@ def get_mcp_management(request: Request) -> MCPManagementService:
     if service is None:
         raise RuntimeError("MCP management service is not configured")
     return service
-
-
 
 
 # =============================================================================
@@ -323,7 +323,9 @@ async def _apply_mcp_snapshot(
             try:
                 await mgmt.update_disabled_tools(server_id, preset_disabled)
             except KeyError:
-                logger.debug("Skipping unknown server '%s' during preset apply", server_id)
+                logger.debug(
+                    "Skipping unknown server '%s' during preset apply", server_id
+                )
 
 
 @router.post("/{client_id}/presets/{index}/activate", response_model=ClientSettings)
@@ -392,7 +394,9 @@ async def delete_preset_by_name(
     raise HTTPException(status_code=404, detail=f"Preset not found: {name}")
 
 
-@router.post("/{client_id}/presets/by-name/{name}/set-active", response_model=ClientPresets)
+@router.post(
+    "/{client_id}/presets/by-name/{name}/set-active", response_model=ClientPresets
+)
 async def set_active_preset_by_name(
     name: str,
     client_id: str = Depends(validate_client_id),

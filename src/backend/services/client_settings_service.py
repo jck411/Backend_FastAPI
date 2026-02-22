@@ -46,7 +46,9 @@ class ClientSettingsService:
 
     def __init__(self, client_id: str, data_dir: Optional[Path] = None):
         self.client_id = client_id
-        runtime_data_dir = Path(data_dir).expanduser() if data_dir else _resolve_runtime_data_dir()
+        runtime_data_dir = (
+            Path(data_dir).expanduser() if data_dir else _resolve_runtime_data_dir()
+        )
         self.base_path = runtime_data_dir / client_id
         # When using default runtime dir, fall back to bundled defaults for reads.
         self.default_path = None if data_dir else _BUNDLED_DATA_DIR / client_id
@@ -356,14 +358,11 @@ class ClientSettingsService:
 
         now = datetime.now(timezone.utc).isoformat()
         if preset.created_at is None:
-            preset = preset.model_copy(
-                update={"created_at": now, "updated_at": now}
-            )
+            preset = preset.model_copy(update={"created_at": now, "updated_at": now})
         presets = self.get_presets()
         presets.presets.append(preset)
         self._save_presets(presets)
         return presets
-
 
     def delete_preset(self, index: int) -> ClientPresets:
         """Delete a preset at the given index."""

@@ -469,7 +469,8 @@ interface BackendPreset {
   name: string;
   llm?: BackendPresetLlm | null;
   model_filters?: PresetModelFilters | null;
-  enabled_servers?: string[] | null;
+  enabled_servers: string[];
+  disabled_tools: Record<string, string[]>;
   created_at?: string | null;
   updated_at?: string | null;
   [key: string]: unknown;
@@ -530,15 +531,17 @@ export async function fetchPreset(name: string): Promise<PresetConfig> {
 }
 
 
-/** Build a disabled_tools map from the current MCP server status. */
+/** Build a concrete MCP snapshot from current server state. */
 async function fetchMcpSnapshot(): Promise<{
-  enabled_servers: string[] | null;
-  disabled_tools: Record<string, string[]> | null;
+  enabled_servers: string[];
+  disabled_tools: Record<string, string[]>;
 }> {
   const [mcpPrefs, mcpServers] = await Promise.all([
     requestJson<ClientPreferences>(resolveApiPath('/api/mcp/preferences/svelte')),
     requestJson<McpServersResponse>(resolveApiPath('/api/mcp/servers/')),
   ]);
+
+  const enabledServers = mcpPrefs.enabled_servers ?? mcpServers.servers.map((s) => s.id);
 
   const disabledTools: Record<string, string[]> = {};
   for (const server of mcpServers.servers) {
@@ -548,8 +551,8 @@ async function fetchMcpSnapshot(): Promise<{
   }
 
   return {
-    enabled_servers: mcpPrefs.enabled_servers,
-    disabled_tools: Object.keys(disabledTools).length > 0 ? disabledTools : null,
+    enabled_servers: enabledServers,
+    disabled_tools: disabledTools,
   };
 }
 

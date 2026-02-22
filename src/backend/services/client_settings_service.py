@@ -271,7 +271,8 @@ class ClientSettingsService:
             raise ValueError(f"Preset index {index} out of range")
 
         preset = presets.presets[index]
-        update_data = update.model_dump(exclude_none=True)
+
+        update_data = update.model_dump(exclude_unset=True)
 
         # Handle nested LLM update - replace entirely instead of merging
         if "llm" in update_data and update_data["llm"]:

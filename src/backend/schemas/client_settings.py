@@ -6,7 +6,7 @@ Each client stores its own data but uses the same structure.
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from backend.services.time_context import EASTERN_TIMEZONE_NAME
 
@@ -342,12 +342,12 @@ class ClientPreset(BaseModel):
     model_filters: Optional[PresetModelFilters] = Field(
         default=None, description="Saved model explorer filters"
     )
-    enabled_servers: Optional[list[str]] = Field(
-        default=None,
-        description="MCP server IDs enabled for this client (null = all)",
+    enabled_servers: list[str] = Field(
+        default_factory=list,
+        description="MCP server IDs enabled for this preset (empty = none)",
     )
-    disabled_tools: Optional[dict[str, list[str]]] = Field(
-        default=None,
+    disabled_tools: dict[str, list[str]] = Field(
+        default_factory=dict,
         description="Per-server disabled tool names: {server_id: [tool_name, ...]}",
     )
     created_at: Optional[str] = Field(
@@ -356,6 +356,17 @@ class ClientPreset(BaseModel):
     updated_at: Optional[str] = Field(
         default=None, description="ISO timestamp when preset was last modified"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_mcp_nulls(cls, data: Any) -> Any:
+        """Migrate legacy null MCP fields to concrete empty values."""
+        if isinstance(data, dict):
+            if data.get("enabled_servers") is None:
+                data["enabled_servers"] = []
+            if data.get("disabled_tools") is None:
+                data["disabled_tools"] = {}
+        return data
 
 
 class ClientPresetUpdate(BaseModel):

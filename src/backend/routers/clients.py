@@ -311,14 +311,19 @@ async def _apply_mcp_snapshot(
     mgmt: MCPManagementService,
 ) -> None:
     """Restore MCP preferences and tool toggles from a preset."""
-    if preset.enabled_servers is not None:
-        await prefs.set_enabled_servers(client_id, preset.enabled_servers)
-    if preset.disabled_tools:
-        for server_id, tools in preset.disabled_tools.items():
+    await prefs.set_enabled_servers(client_id, preset.enabled_servers)
+
+    # Apply disabled_tools from preset, clearing any not in the snapshot
+    current_status = await mgmt.get_status()
+    for server in current_status:
+        server_id = server["id"]
+        preset_disabled = preset.disabled_tools.get(server_id, [])
+        current_disabled = server.get("disabled_tools", [])
+        if preset_disabled != current_disabled:
             try:
-                await mgmt.update_disabled_tools(server_id, tools)
+                await mgmt.update_disabled_tools(server_id, preset_disabled)
             except KeyError:
-                logger.debug("Skipping unknown server '%s' in preset", server_id)
+                logger.debug("Skipping unknown server '%s' during preset apply", server_id)
 
 
 @router.post("/{client_id}/presets/{index}/activate", response_model=ClientSettings)

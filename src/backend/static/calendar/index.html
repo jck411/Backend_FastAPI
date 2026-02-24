@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>3-Month Calendar</title>
+  <meta name="description" content="A 3-month Google Calendar view with event management" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+
+  <!-- Loading -->
+  <div class="loading-overlay" id="loading">
+    <div class="spinner"></div>
+  </div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <span class="logo">Calendar</span>
+      <div class="nav-controls">
+        <button class="btn btn-icon" id="btn-prev" title="Previous month">◀</button>
+        <button class="btn" id="btn-today">Today</button>
+        <button class="btn btn-icon" id="btn-next" title="Next month">▶</button>
+      </div>
+      <span class="date-range" id="date-range"></span>
+    </div>
+    <div class="header-right">
+      <div class="auth-status" id="auth-status">
+        <span class="auth-dot" id="auth-dot"></span>
+        <span id="auth-label">Checking…</span>
+      </div>
+      <button class="btn btn-primary" id="btn-new-event">+ New Event</button>
+    </div>
+  </header>
+
+  <!-- Main Body -->
+  <div class="main-body">
+    <aside class="sidebar" id="sidebar">
+      <h3>My Calendars</h3>
+      <div id="calendar-toggles" class="calendar-toggles"></div>
+    </aside>
+    <!-- Calendar -->
+    <main class="calendar-container" id="calendar"></main>
+  </div>
+
+  <!-- Event Modal -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal" id="modal">
+      <h2 id="modal-title">New Event</h2>
+      <form id="event-form" autocomplete="off">
+        <div class="form-group">
+          <label for="ev-summary">Title</label>
+          <input type="text" id="ev-summary" required placeholder="Event title" />
+        </div>
+
+        <div class="checkbox-group" style="margin-bottom:14px">
+          <input type="checkbox" id="ev-allday" />
+          <label for="ev-allday">All-day event</label>
+        </div>
+
+        <div class="form-row" id="datetime-row">
+          <div class="form-group">
+            <label for="ev-start">Start</label>
+            <input type="datetime-local" id="ev-start" required />
+          </div>
+          <div class="form-group">
+            <label for="ev-end">End</label>
+            <input type="datetime-local" id="ev-end" required />
+          </div>
+        </div>
+
+        <div class="form-row" id="date-row" style="display:none">
+          <div class="form-group">
+            <label for="ev-start-date">Start Date</label>
+            <input type="date" id="ev-start-date" />
+          </div>
+          <div class="form-group">
+            <label for="ev-end-date">End Date</label>
+            <input type="date" id="ev-end-date" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="ev-calendar">Calendar</label>
+          <select id="ev-calendar"></select>
+        </div>
+
+        <div class="form-group">
+          <label for="ev-location">Location</label>
+          <input type="text" id="ev-location" placeholder="Optional" />
+        </div>
+
+        <div class="form-group">
+          <label for="ev-description">Description</label>
+          <textarea id="ev-description" placeholder="Optional"></textarea>
+        </div>
+
+        <div class="modal-actions">
+          <div class="modal-actions-left">
+            <button type="button" class="btn btn-danger" id="btn-delete" style="display:none">Delete</button>
+          </div>
+          <button type="button" class="btn" id="btn-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-save">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

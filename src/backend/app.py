@@ -20,6 +20,7 @@ from .routers.chat import router as chat_router
 from .routers.clients import router as clients_router
 from .routers.google_auth import router as google_auth_router
 from .routers.kiosk_calendar import router as kiosk_calendar_router
+from .routers.calendar_api import router as calendar_api_router
 from .routers.mcp_servers import router as mcp_router
 from .routers.monarch_auth import router as monarch_auth_router
 from .routers.profiles import router as profiles_router
@@ -275,6 +276,7 @@ def create_app() -> FastAPI:
     app.include_router(weather_router)
     app.include_router(slideshow_router)
     app.include_router(kiosk_calendar_router)
+    app.include_router(calendar_api_router)
     app.include_router(alarms_router)
 
     # helper for voice assistant imports to avoid circular deps if any,
@@ -418,6 +420,36 @@ def create_app() -> FastAPI:
                 from starlette.responses import RedirectResponse
 
                 return RedirectResponse(url="/kiosk/")
+
+        # Mount Calendar app at /calendar
+        calendar_dir = static_dir / "calendar"
+        if calendar_dir.exists():
+            if (calendar_dir / "assets").exists():
+                app.mount(
+                    "/calendar/assets",
+                    StaticFiles(directory=calendar_dir / "assets"),
+                    name="calendar_assets",
+                )
+
+            @app.get("/calendar/{full_path:path}")
+            async def serve_calendar_spa(full_path: str):
+                file_path = calendar_dir / full_path
+                if file_path.exists() and file_path.is_file():
+                    return FileResponse(file_path)
+                return FileResponse(
+                    calendar_dir / "index.html",
+                    headers={
+                        "Cache-Control": "no-cache, no-store, must-revalidate",
+                        "Pragma": "no-cache",
+                        "Expires": "0",
+                    },
+                )
+
+            @app.get("/calendar")
+            async def redirect_calendar():
+                from starlette.responses import RedirectResponse
+
+                return RedirectResponse(url="/calendar/")
 
         # Serve Chat UI at root (catch-all for SPA routing)
         @app.get("/{full_path:path}")

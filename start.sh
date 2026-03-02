@@ -19,6 +19,7 @@
 #   ./start.sh         # Interactive menu
 #   ./start.sh 1       # Start Backend only
 #   ./start.sh 12      # Start Backend + Frontend
+#   ./start.sh dev     # Start Backend + Frontend (local development)
 #   ./start.sh all     # Start Backend + Frontend + Kiosk + Slideshow + Voice
 #   ./start.sh 5       # Just sync slideshow photos
 # ============================================================
@@ -113,15 +114,19 @@ else
     echo ""
     echo -e "  ${YELLOW}MCP servers are always-on (external). No launch needed.${NC}"
     echo ""
-    echo -e "  ${CYAN}all${NC} - Start 1, 2, 3, 5, and 6 (full web stack + slideshow)"
+    echo -e "  ${CYAN}dev${NC} - Start 1 + 2 (Backend + Frontend for local development)
+  ${CYAN}all${NC} - Start 1, 2, 3, 5, and 6 (full web stack + slideshow)"
     echo ""
     echo -e "${BOLD}Enter selection (e.g., '12' or '135' or 'all'):${NC} "
     read -r selection
 fi
 
-# Handle 'all' shortcut
+# Handle shortcuts
 if [[ "$selection" == "all" ]]; then
     selection="12356"
+fi
+if [[ "$selection" == "dev" ]]; then
+    selection="12"
 fi
 
 # Validate input
@@ -131,7 +136,7 @@ if [[ -z "$selection" ]]; then
 fi
 
 if [[ ! "$selection" =~ ^[1-6]+$ ]]; then
-    echo -e "${RED}Invalid selection. Use only numbers 1-6 or 'all'.${NC}"
+    echo -e "${RED}Invalid selection. Use only numbers 1-6, 'dev', or 'all'.${NC}"
     exit 1
 fi
 

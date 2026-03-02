@@ -23,10 +23,13 @@ export default defineConfig({
       '/api': {
         target: 'https://localhost:8000',
         secure: false, // Accept self-signed certs
+        changeOrigin: true,
+        ws: true, // Proxy WebSocket connections (STT uses /api/stt/stream)
       },
       '/health': {
         target: 'https://localhost:8000',
         secure: false,
+        changeOrigin: true,
       },
     },
   },

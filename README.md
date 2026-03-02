@@ -134,11 +134,12 @@ data/                 # Runtime state (gitignored on server)
 ### Local development
 
 ```bash
-# Backend (auto-reloads on Python changes)
-uv run uvicorn backend.app:create_app --factory --reload --app-dir src --host 0.0.0.0 --port 8000
+# Start both backend + frontend together (recommended)
+./start.sh dev
 
-# Frontend (proxies API to localhost:8000)
-cd frontend && npm run dev
+# Or individually:
+./start.sh 1   # Backend only (FastAPI on :8000, auto-reloads)
+./start.sh 2   # Frontend only (Svelte on :5173, proxies API to :8000)
 ```
 
 ### Deploying changes

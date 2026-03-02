@@ -13,7 +13,6 @@ import { get, writable } from 'svelte/store';
 import { fetchSttSettings } from '../api/client';
 import { API_BASE_URL } from '../api/config';
 import type { SttSettings } from '../api/types';
-import { speechSettingsStore } from '../stores/speechSettings';
 
 // Audio configuration
 const TARGET_SAMPLE_RATE = 16000;
@@ -67,20 +66,6 @@ let ws: WebSocket | null = null;
 // Session state
 let currentSession = 0;
 let accumulatedTranscript = '';
-let autoSubmitTimer: ReturnType<typeof setTimeout> | null = null;
-let autoSubmitSequence = 0;
-
-// =============================================================================
-// Helper Functions
-// =============================================================================
-
-function clearAutoSubmitTimer(): void {
-  if (autoSubmitTimer) {
-    clearTimeout(autoSubmitTimer);
-    autoSubmitTimer = null;
-  }
-  autoSubmitSequence++;
-}
 
 function updatePrompt(text: string, keepSynced: boolean): void {
   state.update((value) => ({
@@ -222,7 +207,6 @@ interface StopOptions {
 function stopListening(options: StopOptions = {}): void {
   ensureAudioStopped();
   ensureSocketClosed();
-  clearAutoSubmitTimer();
 
   state.update((value) => ({
     ...value,
@@ -247,38 +231,16 @@ function handleSpeechEnd(finalText: string): void {
   // In conversation mode, always auto-submit immediately (Deepgram AI handles turn detection)
   const isConversationMode = current.sttMode === 'conversation';
 
-  // For command mode, use frontend settings
-  const settings = speechSettingsStore.current;
-  const autoSubmit = isConversationMode ? true : (settings?.stt.autoSubmit ?? true);
-  const autoSubmitDelay = isConversationMode ? 0 : Math.max(settings?.stt.autoSubmitDelayMs ?? 0, 0);
-
-  clearAutoSubmitTimer();
-
   if (!trimmed) {
     stopListening({ submitText: null, preserveConversation: isConversationMode });
     return;
   }
 
-  if (autoSubmit) {
-    if (autoSubmitDelay <= 0) {
-      stopListening({ submitText: trimmed, preserveConversation: isConversationMode });
-      return;
-    }
-
-    // Stop recording but wait before submitting (command mode only)
-    stopListening({ preserveConversation: isConversationMode });
-    updatePrompt(trimmed, false);
-    const token = ++autoSubmitSequence;
-    autoSubmitTimer = setTimeout(() => {
-      if (token !== autoSubmitSequence) {
-        return;
-      }
-      state.update((value) => ({
-        ...value,
-        pendingSubmit: { text: trimmed },
-      }));
-    }, autoSubmitDelay);
+  if (isConversationMode) {
+    // Conversation (Flux): auto-submit is inherent — Deepgram AI detects turn end
+    stopListening({ submitText: trimmed, preserveConversation: true });
   } else {
+    // Command (Nova): populate prompt without auto-submitting
     stopListening({ preserveConversation: false });
     updatePrompt(trimmed, false);
   }
@@ -371,13 +333,6 @@ async function startListening(mode: SpeechMode, isConversationResume = false): P
   const current = get(state);
   if (current.connecting || current.recording) {
     stopListening();
-  }
-  clearAutoSubmitTimer();
-
-  const settings = speechSettingsStore.current;
-  if (!settings) {
-    setError('Speech settings unavailable');
-    return;
   }
 
   // Fetch server STT settings to determine mode
@@ -478,8 +433,11 @@ async function startListening(mode: SpeechMode, isConversationResume = false): P
             ? `${accumulatedTranscript} ${text}`.trim()
             : text;
           updatePrompt(accumulatedTranscript, true);
-          // When speech is final, handle the end
-          handleSpeechEnd(accumulatedTranscript);
+          // Command mode: keep recording until manual send
+          // Conversation mode: Flux AI detects turn end, auto-submit
+          if (sttMode === 'conversation') {
+            handleSpeechEnd(accumulatedTranscript);
+          }
         } else {
           // Interim transcript - show accumulated + current interim
           const combined = accumulatedTranscript
@@ -520,7 +478,6 @@ async function startListening(mode: SpeechMode, isConversationResume = false): P
 // =============================================================================
 
 export async function startDictation(): Promise<void> {
-  clearAutoSubmitTimer();
   const current = get(state);
   const activeDictation = current.mode === 'dictation' && (current.recording || current.connecting);
   if (activeDictation) {
@@ -560,7 +517,6 @@ export async function resumeConversation(): Promise<void> {
  * Called when user manually stops or when conversation times out.
  */
 export function endConversation(): void {
-  clearAutoSubmitTimer();
   stopListening();
   state.update((value) => ({
     ...value,
@@ -570,7 +526,6 @@ export function endConversation(): void {
 }
 
 export function stopSpeech(): void {
-  clearAutoSubmitTimer();
   stopListening();
   state.update((value) => ({ ...value, mode: 'idle', conversationActive: false }));
 }

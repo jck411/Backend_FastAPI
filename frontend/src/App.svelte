@@ -470,7 +470,8 @@
           if (applied?.model) {
             setModel(applied.model, restored.presetName);
           } else {
-            const fallbackModel = restored.model ?? get(chatStore).selectedModel;
+            const fallbackModel =
+              restored.model ?? get(chatStore).selectedModel;
             setModel(fallbackModel, null);
             presetsStore.clearLastApplied();
             presetsStore.clearError();
@@ -548,7 +549,10 @@
       {presetAttachments}
       {pwaMode}
       isStreaming={$chatStore.isStreaming}
-      on:submit={(event) => sendMessage(event.detail)}
+      on:submit={(event) => {
+        if ($speechState.recording) stopSpeech();
+        sendMessage(event.detail);
+      }}
       on:cancel={cancelStream}
       on:startDictation={handleStartDictation}
       on:inputFocus={() => (mobileDrawerOpen = false)}

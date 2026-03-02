@@ -3,17 +3,11 @@
   import { get } from "svelte/store";
   import { fetchSttSettings, updateSttSettings } from "../../api/client";
   import type { PresetListItem } from "../../api/types";
-  import { STT_MODELS, type SttSettings } from "../../api/types";
+  import { type SttSettings } from "../../api/types";
+  import { invalidateSttSettingsCache } from "../../speech/speechController";
   import { chatStore } from "../../stores/chat";
   import { modelSettingsStore } from "../../stores/modelSettings";
   import { presetsStore } from "../../stores/presets";
-  import {
-    SPEECH_TIMING_PRESETS,
-    type SpeechSettings,
-    type SpeechTimingPresetKey,
-    getDefaultSpeechSettings,
-    speechSettingsStore,
-  } from "../../stores/speechSettings";
   import { suggestionsStore } from "../../stores/suggestions";
   import { createSystemPromptStore } from "../../stores/systemPrompt";
   import { autoSize } from "./autoSize";
@@ -34,13 +28,11 @@
     if (open && !hasInitialized) {
       hasInitialized = true;
       void initialize();
-      resetSpeechState();
-      resetPresetDraft();
+      resetServerSttState();
     } else if (!open && hasInitialized) {
       hasInitialized = false;
       systemPrompt.reset();
-      resetSpeechState();
-      resetPresetDraft();
+      resetServerSttState();
     }
   }
 
@@ -73,24 +65,18 @@
   }
 
   async function closeModal(): Promise<void> {
-    if (closing || $systemPrompt.saving || speechSaving || serverSttSaving) {
+    if (closing || $systemPrompt.saving || serverSttSaving) {
       return;
     }
 
     closing = true;
 
     const promptSaved = await flushSystemPrompt();
-    const speechSaved = await flushSpeechSettings();
     const serverSttSaved = await flushServerSttSettings();
 
     const promptState = get(systemPrompt);
 
-    if (
-      promptSaved &&
-      speechSaved &&
-      serverSttSaved &&
-      !promptState.saveError
-    ) {
+    if (promptSaved && serverSttSaved && !promptState.saveError) {
       dispatch("close");
     }
 
@@ -119,6 +105,7 @@
       });
       serverSttDirty = false;
       serverSttError = null;
+      invalidateSttSettingsCache();
       return true;
     } catch (error) {
       serverSttError =
@@ -131,10 +118,6 @@
 
   let creatingName = "";
   let confirmingDelete: string | null = null;
-  let speechDraft: SpeechSettings = initializeSpeechDraft();
-  let speechDirty = false;
-  let speechSaving = false;
-  let speechSaveError: string | null = null;
 
   // Server-side STT settings (mode, model)
   let serverSttSettings: SttSettings | null = null;
@@ -205,101 +188,22 @@
     await presetsStore.setDefault(item.name);
   }
 
-  function initializeSpeechDraft(): SpeechSettings {
-    const current = speechSettingsStore.current ?? getDefaultSpeechSettings();
-    return {
-      ...current,
-      stt: { ...current.stt },
-    };
-  }
-
-  function resetSpeechState(): void {
-    speechSettingsStore.refresh();
-    speechDraft = initializeSpeechDraft();
-    speechDirty = false;
-    speechSaving = false;
-    speechSaveError = null;
-    // Reset server STT state
+  function resetServerSttState(): void {
     serverSttSettings = null;
     serverSttDirty = false;
     serverSttSaving = false;
     serverSttError = null;
-  }
-
-  function updateSpeechStt<K extends keyof SpeechSettings["stt"]>(
-    key: K,
-    value: SpeechSettings["stt"][K],
-  ): void {
-    speechDraft = {
-      ...speechDraft,
-      stt: {
-        ...speechDraft.stt,
-        [key]: value,
-      },
-    };
-    speechDirty = true;
-    speechSaveError = null;
-  }
-
-  function handleSpeechNumberInput(
-    event: Event,
-    updater: (value: number) => void,
-  ): void {
-    const target = event.target as HTMLInputElement | null;
-    if (!target) {
-      return;
-    }
-    const parsed = Number(target.value);
-    if (!Number.isFinite(parsed)) {
-      return;
-    }
-    updater(parsed);
-  }
-
-  function applySpeechPreset(key: SpeechTimingPresetKey): void {
-    const preset = SPEECH_TIMING_PRESETS[key];
-    speechDraft = {
-      ...speechDraft,
-      stt: {
-        ...speechDraft.stt,
-        autoSubmitDelayMs: preset.autoSubmitDelayMs,
-      },
-    };
-    speechDirty = true;
-    speechSaveError = null;
-  }
-
-  async function flushSpeechSettings(): Promise<boolean> {
-    if (!speechDirty) {
-      return true;
-    }
-
-    speechSaving = true;
-    try {
-      const saved = speechSettingsStore.save(speechDraft);
-      speechDraft = {
-        ...saved,
-        stt: { ...saved.stt },
-      };
-      speechDirty = false;
-      speechSaveError = null;
-      return true;
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to save speech settings.";
-      speechSaveError = message;
-      return false;
-    } finally {
-      speechSaving = false;
-    }
+    resetPresetDraft();
   }
 
   function handleSpeechReset(): void {
-    speechDraft = getDefaultSpeechSettings();
-    speechDirty = true;
-    speechSaveError = null;
+    if (!serverSttSettings) return;
+    serverSttSettings = {
+      ...serverSttSettings,
+      command_utterance_end_ms: 1000,
+      command_endpointing: 300,
+    };
+    serverSttDirty = true;
   }
 </script>
 
@@ -311,7 +215,7 @@
     bodyClass="system-settings-body"
     layerClass="system-settings-layer"
     closeLabel="Close system settings"
-    closeDisabled={$systemPrompt.saving || speechSaving}
+    closeDisabled={$systemPrompt.saving || serverSttSaving}
     on:close={() => void closeModal()}
   >
     <svelte:fragment slot="heading">
@@ -536,7 +440,7 @@
             type="button"
             class="btn btn-ghost btn-small"
             on:click={handleSpeechReset}
-            disabled={speechSaving || serverSttSaving}
+            disabled={serverSttSaving}
           >
             Reset to defaults
           </button>
@@ -579,36 +483,12 @@
                 AI-based turn detection for natural dialogue. Auto-submits when
                 you finish speaking.
               {:else}
-                Silence-based detection with specialized vocabulary models.
+                Continuous listening — keeps transcribing until you press send.
               {/if}
             </p>
           </div>
 
           {#if serverSttSettings.mode === "command"}
-            <!-- Nova Model Selection -->
-            <div class="speech-field">
-              <label class="field-label" for="stt-model-select">Model</label>
-              <select
-                id="stt-model-select"
-                class="input-control"
-                value={serverSttSettings.command_model}
-                disabled={serverSttSaving}
-                on:change={(event) => {
-                  if (serverSttSettings) {
-                    serverSttSettings = {
-                      ...serverSttSettings,
-                      command_model: (event.target as HTMLSelectElement).value,
-                    };
-                    serverSttDirty = true;
-                  }
-                }}
-              >
-                {#each STT_MODELS as model (model.id)}
-                  <option value={model.id}>{model.name}</option>
-                {/each}
-              </select>
-            </div>
-
             <!-- Nova timing settings -->
             <div class="speech-field-row">
               <div class="speech-field">
@@ -728,65 +608,6 @@
                 <span>Interim results</span>
               </label>
             </div>
-
-            <!-- Auto-submit toggle -->
-            <div class="speech-field">
-              <label class="inline-checkbox">
-                <input
-                  class="input-control"
-                  type="checkbox"
-                  checked={speechDraft.stt.autoSubmit}
-                  on:change={(event) =>
-                    updateSpeechStt(
-                      "autoSubmit",
-                      (event.target as HTMLInputElement).checked,
-                    )}
-                />
-                <span class="field-label">Auto-submit after speaking</span>
-              </label>
-            </div>
-
-            {#if speechDraft.stt.autoSubmit}
-              <!-- Timing presets and custom delay -->
-              <div class="speech-field">
-                <label class="field-label" for="auto-submit-delay-input"
-                  >Submit delay (ms)</label
-                >
-                <div class="delay-row">
-                  <div class="delay-presets">
-                    <button
-                      class="btn btn-soft btn-small"
-                      type="button"
-                      on:click={() => applySpeechPreset("fast")}>Instant</button
-                    >
-                    <button
-                      class="btn btn-soft btn-small"
-                      type="button"
-                      on:click={() => applySpeechPreset("normal")}
-                      >Normal</button
-                    >
-                    <button
-                      class="btn btn-soft btn-small"
-                      type="button"
-                      on:click={() => applySpeechPreset("slow")}>Slow</button
-                    >
-                  </div>
-                  <input
-                    id="auto-submit-delay-input"
-                    class="input-control delay-input"
-                    type="number"
-                    min="0"
-                    max="10000"
-                    step="50"
-                    value={speechDraft.stt.autoSubmitDelayMs}
-                    on:change={(event) =>
-                      handleSpeechNumberInput(event, (value) =>
-                        updateSpeechStt("autoSubmitDelayMs", value),
-                      )}
-                  />
-                </div>
-              </div>
-            {/if}
           {:else}
             <!-- Conversation mode (Flux) settings -->
             <div class="speech-field-row">
@@ -900,13 +721,11 @@
     <footer slot="footer" class="model-settings-footer system-settings-footer">
       {#if $systemPrompt.saveError}
         <p class="status error">Resolve the errors above before closing.</p>
-      {:else if speechSaveError}
-        <p class="status error">{speechSaveError}</p>
       {:else if serverSttError}
         <p class="status error">{serverSttError}</p>
-      {:else if $systemPrompt.saving || speechSaving || serverSttSaving}
+      {:else if $systemPrompt.saving || serverSttSaving}
         <p class="status">Saving changes…</p>
-      {:else if $systemPrompt.dirty || speechDirty || serverSttDirty}
+      {:else if $systemPrompt.dirty || serverSttDirty}
         <p class="status">Pending changes; closing this modal will save.</p>
       {:else}
         <p class="status">Changes save when you close this modal.</p>

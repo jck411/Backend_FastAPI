@@ -8,7 +8,6 @@
     type KioskPresets,
     type TtsVoice,
   } from "../../api/kiosk";
-  import { STT_MODELS } from "../../api/types";
   import {
     getDefaultKioskSttSettings,
     kioskSettingsStore,
@@ -452,34 +451,6 @@
 
             {#if draft.stt_mode === "command"}
               <!-- Command Mode: Model Selection -->
-              <div class="reasoning-field" style="grid-column: 1 / -1;">
-                <div class="setting-select">
-                  <label
-                    class="setting-label"
-                    for="stt-command-model"
-                    title="Select the Deepgram Nova model for command-mode speech recognition."
-                    >Model</label
-                  >
-                  <select
-                    id="stt-command-model"
-                    class="select-input"
-                    value={draft.command_model}
-                    disabled={saving}
-                    on:change={(e) => {
-                      draft = {
-                        ...draft,
-                        command_model: (e.target as HTMLSelectElement).value,
-                      };
-                      markDirty();
-                    }}
-                  >
-                    {#each STT_MODELS as model (model.id)}
-                      <option value={model.id}>{model.name}</option>
-                    {/each}
-                  </select>
-                </div>
-              </div>
-
               <!-- Command Mode: Utterance End -->
               <div class="reasoning-field">
                 <div class="setting-range">

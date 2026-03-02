@@ -127,9 +127,12 @@ class DeepgramSession:
                 # v1 style: check for channel.alternatives (Nova models)
                 channel = getattr(result, "channel", None)
                 if channel is not None:
-                    # Handle both object and dict access patterns
+                    # Deepgram SDK may return channel as object, dict, or list
+                    if isinstance(channel, (list, tuple)) and len(channel) > 0:
+                        channel = channel[0]
+
                     alternatives = getattr(channel, "alternatives", None)
-                    if alternatives is None and hasattr(channel, "__getitem__"):
+                    if alternatives is None and isinstance(channel, dict):
                         alternatives = channel.get("alternatives", [])
 
                     if alternatives and len(alternatives) > 0:

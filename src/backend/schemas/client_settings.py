@@ -117,7 +117,7 @@ class SttSettings(BaseModel):
 
     # Command mode (Nova-3) settings
     command_model: str = Field(
-        default="nova-3",
+        default="nova-3-en",
         description="Model for command mode",
     )
     command_utterance_end_ms: int = Field(

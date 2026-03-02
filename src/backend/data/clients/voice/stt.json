@@ -5,7 +5,7 @@
   "keyterms": [],
   "pause_timeout_seconds": 30,
   "listen_timeout_seconds": 15,
-  "command_model": "nova-3",
+  "command_model": "nova-3-en",
   "command_utterance_end_ms": 1000,
   "command_endpointing": 300,
   "command_interim_results": true,

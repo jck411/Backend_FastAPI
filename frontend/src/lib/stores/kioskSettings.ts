@@ -80,7 +80,7 @@ export const DEFAULT_KIOSK_SETTINGS: KioskSettings = {
     eot_threshold: 0.7,
     eot_timeout_ms: 1000,
     keyterms: [],
-    command_model: 'nova-3',
+    command_model: 'nova-3-en',
     command_utterance_end_ms: 1000,
     command_endpointing: 300,
     command_interim_results: true,

@@ -41,7 +41,7 @@ class DeepgramSession:
         eager_eot_threshold: Optional[float] = None,
         keyterms: Optional[list[str]] = None,
         # Command mode (Nova-3 v1) settings
-        command_model: str = "nova-3",
+        command_model: str = "nova-3-en",
         command_utterance_end_ms: int = 1000,
         command_endpointing: int = 300,
         command_interim_results: bool = True,

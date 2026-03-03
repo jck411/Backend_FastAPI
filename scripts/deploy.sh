@@ -130,13 +130,14 @@ check_env_keys() {
         read -rp "Push missing keys to server now? [Y/n] " REPLY
         REPLY="${REPLY:-y}"
         if [[ "$REPLY" =~ ^[Yy]$ ]]; then
-            local additions=""
             for key in $missing; do
                 local value
-                value=$(grep -E "^${key}=" "$ROOT_DIR/.env" | cut -d= -f2-)
-                additions="${additions}${key}=${value}\n"
+                value=$(grep -E "^${key}=" "$ROOT_DIR/.env" | head -1 | cut -d= -f2-)
+                # Use heredoc via cat to avoid printf/echo escape issues
+                run_on_server "cat >> $APP_DIR/.env <<'ENVEOF'
+${key}=${value}
+ENVEOF"
             done
-            run_on_server "printf '${additions}' >> $APP_DIR/.env"
             echo -e "${GREEN}Added $(echo "$missing" | wc -w) key(s) to server .env.${NC}"
         fi
     else

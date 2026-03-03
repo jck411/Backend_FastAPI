@@ -234,6 +234,21 @@ class Settings(BaseSettings):
         default=None, validation_alias=AliasChoices("UNREAL_SPEECH_API_KEY")
     )
 
+
+    # Azure Speech (optional, used by realtime transcription demo)
+    azure_speech_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("AZURE_SPEECH_KEY")
+    )
+    azure_speech_region: str | None = Field(
+        default=None, validation_alias=AliasChoices("AZURE_SPEECH_REGION")
+    )
+    azure_speech_language: str = Field(
+        default="en-US", validation_alias=AliasChoices("AZURE_SPEECH_LANGUAGE")
+    )
+    azure_keyword_model_path: Path | None = Field(
+        default=None, validation_alias=AliasChoices("AZURE_KEYWORD_MODEL_PATH")
+    )
+
     # AccuWeather API (for kiosk weather display)
     accuweather_api_key: SecretStr | None = Field(
         default=None, validation_alias=AliasChoices("ACCUWEATHER_API_KEY")

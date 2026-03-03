@@ -16,6 +16,7 @@ from .config import get_settings
 from .logging_handlers import DateStampedFileHandler, cleanup_old_logs
 from .logging_settings import parse_logging_settings
 from .routers.alarms import router as alarms_router
+from .routers.azure_transcription import router as azure_stt_router
 from .routers.chat import router as chat_router
 from .routers.clients import router as clients_router
 from .routers.google_auth import router as google_auth_router
@@ -270,6 +271,7 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(mcp_router)
     app.include_router(stt_router)
+    app.include_router(azure_stt_router)
     app.include_router(clients_router)
     app.include_router(profiles_router)
     app.include_router(weather_router)

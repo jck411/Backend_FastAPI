@@ -1,13 +1,18 @@
 #!/bin/bash
-# Deploy script - builds frontend cleanly and deploys to server
-# Usage: ./scripts/deploy.sh [message]
+# Deploy to Proxmox LXC 111 via the Proxmox host
+#
+# Usage:
+#   ./scripts/deploy.sh              # Backend only: push + pull (auto-reloads)
+#   ./scripts/deploy.sh frontend     # Build frontend, push, pull, restart
+#   ./scripts/deploy.sh deps         # Push, pull, uv sync, restart
+#   ./scripts/deploy.sh restart      # Just restart the service
+#   ./scripts/deploy.sh status       # Check service status + current commit
+#   ./scripts/deploy.sh logs         # Tail recent service logs
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-STATIC_DIR="$ROOT_DIR/src/backend/static"
-ASSETS_DIR="$STATIC_DIR/assets"
 
 # Colors
 RED='\033[0;31m'
@@ -15,72 +20,114 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${YELLOW}=== Frontend Build & Deploy ===${NC}"
+# Load Proxmox credentials from .env
+if [[ -f "$ROOT_DIR/.env" ]]; then
+    PROXMOX_HOST=$(grep -E '^PROXMOX_HOST=' "$ROOT_DIR/.env" | cut -d= -f2)
+    PROXMOX_USER=$(grep -E '^PROXMOX_USER=' "$ROOT_DIR/.env" | cut -d= -f2)
+    PROXMOX_PASSWORD=$(grep -E '^PROXMOX_PASSWORD=' "$ROOT_DIR/.env" | cut -d= -f2)
+    PROXMOX_LXC_ID=$(grep -E '^PROXMOX_LXC_ID=' "$ROOT_DIR/.env" | cut -d= -f2)
+fi
 
-# 1. Clean old assets (prevents stale file issues)
-echo -e "${YELLOW}Cleaning old assets...${NC}"
-rm -rf "$ASSETS_DIR"/*
+PROXMOX_HOST="${PROXMOX_HOST:-192.168.1.11}"
+PROXMOX_USER="${PROXMOX_USER:-root}"
+PROXMOX_LXC_ID="${PROXMOX_LXC_ID:-111}"
+APP_DIR="/opt/backend-fastapi"
 
-# 2. Build frontend
-echo -e "${YELLOW}Building frontend...${NC}"
-cd "$ROOT_DIR/frontend"
-npm run build
-
-# 3. Verify build output
-if [ ! -f "$STATIC_DIR/index.html" ]; then
-    echo -e "${RED}ERROR: Build failed - no index.html${NC}"
+if [[ -z "$PROXMOX_PASSWORD" ]]; then
+    echo -e "${RED}PROXMOX_PASSWORD not set in .env${NC}"
     exit 1
 fi
 
-# Count assets
-ASSET_COUNT=$(ls -1 "$ASSETS_DIR" 2>/dev/null | wc -l)
-echo -e "${GREEN}Built $ASSET_COUNT asset files${NC}"
+# SSH into Proxmox host, run command inside the LXC container
+run_on_server() {
+    sshpass -p "$PROXMOX_PASSWORD" ssh -o StrictHostKeyChecking=accept-new \
+        "${PROXMOX_USER}@${PROXMOX_HOST}" \
+        "pct exec ${PROXMOX_LXC_ID} -- bash -c '$1'"
+}
 
-# 4. Verify all CSS references exist
-echo -e "${YELLOW}Verifying asset references...${NC}"
-MISSING=0
-for js in "$ASSETS_DIR"/*.js; do
-    for css in $(grep -oE '[A-Za-z0-9_-]+\.css' "$js" 2>/dev/null | sort -u); do
-        if [ "$css" != ".css" ] && [ "$css" != "style.css" ]; then
-            if [ ! -f "$ASSETS_DIR/$css" ]; then
-                echo -e "${RED}Missing: $css (referenced in $(basename $js))${NC}"
-                MISSING=1
-            fi
+MODE="${1:-backend}"
+
+case "$MODE" in
+    backend)
+        echo -e "${YELLOW}=== Backend Deploy ===${NC}"
+        cd "$ROOT_DIR"
+        git push
+        echo -e "${YELLOW}Pulling on server...${NC}"
+        run_on_server "cd $APP_DIR && git pull && chown -R backend:backend $APP_DIR/data/"
+        echo -e "${GREEN}Pushed + pulled. Dev service auto-reloads.${NC}"
+        ;;
+
+    frontend)
+        echo -e "${YELLOW}=== Frontend Build & Deploy ===${NC}"
+        STATIC_DIR="$ROOT_DIR/src/backend/static"
+        ASSETS_DIR="$STATIC_DIR/assets"
+
+        # Clean + build
+        rm -rf "$ASSETS_DIR"/*
+        cd "$ROOT_DIR/frontend"
+        npm run build
+
+        if [[ ! -f "$STATIC_DIR/index.html" ]]; then
+            echo -e "${RED}Build failed — no index.html${NC}"
+            exit 1
         fi
-    done
-done
+        echo -e "${GREEN}Built $(ls -1 "$ASSETS_DIR" 2>/dev/null | wc -l) asset files${NC}"
 
-if [ $MISSING -eq 1 ]; then
-    echo -e "${RED}ERROR: Missing referenced CSS files!${NC}"
-    exit 1
-fi
-echo -e "${GREEN}All asset references valid${NC}"
+        # Verify CSS references
+        MISSING=0
+        for js in "$ASSETS_DIR"/*.js; do
+            for css in $(grep -oE '[A-Za-z0-9_-]+\.css' "$js" 2>/dev/null | sort -u); do
+                if [[ "$css" != ".css" && "$css" != "style.css" ]]; then
+                    if [[ ! -f "$ASSETS_DIR/$css" ]]; then
+                        echo -e "${RED}Missing: $css (referenced in $(basename "$js"))${NC}"
+                        MISSING=1
+                    fi
+                fi
+            done
+        done
+        if [[ $MISSING -eq 1 ]]; then
+            echo -e "${RED}Missing referenced CSS files!${NC}"
+            exit 1
+        fi
 
-# 5. Git commit
-echo -e "${YELLOW}Committing changes...${NC}"
-cd "$ROOT_DIR"
-git add src/backend/static/
-COMMIT_MSG="${1:-build: rebuild frontend}"
-git commit -m "$COMMIT_MSG" || echo "Nothing to commit"
+        # Commit, push, pull, restart
+        cd "$ROOT_DIR"
+        git add src/backend/static/
+        git commit -m "${2:-build: rebuild frontend}" || echo "Nothing to commit"
+        git push
+        echo -e "${YELLOW}Pulling + restarting on server...${NC}"
+        run_on_server "cd $APP_DIR && git pull && chown -R backend:backend $APP_DIR/data/ && systemctl restart backend-fastapi-dev"
+        echo -e "${GREEN}Frontend deployed.${NC}"
+        ;;
 
-# 6. Push
-echo -e "${YELLOW}Pushing to origin...${NC}"
-git push
+    deps)
+        echo -e "${YELLOW}=== Dependency Deploy ===${NC}"
+        cd "$ROOT_DIR"
+        git push
+        echo -e "${YELLOW}Pulling + syncing deps + restarting...${NC}"
+        run_on_server "cd $APP_DIR && git pull && uv sync && chown -R backend:backend $APP_DIR/data/ && systemctl restart backend-fastapi-dev"
+        echo -e "${GREEN}Dependencies synced and service restarted.${NC}"
+        ;;
 
-# 7. Deploy to server
-echo -e "${YELLOW}Deploying to server...${NC}"
-if ! ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/data/ && systemctl restart backend-fastapi-dev"; then
-    echo -e "${RED}SSH failed (not on local LAN?). Run this manually inside Proxmox:${NC}"
-    echo ""
-    echo "    pct enter 111"
-    echo "    cd /opt/backend-fastapi"
-    echo "    git fetch origin && git reset --hard origin/master"
-    echo "    chown -R backend:backend /opt/backend-fastapi/data/"
-    echo "    systemctl restart backend-fastapi-dev"
-    echo "    systemctl status backend-fastapi-dev"
-    echo ""
-    exit 0
-fi
+    restart)
+        echo -e "${YELLOW}Restarting service...${NC}"
+        run_on_server "systemctl restart backend-fastapi-dev"
+        echo -e "${GREEN}Restarted.${NC}"
+        ;;
 
-echo -e "${GREEN}=== Deploy complete ===${NC}"
-echo -e "Test at: https://chat.jackshome.com"
+    status)
+        echo -e "${YELLOW}=== Server Status ===${NC}"
+        run_on_server "cd $APP_DIR && echo 'Commit:' && git log --oneline -3 && echo '---' && systemctl status backend-fastapi-dev --no-pager -l 2>&1 | head -15"
+        ;;
+
+    logs)
+        run_on_server "journalctl -u backend-fastapi-dev --no-pager -n 50"
+        ;;
+
+    *)
+        echo "Usage: ./scripts/deploy.sh [backend|frontend|deps|restart|status|logs]"
+        exit 1
+        ;;
+esac
+
+echo -e "${GREEN}Done.${NC} https://chat.jackshome.com"

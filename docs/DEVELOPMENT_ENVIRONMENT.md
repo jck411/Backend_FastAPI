@@ -1,5 +1,19 @@
 # Development Environment & Connectivity Guide
 
+## Running MCP Servers Locally
+
+In production, MCP servers run on Proxmox (LXC 110, 192.168.1.110). For local development, run them from the `mcp-servers` repo on your machine.
+
+```bash
+cd ~/REPOS/mcp-servers
+uv sync --extra spotify          # install deps for the server you need
+python -m servers.spotify --transport streamable-http --host 127.0.0.1 --port 9010
+```
+
+Then connect from the frontend: **Settings → Server status** → enter `http://127.0.0.1:<port>/mcp` → **Connect**.
+
+Port assignments are in the [mcp-servers README](../../mcp-servers/README.md#port-assignments). The backend auto-discovers servers on ports 9001–9015 when you click **Refresh**, or you can connect to a specific URL manually.
+
 ## Work Network Configuration (Current Setup)
 **Last Updated:** Jan 2026
 **Context:** Development on Corporate/Guest Wi-Fi (`10.235.x.x`)

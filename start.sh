@@ -11,9 +11,10 @@
 #   5 - Slideshow Sync (Download photos from Google Photos)
 #   6 - Voice PWA      (Voice UI on :5175)
 #
-# MCP servers are always-on external services (deployed to
-# Proxmox). The backend connects to them automatically —
-# they do NOT need to be launched from this script.
+# MCP servers run externally — on Proxmox in production, or
+# locally from the mcp-servers repo during development.
+# See docs/DEVELOPMENT_ENVIRONMENT.md for local setup.
+# They do NOT need to be launched from this script.
 #
 # Usage:
 #   ./start.sh         # Interactive menu

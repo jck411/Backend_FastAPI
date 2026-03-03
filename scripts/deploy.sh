@@ -33,9 +33,17 @@ PROXMOX_USER="${PROXMOX_USER:-root}"
 PROXMOX_LXC_ID="${PROXMOX_LXC_ID:-111}"
 APP_DIR="/opt/backend-fastapi"
 
-if [[ -z "$PROXMOX_PASSWORD" ]]; then
-    echo -e "${RED}PROXMOX_PASSWORD not set in .env${NC}"
-    exit 1
+# Detect if we're on the home LAN by pinging the Proxmox host
+ON_LAN=false
+if ping -c1 -W1 "$PROXMOX_HOST" &>/dev/null; then
+    ON_LAN=true
+fi
+
+if [[ "$ON_LAN" == true ]]; then
+    if [[ -z "$PROXMOX_PASSWORD" ]]; then
+        echo -e "${RED}PROXMOX_PASSWORD not set in .env${NC}"
+        exit 1
+    fi
 fi
 
 # SSH into Proxmox host, run command inside the LXC container
@@ -43,6 +51,26 @@ run_on_server() {
     sshpass -p "$PROXMOX_PASSWORD" ssh -o StrictHostKeyChecking=accept-new \
         "${PROXMOX_USER}@${PROXMOX_HOST}" \
         "pct exec ${PROXMOX_LXC_ID} -- bash -c '$1'"
+}
+
+# Print commands for manual paste when off-LAN
+print_server_commands() {
+    local cmds="$1"
+    echo ""
+    echo -e "${YELLOW}=== Not on home LAN — paste this into your Proxmox shell ===${NC}"
+    echo ""
+    echo -e "${GREEN}pct exec ${PROXMOX_LXC_ID} -- bash -c '${cmds}'${NC}"
+    echo ""
+}
+
+# Run on server if on LAN, otherwise print paste-able command
+deploy_to_server() {
+    local cmds="$1"
+    if [[ "$ON_LAN" == true ]]; then
+        run_on_server "$cmds"
+    else
+        print_server_commands "$cmds"
+    fi
 }
 
 MODE="${1:-backend}"
@@ -67,8 +95,8 @@ case "$MODE" in
 
         git push
         echo -e "${YELLOW}Pulling on server...${NC}"
-        run_on_server "cd $APP_DIR && git pull && chown -R backend:backend $APP_DIR/data/"
-        echo -e "${GREEN}Pushed + pulled. Dev service auto-reloads.${NC}"
+        deploy_to_server "cd $APP_DIR && git pull && chown -R backend:backend $APP_DIR/data/"
+        [[ "$ON_LAN" == true ]] && echo -e "${GREEN}Pushed + pulled. Dev service auto-reloads.${NC}"
         ;;
 
     frontend)
@@ -110,8 +138,8 @@ case "$MODE" in
         git commit -m "${2:-build: rebuild frontend}" || echo "Nothing to commit"
         git push
         echo -e "${YELLOW}Pulling + restarting on server...${NC}"
-        run_on_server "cd $APP_DIR && git pull && chown -R backend:backend $APP_DIR/data/ && systemctl restart backend-fastapi-dev"
-        echo -e "${GREEN}Frontend deployed.${NC}"
+        deploy_to_server "cd $APP_DIR && git pull && chown -R backend:backend $APP_DIR/data/ && systemctl restart backend-fastapi-dev"
+        [[ "$ON_LAN" == true ]] && echo -e "${GREEN}Frontend deployed.${NC}"
         ;;
 
     deps)
@@ -119,23 +147,23 @@ case "$MODE" in
         cd "$ROOT_DIR"
         git push
         echo -e "${YELLOW}Pulling + syncing deps + restarting...${NC}"
-        run_on_server "cd $APP_DIR && git pull && uv sync && chown -R backend:backend $APP_DIR/data/ && systemctl restart backend-fastapi-dev"
-        echo -e "${GREEN}Dependencies synced and service restarted.${NC}"
+        deploy_to_server "cd $APP_DIR && git pull && uv sync && chown -R backend:backend $APP_DIR/data/ && systemctl restart backend-fastapi-dev"
+        [[ "$ON_LAN" == true ]] && echo -e "${GREEN}Dependencies synced and service restarted.${NC}"
         ;;
 
     restart)
         echo -e "${YELLOW}Restarting service...${NC}"
-        run_on_server "systemctl restart backend-fastapi-dev"
-        echo -e "${GREEN}Restarted.${NC}"
+        deploy_to_server "systemctl restart backend-fastapi-dev"
+        [[ "$ON_LAN" == true ]] && echo -e "${GREEN}Restarted.${NC}"
         ;;
 
     status)
         echo -e "${YELLOW}=== Server Status ===${NC}"
-        run_on_server "cd $APP_DIR && echo 'Commit:' && git log --oneline -3 && echo '---' && systemctl status backend-fastapi-dev --no-pager -l 2>&1 | head -15"
+        deploy_to_server "cd $APP_DIR && echo 'Commit:' && git log --oneline -3 && echo '---' && systemctl status backend-fastapi-dev --no-pager -l 2>&1 | head -15"
         ;;
 
     logs)
-        run_on_server "journalctl -u backend-fastapi-dev --no-pager -n 50"
+        deploy_to_server "journalctl -u backend-fastapi-dev --no-pager -n 50"
         ;;
 
     *)

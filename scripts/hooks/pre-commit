@@ -1,0 +1,19 @@
+#!/bin/bash
+# Pre-commit hook: block commits that change frontend source without rebuilding.
+#
+# Install: git config core.hooksPath scripts/hooks
+
+FRONTEND_CHANGED=$(git diff --cached --name-only -- 'frontend/src/' 'frontend/index.html' 'frontend/package.json' | head -1)
+STATIC_CHANGED=$(git diff --cached --name-only -- 'src/backend/static/' | head -1)
+
+if [[ -n "$FRONTEND_CHANGED" && -z "$STATIC_CHANGED" ]]; then
+    echo ""
+    echo "ERROR: Frontend source changed but src/backend/static/ was not updated."
+    echo ""
+    echo "  Run:  cd frontend && npm run build && cd .."
+    echo "  Then: git add src/backend/static/"
+    echo ""
+    echo "  To skip this check (rare): git commit --no-verify"
+    echo ""
+    exit 1
+fi

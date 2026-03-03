@@ -51,6 +51,20 @@ case "$MODE" in
     backend)
         echo -e "${YELLOW}=== Backend Deploy ===${NC}"
         cd "$ROOT_DIR"
+
+        # Warn if frontend source is newer than last build
+        LAST_SRC_COMMIT=$(git log -1 --format="%H" -- frontend/src/ frontend/index.html frontend/package.json 2>/dev/null)
+        LAST_BUILD_COMMIT=$(git log -1 --format="%H" -- src/backend/static/ 2>/dev/null)
+        if [[ -n "$LAST_SRC_COMMIT" && -n "$LAST_BUILD_COMMIT" ]]; then
+            if ! git merge-base --is-ancestor "$LAST_SRC_COMMIT" "$LAST_BUILD_COMMIT" 2>/dev/null; then
+                echo -e "${RED}WARNING: Frontend source has changes newer than the last build!${NC}"
+                echo -e "${RED}Run: ./scripts/deploy.sh frontend${NC}"
+                echo ""
+                read -rp "Deploy backend anyway? [y/N] " REPLY
+                [[ "$REPLY" =~ ^[Yy]$ ]] || exit 1
+            fi
+        fi
+
         git push
         echo -e "${YELLOW}Pulling on server...${NC}"
         run_on_server "cd $APP_DIR && git pull && chown -R backend:backend $APP_DIR/data/"

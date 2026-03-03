@@ -62,6 +62,20 @@ async function startListening(): Promise<void> {
 
     state.update((v) => ({ ...v, status: 'starting', error: null }));
 
+    // Check server availability before grabbing mic
+    try {
+        const base = API_BASE_URL || window.location.origin;
+        const res = await fetch(`${base}/api/keyword/status`);
+        const info = (await res.json()) as { available?: boolean };
+        if (!info.available) {
+            state.update((v) => ({ ...v, status: 'error', error: 'Keyword model not available on server' }));
+            return;
+        }
+    } catch {
+        state.update((v) => ({ ...v, status: 'error', error: 'Cannot reach keyword service' }));
+        return;
+    }
+
     try {
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch {

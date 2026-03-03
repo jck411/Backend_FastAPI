@@ -388,6 +388,9 @@
   }
   $: if (
     $wakewordState.enabled &&
+    $wakewordState.status !== "armed" &&
+    $wakewordState.status !== "starting" &&
+    $wakewordState.status !== "error" &&
     $speechState.mode === "idle" &&
     !$speechState.recording &&
     !$speechState.connecting &&

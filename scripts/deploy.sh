@@ -2,12 +2,14 @@
 # Deploy to Proxmox LXC 111 via the Proxmox host
 #
 # Usage:
-#   ./scripts/deploy.sh              # Backend only: push + pull (auto-reloads)
+#   ./scripts/deploy.sh              # Backend only: push + pull + check deps/env
 #   ./scripts/deploy.sh frontend     # Build frontend, push, pull, restart
 #   ./scripts/deploy.sh deps         # Push, pull, uv sync, restart
 #   ./scripts/deploy.sh restart      # Just restart the service
 #   ./scripts/deploy.sh status       # Check service status + current commit
 #   ./scripts/deploy.sh logs         # Tail recent service logs
+#   ./scripts/deploy.sh env          # Check/push missing .env keys to server
+#   ./scripts/deploy.sh check        # Run dependency + env checks only (no deploy)
 
 set -e
 
@@ -73,6 +75,75 @@ deploy_to_server() {
     fi
 }
 
+# Check if server has any missing Python dependencies (compares against pyproject.toml)
+check_deps() {
+    if [[ "$ON_LAN" != true ]]; then return; fi
+    echo -e "${YELLOW}Checking dependencies...${NC}"
+    local result
+    result=$(run_on_server "cd $APP_DIR && uv sync --dry-run 2>&1" 2>/dev/null) || true
+    if echo "$result" | grep -qE "^(Would install|Resolved .* packages)"; then
+        local to_install
+        to_install=$(echo "$result" | grep "^Would install" || true)
+        if [[ -n "$to_install" ]]; then
+            echo -e "${RED}Server is missing packages:${NC}"
+            echo "$to_install"
+            read -rp "Install now? [Y/n] " REPLY
+            REPLY="${REPLY:-y}"
+            if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+                run_on_server "cd $APP_DIR && uv sync"
+                echo -e "${GREEN}Dependencies synced.${NC}"
+                return 0  # signal that a restart is needed
+            fi
+        fi
+    else
+        echo -e "${GREEN}Dependencies up to date.${NC}"
+    fi
+    return 1  # no restart needed
+}
+
+# Check if server .env is missing any keys present in local .env
+check_env_keys() {
+    if [[ "$ON_LAN" != true ]]; then return; fi
+    if [[ ! -f "$ROOT_DIR/.env" ]]; then return; fi
+
+    echo -e "${YELLOW}Checking .env keys...${NC}"
+
+    # Extract key names from local .env (skip comments, blanks)
+    local local_keys
+    local_keys=$(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$ROOT_DIR/.env" | cut -d= -f1 | sort -u)
+
+    # Extract key names from server .env
+    local server_keys
+    server_keys=$(run_on_server "grep -E '^[A-Za-z_][A-Za-z0-9_]*=' $APP_DIR/.env" 2>/dev/null | cut -d= -f1 | tr -d '\r' | sort -u)
+
+    # Find keys in local but not on server (exclude PROXMOX_* — those are local-only)
+    local missing
+    missing=$(comm -23 <(echo "$local_keys" | grep -v '^PROXMOX_' | grep -E '^[A-Z]') <(echo "$server_keys"))
+
+    if [[ -n "$missing" ]]; then
+        echo -e "${RED}Server .env is missing these keys:${NC}"
+        echo "$missing"
+        echo ""
+        echo -e "${YELLOW}Add them to the server with:${NC}"
+        echo -e "${GREEN}  ./scripts/deploy.sh env${NC}"
+        echo ""
+        read -rp "Push missing keys to server now? [Y/n] " REPLY
+        REPLY="${REPLY:-y}"
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            local additions=""
+            for key in $missing; do
+                local value
+                value=$(grep -E "^${key}=" "$ROOT_DIR/.env" | cut -d= -f2-)
+                additions="${additions}${key}=${value}\n"
+            done
+            run_on_server "printf '${additions}' >> $APP_DIR/.env"
+            echo -e "${GREEN}Added $(echo "$missing" | wc -w) key(s) to server .env.${NC}"
+        fi
+    else
+        echo -e "${GREEN}.env keys in sync.${NC}"
+    fi
+}
+
 MODE="${1:-backend}"
 
 case "$MODE" in
@@ -96,6 +167,17 @@ case "$MODE" in
         git push
         echo -e "${YELLOW}Pulling on server...${NC}"
         deploy_to_server "cd $APP_DIR && git pull && chown -R backend:backend $APP_DIR/data/"
+
+        # Post-pull checks
+        NEEDS_RESTART=false
+        if check_deps; then NEEDS_RESTART=true; fi
+        check_env_keys
+
+        if [[ "$NEEDS_RESTART" == true ]]; then
+            echo -e "${YELLOW}Restarting service (deps changed)...${NC}"
+            deploy_to_server "systemctl restart backend-fastapi-dev"
+        fi
+
         [[ "$ON_LAN" == true ]] && echo -e "${GREEN}Pushed + pulled. Dev service auto-reloads.${NC}"
         ;;
 
@@ -166,8 +248,19 @@ case "$MODE" in
         deploy_to_server "journalctl -u backend-fastapi-dev --no-pager -n 50"
         ;;
 
+    env)
+        echo -e "${YELLOW}=== .env Key Check ===${NC}"
+        check_env_keys
+        ;;
+
+    check)
+        echo -e "${YELLOW}=== Pre-flight Checks ===${NC}"
+        check_deps || true
+        check_env_keys
+        ;;
+
     *)
-        echo "Usage: ./scripts/deploy.sh [backend|frontend|deps|restart|status|logs]"
+        echo "Usage: ./scripts/deploy.sh [backend|frontend|deps|restart|status|logs|env|check]"
         exit 1
         ;;
 esac

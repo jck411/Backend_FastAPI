@@ -1,12 +1,12 @@
 """
-Deepgram STT service using the synchronous SDK pattern with threading.
-Based on working implementation from deepgram-voice-transcriber.
+STT service supporting Deepgram and Azure Speech engines.
+Uses synchronous SDK patterns with threading for reliable connection management.
 """
 
 import asyncio
 import logging
 import threading
-from typing import Callable, Optional
+from typing import Callable, Optional, Protocol
 
 from deepgram import DeepgramClient
 from deepgram.core.events import EventType
@@ -15,10 +15,30 @@ from backend.config import get_settings
 from backend.schemas.client_settings import SttSettings
 from backend.services.client_settings_service import get_client_settings_service
 
+try:
+    import azure.cognitiveservices.speech as speechsdk
+except Exception:  # pragma: no cover - optional dependency
+    speechsdk = None
+
 logger = logging.getLogger(__name__)
 
-# Audio settings (must match Pi sender)
+# Audio settings (must match frontend sender)
 SAMPLE_RATE = 16000
+
+
+class SttSessionProtocol(Protocol):
+    """Common interface for STT session implementations."""
+
+    session_id: str
+
+    def connect(self) -> bool: ...
+    def send_audio(self, data: bytes) -> None: ...
+    def pause(self) -> None: ...
+    def resume(self) -> None: ...
+    def close(self) -> None: ...
+
+    @property
+    def is_connected(self) -> bool: ...
 
 
 class DeepgramSession:
@@ -400,10 +420,167 @@ class DeepgramSession:
         logger.info(f"Deepgram session closed for {self.session_id}")
 
 
+class AzureSttSession:
+    """Manages a single Azure Speech STT session using the push stream pattern."""
+
+    def __init__(
+        self,
+        session_id: str,
+        on_transcript: Callable[[str, bool], None],
+        on_error: Optional[Callable[[str], None]] = None,
+        on_speech_start: Optional[Callable[[], None]] = None,
+        event_loop: Optional[asyncio.AbstractEventLoop] = None,
+        # Azure-specific settings
+        silence_timeout_ms: int = 500,
+        initial_silence_timeout_ms: int = 5000,
+        enable_dictation: bool = True,
+    ):
+        if speechsdk is None:
+            raise RuntimeError("azure-cognitiveservices-speech is not installed")
+
+        settings = get_settings()
+        if not settings.azure_speech_key or not settings.azure_speech_region:
+            raise RuntimeError(
+                "Azure Speech is not configured (AZURE_SPEECH_KEY / AZURE_SPEECH_REGION)"
+            )
+
+        self.session_id = session_id
+        self.on_transcript = on_transcript
+        self.on_error = on_error
+        self.on_speech_start = on_speech_start
+        self._event_loop = event_loop
+        self._connected = False
+        self._paused = False
+        self._stopped = False
+
+        self._speech_config = speechsdk.SpeechConfig(
+            subscription=settings.azure_speech_key.get_secret_value(),
+            region=settings.azure_speech_region,
+        )
+        self._speech_config.speech_recognition_language = settings.azure_speech_language
+
+        # Segmentation silence timeout — how long silence finalizes a segment
+        self._speech_config.set_property(
+            speechsdk.PropertyId.Speech_SegmentationSilenceTimeoutMs,
+            str(silence_timeout_ms),
+        )
+        # Initial silence timeout — how long to wait for first speech
+        self._speech_config.set_property(
+            speechsdk.PropertyId.SpeechServiceConnection_InitialSilenceTimeoutMs,
+            str(initial_silence_timeout_ms),
+        )
+        # Dictation mode — automatic punctuation and capitalization
+        if enable_dictation:
+            self._speech_config.enable_dictation()
+
+        stream_format = speechsdk.audio.AudioStreamFormat(
+            samples_per_second=SAMPLE_RATE,
+            bits_per_sample=16,
+            channels=1,
+        )
+        self._push_stream = speechsdk.audio.PushAudioInputStream(stream_format)
+        audio_config = speechsdk.audio.AudioConfig(stream=self._push_stream)
+        self._recognizer = speechsdk.SpeechRecognizer(
+            speech_config=self._speech_config,
+            audio_config=audio_config,
+        )
+        self._wire_events()
+
+    def _schedule_callback(self, coro_or_func, *args) -> None:
+        """Schedule a callback, handling both sync and async callables."""
+        if asyncio.iscoroutinefunction(coro_or_func):
+            if self._event_loop is not None:
+                asyncio.run_coroutine_threadsafe(coro_or_func(*args), self._event_loop)
+        else:
+            coro_or_func(*args)
+
+    def _wire_events(self) -> None:
+        def on_recognizing(evt):
+            if self._paused:
+                return
+            text = evt.result.text if evt.result else ""
+            if text:
+                # Interim result → is_final=False
+                self._schedule_callback(self.on_transcript, text, False)
+
+        def on_recognized(evt):
+            if self._paused:
+                return
+            result = evt.result
+            if result is None:
+                return
+            if result.reason == speechsdk.ResultReason.RecognizedSpeech and result.text:
+                # Final result → is_final=True
+                self._schedule_callback(self.on_transcript, result.text, True)
+
+        def on_canceled(evt):
+            code = evt.cancellation_details.reason if evt.cancellation_details else None
+            # EndOfStream is normal when we close the push stream — not an error
+            if code == speechsdk.CancellationReason.EndOfStream:
+                return
+            details = getattr(evt, "error_details", "Unknown cancellation")
+            if self.on_error:
+                self._schedule_callback(self.on_error, str(details))
+
+        def on_speech_start_detected(_evt):
+            if self.on_speech_start:
+                self._schedule_callback(self.on_speech_start)
+
+        self._recognizer.recognizing.connect(on_recognizing)
+        self._recognizer.recognized.connect(on_recognized)
+        self._recognizer.canceled.connect(on_canceled)
+        self._recognizer.speech_start_detected.connect(on_speech_start_detected)
+
+    def connect(self) -> bool:
+        """Start continuous recognition."""
+        try:
+            self._recognizer.start_continuous_recognition_async().get()
+            self._connected = True
+            logger.info(f"Azure STT session ready for {self.session_id}")
+            return True
+        except Exception as e:
+            logger.error(
+                f"Failed to start Azure STT for {self.session_id}: {e}", exc_info=True
+            )
+            return False
+
+    def send_audio(self, data: bytes) -> None:
+        """Push audio bytes into the Azure push stream."""
+        if not self._stopped and not self._paused:
+            self._push_stream.write(data)
+
+    def pause(self) -> None:
+        self._paused = True
+        logger.info(f"Azure STT session {self.session_id} PAUSED")
+
+    def resume(self) -> None:
+        self._paused = False
+        logger.info(f"Azure STT session {self.session_id} RESUMED")
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected and not self._stopped
+
+    def close(self) -> None:
+        if self._stopped:
+            return
+        self._stopped = True
+        self._connected = False
+        try:
+            self._recognizer.stop_continuous_recognition_async().get()
+        except Exception:
+            pass
+        try:
+            self._push_stream.close()
+        except Exception:
+            pass
+        logger.info(f"Azure STT session closed for {self.session_id}")
+
+
 class STTService:
     """
-    Manages Deepgram streaming STT sessions.
-    Uses synchronous SDK pattern with threading for reliable connection management.
+    Manages streaming STT sessions (Deepgram and Azure).
+    Uses synchronous SDK patterns with threading for reliable connection management.
     """
 
     def __init__(self):
@@ -417,7 +594,7 @@ class STTService:
             raise ValueError("DEEPGRAM_API_KEY is not set")
 
         self.api_key = api_key
-        self.sessions: dict[str, DeepgramSession] = {}
+        self.sessions: dict[str, DeepgramSession | AzureSttSession] = {}
 
     def get_settings(self, settings_client_id: str = "voice") -> SttSettings:
         """Get STT settings for the specified client."""
@@ -433,6 +610,7 @@ class STTService:
     ):
         """
         Start a new live transcription session.
+        Routes to Azure or Deepgram based on client settings.
         """
         try:
             # Close existing session if any
@@ -442,42 +620,61 @@ class STTService:
             # Get current STT settings for the requested client
             stt_settings = self.get_settings(settings_client_id)
 
-            # IMPORTANT: The Deepgram listener runs in a background thread,
-            # which has no asyncio event loop. We must capture the main loop
-            # here (in async context) and pass it to DeepgramSession for
-            # thread-safe callback scheduling via run_coroutine_threadsafe().
             loop = asyncio.get_running_loop()
 
-            # Create new session with configurable settings
-            session = DeepgramSession(
-                api_key=self.api_key,
-                session_id=session_id,
-                on_transcript=on_transcript,
-                on_error=on_error,
-                on_speech_start=on_speech_start,
-                # Mode selection
-                mode=stt_settings.mode,
-                # Conversation mode (Flux v2) settings
-                eot_threshold=stt_settings.eot_threshold,
-                eot_timeout_ms=stt_settings.eot_timeout_ms,
-                keyterms=stt_settings.keyterms,
-                # Command mode (Nova-3 v1) settings
-                command_model=stt_settings.command_model,
-                command_utterance_end_ms=stt_settings.command_utterance_end_ms,
-                command_endpointing=stt_settings.command_endpointing,
-                command_interim_results=stt_settings.command_interim_results,
-                command_smart_format=stt_settings.command_smart_format,
-                command_numerals=stt_settings.command_numerals,
-                event_loop=loop,  # Pass event loop for thread-safe callback scheduling
+            # Use Azure engine for command mode when configured
+            use_azure = (
+                stt_settings.mode == "command"
+                and stt_settings.command_engine == "azure"
             )
+
+            if use_azure:
+                session: DeepgramSession | AzureSttSession = AzureSttSession(
+                    session_id=session_id,
+                    on_transcript=on_transcript,
+                    on_error=on_error,
+                    on_speech_start=on_speech_start,
+                    event_loop=loop,
+                    silence_timeout_ms=stt_settings.azure_silence_timeout_ms,
+                    initial_silence_timeout_ms=stt_settings.azure_initial_silence_timeout_ms,
+                    enable_dictation=stt_settings.azure_enable_dictation,
+                )
+            else:
+                # IMPORTANT: The Deepgram listener runs in a background thread,
+                # which has no asyncio event loop. We must capture the main loop
+                # here (in async context) and pass it to DeepgramSession for
+                # thread-safe callback scheduling via run_coroutine_threadsafe().
+                session = DeepgramSession(
+                    api_key=self.api_key,
+                    session_id=session_id,
+                    on_transcript=on_transcript,
+                    on_error=on_error,
+                    on_speech_start=on_speech_start,
+                    # Mode selection
+                    mode=stt_settings.mode,
+                    # Conversation mode (Flux v2) settings
+                    eot_threshold=stt_settings.eot_threshold,
+                    eot_timeout_ms=stt_settings.eot_timeout_ms,
+                    keyterms=stt_settings.keyterms,
+                    # Command mode (Nova-3 v1) settings
+                    command_model=stt_settings.command_model,
+                    command_utterance_end_ms=stt_settings.command_utterance_end_ms,
+                    command_endpointing=stt_settings.command_endpointing,
+                    command_interim_results=stt_settings.command_interim_results,
+                    command_smart_format=stt_settings.command_smart_format,
+                    command_numerals=stt_settings.command_numerals,
+                    event_loop=loop,
+                )
 
             # Connect in thread pool to not block asyncio
             success = await loop.run_in_executor(None, session.connect)
 
             if success:
                 self.sessions[session_id] = session
+                engine = "azure" if use_azure else "deepgram"
                 logger.info(
-                    f"STT session created for {session_id} (mode={stt_settings.mode})"
+                    f"STT session created for {session_id} "
+                    f"(mode={stt_settings.mode}, engine={engine})"
                 )
                 return True
             else:
@@ -524,6 +721,6 @@ class STTService:
             session.resume()
 
     def is_session_connected(self, session_id: str) -> bool:
-        """Check if a session exists and is connected to Deepgram."""
+        """Check if a session exists and is connected."""
         session = self.sessions.get(session_id)
         return session is not None and session.is_connected

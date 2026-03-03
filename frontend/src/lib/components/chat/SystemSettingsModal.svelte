@@ -16,6 +16,8 @@
   import "./speech-settings.css";
   import "./system-settings.css";
 
+  import { setWakewordEnabled, wakewordState } from "../../speech/wakeword";
+
   export let open = false;
 
   const dispatch = createEventDispatcher<{ close: void }>();
@@ -92,13 +94,19 @@
     try {
       serverSttSettings = await updateSttSettings({
         mode: serverSttSettings.mode,
-        // Command mode (Nova) settings
+        // Command mode engine + settings
+        command_engine: serverSttSettings.command_engine,
         command_model: serverSttSettings.command_model,
         command_utterance_end_ms: serverSttSettings.command_utterance_end_ms,
         command_endpointing: serverSttSettings.command_endpointing,
         command_interim_results: serverSttSettings.command_interim_results,
         command_smart_format: serverSttSettings.command_smart_format,
         command_numerals: serverSttSettings.command_numerals,
+        // Azure engine settings
+        azure_silence_timeout_ms: serverSttSettings.azure_silence_timeout_ms,
+        azure_initial_silence_timeout_ms:
+          serverSttSettings.azure_initial_silence_timeout_ms,
+        azure_enable_dictation: serverSttSettings.azure_enable_dictation,
         // Conversation mode (Flux) settings
         eot_threshold: serverSttSettings.eot_threshold,
         eot_timeout_ms: serverSttSettings.eot_timeout_ms,
@@ -448,6 +456,40 @@
       </header>
 
       <div class="system-card-body">
+        <!-- Wakeword toggle -->
+        <div class="speech-toggles" style="margin-bottom: 1rem;">
+          <label class="toggle">
+            <input
+              type="checkbox"
+              checked={$wakewordState.enabled}
+              on:change={(event) => {
+                setWakewordEnabled((event.target as HTMLInputElement).checked);
+              }}
+            />
+            <span>
+              Wakeword: "computer"
+              {#if $wakewordState.status === "armed"}
+                <span style="color: #5fcc5f; font-weight: 600;">
+                  — listening</span
+                >
+              {:else if $wakewordState.status === "starting"}
+                <span style="opacity: 0.6;"> — starting…</span>
+              {:else if $wakewordState.status === "error"}
+                <span
+                  style="color: #e55; font-weight: 600;"
+                  title={$wakewordState.error ?? ""}
+                >
+                  — error</span
+                >
+              {/if}
+            </span>
+          </label>
+          <p class="speech-hint">
+            Say "computer" to activate speech recognition hands-free. Re-arms
+            automatically after each message.
+          </p>
+        </div>
+
         {#if serverSttError}
           <p class="status error">{serverSttError}</p>
         {:else if !serverSttSettings}
@@ -476,7 +518,7 @@
               }}
             >
               <option value="conversation">Conversation (Flux)</option>
-              <option value="command">Command (Nova)</option>
+              <option value="command">Command</option>
             </select>
             <p class="speech-hint">
               {#if serverSttSettings.mode === "conversation"}
@@ -489,125 +531,245 @@
           </div>
 
           {#if serverSttSettings.mode === "command"}
-            <!-- Nova timing settings -->
-            <div class="speech-field-row">
-              <div class="speech-field">
-                <label class="field-label" for="stt-utterance-end"
-                  >Utterance end (ms)</label
-                >
-                <input
-                  id="stt-utterance-end"
-                  class="input-control"
-                  type="number"
-                  min="500"
-                  max="5000"
-                  step="100"
-                  value={serverSttSettings.command_utterance_end_ms}
-                  disabled={serverSttSaving}
-                  on:change={(event) => {
-                    if (serverSttSettings) {
-                      serverSttSettings = {
-                        ...serverSttSettings,
-                        command_utterance_end_ms: Number(
-                          (event.target as HTMLInputElement).value,
-                        ),
-                      };
-                      serverSttDirty = true;
-                    }
-                  }}
-                />
-                <p class="speech-hint">Silence duration to end utterance</p>
-              </div>
-
-              <div class="speech-field">
-                <label class="field-label" for="stt-endpointing"
-                  >Endpointing (ms)</label
-                >
-                <input
-                  id="stt-endpointing"
-                  class="input-control"
-                  type="number"
-                  min="10"
-                  max="5000"
-                  step="50"
-                  value={serverSttSettings.command_endpointing}
-                  disabled={serverSttSaving}
-                  on:change={(event) => {
-                    if (serverSttSettings) {
-                      serverSttSettings = {
-                        ...serverSttSettings,
-                        command_endpointing: Number(
-                          (event.target as HTMLInputElement).value,
-                        ),
-                      };
-                      serverSttDirty = true;
-                    }
-                  }}
-                />
-                <p class="speech-hint">Threshold for segment boundaries</p>
-              </div>
+            <!-- Engine Selection -->
+            <div class="speech-field">
+              <label class="field-label" for="stt-engine-select"
+                >STT engine</label
+              >
+              <select
+                id="stt-engine-select"
+                class="input-control"
+                value={serverSttSettings.command_engine}
+                disabled={serverSttSaving}
+                on:change={(event) => {
+                  if (serverSttSettings) {
+                    serverSttSettings = {
+                      ...serverSttSettings,
+                      command_engine: (event.target as HTMLSelectElement)
+                        .value as "deepgram" | "azure",
+                    };
+                    serverSttDirty = true;
+                  }
+                }}
+              >
+                <option value="deepgram">Deepgram (Nova)</option>
+                <option value="azure">Azure Speech</option>
+              </select>
+              <p class="speech-hint">
+                {#if serverSttSettings.command_engine === "azure"}
+                  Azure Cognitive Services speech recognition.
+                {:else}
+                  Deepgram Nova model with configurable endpointing.
+                {/if}
+              </p>
             </div>
 
-            <!-- Nova feature toggles -->
-            <div class="speech-toggles">
-              <label class="toggle">
-                <input
-                  type="checkbox"
-                  checked={serverSttSettings.command_smart_format}
-                  disabled={serverSttSaving}
-                  on:change={(event) => {
-                    if (serverSttSettings) {
-                      serverSttSettings = {
-                        ...serverSttSettings,
-                        command_smart_format: (event.target as HTMLInputElement)
-                          .checked,
-                      };
-                      serverSttDirty = true;
-                    }
-                  }}
-                />
-                <span>Smart format</span>
-              </label>
+            {#if serverSttSettings.command_engine === "deepgram"}
+              <!-- Nova timing settings -->
+              <div class="speech-field-row">
+                <div class="speech-field">
+                  <label class="field-label" for="stt-utterance-end"
+                    >Utterance end (ms)</label
+                  >
+                  <input
+                    id="stt-utterance-end"
+                    class="input-control"
+                    type="number"
+                    min="500"
+                    max="5000"
+                    step="100"
+                    value={serverSttSettings.command_utterance_end_ms}
+                    disabled={serverSttSaving}
+                    on:change={(event) => {
+                      if (serverSttSettings) {
+                        serverSttSettings = {
+                          ...serverSttSettings,
+                          command_utterance_end_ms: Number(
+                            (event.target as HTMLInputElement).value,
+                          ),
+                        };
+                        serverSttDirty = true;
+                      }
+                    }}
+                  />
+                  <p class="speech-hint">Silence duration to end utterance</p>
+                </div>
 
-              <label class="toggle">
-                <input
-                  type="checkbox"
-                  checked={serverSttSettings.command_numerals}
-                  disabled={serverSttSaving}
-                  on:change={(event) => {
-                    if (serverSttSettings) {
-                      serverSttSettings = {
-                        ...serverSttSettings,
-                        command_numerals: (event.target as HTMLInputElement)
-                          .checked,
-                      };
-                      serverSttDirty = true;
-                    }
-                  }}
-                />
-                <span>Numbers as digits</span>
-              </label>
+                <div class="speech-field">
+                  <label class="field-label" for="stt-endpointing"
+                    >Endpointing (ms)</label
+                  >
+                  <input
+                    id="stt-endpointing"
+                    class="input-control"
+                    type="number"
+                    min="10"
+                    max="5000"
+                    step="50"
+                    value={serverSttSettings.command_endpointing}
+                    disabled={serverSttSaving}
+                    on:change={(event) => {
+                      if (serverSttSettings) {
+                        serverSttSettings = {
+                          ...serverSttSettings,
+                          command_endpointing: Number(
+                            (event.target as HTMLInputElement).value,
+                          ),
+                        };
+                        serverSttDirty = true;
+                      }
+                    }}
+                  />
+                  <p class="speech-hint">Threshold for segment boundaries</p>
+                </div>
+              </div>
 
-              <label class="toggle">
-                <input
-                  type="checkbox"
-                  checked={serverSttSettings.command_interim_results}
-                  disabled={serverSttSaving}
-                  on:change={(event) => {
-                    if (serverSttSettings) {
-                      serverSttSettings = {
-                        ...serverSttSettings,
-                        command_interim_results: (
-                          event.target as HTMLInputElement
-                        ).checked,
-                      };
-                      serverSttDirty = true;
-                    }
-                  }}
-                />
-                <span>Interim results</span>
-              </label>
-            </div>
+              <!-- Nova feature toggles -->
+              <div class="speech-toggles">
+                <label class="toggle">
+                  <input
+                    type="checkbox"
+                    checked={serverSttSettings.command_smart_format}
+                    disabled={serverSttSaving}
+                    on:change={(event) => {
+                      if (serverSttSettings) {
+                        serverSttSettings = {
+                          ...serverSttSettings,
+                          command_smart_format: (
+                            event.target as HTMLInputElement
+                          ).checked,
+                        };
+                        serverSttDirty = true;
+                      }
+                    }}
+                  />
+                  <span>Smart format</span>
+                </label>
+
+                <label class="toggle">
+                  <input
+                    type="checkbox"
+                    checked={serverSttSettings.command_numerals}
+                    disabled={serverSttSaving}
+                    on:change={(event) => {
+                      if (serverSttSettings) {
+                        serverSttSettings = {
+                          ...serverSttSettings,
+                          command_numerals: (event.target as HTMLInputElement)
+                            .checked,
+                        };
+                        serverSttDirty = true;
+                      }
+                    }}
+                  />
+                  <span>Numbers as digits</span>
+                </label>
+
+                <label class="toggle">
+                  <input
+                    type="checkbox"
+                    checked={serverSttSettings.command_interim_results}
+                    disabled={serverSttSaving}
+                    on:change={(event) => {
+                      if (serverSttSettings) {
+                        serverSttSettings = {
+                          ...serverSttSettings,
+                          command_interim_results: (
+                            event.target as HTMLInputElement
+                          ).checked,
+                        };
+                        serverSttDirty = true;
+                      }
+                    }}
+                  />
+                  <span>Interim results</span>
+                </label>
+              </div>
+            {:else}
+              <!-- Azure timing settings -->
+              <div class="speech-field-row">
+                <div class="speech-field">
+                  <label class="field-label" for="azure-silence-timeout"
+                    >Silence timeout (ms)</label
+                  >
+                  <input
+                    id="azure-silence-timeout"
+                    class="input-control"
+                    type="number"
+                    min="100"
+                    max="5000"
+                    step="100"
+                    value={serverSttSettings.azure_silence_timeout_ms}
+                    disabled={serverSttSaving}
+                    on:change={(event) => {
+                      if (serverSttSettings) {
+                        serverSttSettings = {
+                          ...serverSttSettings,
+                          azure_silence_timeout_ms: Number(
+                            (event.target as HTMLInputElement).value,
+                          ),
+                        };
+                        serverSttDirty = true;
+                      }
+                    }}
+                  />
+                  <p class="speech-hint">
+                    Silence duration to finalize a segment
+                  </p>
+                </div>
+
+                <div class="speech-field">
+                  <label class="field-label" for="azure-initial-silence"
+                    >Initial silence timeout (ms)</label
+                  >
+                  <input
+                    id="azure-initial-silence"
+                    class="input-control"
+                    type="number"
+                    min="1000"
+                    max="30000"
+                    step="500"
+                    value={serverSttSettings.azure_initial_silence_timeout_ms}
+                    disabled={serverSttSaving}
+                    on:change={(event) => {
+                      if (serverSttSettings) {
+                        serverSttSettings = {
+                          ...serverSttSettings,
+                          azure_initial_silence_timeout_ms: Number(
+                            (event.target as HTMLInputElement).value,
+                          ),
+                        };
+                        serverSttDirty = true;
+                      }
+                    }}
+                  />
+                  <p class="speech-hint">How long to wait for first speech</p>
+                </div>
+              </div>
+
+              <!-- Azure feature toggles -->
+              <div class="speech-toggles">
+                <label class="toggle">
+                  <input
+                    type="checkbox"
+                    checked={serverSttSettings.azure_enable_dictation}
+                    disabled={serverSttSaving}
+                    on:change={(event) => {
+                      if (serverSttSettings) {
+                        serverSttSettings = {
+                          ...serverSttSettings,
+                          azure_enable_dictation: (
+                            event.target as HTMLInputElement
+                          ).checked,
+                        };
+                        serverSttDirty = true;
+                      }
+                    }}
+                  />
+                  <span>Dictation mode</span>
+                </label>
+              </div>
+            {/if}
           {:else}
             <!-- Conversation mode (Flux) settings -->
             <div class="speech-field-row">

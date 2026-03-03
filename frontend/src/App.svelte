@@ -35,6 +35,13 @@
     startDictation,
     stopSpeech,
   } from "./lib/speech/speechController";
+  import {
+    disarm as disarmWakeword,
+    initWakeword,
+    rearm as rearmWakeword,
+    setOnDetected,
+    wakewordState,
+  } from "./lib/speech/wakeword";
   import type { ConversationMessage } from "./lib/stores/chat";
   import { chatStore } from "./lib/stores/chat";
   import { modelStore } from "./lib/stores/models";
@@ -159,6 +166,10 @@
       // Clean up URL
       window.history.replaceState({}, "", window.location.pathname);
     }
+
+    // Wakeword: on detection, start dictation
+    setOnDetected(() => void startDictation());
+    initWakeword();
   });
 
   async function handleSuggestionAdd(): Promise<void> {
@@ -369,6 +380,20 @@
       void resumeConversation();
     }
     wasStreaming = isStreaming;
+  }
+
+  // Wakeword: disarm while speech is active, re-arm when idle and not streaming
+  $: if ($speechState.recording || $speechState.connecting) {
+    disarmWakeword();
+  }
+  $: if (
+    $wakewordState.enabled &&
+    $speechState.mode === "idle" &&
+    !$speechState.recording &&
+    !$speechState.connecting &&
+    !$chatStore.isStreaming
+  ) {
+    rearmWakeword();
   }
 
   $: if (editingMessageId) {
@@ -635,6 +660,7 @@
     </div>
   {/if}
 </main>
+// test
 
 <style>
   * {
@@ -851,4 +877,3 @@
     }
   }
 </style>
-// test

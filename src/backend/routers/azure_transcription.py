@@ -3,9 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..config import get_settings
 
@@ -19,12 +18,12 @@ router = APIRouter(prefix="/api/azure-stt", tags=["azure-stt"])
 
 
 class AzureSession:
-    def __init__(self, websocket: WebSocket, mode: str):
+    """Pure transcription session — no keyword logic."""
+
+    def __init__(self, websocket: WebSocket):
         self.websocket = websocket
-        self.mode = mode
         self.loop = asyncio.get_running_loop()
         self.stopped = False
-        self.keyword_armed = mode == "keyword"
 
         settings = get_settings()
         if speechsdk is None:
@@ -34,11 +33,11 @@ class AzureSession:
         if not settings.azure_speech_key or not settings.azure_speech_region:
             raise RuntimeError("Azure Speech is not configured on the server")
 
-        self.speech_config = speechsdk.SpeechConfig(
+        speech_config = speechsdk.SpeechConfig(
             subscription=settings.azure_speech_key.get_secret_value(),
             region=settings.azure_speech_region,
         )
-        self.speech_config.speech_recognition_language = settings.azure_speech_language
+        speech_config.speech_recognition_language = settings.azure_speech_language
 
         stream_format = speechsdk.audio.AudioStreamFormat(
             samples_per_second=16000,
@@ -46,24 +45,11 @@ class AzureSession:
             channels=1,
         )
         self.push_stream = speechsdk.audio.PushAudioInputStream(stream_format)
-        self.audio_config = speechsdk.audio.AudioConfig(stream=self.push_stream)
+        audio_config = speechsdk.audio.AudioConfig(stream=self.push_stream)
         self.recognizer = speechsdk.SpeechRecognizer(
-            speech_config=self.speech_config,
-            audio_config=self.audio_config,
+            speech_config=speech_config,
+            audio_config=audio_config,
         )
-
-        self.keyword_model = None
-        if mode == "keyword":
-            model_path = settings.azure_keyword_model_path
-            if model_path is None:
-                raise RuntimeError("Keyword mode requested, but AZURE_KEYWORD_MODEL_PATH is not set")
-            model_file = Path(model_path)
-            if not model_file.exists():
-                raise RuntimeError(
-                    f"Keyword model file not found: {model_file}"
-                )
-            self.keyword_model = speechsdk.KeywordRecognitionModel(str(model_file))
-
         self._wire_events()
 
     def _send_async(self, payload: dict[str, object]) -> None:
@@ -71,31 +57,17 @@ class AzureSession:
 
     def _wire_events(self) -> None:
         def on_recognizing(evt):
-            if self.keyword_armed:
-                return
             text = evt.result.text if evt.result else ""
             if text:
                 self._send_async({"type": "partial", "text": text})
 
         def on_recognized(evt):
             result = evt.result
-            if result is None:
-                return
-
-            reason = result.reason
-            if self.keyword_armed and reason == speechsdk.ResultReason.RecognizedKeyword:
-                self.keyword_armed = False
-                self._send_async({"type": "keyword_detected"})
-                try:
-                    self.recognizer.stop_keyword_recognition_async().get()
-                    self.recognizer.start_continuous_recognition_async().get()
-                    self._send_async({"type": "started", "mode": "transcription"})
-                except Exception as exc:
-                    logger.exception("Failed to switch from keyword mode")
-                    self._send_async({"type": "error", "message": str(exc)})
-                return
-
-            if reason == speechsdk.ResultReason.RecognizedSpeech and result.text:
+            if (
+                result
+                and result.reason == speechsdk.ResultReason.RecognizedSpeech
+                and result.text
+            ):
                 self._send_async({"type": "final", "text": result.text})
 
         def on_canceled(evt):
@@ -107,12 +79,8 @@ class AzureSession:
         self.recognizer.canceled.connect(on_canceled)
 
     def start(self) -> None:
-        if self.mode == "keyword":
-            self.recognizer.start_keyword_recognition_async(self.keyword_model).get()
-            self._send_async({"type": "armed", "message": "Keyword listening is active"})
-        else:
-            self.recognizer.start_continuous_recognition_async().get()
-            self._send_async({"type": "started", "mode": "transcription"})
+        self.recognizer.start_continuous_recognition_async().get()
+        self._send_async({"type": "started", "mode": "transcription"})
 
     def push_audio(self, chunk: bytes) -> None:
         if not self.stopped:
@@ -126,10 +94,6 @@ class AzureSession:
             self.recognizer.stop_continuous_recognition_async().get()
         except Exception:
             pass
-        try:
-            self.recognizer.stop_keyword_recognition_async().get()
-        except Exception:
-            pass
         self.push_stream.close()
 
 
@@ -137,14 +101,9 @@ class AzureSession:
 async def azure_stt_status() -> dict[str, object]:
     settings = get_settings()
     configured = bool(settings.azure_speech_key and settings.azure_speech_region)
-    keyword_model_exists = bool(
-        settings.azure_keyword_model_path
-        and Path(settings.azure_keyword_model_path).exists()
-    )
     return {
         "configured": configured,
         "language": settings.azure_speech_language,
-        "keyword_model_available": keyword_model_exists,
     }
 
 
@@ -154,13 +113,7 @@ async def azure_stt_stream(websocket: WebSocket) -> None:
 
     session: AzureSession | None = None
     try:
-        init_msg = await websocket.receive_text()
-        init_data = json.loads(init_msg)
-        mode = init_data.get("mode", "button")
-        if mode not in {"button", "keyword"}:
-            raise HTTPException(status_code=400, detail="Invalid mode")
-
-        session = AzureSession(websocket, mode=mode)
+        session = AzureSession(websocket)
         await asyncio.to_thread(session.start)
 
         while True:
@@ -174,8 +127,6 @@ async def azure_stt_stream(websocket: WebSocket) -> None:
 
     except WebSocketDisconnect:
         logger.info("Azure STT websocket disconnected")
-    except HTTPException as exc:
-        await websocket.send_json({"type": "error", "message": exc.detail})
     except Exception as exc:
         logger.exception("Azure STT stream error")
         await websocket.send_json({"type": "error", "message": str(exc)})

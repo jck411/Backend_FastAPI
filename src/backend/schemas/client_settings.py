@@ -85,6 +85,12 @@ class SttSettings(BaseModel):
         description="STT mode: 'conversation' (Flux v2) or 'command' (Nova-3 v1)",
     )
 
+    # Command mode engine selection
+    command_engine: Literal["deepgram", "azure"] = Field(
+        default="deepgram",
+        description="STT engine for command mode: 'deepgram' (Nova) or 'azure'",
+    )
+
     # Conversation mode (Flux) settings
     eot_threshold: float = Field(
         default=0.7,
@@ -145,11 +151,32 @@ class SttSettings(BaseModel):
         description="Convert spoken numbers to numerals",
     )
 
+    # Azure engine settings
+    azure_silence_timeout_ms: int = Field(
+        default=500,
+        ge=100,
+        le=5000,
+        description="Silence duration (ms) to finalize a speech segment",
+    )
+    azure_initial_silence_timeout_ms: int = Field(
+        default=5000,
+        ge=1000,
+        le=30000,
+        description="How long (ms) to wait for speech before timing out",
+    )
+    azure_enable_dictation: bool = Field(
+        default=True,
+        description="Enable dictation mode for automatic punctuation and capitalization",
+    )
+
 
 class SttSettingsUpdate(BaseModel):
     """Partial update for STT settings."""
 
     mode: Optional[Literal["conversation", "command"]] = None
+
+    # Command mode engine selection
+    command_engine: Optional[Literal["deepgram", "azure"]] = None
 
     # Conversation mode (Flux) settings
     eot_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
@@ -165,6 +192,13 @@ class SttSettingsUpdate(BaseModel):
     command_interim_results: Optional[bool] = None
     command_smart_format: Optional[bool] = None
     command_numerals: Optional[bool] = None
+
+    # Azure engine settings
+    azure_silence_timeout_ms: Optional[int] = Field(default=None, ge=100, le=5000)
+    azure_initial_silence_timeout_ms: Optional[int] = Field(
+        default=None, ge=1000, le=30000
+    )
+    azure_enable_dictation: Optional[bool] = None
 
 
 # =============================================================================

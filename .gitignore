@@ -50,6 +50,10 @@ logs/*
 backend.log
 backend.pid
 
+# Azure keyword model zips (models live in data/ which is already ignored)
+*.table
+computer_azurekw.zip
+
 # Credentials and tokens
 *credentials*.json
 *token*.json

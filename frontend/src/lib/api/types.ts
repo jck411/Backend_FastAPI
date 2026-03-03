@@ -451,6 +451,8 @@ export interface ClientSettings {
 
 export interface SttSettings {
   mode: 'conversation' | 'command';
+  // Command mode engine selection
+  command_engine: 'deepgram' | 'azure';
   // Command mode (Nova) settings
   command_model: string;
   command_utterance_end_ms: number;
@@ -458,6 +460,10 @@ export interface SttSettings {
   command_interim_results: boolean;
   command_smart_format: boolean;
   command_numerals: boolean;
+  // Azure engine settings
+  azure_silence_timeout_ms: number;
+  azure_initial_silence_timeout_ms: number;
+  azure_enable_dictation: boolean;
   // Conversation mode (Flux) settings
   eot_threshold: number;
   eot_timeout_ms: number;
@@ -466,6 +472,8 @@ export interface SttSettings {
 
 export interface SttSettingsUpdate {
   mode?: 'conversation' | 'command';
+  // Command mode engine selection
+  command_engine?: 'deepgram' | 'azure';
   // Command mode (Nova) settings
   command_model?: string;
   command_utterance_end_ms?: number;
@@ -473,6 +481,10 @@ export interface SttSettingsUpdate {
   command_interim_results?: boolean;
   command_smart_format?: boolean;
   command_numerals?: boolean;
+  // Azure engine settings
+  azure_silence_timeout_ms?: number;
+  azure_initial_silence_timeout_ms?: number;
+  azure_enable_dictation?: boolean;
   // Conversation mode (Flux) settings
   eot_threshold?: number;
   eot_timeout_ms?: number;

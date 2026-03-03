@@ -20,6 +20,7 @@ from .routers.azure_transcription import router as azure_stt_router
 from .routers.chat import router as chat_router
 from .routers.clients import router as clients_router
 from .routers.google_auth import router as google_auth_router
+from .routers.keyword_detection import router as keyword_router
 from .routers.kiosk_calendar import router as kiosk_calendar_router
 from .routers.mcp_servers import router as mcp_router
 from .routers.monarch_auth import router as monarch_auth_router
@@ -272,6 +273,7 @@ def create_app() -> FastAPI:
     app.include_router(mcp_router)
     app.include_router(stt_router)
     app.include_router(azure_stt_router)
+    app.include_router(keyword_router)
     app.include_router(clients_router)
     app.include_router(profiles_router)
     app.include_router(weather_router)

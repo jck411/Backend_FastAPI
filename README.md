@@ -93,6 +93,8 @@ cd frontend && npm install && npm run dev   # http://localhost:5173, proxies to 
 | GET | `/api/uploads/{id}/content` | Get attachment content |
 | GET/POST/PUT/DELETE | `/api/suggestions` | Quick prompt suggestions |
 | POST | `/api/stt/deepgram/token` | Mint browser STT token |
+| GET | `/api/azure-stt/status` | Azure realtime STT readiness |
+| WS | `/api/azure-stt/stream` | Realtime Azure transcription stream |
 | GET/POST | `/api/google-auth/*` | Google OAuth flow |
 | GET/POST | `/api/monarch-auth/*` | Monarch Money auth |
 | GET/POST | `/api/spotify-auth/*` | Spotify auth |
@@ -198,3 +200,11 @@ See `.env.example` for the full list. Required:
 - [`docs/PROXMOX_DEPLOYMENT.md`](docs/PROXMOX_DEPLOYMENT.md) — Server architecture, systemd, troubleshooting
 - [`docs/GCS_STORAGE.md`](docs/GCS_STORAGE.md) — Attachment storage details
 - [`docs/REFERENCE.md`](docs/REFERENCE.md) — Operations reference
+
+
+### Azure Real-Time transcription demo UI
+
+- Open `/azure-stt.html` for a lightweight UI that supports:
+  - **Start transcription** with a button
+  - **Arm Azure keyword** mode (requires `AZURE_KEYWORD_MODEL_PATH`)
+- Required env vars: `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` (optional `AZURE_SPEECH_LANGUAGE`, `AZURE_KEYWORD_MODEL_PATH`).

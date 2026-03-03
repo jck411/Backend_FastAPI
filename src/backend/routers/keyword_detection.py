@@ -73,7 +73,7 @@ class KeywordListener:
 
     def _on_recognized(self, evt) -> None:
         result = evt.result
-        if result and result.reason == speechsdk.ResultReason.RecognizedKeyword:
+        if result and result.reason == speechsdk.ResultReason.RecognizedKeyword:  # type: ignore[union-attr]
             self._send({"type": "keyword_detected"})
 
     def _on_canceled(self, evt) -> None:

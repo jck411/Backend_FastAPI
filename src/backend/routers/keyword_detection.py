@@ -101,6 +101,8 @@ class KeywordListener:
 
 @router.get("/status")
 async def keyword_status() -> dict[str, object]:
+    if speechsdk is None:
+        return {"available": False}
     settings = get_settings()
     configured = bool(settings.azure_speech_key and settings.azure_speech_region)
     model_exists = bool(

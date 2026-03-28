@@ -208,5 +208,3 @@ See `.env.example` for the full list. Required:
   - **Start transcription** with a button
   - **Arm Azure keyword** mode (requires `AZURE_KEYWORD_MODEL_PATH`)
   - Required env vars: `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` (optional `AZURE_SPEECH_LANGUAGE`, `AZURE_KEYWORD_MODEL_PATH`).
-
-test

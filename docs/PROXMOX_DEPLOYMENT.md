@@ -41,6 +41,18 @@
 - **Tunnel**: `cloudflared` on Proxmox host routes `chat.jackshome.com` → `https://192.168.1.111:8000` (noTLSVerify)
 - **Branch**: `master` (production `mcp_servers.json` with remote URLs is gitignored and maintained manually on server)
 
+## Server Access
+
+LXC 111 does **not** have direct SSH — access it via the Proxmox host using `pct exec`:
+
+```bash
+# Pattern: SSH to Proxmox host → pct exec into LXC
+sshpass -p "$PROXMOX_PASSWORD" ssh -o StrictHostKeyChecking=accept-new root@192.168.1.11 \
+  "pct exec 111 -- bash -c '<commands>'"
+```
+
+The deploy script (`scripts/deploy.sh`) wraps this as `run_on_server()` using credentials from `.env` (`PROXMOX_HOST`, `PROXMOX_PASSWORD`, `PROXMOX_LXC_ID`).
+
 ## Container Specs
 
 | | |
@@ -86,7 +98,9 @@ systemctl is-active backend-fastapi-dev backend-fastapi-prod
 Dev mode auto-reloads — just push and pull:
 ```bash
 git push
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git pull"
+# Via Proxmox host (LXC has no direct SSH):
+sshpass -p "$PROXMOX_PASSWORD" ssh root@192.168.1.11 \
+  "pct exec 111 -- bash -c 'cd /opt/backend-fastapi && git pull && chown -R backend:backend data/'"
 ```
 
 ### Frontend source (`frontend/`, `frontend-voice/`, `frontend-kiosk/`)
@@ -119,21 +133,24 @@ cd frontend-kiosk && npm run build && cd ..     # → src/backend/static/kiosk/
 git add src/backend/static/ && git commit -m "build: rebuild frontends"
 git push
 
-# 4. Deploy with reset (ensures all files are restored):
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/data/ && systemctl restart backend-fastapi-dev"
+# 4. Deploy with reset (ensures all files are restored) — via Proxmox host:
+sshpass -p "$PROXMOX_PASSWORD" ssh root@192.168.1.11 \
+  "pct exec 111 -- bash -c 'cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend data/ && systemctl restart backend-fastapi-dev'"
 ```
 
 ### Dependencies changed (`pyproject.toml`)
 ```bash
 git push
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git pull && uv sync && systemctl restart backend-fastapi-dev"
+sshpass -p "$PROXMOX_PASSWORD" ssh root@192.168.1.11 \
+  "pct exec 111 -- bash -c 'cd /opt/backend-fastapi && git pull && uv sync && chown -R backend:backend data/ && systemctl restart backend-fastapi-dev'"
 ```
 
 ### Nuclear option (full reset)
 
 Use when `git pull` fails or you need a clean slate. Safe — preserves `.env` and `data/`:
 ```bash
-ssh root@192.168.1.111 "cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend /opt/backend-fastapi/data/ && systemctl restart backend-fastapi-dev"
+sshpass -p "$PROXMOX_PASSWORD" ssh root@192.168.1.11 \
+  "pct exec 111 -- bash -c 'cd /opt/backend-fastapi && git fetch origin && git reset --hard origin/master && chown -R backend:backend data/ && systemctl restart backend-fastapi-dev'"
 ```
 
 ## File Ownership (Critical)
@@ -154,12 +171,14 @@ The deploy script does this automatically. If deploying manually, always run the
 
 **Quick fix:**
 ```bash
-ssh root@192.168.1.111 "chown -R backend:backend /opt/backend-fastapi/data/"
+sshpass -p "$PROXMOX_PASSWORD" ssh root@192.168.1.11 \
+  "pct exec 111 -- bash -c 'chown -R backend:backend /opt/backend-fastapi/data/'"
 ```
 
 ### Logs
 ```bash
-ssh root@192.168.1.111 "journalctl -u backend-fastapi-dev -f"
+sshpass -p "$PROXMOX_PASSWORD" ssh root@192.168.1.11 \
+  "pct exec 111 -- bash -c 'journalctl -u backend-fastapi-dev -f'"
 ```
 
 ### Server-only files (never in git)
@@ -199,8 +218,8 @@ Credential files:
 
 | Symptom | Check |
 |---------|-------|
-| 500 on settings / preferences | `ssh root@192.168.1.111 "chown -R backend:backend /opt/backend-fastapi/data/"` (ownership) |
-| Health check fails | `ssh root@192.168.1.111 "curl -sk https://localhost:8000/health"` |
+| 500 on settings / preferences | Run `./scripts/deploy.sh restart` or: `pct exec 111 -- chown -R backend:backend /opt/backend-fastapi/data/` (ownership) |
+| Health check fails | `pct exec 111 -- curl -sk https://localhost:8000/health` (from Proxmox host) |
 | Service won't start | `journalctl -u backend-fastapi-dev -n 50` |
 | MCP tools unavailable | `curl http://192.168.1.110:9003/mcp` (check LXC 110) |
 | Tunnel not working | `ssh root@192.168.1.11 "systemctl status cloudflared"` |

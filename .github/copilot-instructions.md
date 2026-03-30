@@ -52,9 +52,10 @@ When changing or replacing behavior:
 ## Deployment
 
 - Use `./scripts/deploy.sh "commit message"` for all frontend changes — cleans, builds, verifies, commits, pushes, deploys
-- Backend Python changes auto-reload — just `git push` then `git pull` on server
-- Server is LXC 111 at `192.168.1.111`, service user `backend`, public URL `https://chat.jackshome.com`
-- See `docs/PROXMOX_DEPLOYMENT.md` for manual deployment steps
+- Backend Python changes auto-reload — just `git push` then pull on server
+- Server is LXC 111 at `192.168.1.111` — **no direct SSH**; access via Proxmox host (`192.168.1.11`) using `pct exec 111`
+- Service user `backend`, public URL `https://chat.jackshome.com`
+- See `docs/PROXMOX_DEPLOYMENT.md` for manual deployment steps and access patterns
 
 ### File ownership (critical)
 The backend service runs as `User=backend`. After any `git pull` or `git reset --hard` on the server, files created by git operations will be owned by `root`. The runtime `data/` directory must remain writable by the service user.

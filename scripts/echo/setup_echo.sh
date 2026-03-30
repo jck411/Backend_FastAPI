@@ -19,7 +19,8 @@
 #   - Disables lock screen and screen timeout
 #   - Disables bloatware and unnecessary apps
 #   - Disables system updates
-#   - Optimizes for performance
+#   - Fixes IDME bootmode and recovery flags
+#   - Installs TWRP auto-reboot guard (power loss recovery)
 #   - Enables ADB over WiFi (production)
 #   - Launches Fully Kiosk
 # ============================================
@@ -69,7 +70,7 @@ echo "✅ Connected to device: $SERIAL"
 # DISPLAY SETTINGS
 # ============================================
 echo ""
-echo "[1/11] Setting display brightness to 100%..."
+echo "[1/12] Setting display brightness to 100%..."
 $ADB_CMD shell settings put system screen_brightness 255
 $ADB_CMD shell settings put system screen_brightness_mode 0  # Disable auto-brightness
 echo "✅ Brightness set to maximum (255)"
@@ -78,7 +79,7 @@ echo "✅ Brightness set to maximum (255)"
 # DISABLE LOCK SCREEN
 # ============================================
 echo ""
-echo "[2/11] Disabling lock screen..."
+echo "[2/12] Disabling lock screen..."
 $ADB_CMD shell settings put secure lockscreen.disabled 1
 $ADB_CMD shell settings put global device_provisioned 1
 echo "✅ Lock screen disabled"
@@ -87,7 +88,7 @@ echo "✅ Lock screen disabled"
 # KEEP SCREEN ON FOREVER
 # ============================================
 echo ""
-echo "[3/11] Disabling screen timeout..."
+echo "[3/12] Disabling screen timeout..."
 # Stay awake while charging (USB + AC + Wireless = 7)
 $ADB_CMD shell settings put global stay_on_while_plugged_in 7
 # Set screen timeout to max (won't matter if stay_on is set, but just in case)
@@ -98,7 +99,7 @@ echo "✅ Screen will stay on indefinitely"
 # DISABLE UPDATES & BACKGROUND SERVICES
 # ============================================
 echo ""
-echo "[4/11] Disabling updates and background services..."
+echo "[4/12] Disabling updates and background services..."
 
 # Disable package verifier (speeds up installs, no Google checks)
 $ADB_CMD shell settings put global package_verifier_enable 0
@@ -110,10 +111,10 @@ $ADB_CMD shell settings put global netstats_enabled 0
 # Disable always-on WiFi scanning
 $ADB_CMD shell settings put global wifi_scan_always_enabled 0
 
-# Reduce animations for performance (0 = off)
-$ADB_CMD shell settings put global window_animation_scale 0.5
-$ADB_CMD shell settings put global transition_animation_scale 0.5
-$ADB_CMD shell settings put global animator_duration_scale 0.5
+# Disable animations (saves GPU memory and CPU)
+$ADB_CMD shell settings put global window_animation_scale 0
+$ADB_CMD shell settings put global transition_animation_scale 0
+$ADB_CMD shell settings put global animator_duration_scale 0
 
 echo "✅ Background services and updates disabled"
 
@@ -121,7 +122,7 @@ echo "✅ Background services and updates disabled"
 # CLEAR RECOVERY BOOT FLAGS
 # ============================================
 echo ""
-echo "[5/11] Clearing recovery boot flags (prevents update/recovery loops)..."
+echo "[5/12] Clearing recovery boot flags (prevents update/recovery loops)..."
 $ADB_CMD shell 'if [ -d /cache/recovery ]; then rm -f /cache/recovery/command /cache/recovery/last_log /cache/recovery/last_install; fi' || true
 $ADB_CMD shell 'if [ -d /data/cache/recovery ]; then rm -f /data/cache/recovery/command /data/cache/recovery/last_log /data/cache/recovery/last_install; fi' || true
 
@@ -174,10 +175,48 @@ fi
 echo "✅ Recovery flags cleared and recovery update disabled"
 
 # ============================================
+# INSTALL TWRP AUTO-REBOOT GUARD
+# ============================================
+# The amonet LK payload always routes to TWRP recovery on power-only boot
+# (no USB). This is hardcoded in the payload — IDME bootmode=0 alone does
+# not fix it. The workaround: an Android init service that writes a
+# "reboot" command to /cache/recovery/openrecoveryscript after each boot.
+# When TWRP starts, it reads and executes the script (rebooting to system),
+# then deletes it. The init service recreates it once the OS is up.
+# Cycle: power loss → TWRP → reads "reboot" → system → init recreates script
+echo ""
+echo "[6/12] Installing TWRP auto-reboot guard..."
+$ADB_CMD shell 'mount -o rw,remount / 2>/dev/null' || true
+
+# Create the guard script
+$ADB_CMD shell 'cat > /system/bin/twrp-guard.sh << "GUARD"
+#!/system/bin/sh
+sleep 30
+echo "reboot" > /cache/recovery/openrecoveryscript
+GUARD'
+$ADB_CMD shell 'chmod 755 /system/bin/twrp-guard.sh'
+
+# Create the init service
+$ADB_CMD shell 'cat > /system/etc/init/twrp-guard.rc << "INITRC"
+service twrp-guard /system/bin/twrp-guard.sh
+    class late_start
+    user root
+    group root
+    oneshot
+    seclabel u:r:su:s0
+INITRC'
+$ADB_CMD shell 'chmod 644 /system/etc/init/twrp-guard.rc'
+
+# Seed the initial openrecoveryscript
+$ADB_CMD shell 'mkdir -p /cache/recovery && echo "reboot" > /cache/recovery/openrecoveryscript'
+
+echo "✅ TWRP auto-reboot guard installed"
+
+# ============================================
 # DISABLE BLOATWARE APPS
 # ============================================
 echo ""
-echo "[6/11] Disabling unnecessary apps..."
+echo "[7/12] Disabling unnecessary apps..."
 
 # Apps to disable - these waste RAM and CPU
 BLOATWARE=(
@@ -244,7 +283,7 @@ echo "✅ Disabled $DISABLED_COUNT bloatware apps"
 # KILL BACKGROUND PROCESSES
 # ============================================
 echo ""
-echo "[7/11] Killing unnecessary background processes..."
+echo "[8/12] Killing unnecessary background processes..."
 
 # Force stop apps that might be running
 PROCESSES_TO_KILL=(
@@ -266,7 +305,7 @@ echo "✅ Background processes terminated"
 # ============================================
 echo ""
 if [ "$MODE" = "dev" ]; then
-    echo "[8/11] Setting up ADB reverse port forwarding (dev mode)..."
+    echo "[9/12] Setting up ADB reverse port forwarding (dev mode)..."
     $ADB_CMD reverse tcp:5174 tcp:5174  # Kiosk UI (dev server)
     $ADB_CMD reverse tcp:8000 tcp:8000  # Backend API
     KIOSK_URL="https://localhost:5174"
@@ -274,7 +313,7 @@ if [ "$MODE" = "dev" ]; then
     echo "   - localhost:5174 → Kiosk UI (dev server)"
     echo "   - localhost:8000 → Backend API"
 else
-    echo "[8/11] Enabling ADB over WiFi (production mode)..."
+    echo "[9/12] Enabling ADB over WiFi (production mode)..."
     # Get device WiFi IP for reference
     DEVICE_IP=$($ADB_CMD shell ip addr show wlan0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d/ -f1)
     # Remove any leftover reverse forwarding
@@ -292,7 +331,7 @@ fi
 # GRANT FULLY KIOSK PERMISSIONS
 # ============================================
 echo ""
-echo "[9/11] Granting Fully Kiosk permissions..."
+echo "[10/12] Granting Fully Kiosk permissions..."
 $ADB_CMD shell pm grant de.ozerov.fully android.permission.RECORD_AUDIO
 $ADB_CMD shell pm grant de.ozerov.fully android.permission.CAMERA 2>/dev/null || true
 $ADB_CMD shell pm grant de.ozerov.fully android.permission.ACCESS_FINE_LOCATION 2>/dev/null || true
@@ -302,7 +341,7 @@ echo "✅ Microphone and other permissions granted"
 # SET FULLY KIOSK AS HOME (WHEN SUPPORTED)
 # ============================================
 echo ""
-echo "[10/11] Setting Fully Kiosk as HOME activity (best effort)..."
+echo "[11/12] Setting Fully Kiosk as HOME activity (best effort)..."
 $ADB_CMD shell cmd package set-home-activity de.ozerov.fully/.MainActivity 2>/dev/null || true
 $ADB_CMD shell cmd package set-home-activity --user 0 de.ozerov.fully/.MainActivity 2>/dev/null || true
 echo "✅ HOME activity set (if supported)"
@@ -311,7 +350,7 @@ echo "✅ HOME activity set (if supported)"
 # LAUNCH FULLY KIOSK
 # ============================================
 echo ""
-echo "[11/11] Launching Fully Kiosk Browser..."
+echo "[12/12] Launching Fully Kiosk Browser..."
 $ADB_CMD shell am start -n de.ozerov.fully/.MainActivity \
     -a android.intent.action.VIEW \
     -d "$KIOSK_URL"
@@ -334,8 +373,9 @@ echo "  • Lock screen: Disabled"
 echo "  • Screen timeout: Disabled (stays on forever)"
 echo "  • System updates: Disabled"
 echo "  • Recovery flags: Cleared"
+echo "  • TWRP guard: Auto-reboot on power loss"
 echo "  • Bloatware: $DISABLED_COUNT apps disabled"
-echo "  • Animations: Reduced for performance"
+echo "  • Animations: Disabled"
 echo "  • Microphone: Permission granted"
 echo "  • Home activity: Fully Kiosk (best effort)"
 if [ "$MODE" = "dev" ]; then

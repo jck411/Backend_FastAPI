@@ -69,11 +69,6 @@ To re-enable a package:
 adb shell pm enable org.lineageos.audiofx
 ```
 
-**Automated script:** For additional hardware features (NFC, Bluetooth, haptic feedback, sensors):
-```bash
-./scripts/echo/disable_unused_features.sh
-```
-
 ### 4. Kernel Memory Parameters
 
 These require root access and reset on reboot:
@@ -244,11 +239,9 @@ After optimization on Echo Show 5 (974 MB usable RAM):
    adb shell am start -n de.ozerov.fully/.MainActivity
    ```
 
-4. Reboot and reapply optimizations:
+4. Reboot the device:
    ```bash
    adb reboot
-   # After boot:
-   ./scripts/echo/apply_echo_optimizations.sh
    ```
 
 ### WebView Crashes
@@ -257,10 +250,6 @@ If WebView keeps crashing, try:
 1. Reduce `slideshow_max_photos` to 20 or less
 2. Ensure "Don't keep activities" is ON
 3. Check if swap is full: `adb shell free -m`
-4. Clear and optimize WebView cache:
-   ```bash
-   ./scripts/echo/optimize_webview_cache.sh
-   ```
 
 ### ADB Root Access Denied
 
@@ -271,7 +260,7 @@ If WebView keeps crashing, try:
 
 ### Device Boots Into TWRP Recovery
 
-See the [MT8163 recovery boot problem](ECHO_KIOSK_SETUP.md#mt8163-recovery-boot-problem-echo-show-5) section in ECHO_KIOSK_SETUP.md. The setup script fixes this automatically; re-run it if needed.
+See the [boot and power loss recovery](ECHO_KIOSK_SETUP.md#boot-and-power-loss-recovery) section in ECHO_KIOSK_SETUP.md. The setup script fixes this automatically; re-run it if needed.
 
 ### Package Won't Disable
 
@@ -280,24 +269,6 @@ Some system packages can't be disabled without system partition modification:
 # Check if package is system
 adb shell pm path <package>
 # If path starts with /system/, it's a system app
-```
-
-## Automation
-
-### Apply Optimizations on Backend Start
-
-Add to your backend startup script:
-```bash
-# In start.sh
-./scripts/echo/apply_echo_optimizations.sh &
-```
-
-### Scheduled Cache Clear
-
-Add a cron job on the backend to periodically clear Echo cache:
-```bash
-# Every 6 hours
-0 */6 * * * curl -s "http://echo-ip:2323/?cmd=clearCache&password=$FULLY_KIOSK_PASSWORD"
 ```
 
 ## References

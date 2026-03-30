@@ -2,68 +2,40 @@
 
 Scripts for managing Echo Show devices running LineageOS with Fully Kiosk Browser.
 
-## Setup & Configuration
+## Scripts
 
 ### `setup_echo.sh`
-Initial device setup including brightness, bloatware removal, permissions, port forwarding, and Fully Kiosk launch.
+One-time device setup: brightness, bloatware removal, IDME bootmode fix, TWRP auto-reboot guard, permissions, and Fully Kiosk launch.
 
 ```bash
-./scripts/echo/setup_echo.sh SERIAL
+scripts/echo/setup_echo.sh [--dev] [SERIAL]
 ```
 
-**Run once per device** or when reconfiguring. See [ECHO_KIOSK_SETUP.md](../../docs/echo/ECHO_KIOSK_SETUP.md).
+See [ECHO_KIOSK_SETUP.md](../../docs/echo/ECHO_KIOSK_SETUP.md).
 
-## Memory Optimization
-
-### `apply_echo_optimizations.sh`
-Comprehensive memory optimization including kernel parameters, GPU settings, and package disabling.
+### `build_kiosk.sh`
+Build or serve the kiosk frontend.
 
 ```bash
-# First run (triggers reboot)
-./scripts/echo/apply_echo_optimizations.sh --reboot
-
-# After reboot (applies kernel params)
-./scripts/echo/apply_echo_optimizations.sh
+scripts/echo/build_kiosk.sh build   # Production build → src/backend/static/
+scripts/echo/build_kiosk.sh serve   # Dev server on https://0.0.0.0:5174
 ```
-
-**Run after each device reboot** as kernel parameters reset. See [ECHO_DEVICE_SETUP.md](../../docs/echo/ECHO_DEVICE_SETUP.md).
-
-### `disable_unused_features.sh`
-Disable unnecessary Android packages to free memory.
-
-### `optimize_webview_cache.sh`
-Clear and optimize WebView cache memory usage.
-
-### `optimize_echo_local_when_home.sh`
-Additional optimizations for local network operation (disables location services, Google services, background sync).
-
-## Memory Monitoring
 
 ### `check_echo_memory.sh`
-Quick memory snapshot showing free, available, swap usage, and top processes.
+Quick memory snapshot showing free/available/swap and top processes.
 
 ```bash
-./scripts/echo/check_echo_memory.sh
+scripts/echo/check_echo_memory.sh
 ```
 
 ### `monitor_echo_memory.sh`
-Continuous real-time memory monitoring (refreshes every 5 seconds).
+Continuous real-time memory monitoring (refreshes every 10 seconds).
 
 ```bash
-./scripts/echo/monitor_echo_memory.sh
+scripts/echo/monitor_echo_memory.sh
 ```
-
-## Quick Reference
-
-| Task | Command |
-|------|---------|
-| Initial setup | `./scripts/echo/setup_echo.sh SERIAL` |
-| Memory optimization | `./scripts/echo/apply_echo_optimizations.sh` |
-| Check memory | `./scripts/echo/check_echo_memory.sh` |
-| Monitor memory | `./scripts/echo/monitor_echo_memory.sh` |
 
 ## Documentation
 
-- [ECHO_DEVICE_SETUP.md](../../docs/echo/ECHO_DEVICE_SETUP.md) - Memory optimization guide
-- [ECHO_KIOSK_SETUP.md](../../docs/echo/ECHO_KIOSK_SETUP.md) - Initial device configuration
-- [README.md](../../docs/echo/README.md) - Echo documentation overview
+- [ECHO_KIOSK_SETUP.md](../../docs/echo/ECHO_KIOSK_SETUP.md) — Initial device configuration
+- [ECHO_DEVICE_SETUP.md](../../docs/echo/ECHO_DEVICE_SETUP.md) — Memory optimization guide

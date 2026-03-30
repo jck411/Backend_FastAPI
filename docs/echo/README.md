@@ -4,6 +4,17 @@ Documentation for setting up and maintaining Amazon Echo Show 5 devices (974 MB 
 
 Kiosks connect directly to the backend on LAN (`https://192.168.1.111:8000/kiosk/`) — no Cloudflare or public internet required. A development mode with ADB reverse port forwarding is available for local testing.
 
+## Credentials
+
+Fully Kiosk Browser Remote Admin credentials are stored in `.env`:
+
+| Variable | Description |
+|----------|-------------|
+| `ECHO_SHOW_IP` | Device IP on local network |
+| `FULLY_KIOSK_PASSWORD` | Remote Admin API password |
+| `FULLY_KIOSK_PORT` | Remote Admin port (default 2323) |
+| `FULLY_KIOSK_START_URL` | Production start URL |
+
 ## Documentation Guide
 
 ### For New Device Setup

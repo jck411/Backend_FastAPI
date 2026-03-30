@@ -8,8 +8,7 @@
 #   2 - Frontend       (Svelte chat UI on :5173)
 #   3 - Frontend-Kiosk (Kiosk UI on :5174)
 #   4 - Frontend-CLI   (Terminal chat client)
-#   5 - Slideshow Sync (Download photos from Google Photos)
-#   6 - Voice PWA      (Voice UI on :5175)
+#   5 - Voice PWA      (Voice UI on :5175)
 #
 # MCP servers run externally — on Proxmox in production, or
 # locally from the mcp-servers repo during development.
@@ -21,8 +20,7 @@
 #   ./start.sh 1       # Start Backend only
 #   ./start.sh 12      # Start Backend + Frontend
 #   ./start.sh dev     # Start Backend + Frontend (local development)
-#   ./start.sh all     # Start Backend + Frontend + Kiosk + Slideshow + Voice
-#   ./start.sh 5       # Just sync slideshow photos
+#   ./start.sh all     # Start Backend + Frontend + Kiosk + Voice
 # ============================================================
 
 set -e
@@ -110,13 +108,12 @@ else
     echo -e "  ${CYAN}2${NC} - Frontend       (Svelte chat UI on :5173)"
     echo -e "  ${CYAN}3${NC} - Frontend-Kiosk (Kiosk UI on :5174)"
     echo -e "  ${CYAN}4${NC} - Frontend-CLI   (Terminal chat client)"
-    echo -e "  ${CYAN}5${NC} - Slideshow Sync (Download & preload photos from Google Photos)"
-    echo -e "  ${CYAN}6${NC} - Voice PWA      (Voice UI on :5175)"
+    echo -e "  ${CYAN}5${NC} - Voice PWA      (Voice UI on :5175)"
     echo ""
     echo -e "  ${YELLOW}MCP servers are always-on (external). No launch needed.${NC}"
     echo ""
     echo -e "  ${CYAN}dev${NC} - Start 1 + 2 (Backend + Frontend for local development)
-  ${CYAN}all${NC} - Start 1, 2, 3, 5, and 6 (full web stack + slideshow)"
+  ${CYAN}all${NC} - Start 1, 2, 3, and 5 (full web stack)"
     echo ""
     echo -e "${BOLD}Enter selection (e.g., '12' or '135' or 'all'):${NC} "
     read -r selection
@@ -124,7 +121,7 @@ fi
 
 # Handle shortcuts
 if [[ "$selection" == "all" ]]; then
-    selection="12356"
+    selection="1235"
 fi
 if [[ "$selection" == "dev" ]]; then
     selection="12"
@@ -136,8 +133,8 @@ if [[ -z "$selection" ]]; then
     exit 1
 fi
 
-if [[ ! "$selection" =~ ^[1-6]+$ ]]; then
-    echo -e "${RED}Invalid selection. Use only numbers 1-6, 'dev', or 'all'.${NC}"
+if [[ ! "$selection" =~ ^[1-5]+$ ]]; then
+    echo -e "${RED}Invalid selection. Use only numbers 1-5, 'dev', or 'all'.${NC}"
     exit 1
 fi
 
@@ -148,7 +145,6 @@ START_BACKEND=false
 START_FRONTEND=false
 START_KIOSK=false
 START_CLI=false
-START_SLIDESHOW=false
 START_VOICE=false
 
 # Parse selection
@@ -156,15 +152,7 @@ START_VOICE=false
 [[ "$selection" == *"2"* ]] && START_FRONTEND=true
 [[ "$selection" == *"3"* ]] && START_KIOSK=true
 [[ "$selection" == *"4"* ]] && START_CLI=true
-[[ "$selection" == *"5"* ]] && START_SLIDESHOW=true
-[[ "$selection" == *"6"* ]] && START_VOICE=true
-
-# Sync Slideshow Photos (option 5) - run first so photos are ready for preload
-if $START_SLIDESHOW; then
-    echo -e "${GREEN}[5] Syncing & Preparing Slideshow Photos (40 max)...${NC}"
-    uv run python scripts/echo/sync_slideshow.py --max-photos 40
-    echo ""
-fi
+[[ "$selection" == *"5"* ]] && START_VOICE=true
 
 # Start Backend (option 1)
 if $START_BACKEND; then
@@ -203,9 +191,9 @@ if $START_KIOSK; then
     cd "$SCRIPT_DIR"
 fi
 
-# Start Voice PWA (option 6)
+# Start Voice PWA (option 5)
 if $START_VOICE; then
-    echo -e "${GREEN}[6] Starting Voice PWA...${NC}"
+    echo -e "${GREEN}[5] Starting Voice PWA...${NC}"
     uv run python scripts/kill_port.py 5175
     cd frontend-voice && npm run dev &
     PIDS+=($!)

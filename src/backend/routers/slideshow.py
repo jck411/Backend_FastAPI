@@ -1,120 +1,133 @@
-"""Simple slideshow router - serves photos from local cache."""
+"""Slideshow router — proxies Immich API for landscape photos."""
 
 from __future__ import annotations
 
 import hashlib
+import logging
+import os
 import random
 from datetime import date
-from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/slideshow", tags=["slideshow"])
 
-# Photo cache directory
-PHOTOS_DIR = (
-    Path(__file__).resolve().parent.parent.parent.parent
-    / "data"
-    / "slideshow"
-    / "photos"
-)
-UPDATE_FILE = (
-    Path(__file__).resolve().parent.parent.parent.parent
-    / "data"
-    / "slideshow_updated.txt"
-)
+IMMICH_URL = os.getenv("IMMICH_URL", "http://192.168.1.113:2283")
+IMMICH_API_KEY = os.getenv("IMMICH_API_KEY", "")
+
+# In-memory cache: refreshed once per day
+_cache: dict = {"date": None, "assets": []}
 
 
-def _get_photos() -> list[str]:
-    """Get list of photo filenames in cache."""
-    if not PHOTOS_DIR.exists():
-        return []
-    return [
-        f.name
-        for f in PHOTOS_DIR.iterdir()
-        if f.is_file()
-        and f.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+def _immich_headers() -> dict[str, str]:
+    return {"x-api-key": IMMICH_API_KEY, "Accept": "application/json"}
+
+
+async def _fetch_landscape_assets(max_photos: int = 30) -> list[dict]:
+    """Fetch latest landscape IMAGE assets from Immich."""
+    # Over-fetch to compensate for portrait filtering
+    fetch_size = max_photos * 3
+    body = {
+        "type": "IMAGE",
+        "order": "desc",
+        "size": fetch_size,
+        "page": 1,
+        "withExif": True,
+    }
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(
+            f"{IMMICH_URL}/api/search/metadata",
+            json=body,
+            headers=_immich_headers(),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    items = data.get("assets", {}).get("items", [])
+
+    # Filter landscape: width > height
+    landscape = [
+        {
+            "id": a["id"],
+            "width": a.get("exifInfo", {}).get("exifImageWidth") or a.get("width"),
+            "height": a.get("exifInfo", {}).get("exifImageHeight") or a.get("height"),
+        }
+        for a in items
+        if (a.get("exifInfo", {}).get("exifImageWidth") or a.get("width", 0))
+        > (a.get("exifInfo", {}).get("exifImageHeight") or a.get("height", 0))
     ]
+
+    return landscape[:max_photos]
+
+
+async def _get_daily_assets() -> list[dict]:
+    """Return cached asset list, refreshing once per day."""
+    today = date.today()
+    if _cache["date"] != today or not _cache["assets"]:
+        try:
+            _cache["assets"] = await _fetch_landscape_assets()
+            _cache["date"] = today
+            logger.info(
+                "Refreshed Immich slideshow cache: %d photos", len(_cache["assets"])
+            )
+        except Exception:
+            logger.exception("Failed to fetch photos from Immich")
+            # Return stale cache if available
+            if not _cache["assets"]:
+                raise
+    return _cache["assets"]
 
 
 @router.get("/photos")
 async def list_photos(daily_seed: bool = False) -> dict:
-    """
-    List available photos.
+    """List available landscape photo asset IDs from Immich."""
+    assets = await _get_daily_assets()
+    ids = [a["id"] for a in assets]
 
-    If daily_seed=True, returns a shuffled list that's consistent for the day.
-    """
-    photos = _get_photos()
-
-    if daily_seed and photos:
-        # Use today's date as seed for consistent daily shuffle
+    if daily_seed and ids:
         seed = int(hashlib.md5(str(date.today()).encode()).hexdigest(), 16)
         rng = random.Random(seed)
-        rng.shuffle(photos)
+        rng.shuffle(ids)
 
-    # Include last update timestamp for cache busting
-    last_updated = 0
-    if UPDATE_FILE.exists():
-        try:
-            last_updated = int(UPDATE_FILE.read_text().strip())
-        except (ValueError, IOError):
-            pass
-
-    return {"photos": photos, "count": len(photos), "last_updated": last_updated}
+    return {"photos": ids, "count": len(ids)}
 
 
 @router.get("/status")
 async def slideshow_status() -> dict:
-    """Get slideshow cache status and update information."""
-    photos = _get_photos()
-
-    last_updated = 0
-    if UPDATE_FILE.exists():
-        try:
-            last_updated = int(UPDATE_FILE.read_text().strip())
-        except (ValueError, IOError):
-            pass
-
-    # Calculate total cache size
-    total_size = 0
-    if PHOTOS_DIR.exists():
-        for f in PHOTOS_DIR.iterdir():
-            if f.is_file():
-                total_size += f.stat().st_size
-
+    """Get slideshow status."""
+    assets = await _get_daily_assets()
     return {
-        "photo_count": len(photos),
-        "cache_size_mb": round(total_size / (1024 * 1024), 1),
-        "last_updated": last_updated,
-        "cache_dir": str(PHOTOS_DIR),
-        "estimated_memory_mb": f"{len(photos) * 0.8:.0f}-{len(photos) * 1.2:.0f}",
+        "photo_count": len(assets),
+        "source": IMMICH_URL,
     }
 
 
-@router.get("/photo/{filename}")
-async def get_photo(filename: str) -> FileResponse:
-    """Serve a photo by filename with aggressive caching."""
-    # Prevent path traversal
-    if "/" in filename or "\\" in filename or ".." in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename")
+@router.get("/photo/{asset_id}")
+async def get_photo(asset_id: str) -> Response:
+    """Proxy an Immich asset thumbnail (preview size)."""
+    # Validate asset_id is a UUID-like string
+    if not asset_id or "/" in asset_id or "\\" in asset_id or ".." in asset_id:
+        raise HTTPException(status_code=400, detail="Invalid asset ID")
 
-    photo_path = PHOTOS_DIR / filename
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(
+            f"{IMMICH_URL}/api/assets/{asset_id}/thumbnail",
+            params={"size": "preview"},
+            headers=_immich_headers(),
+        )
+        if resp.status_code == 404:
+            raise HTTPException(status_code=404, detail="Photo not found")
+        resp.raise_for_status()
 
-    if not photo_path.exists() or not photo_path.is_file():
-        raise HTTPException(status_code=404, detail="Photo not found")
-
-    # Get file stats for ETag
-    file_stat = photo_path.stat()
-    etag = hashlib.md5(
-        f"{filename}-{file_stat.st_mtime}-{file_stat.st_size}".encode()
-    ).hexdigest()
-
-    return FileResponse(
-        photo_path,
-        media_type="image/jpeg",
+    return Response(
+        content=resp.content,
+        media_type=resp.headers.get("content-type", "image/jpeg"),
         headers={
-            "Cache-Control": "public, max-age=3600",  # Cache for 1 hour only
-            "ETag": f'"{etag}"',
+            "Cache-Control": "public, max-age=86400",
+            "ETag": resp.headers.get("etag", ""),
         },
     )

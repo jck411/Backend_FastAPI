@@ -133,6 +133,44 @@ $ADB_CMD shell 'if [ -f /system/etc/install-recovery.sh ]; then mount -o rw,remo
 $ADB_CMD shell setprop persist.vendor.recovery_update false
 $ADB_CMD shell setprop persist.sys.recovery_update false
 
+# Fix IDME bootmode (the actual root cause of recovery boot loops)
+# Amazon stores boot flags in IDME on eMMC boot1 partition (mmcblk0boot1).
+# bootmode=1 tells the LK bootloader to boot into TWRP recovery.
+# bootmode=0 tells it to boot normally into the OS.
+# The value is at a fixed offset in the IDME data structure.
+echo "  Fixing IDME bootmode (boot1 partition)..."
+IDME_BOOTMODE=$($ADB_CMD shell 'cat /proc/idme/bootmode 2>/dev/null' | tr -d '\r\n')
+if [ "$IDME_BOOTMODE" = "1" ]; then
+    # Find bootmode offset in boot1, patch it from '1' (0x31) to '0' (0x30)
+    $ADB_CMD shell 'dd if=/dev/block/mmcblk0boot1 of=/data/local/tmp/boot1.img bs=4096 2>/dev/null' || true
+    $ADB_CMD pull /data/local/tmp/boot1.img /tmp/echo_boot1.img >/dev/null 2>&1 || true
+    # Find the bootmode value offset: search for "bootmode" string, value is 28 bytes after field name start
+    BOOT_MODE_OFFSET=$(python3 -c "
+import sys
+data = open('/tmp/echo_boot1.img', 'rb').read()
+idx = data.find(b'bootmode')
+if idx == -1:
+    sys.exit(1)
+# IDME field: 16B name + 4B size + 4B count + 4B flags = 28B to value
+val_offset = idx + 28
+if data[val_offset:val_offset+1] == b'1':
+    print(val_offset)
+else:
+    sys.exit(1)
+" 2>/dev/null)
+    if [ -n "$BOOT_MODE_OFFSET" ]; then
+        printf '\x30' | dd of=/tmp/echo_boot1.img bs=1 seek="$BOOT_MODE_OFFSET" conv=notrunc 2>/dev/null
+        $ADB_CMD push /tmp/echo_boot1.img /data/local/tmp/boot1_patched.img >/dev/null 2>&1
+        $ADB_CMD shell 'echo 0 > /sys/block/mmcblk0boot1/force_ro && dd if=/data/local/tmp/boot1_patched.img of=/dev/block/mmcblk0boot1 bs=4096 2>/dev/null && sync'
+        echo "  ✅ IDME bootmode changed from 1 → 0"
+    else
+        echo "  ⚠️  Could not locate bootmode offset in boot1 — manual fix may be needed"
+    fi
+    rm -f /tmp/echo_boot1.img
+else
+    echo "  ✅ IDME bootmode already 0 (normal boot)"
+fi
+
 echo "✅ Recovery flags cleared and recovery update disabled"
 
 # ============================================

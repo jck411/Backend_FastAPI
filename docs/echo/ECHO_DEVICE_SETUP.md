@@ -134,7 +134,7 @@ scripts/echo/setup_echo.sh --dev SERIAL
 
 ## Fully Kiosk Browser Settings
 
-Access via: `http://<device-ip>:2323` (password: 1234)
+Access via: `http://<device-ip>:2323` (password from `FULLY_KIOSK_PASSWORD` in `.env`)
 
 ### Web Content Settings
 
@@ -163,43 +163,33 @@ Access via: `http://<device-ip>:2323` (password: 1234)
 | Setting | Value |
 |---------|-------|
 | **Enable Remote Admin** | ON |
-| **Remote Admin Password** | 1234 |
+| **Remote Admin Password** | Value of `FULLY_KIOSK_PASSWORD` in `.env` |
 | **Remote Admin Port** | 2323 |
 
 ### Useful Remote Commands
 
 Clear WebView cache:
 ```
-http://<device-ip>:2323/?cmd=clearCache&password=1234
+http://<device-ip>:2323/?cmd=clearCache&password=$FULLY_KIOSK_PASSWORD
 ```
 
 Reload page:
 ```
-http://<device-ip>:2323/?cmd=loadStartUrl&password=1234
+http://<device-ip>:2323/?cmd=loadStartUrl&password=$FULLY_KIOSK_PASSWORD
 ```
 
 ## Slideshow Configuration
 
-The slideshow photo count is configurable via the Kiosk Settings modal in the frontend, or directly:
+Slideshow photos are served from Immich (192.168.1.113:2283) via the backend proxy.
+The backend fetches the latest landscape photos daily — no sync script or cron needed.
 
+Photo count is configured in kiosk UI settings:
 ```bash
-# Edit the setting (default: 30)
 cat src/backend/data/clients/kiosk/ui.json
 # {"idle_return_delay_ms": 10000, "slideshow_max_photos": 30}
 ```
 
-Photo sync respects this setting:
-```bash
-./scripts/echo/sync_slideshow.py  # Uses setting
-./scripts/echo/sync_slideshow.py --max-photos 20  # Override
-```
-
 **Memory impact:** ~0.8 MB per photo when decoded. 30 photos ≈ 24 MB decoded bitmap memory.
-
-**Diagnostic tool:** Check current photo memory allocation:
-```bash
-./scripts/echo/optimize_photo_memory.py
-```
 
 ## Memory Monitoring
 
@@ -245,7 +235,7 @@ After optimization on Echo Show 5 (974 MB usable RAM):
 
 2. Clear WebView cache:
    ```bash
-   curl "http://<device-ip>:2323/?cmd=clearCache&password=1234"
+   curl "http://<device-ip>:2323/?cmd=clearCache&password=$FULLY_KIOSK_PASSWORD"
    ```
 
 3. Restart Fully Kiosk:
@@ -302,26 +292,12 @@ Add to your backend startup script:
 ./scripts/echo/apply_echo_optimizations.sh &
 ```
 
-### Scheduled Slideshow Sync
-
-Photo syncing runs daily at 3 AM via cron on the server (LXC 111).
-
-The cron job is at `/etc/cron.d/slideshow-sync`:
-```
-0 3 * * * root cd /opt/backend-fastapi && .venv/bin/python scripts/echo/sync_slideshow.py >> /opt/backend-fastapi/logs/slideshow_sync.log 2>&1
-```
-
-Manual sync:
-```bash
-cd /opt/backend-fastapi && .venv/bin/python scripts/echo/sync_slideshow.py
-```
-
 ### Scheduled Cache Clear
 
 Add a cron job on the backend to periodically clear Echo cache:
 ```bash
 # Every 6 hours
-0 */6 * * * curl -s "http://echo-ip:2323/?cmd=clearCache&password=1234"
+0 */6 * * * curl -s "http://echo-ip:2323/?cmd=clearCache&password=$FULLY_KIOSK_PASSWORD"
 ```
 
 ## References

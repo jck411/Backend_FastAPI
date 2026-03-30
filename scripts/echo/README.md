@@ -34,9 +34,6 @@ Disable unnecessary Android packages to free memory.
 ### `optimize_webview_cache.sh`
 Clear and optimize WebView cache memory usage.
 
-### `optimize_photo_memory.py`
-Optimize slideshow photo memory usage (part of sync pipeline).
-
 ### `optimize_echo_local_when_home.sh`
 Additional optimizations for local network operation (disables location services, Google services, background sync).
 
@@ -56,22 +53,6 @@ Continuous real-time memory monitoring (refreshes every 5 seconds).
 ./scripts/echo/monitor_echo_memory.sh
 ```
 
-## Slideshow Management
-
-### `sync_slideshow.py`
-Download and sync photos from Google Photos album for kiosk slideshow.
-
-```bash
-# Use configured max photos from ui.json
-./scripts/echo/sync_slideshow.py
-
-# Override max photos
-./scripts/echo/sync_slideshow.py --max-photos 20
-```
-
-### `sync_slideshow.sh`
-Shell wrapper for cron/systemd automation of slideshow sync.
-
 ## Quick Reference
 
 | Task | Command |
@@ -80,7 +61,6 @@ Shell wrapper for cron/systemd automation of slideshow sync.
 | Memory optimization | `./scripts/echo/apply_echo_optimizations.sh` |
 | Check memory | `./scripts/echo/check_echo_memory.sh` |
 | Monitor memory | `./scripts/echo/monitor_echo_memory.sh` |
-| Sync photos | `./scripts/echo/sync_slideshow.py` |
 
 ## Documentation
 

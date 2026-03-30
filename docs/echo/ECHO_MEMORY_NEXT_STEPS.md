@@ -41,38 +41,12 @@ adb shell setprop debug.hwui.renderer skiagl
 
 ---
 
-## Priority 2: Photo Optimization (~10-15MB savings)
+## Priority 2: Photo Optimization
 
-### 2.1 Reduce Photo Resolution
-Current: 1024x576 (16:9) → Echo screen: 960×480 (2:1 aspect)
-Recommended: **1024×512** (2:1 aspect, matches screen, ~2x resolution for quality)
-
-```python
-# In sync_slideshow.py, change:
-download_url = f"{base}=w1024-h576"
-# To:
-download_url = f"{base}=w1024-h512"
-```
-
-**Impact**: ~10% memory reduction per photo + eliminates letterboxing/cropping from aspect mismatch.
-
-### 2.2 Reduce Photo Count Further
-Current: 30 photos (confirmed in ui.json)
-If memory is still tight after 2.1:
-```bash
-./scripts/echo/sync_slideshow.py --max-photos 20
-```
+Photos are now served from Immich via backend proxy (preview-size thumbnails).
+To reduce memory, lower `slideshow_max_photos` in `src/backend/data/clients/kiosk/ui.json`.
 
 Memory formula: `(photo_count * avg_bitmap_size)` where avg_bitmap_size ≈ 0.8 MB decoded.
-
-### 2.3 JPEG Quality Optimization
-Add compression during sync (requires pillow):
-```python
-from PIL import Image
-# After download, recompress:
-img = Image.open(filepath)
-img.save(filepath, "JPEG", quality=80, optimize=True)
-```
 
 ---
 

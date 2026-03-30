@@ -1,4 +1,4 @@
-"""Slideshow router — proxies Immich API for landscape photos."""
+"""Slideshow router — proxies Immich API for landscape photos with people/pets."""
 
 from __future__ import annotations
 
@@ -28,19 +28,17 @@ def _immich_headers() -> dict[str, str]:
 
 
 async def _fetch_landscape_assets(max_photos: int = 30) -> list[dict]:
-    """Fetch latest landscape IMAGE assets from Immich."""
-    # Over-fetch to compensate for portrait filtering
-    fetch_size = max_photos * 3
+    """Fetch landscape photos with people/pets from Immich using smart search."""
+    fetch_size = max_photos * 2
     body = {
+        "query": "people faces pets animals",
         "type": "IMAGE",
-        "order": "desc",
         "size": fetch_size,
-        "page": 1,
         "withExif": True,
     }
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
-            f"{IMMICH_URL}/api/search/metadata",
+            f"{IMMICH_URL}/api/search/smart",
             json=body,
             headers=_immich_headers(),
         )
@@ -51,11 +49,7 @@ async def _fetch_landscape_assets(max_photos: int = 30) -> list[dict]:
 
     # Filter landscape: width > height
     landscape = [
-        {
-            "id": a["id"],
-            "width": a.get("exifInfo", {}).get("exifImageWidth") or a.get("width"),
-            "height": a.get("exifInfo", {}).get("exifImageHeight") or a.get("height"),
-        }
+        {"id": a["id"]}
         for a in items
         if (a.get("exifInfo", {}).get("exifImageWidth") or a.get("width", 0))
         > (a.get("exifInfo", {}).get("exifImageHeight") or a.get("height", 0))

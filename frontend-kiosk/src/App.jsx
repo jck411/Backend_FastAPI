@@ -41,12 +41,6 @@ export default function App() {
     const [showTranscription, setShowTranscription] = useState(false);
     const messagesEndRef = useRef(null);
 
-    // Settings / MCP state
-    const [showSettings, setShowSettings] = useState(false);
-    const [mcpServers, setMcpServers] = useState([]);
-    const [mcpEnabled, setMcpEnabled] = useState(null);
-    const [mcpSaving, setMcpSaving] = useState(false);
-
     // Refs for state machine (to avoid stale closures)
     const backendStateRef = useRef("IDLE");
     const isPlayingTtsRef = useRef(false);
@@ -700,64 +694,6 @@ export default function App() {
         setToolStatus(null);
     }, [stopAudio, releaseMic, readyState, sendMessage]);
 
-    // Load MCP servers when settings panel opens
-    useEffect(() => {
-        if (!showSettings) return;
-        let cancelled = false;
-        (async () => {
-            try {
-                const apiBase = import.meta.env.DEV
-                    ? `${window.location.protocol}//${window.location.hostname}:8000`
-                    : '';
-                const [serversResp, prefsResp] = await Promise.all([
-                    fetch(`${apiBase}/api/mcp/servers/`),
-                    fetch(`${apiBase}/api/mcp/preferences/kiosk`),
-                ]);
-                if (serversResp.ok && prefsResp.ok && !cancelled) {
-                    const serversData = await serversResp.json();
-                    const prefsData = await prefsResp.json();
-                    setMcpServers(serversData.servers || []);
-                    setMcpEnabled(prefsData.enabled_servers);
-                }
-            } catch {
-                // Non-critical — leave defaults
-            }
-        })();
-        return () => { cancelled = true; };
-    }, [showSettings]);
-
-    const handleToggleMcpServer = async (serverId) => {
-        if (mcpSaving) return;
-        const allIds = mcpServers.filter(s => s.connected).map(s => s.id);
-        const current = mcpEnabled ?? allIds;
-        const isEnabled = current.includes(serverId);
-        const updated = isEnabled
-            ? current.filter(id => id !== serverId)
-            : [...current, serverId];
-        setMcpEnabled(updated);
-        setMcpSaving(true);
-        try {
-            const apiBase = import.meta.env.DEV
-                ? `${window.location.protocol}//${window.location.hostname}:8000`
-                : '';
-            const resp = await fetch(`${apiBase}/api/mcp/preferences/kiosk`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ enabled_servers: updated }),
-            });
-            if (resp.ok) {
-                const data = await resp.json();
-                setMcpEnabled(data.enabled_servers);
-            } else {
-                setMcpEnabled(current.length > 0 ? current : null);
-            }
-        } catch {
-            setMcpEnabled(current.length > 0 ? current : null);
-        } finally {
-            setMcpSaving(false);
-        }
-    };
-
     // Derive app state for UI display
     const appState = deriveAppState(backendState, isPlayingTtsRef.current);
 
@@ -800,71 +736,6 @@ export default function App() {
                 onSnooze={handleAlarmSnooze}
                 snoozeMinutes={5}
             />
-
-            {/* Settings Gear — top-left, subtle */}
-            {!showTranscription && (
-                <button
-                    className="fixed top-2 left-2 z-50 p-2 rounded-full opacity-30 hover:opacity-80 transition-opacity"
-                    onClick={() => setShowSettings(true)}
-                    aria-label="Settings"
-                >
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="3"/>
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                    </svg>
-                </button>
-            )}
-
-            {/* Settings Modal */}
-            {showSettings && (
-                <div
-                    className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70"
-                    onClick={() => setShowSettings(false)}
-                >
-                    <div
-                        className="bg-zinc-900 rounded-2xl p-6 w-[420px] max-h-[80vh] overflow-y-auto animate-fade-in"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <div className="flex items-center justify-between mb-5">
-                            <h2 className="text-lg font-semibold text-white">Kiosk Settings</h2>
-                            <button
-                                className="text-zinc-400 hover:text-white transition-colors text-sm"
-                                onClick={() => setShowSettings(false)}
-                            >
-                                Close
-                            </button>
-                        </div>
-
-                        {/* MCP Servers */}
-                        <div>
-                            <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wider mb-3">MCP Servers</h3>
-                            {mcpServers.filter(s => s.connected).length === 0 ? (
-                                <p className="text-sm text-zinc-500">No servers connected</p>
-                            ) : (
-                                <div className="flex flex-wrap gap-2">
-                                    {mcpServers.filter(s => s.connected).map(server => {
-                                        const isEnabled = mcpEnabled === null || (mcpEnabled && mcpEnabled.includes(server.id));
-                                        return (
-                                            <button
-                                                key={server.id}
-                                                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                                                    isEnabled
-                                                        ? 'bg-emerald-500/20 border border-emerald-500/45 text-emerald-300'
-                                                        : 'bg-zinc-800 border border-zinc-700 text-zinc-500'
-                                                }`}
-                                                onClick={() => handleToggleMcpServer(server.id)}
-                                                disabled={mcpSaving}
-                                            >
-                                                {server.id}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* Connection Indicator */}
             <div

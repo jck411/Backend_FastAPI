@@ -1,12 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import { createGoogleAuthStore } from "../../stores/googleAuth";
-  import {
-    CLIENT_IDS,
-    CLIENT_LABELS,
-    createMcpServersStore,
-    type ClientId,
-  } from "../../stores/mcpServers";
+  import { createMcpServersStore } from "../../stores/mcpServers";
   import { createMonarchAuthStore } from "../../stores/monarchAuth";
   import { createSpotifyAuthStore } from "../../stores/spotifyAuth";
   import ModelSettingsDialog from "./model-settings/ModelSettingsDialog.svelte";
@@ -67,15 +62,11 @@
     });
   }
 
-  function toggleClientServer(
-    clientId: ClientId,
-    serverId: string,
-    enabled: boolean,
-  ): void {
+  function toggleServer(serverId: string, enabled: boolean): void {
     if ($mcpServers.saving) {
       return;
     }
-    void mcpServers.setClientServerEnabled(clientId, serverId, enabled);
+    void mcpServers.setServerEnabled(serverId, enabled);
   }
 
   function toggleTool(serverId: string, tool: string, enabled: boolean): void {
@@ -192,7 +183,7 @@
     <svelte:fragment slot="heading">
       <h2 id="mcp-settings-title">MCP servers</h2>
       <p class="model-settings-subtitle">
-        Manage MCP server tools and client access.
+        Manage MCP server tools and integrations.
       </p>
     </svelte:fragment>
 
@@ -551,32 +542,25 @@
                       </div>
                     </div>
                     <div class="server-toggles">
-                      <div class="client-toggles-group">
-                        {#each CLIENT_IDS as clientId}
-                          <label
-                            class="toggle client-toggle"
-                            title="Enable for {CLIENT_LABELS[clientId]} client"
-                          >
-                            <input
-                              type="checkbox"
-                              checked={$mcpServers.clientPreferences[
-                                clientId
-                              ] === null ||
-                                $mcpServers.clientPreferences[
-                                  clientId
-                                ]?.includes(server.id)}
-                              disabled={!server.connected || $mcpServers.saving}
-                              onchange={(event) =>
-                                toggleClientServer(
-                                  clientId,
-                                  server.id,
-                                  event.currentTarget.checked,
-                                )}
-                            />
-                            <span>{CLIENT_LABELS[clientId]}</span>
-                          </label>
-                        {/each}
-                      </div>
+                      <label class="toggle" title="Enable this server">
+                        <input
+                          type="checkbox"
+                          checked={$mcpServers.enabledServers === null ||
+                            $mcpServers.enabledServers?.includes(server.id)}
+                          disabled={!server.connected || $mcpServers.saving}
+                          onchange={(event) =>
+                            toggleServer(
+                              server.id,
+                              event.currentTarget.checked,
+                            )}
+                        />
+                        <span
+                          >{$mcpServers.enabledServers === null ||
+                          $mcpServers.enabledServers?.includes(server.id)
+                            ? "Enabled"
+                            : "Disabled"}</span
+                        >
+                      </label>
                       <button
                         type="button"
                         class="btn btn-ghost btn-small btn-danger"

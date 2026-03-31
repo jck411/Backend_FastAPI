@@ -44,6 +44,7 @@ class MCPServerConfig(BaseModel):
         ...,
         description="Full MCP endpoint URL (e.g. http://192.168.1.110:9003/mcp)",
     )
+    enabled: bool = Field(default=True, description="Whether to connect to this server")
     disabled_tools: set[str] = Field(
         default_factory=set, description="Tool names to hide from LLM"
     )
@@ -238,6 +239,9 @@ class MCPToolAggregator:
             )
 
             for config in self._configs:
+                if not config.enabled:
+                    logger.info("Skipping disabled MCP server '%s'", config.id)
+                    continue
                 await self._launch_server(config)
 
             if not self._clients:

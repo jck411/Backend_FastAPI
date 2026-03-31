@@ -205,45 +205,6 @@ export async function updateKioskUiSettings(
     return response.json();
 }
 
-// ============== MCP Settings ==============
-
-export interface KioskMcpServerInfo {
-    id: string;
-    enabled: boolean;
-    tool_count: number;
-    kiosk_enabled: boolean;
-}
-
-/**
- * Fetch all available MCP servers with their kiosk enabled status.
- */
-export async function fetchKioskMcpServers(): Promise<KioskMcpServerInfo[]> {
-    const response = await fetch(`${API_BASE_URL}/api/clients/kiosk/mcp-servers`);
-    if (!response.ok) {
-        throw new Error(`Failed to fetch kiosk MCP servers: ${response.statusText}`);
-    }
-    return response.json();
-}
-
-/**
- * Update kiosk_enabled for a specific MCP server.
- * Uses the main MCP API endpoint.
- */
-export async function updateServerKioskEnabled(
-    serverId: string,
-    kioskEnabled: boolean
-): Promise<void> {
-    const response = await fetch(`${API_BASE_URL}/api/mcp/servers/${serverId}/clients/kiosk?enabled=${kioskEnabled}`, {
-        method: 'PATCH',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-    });
-    if (!response.ok) {
-        throw new Error(`Failed to update kiosk_enabled for ${serverId}: ${response.statusText}`);
-    }
-}
-
 // ============== LLM Settings ==============
 
 export interface KioskLlmSettings {

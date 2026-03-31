@@ -80,6 +80,15 @@ class StubMCPManagement:
     async def toggle_tool(self, server_id: str, tool_name: str, enabled: bool) -> None:
         self.toggle_tool_calls.append((server_id, tool_name, enabled))
 
+    async def update_disabled_tools(
+        self, server_id: str, disabled_tools: list[str]
+    ) -> None:
+        for s in self._servers:
+            if s["id"] == server_id:
+                s["disabled_tools"] = disabled_tools
+                return
+        raise KeyError(server_id)
+
     async def refresh(self) -> None:
         self.refresh_calls += 1
 
@@ -430,10 +439,10 @@ async def test_router_preferences_roundtrip() -> None:
     app = _make_app(prefs=prefs)
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        # Initially empty
+        # Initially no preferences set (None = all servers enabled)
         resp = await client.get("/api/mcp/preferences/svelte")
         assert resp.status_code == 200
-        assert resp.json()["enabled_servers"] == []
+        assert resp.json()["enabled_servers"] is None
 
         # Update
         resp = await client.put(

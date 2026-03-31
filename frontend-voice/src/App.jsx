@@ -134,6 +134,9 @@ function App() {
   const [settingsError, setSettingsError] = useState(null);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [mcpServers, setMcpServers] = useState([]);
+  const [mcpEnabled, setMcpEnabled] = useState(null);
+  const [mcpSaving, setMcpSaving] = useState(false);
   const [streamSpeedCps, setStreamSpeedCps] = useState(() => {
     if (typeof window === 'undefined') return DEFAULT_STREAM_SPEED_CPS;
     try {
@@ -821,6 +824,24 @@ function App() {
         hadError = true;
       }
 
+      // Load MCP server preferences for voice client
+      try {
+        const [serversResp, prefsResp] = await Promise.all([
+          fetch('/api/mcp/servers/'),
+          fetch('/api/mcp/preferences/voice'),
+        ]);
+        if (serversResp.ok && prefsResp.ok) {
+          const serversData = await serversResp.json();
+          const prefsData = await prefsResp.json();
+          if (!cancelled) {
+            setMcpServers(serversData.servers || []);
+            setMcpEnabled(prefsData.enabled_servers);
+          }
+        }
+      } catch {
+        // MCP load failure is non-critical; leave defaults
+      }
+
       if (!cancelled) {
         savedSttPayloadKeyRef.current = JSON.stringify(buildSttSettingsPayload(nextSttDraft));
         savedTtsPayloadKeyRef.current = JSON.stringify(buildTtsSettingsPayload(nextTtsDraft));
@@ -1074,6 +1095,35 @@ function App() {
       primeAudioContext();
     } else {
       stopTtsPlayback();
+    }
+  };
+
+  const handleToggleMcpServer = async (serverId) => {
+    if (mcpSaving) return;
+    const allIds = mcpServers.filter(s => s.connected).map(s => s.id);
+    const current = mcpEnabled ?? allIds;
+    const isEnabled = current.includes(serverId);
+    const updated = isEnabled
+      ? current.filter(id => id !== serverId)
+      : [...current, serverId];
+    setMcpEnabled(updated);
+    setMcpSaving(true);
+    try {
+      const resp = await fetch('/api/mcp/preferences/voice', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled_servers: updated }),
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setMcpEnabled(data.enabled_servers);
+      } else {
+        setMcpEnabled(current.length > 0 ? current : null);
+      }
+    } catch {
+      setMcpEnabled(current.length > 0 ? current : null);
+    } finally {
+      setMcpSaving(false);
     }
   };
 
@@ -1415,6 +1465,30 @@ function App() {
                     </>
                   )}
                 </div>
+
+                {mcpServers.length > 0 && (
+                  <div className="settings-section">
+                    <div className="settings-section-title">MCP Servers</div>
+                    {mcpServers.filter(s => s.connected).map(server => {
+                      const isEnabled = mcpEnabled === null || (mcpEnabled && mcpEnabled.includes(server.id));
+                      return (
+                        <div className="settings-row" key={server.id}>
+                          <div className="settings-label">{server.id}</div>
+                          <button
+                            className={`settings-toggle ${isEnabled ? 'on' : ''}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggleMcpServer(server.id);
+                            }}
+                            disabled={mcpSaving}
+                          >
+                            {isEnabled ? 'On' : 'Off'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
 

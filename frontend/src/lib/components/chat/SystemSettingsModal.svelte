@@ -457,8 +457,11 @@
 
       <div class="system-card-body">
         <!-- Wakeword toggle -->
-        <div class="speech-toggles" style="margin-bottom: 1rem;">
-          <label class="toggle">
+        <div class="toggle-grid" style="margin-bottom: 0.5rem;">
+          <label
+            class="toggle-item"
+            title="Say 'computer' to activate speech recognition hands-free. Re-arms automatically after each message."
+          >
             <input
               type="checkbox"
               checked={$wakewordState.enabled}
@@ -484,10 +487,6 @@
               {/if}
             </span>
           </label>
-          <p class="speech-hint">
-            Say "computer" to activate speech recognition hands-free. Re-arms
-            automatically after each message.
-          </p>
         </div>
 
         {#if serverSttError}
@@ -566,7 +565,7 @@
 
             {#if serverSttSettings.command_engine === "deepgram"}
               <!-- Nova timing settings -->
-              <div class="speech-field-row">
+              <div class="timing-grid">
                 <div class="speech-field">
                   <label class="field-label" for="stt-utterance-end"
                     >Utterance end (ms)</label
@@ -625,8 +624,11 @@
               </div>
 
               <!-- Nova feature toggles -->
-              <div class="speech-toggles">
-                <label class="toggle">
+              <div class="toggle-grid">
+                <label
+                  class="toggle-item"
+                  title="Apply smart formatting like punctuation and capitalization."
+                >
                   <input
                     type="checkbox"
                     checked={serverSttSettings.command_smart_format}
@@ -646,7 +648,10 @@
                   <span>Smart format</span>
                 </label>
 
-                <label class="toggle">
+                <label
+                  class="toggle-item"
+                  title="Convert spoken numbers to digits (e.g. 'five' → '5')."
+                >
                   <input
                     type="checkbox"
                     checked={serverSttSettings.command_numerals}
@@ -665,7 +670,10 @@
                   <span>Numbers as digits</span>
                 </label>
 
-                <label class="toggle">
+                <label
+                  class="toggle-item"
+                  title="Show partial transcription results as you speak."
+                >
                   <input
                     type="checkbox"
                     checked={serverSttSettings.command_interim_results}
@@ -687,7 +695,7 @@
               </div>
             {:else}
               <!-- Azure timing settings -->
-              <div class="speech-field-row">
+              <div class="timing-grid">
                 <div class="speech-field">
                   <label class="field-label" for="azure-silence-timeout"
                     >Silence timeout (ms)</label
@@ -748,8 +756,11 @@
               </div>
 
               <!-- Azure feature toggles -->
-              <div class="speech-toggles">
-                <label class="toggle">
+              <div class="toggle-grid">
+                <label
+                  class="toggle-item"
+                  title="Enable dictation mode for Azure speech recognition."
+                >
                   <input
                     type="checkbox"
                     checked={serverSttSettings.azure_enable_dictation}
@@ -772,7 +783,7 @@
             {/if}
           {:else}
             <!-- Conversation mode (Flux) settings -->
-            <div class="speech-field-row">
+            <div class="timing-grid">
               <div class="speech-field">
                 <label class="field-label" for="stt-eot-threshold"
                   >EOT threshold</label

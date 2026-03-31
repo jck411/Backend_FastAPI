@@ -1275,13 +1275,12 @@ function App() {
                 <div className="settings-section">
                   <div className="settings-section-title">Text to Speech</div>
 
-                  <div className="settings-row">
-                    <div className="settings-label">Enable TTS</div>
+                  <div className="toggle-grid">
                     <button
                       className={`settings-toggle ${ttsDraft.enabled ? 'on' : ''}`}
                       onClick={handleToggleTts}
                     >
-                      {ttsDraft.enabled ? 'On' : 'Off'}
+                      TTS {ttsDraft.enabled ? 'On' : 'Off'}
                     </button>
                   </div>
 
@@ -1346,99 +1345,102 @@ function App() {
                   </div>
                   {sttDraft.mode === 'conversation' ? (
                     <>
-                      <div className="settings-row">
-                        <div className="settings-label">End of turn timeout</div>
-                        <div className="settings-value">{sttDraft.eot_timeout_ms} ms</div>
-                        <input
-                          className="settings-slider"
-                          type="range"
-                          min="100"
-                          max="2000"
-                          step="100"
-                          value={sttDraft.eot_timeout_ms}
-                          onChange={(e) => setSttDraft(prev => ({
-                            ...prev,
-                            eot_timeout_ms: Number(e.target.value),
-                          }))}
-                        />
-                      </div>
-
-                      <div className="settings-row">
-                        <div className="settings-label">End of turn threshold</div>
-                        <div className="settings-value">
-                          {Number(sttDraft.eot_threshold).toFixed(2)}
+                      <div className="settings-grid">
+                        <div className="settings-row">
+                          <div className="settings-label">End of turn timeout</div>
+                          <div className="settings-value">{sttDraft.eot_timeout_ms} ms</div>
+                          <input
+                            className="settings-slider"
+                            type="range"
+                            min="100"
+                            max="2000"
+                            step="100"
+                            value={sttDraft.eot_timeout_ms}
+                            onChange={(e) => setSttDraft(prev => ({
+                              ...prev,
+                              eot_timeout_ms: Number(e.target.value),
+                            }))}
+                          />
                         </div>
-                        <input
-                          className="settings-slider"
-                          type="range"
-                          min="0.5"
-                          max="0.9"
-                          step="0.01"
-                          value={sttDraft.eot_threshold}
-                          onChange={(e) => setSttDraft(prev => ({
-                            ...prev,
-                            eot_threshold: Number(e.target.value),
-                          }))}
-                        />
-                      </div>
 
-                      <div className="settings-row">
-                        <div className="settings-label">Listen timeout</div>
-                        <div className="settings-value">
-                          {sttDraft.listen_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.listen_timeout_seconds}s`}
+                        <div className="settings-row">
+                          <div className="settings-label">End of turn threshold</div>
+                          <div className="settings-value">
+                            {Number(sttDraft.eot_threshold).toFixed(2)}
+                          </div>
+                          <input
+                            className="settings-slider"
+                            type="range"
+                            min="0.5"
+                            max="0.9"
+                            step="0.01"
+                            value={sttDraft.eot_threshold}
+                            onChange={(e) => setSttDraft(prev => ({
+                              ...prev,
+                              eot_threshold: Number(e.target.value),
+                            }))}
+                          />
                         </div>
-                        <input
-                          className="settings-slider"
-                          type="range"
-                          min="0"
-                          max="30"
-                          step="1"
-                          value={sttDraft.listen_timeout_seconds}
-                          onChange={(e) => setSttDraft(prev => ({
-                            ...prev,
-                            listen_timeout_seconds: Number(e.target.value),
-                          }))}
-                        />
+
+                        <div className="settings-row">
+                          <div className="settings-label">Listen timeout</div>
+                          <div className="settings-value">
+                            {sttDraft.listen_timeout_seconds === 0 ? 'Disabled' : `${sttDraft.listen_timeout_seconds}s`}
+                          </div>
+                          <input
+                            className="settings-slider"
+                            type="range"
+                            min="0"
+                            max="30"
+                            step="1"
+                            value={sttDraft.listen_timeout_seconds}
+                            onChange={(e) => setSttDraft(prev => ({
+                              ...prev,
+                              listen_timeout_seconds: Number(e.target.value),
+                            }))}
+                          />
+                        </div>
                       </div>
                     </>
                   ) : (
                     <>
-                      <div className="settings-row">
-                        <div className="settings-label">Utterance end</div>
-                        <div className="settings-value">{sttDraft.command_utterance_end_ms} ms</div>
-                        <input
-                          className="settings-slider"
-                          type="range"
-                          min="500"
-                          max="3000"
-                          step="100"
-                          value={sttDraft.command_utterance_end_ms}
-                          onChange={(e) => setSttDraft(prev => ({
-                            ...prev,
-                            command_utterance_end_ms: Number(e.target.value),
-                          }))}
-                        />
+                      <div className="settings-grid">
+                        <div className="settings-row">
+                          <div className="settings-label">Utterance end</div>
+                          <div className="settings-value">{sttDraft.command_utterance_end_ms} ms</div>
+                          <input
+                            className="settings-slider"
+                            type="range"
+                            min="500"
+                            max="3000"
+                            step="100"
+                            value={sttDraft.command_utterance_end_ms}
+                            onChange={(e) => setSttDraft(prev => ({
+                              ...prev,
+                              command_utterance_end_ms: Number(e.target.value),
+                            }))}
+                          />
+                        </div>
+
+                        <div className="settings-row">
+                          <div className="settings-label">Endpointing</div>
+                          <div className="settings-value">{sttDraft.command_endpointing} ms</div>
+                          <input
+                            className="settings-slider"
+                            type="range"
+                            min="300"
+                            max="2000"
+                            step="100"
+                            value={sttDraft.command_endpointing}
+                            onChange={(e) => setSttDraft(prev => ({
+                              ...prev,
+                              command_endpointing: Number(e.target.value),
+                            }))}
+                          />
+                        </div>
                       </div>
 
-                      <div className="settings-row">
-                        <div className="settings-label">Endpointing</div>
-                        <div className="settings-value">{sttDraft.command_endpointing} ms</div>
-                        <input
-                          className="settings-slider"
-                          type="range"
-                          min="300"
-                          max="2000"
-                          step="100"
-                          value={sttDraft.command_endpointing}
-                          onChange={(e) => setSttDraft(prev => ({
-                            ...prev,
-                            command_endpointing: Number(e.target.value),
-                          }))}
-                        />
-                      </div>
-
-                      <div className="settings-row">
-                        <div className="settings-label">Smart format (includes punctuation)</div>
+                      <div className="toggle-grid">
                         <button
                           className={`settings-toggle ${sttDraft.command_smart_format ? 'on' : ''}`}
                           onClick={(e) => {
@@ -1446,12 +1448,9 @@ function App() {
                             setSttDraft(prev => ({ ...prev, command_smart_format: !prev.command_smart_format }));
                           }}
                         >
-                          {sttDraft.command_smart_format ? 'On' : 'Off'}
+                          Smart format
                         </button>
-                      </div>
 
-                      <div className="settings-row">
-                        <div className="settings-label">Numerals</div>
                         <button
                           className={`settings-toggle ${sttDraft.command_numerals ? 'on' : ''}`}
                           onClick={(e) => {
@@ -1459,7 +1458,7 @@ function App() {
                             setSttDraft(prev => ({ ...prev, command_numerals: !prev.command_numerals }));
                           }}
                         >
-                          {sttDraft.command_numerals ? 'On' : 'Off'}
+                          Numerals
                         </button>
                       </div>
                     </>
@@ -1469,12 +1468,12 @@ function App() {
                 {mcpServers.length > 0 && (
                   <div className="settings-section">
                     <div className="settings-section-title">MCP Servers</div>
-                    {mcpServers.filter(s => s.connected).map(server => {
-                      const isEnabled = mcpEnabled === null || (mcpEnabled && mcpEnabled.includes(server.id));
-                      return (
-                        <div className="settings-row" key={server.id}>
-                          <div className="settings-label">{server.id}</div>
+                    <div className="toggle-grid">
+                      {mcpServers.filter(s => s.connected).map(server => {
+                        const isEnabled = mcpEnabled === null || (mcpEnabled && mcpEnabled.includes(server.id));
+                        return (
                           <button
+                            key={server.id}
                             className={`settings-toggle ${isEnabled ? 'on' : ''}`}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -1482,11 +1481,11 @@ function App() {
                             }}
                             disabled={mcpSaving}
                           >
-                            {isEnabled ? 'On' : 'Off'}
+                            {server.id}
                           </button>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
                 )}
               </div>

@@ -346,14 +346,6 @@ export default function App() {
         }
     }, [clearTtsMicResumeTimeout, sendMessage]);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
-
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages, liveTranscript]);
-
     useEffect(() => {
         if (lastMessage !== null) {
             try {
@@ -710,7 +702,6 @@ export default function App() {
                 <MicButton
                     isRecording={isCapturing}
                     onStart={handleStartListening}
-                    onStop={releaseMic}
                     disabled={readyState !== ReadyState.OPEN || backendState === 'PROCESSING'}
                     error={audioError}
                 />

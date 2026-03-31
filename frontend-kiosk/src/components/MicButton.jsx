@@ -1,20 +1,16 @@
 /**
- * Push-to-talk microphone button.
- * Hold to record, release to stop.
- *
- * PERFORMANCE: Uses CSS transitions instead of Framer Motion to reduce CPU load.
+ * Tap-to-start microphone button.
+ * Single tap begins a voice interaction; the transcription overlay takes over from there.
  */
-export default function MicButton({ isRecording, onStart, onStop, disabled, error }) {
+export default function MicButton({ isRecording, onStart, disabled, error }) {
     return (
         <div className="absolute top-4 left-4 z-50 flex flex-col items-center">
-            {/* Error message */}
             {error && (
                 <div className="mb-2 px-3 py-1 bg-red-500/80 rounded-lg text-xs text-white">
                     {error}
                 </div>
             )}
 
-            {/* Microphone button - CSS-only animations */}
             <button
                 className={`w-14 h-14 rounded-full flex items-center justify-center transition-all duration-150 shadow-lg backdrop-blur-md border active:scale-95 ${isRecording
                     ? 'bg-red-500/90 border-red-400/50 shadow-red-500/50 scale-105'
@@ -22,21 +18,10 @@ export default function MicButton({ isRecording, onStart, onStop, disabled, erro
                         ? 'bg-gray-600/50 border-gray-500/30'
                         : 'bg-white/15 border-white/20 hover:bg-white/25'
                     }`}
-                onTouchStart={(e) => {
-                    e.preventDefault();
-                    if (!disabled) onStart();
-                }}
-                onTouchEnd={(e) => {
-                    e.preventDefault();
-                    onStop();
-                }}
-                onMouseDown={() => !disabled && onStart()}
-                onMouseUp={onStop}
-                onMouseLeave={onStop}
+                onClick={() => { if (!disabled) onStart(); }}
                 disabled={disabled}
                 style={{ touchAction: 'manipulation' }}
             >
-                {/* Microphone icon */}
                 <svg
                     xmlns="http://www.w3.org/2000/svg"
                     viewBox="0 0 24 24"

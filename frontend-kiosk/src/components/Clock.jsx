@@ -10,7 +10,6 @@ const API_BASE_URL = import.meta.env.DEV
 /** Slideshow settings */
 const SLIDESHOW_INTERVAL = 30 * 1000; // 30 seconds between photos
 const SLIDESHOW_TRANSITION_DURATION = 1500; // 1.5 second crossfade
-const SLIDESHOW_REFRESH_INTERVAL = 60 * 60 * 1000; // Refresh photo list every hour
 
 /** Alarm refresh interval: 30 seconds */
 const ALARM_REFRESH_INTERVAL = 30 * 1000;

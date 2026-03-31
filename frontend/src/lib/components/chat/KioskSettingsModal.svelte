@@ -1,6 +1,11 @@
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
   import {
+    fetchClientPreferences,
+    fetchMcpServers,
+    updateClientPreferences,
+  } from "../../api/client";
+  import {
     activateKioskPreset,
     fetchKioskPresets,
     fetchTtsVoices,
@@ -8,6 +13,7 @@
     type KioskPresets,
     type TtsVoice,
   } from "../../api/kiosk";
+  import type { McpServerStatus } from "../../api/types";
   import {
     getDefaultKioskSttSettings,
     kioskSettingsStore,
@@ -30,6 +36,11 @@
   // Kiosk presets
   let presets: KioskPresets | null = null;
   let activatingPreset = false;
+
+  // MCP servers
+  let mcpServers: McpServerStatus[] = [];
+  let mcpEnabled: string[] | null = null;
+  let mcpSaving = false;
 
   export let open = false;
 
@@ -71,6 +82,17 @@
       // Always load OpenAI voices
       ttsVoices = await fetchTtsVoices("openai");
       presets = presetsData;
+      // Load MCP preferences (non-critical)
+      try {
+        const [serversResp, prefsResp] = await Promise.all([
+          fetchMcpServers(),
+          fetchClientPreferences("kiosk"),
+        ]);
+        mcpServers = serversResp.servers;
+        mcpEnabled = prefsResp.enabled_servers;
+      } catch {
+        // MCP load failure is non-critical
+      }
     } catch (error) {
       statusMessage = "Failed to load settings";
     } finally {
@@ -186,6 +208,26 @@
   }
 
   // Calculate slider fill percentage for styling
+  async function handleToggleMcpServer(serverId: string): Promise<void> {
+    if (mcpSaving) return;
+    const allIds = mcpServers.filter((s) => s.connected).map((s) => s.id);
+    const current = mcpEnabled ?? allIds;
+    const isEnabled = current.includes(serverId);
+    const updated = isEnabled
+      ? current.filter((id) => id !== serverId)
+      : [...current, serverId];
+    mcpEnabled = updated;
+    mcpSaving = true;
+    try {
+      const result = await updateClientPreferences("kiosk", updated);
+      mcpEnabled = result.enabled_servers;
+    } catch {
+      mcpEnabled = current.length > 0 ? current : null;
+    } finally {
+      mcpSaving = false;
+    }
+  }
+
   function getSliderFill(value: number, min: number, max: number): string {
     return `${((value - min) / (max - min)) * 100}%`;
   }
@@ -1458,6 +1500,33 @@
             {/if}
           </div>
         </div>
+
+        <!-- MCP Servers Section -->
+        {#if mcpServers.filter((s) => s.connected).length > 0}
+          <div class="setting reasoning">
+            <div class="setting-header">
+              <span class="setting-label">MCP Servers</span>
+              <span class="setting-hint"
+                >Toggle which tool servers the kiosk can use.</span
+              >
+            </div>
+            <div class="mcp-server-buttons">
+              {#each mcpServers.filter((s) => s.connected) as server (server.id)}
+                {@const isEnabled =
+                  mcpEnabled === null ||
+                  (mcpEnabled && mcpEnabled.includes(server.id))}
+                <button
+                  class="mcp-server-btn"
+                  class:active={isEnabled}
+                  disabled={mcpSaving}
+                  on:click={() => handleToggleMcpServer(server.id)}
+                >
+                  {server.id}
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
       </div>
     {/if}
 
@@ -1588,5 +1657,35 @@
   .disabled-field {
     opacity: 0.5;
     pointer-events: none;
+  }
+
+  /* MCP server toggle buttons */
+  .mcp-server-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .mcp-server-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 1.25rem;
+    border: 1px solid rgba(67, 91, 136, 0.4);
+    background: var(--color-surface);
+    color: var(--color-muted);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .mcp-server-btn.active {
+    background: rgba(34, 197, 94, 0.15);
+    border-color: rgba(34, 197, 94, 0.45);
+    color: #86efac;
+  }
+
+  .mcp-server-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>

@@ -167,6 +167,16 @@
     }
     expandedServers = newExpanded;
   }
+
+  function selectAllTools(serverId: string): void {
+    if ($mcpServers.saving) return;
+    void mcpServers.setAllToolsEnabled(serverId, true);
+  }
+
+  function selectNoneTools(serverId: string): void {
+    if ($mcpServers.saving) return;
+    void mcpServers.setAllToolsEnabled(serverId, false);
+  }
 </script>
 
 {#if open}
@@ -523,7 +533,7 @@
             <p class="status">No MCP servers configured.</p>
           {:else}
             <ul class="server-list">
-              {#each $mcpServers.servers as server}
+              {#each [...$mcpServers.servers].sort( (a, b) => a.id.localeCompare(b.id), ) as server}
                 <li class="server-row" data-connected={server.connected}>
                   <div class="server-row-header">
                     <div class="server-heading">
@@ -609,6 +619,24 @@
                     {#if expandedServers.has(server.id)}
                       <div id="tools-{server.id}" class="tools-dropdown">
                         {#if server.tools.length}
+                          <div class="tools-bulk-actions">
+                            <button
+                              type="button"
+                              class="btn btn-ghost btn-small"
+                              disabled={$mcpServers.saving}
+                              onclick={() => selectAllTools(server.id)}
+                            >
+                              Select all
+                            </button>
+                            <button
+                              type="button"
+                              class="btn btn-ghost btn-small"
+                              disabled={$mcpServers.saving}
+                              onclick={() => selectNoneTools(server.id)}
+                            >
+                              Select none
+                            </button>
+                          </div>
                           <ul class="tool-list">
                             {#each server.tools as tool}
                               <li

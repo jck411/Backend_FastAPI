@@ -117,6 +117,41 @@ export function createMcpServersStore() {
     }
   }
 
+  async function setAllToolsEnabled(serverId: string, enabled: boolean): Promise<void> {
+    const snapshot = get(store);
+    const target = snapshot.servers.find((item) => item.id === serverId);
+    if (!target) return;
+
+    const disabledList = enabled ? [] : target.tools.map((t) => t.name).sort();
+
+    // Optimistic update
+    store.update((state) => ({
+      ...state,
+      saving: true,
+      saveError: null,
+      servers: state.servers.map((server) =>
+        server.id !== serverId
+          ? server
+          : {
+            ...server,
+            disabled_tools: disabledList,
+            tools: server.tools.map((item) => ({ ...item, enabled })),
+          },
+      ),
+    }));
+
+    try {
+      const response = await patchMcpServer(serverId, { disabled_tools: disabledList });
+      store.update((state) => ({
+        ...mergeResponse(state, response),
+        saving: false,
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update tools.';
+      store.update((state) => ({ ...state, saving: false, saveError: message }));
+    }
+  }
+
   async function refresh(): Promise<void> {
     store.update((state) => ({
       ...state,
@@ -277,6 +312,7 @@ export function createMcpServersStore() {
     load,
     refresh,
     setToolEnabled,
+    setAllToolsEnabled,
     connectServer,
     removeServer,
     setServerEnabled,

@@ -1511,7 +1511,9 @@
               >
             </div>
             <div class="mcp-server-buttons">
-              {#each mcpServers.filter((s) => s.connected) as server (server.id)}
+              {#each mcpServers
+                .filter((s) => s.connected)
+                .sort((a, b) => a.id.localeCompare(b.id)) as server (server.id)}
                 {@const isEnabled =
                   mcpEnabled === null ||
                   (mcpEnabled && mcpEnabled.includes(server.id))}

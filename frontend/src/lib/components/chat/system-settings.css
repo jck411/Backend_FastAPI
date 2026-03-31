@@ -270,6 +270,11 @@
   padding-top: 0.25rem;
 }
 
+.tools-bulk-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .tool-list {
   list-style: none;
   padding: 0;

@@ -1469,7 +1469,7 @@ function App() {
                   <div className="settings-section">
                     <div className="settings-section-title">MCP Servers</div>
                     <div className="toggle-grid">
-                      {mcpServers.filter(s => s.connected).map(server => {
+                      {mcpServers.filter(s => s.connected).sort((a, b) => a.id.localeCompare(b.id)).map(server => {
                         const isEnabled = mcpEnabled === null || (mcpEnabled && mcpEnabled.includes(server.id));
                         return (
                           <button

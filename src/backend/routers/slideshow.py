@@ -19,72 +19,119 @@ router = APIRouter(prefix="/api/slideshow", tags=["slideshow"])
 IMMICH_URL = os.getenv("IMMICH_URL", "http://192.168.1.113:2283")
 IMMICH_API_KEY = os.getenv("IMMICH_API_KEY", "")
 
-# In-memory cache: refreshed once per day
-_cache: dict = {"date": None, "assets": []}
+# How many photos to serve per day
+DAILY_PHOTO_COUNT = 100
+
+# Search queries to pull diverse photos from Immich
+_SEARCH_QUERIES = [
+    "people faces family",
+    "pets animals dogs cats",
+    "outdoors nature landscape",
+    "kids children playing",
+    "friends group celebration",
+]
+
+# In-memory cache: pool refreshed once per day
+_cache: dict = {"date": None, "pool": [], "daily": []}
 
 
 def _immich_headers() -> dict[str, str]:
     return {"x-api-key": IMMICH_API_KEY, "Accept": "application/json"}
 
 
-async def _fetch_landscape_assets(max_photos: int = 30) -> list[dict]:
-    """Fetch landscape photos with people/pets from Immich using smart search."""
-    fetch_size = max_photos * 2
-    body = {
-        "query": "people faces pets animals",
-        "type": "IMAGE",
-        "size": fetch_size,
-        "withExif": True,
-    }
+async def _fetch_landscape_pool() -> list[str]:
+    """Build a large pool of landscape photo IDs from Immich via multiple queries."""
+    seen: set[str] = set()
+    landscape_ids: list[str] = []
+
     async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{IMMICH_URL}/api/search/smart",
-            json=body,
-            headers=_immich_headers(),
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        for query in _SEARCH_QUERIES:
+            for page in range(1, 4):  # up to 3 pages per query
+                body = {
+                    "query": query,
+                    "type": "IMAGE",
+                    "size": 200,
+                    "page": page,
+                    "withExif": True,
+                }
+                try:
+                    resp = await client.post(
+                        f"{IMMICH_URL}/api/search/smart",
+                        json=body,
+                        headers=_immich_headers(),
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception:
+                    logger.warning("Immich query=%r page=%d failed", query, page)
+                    break
 
-    items = data.get("assets", {}).get("items", [])
+                items = data.get("assets", {}).get("items", [])
+                if not items:
+                    break  # no more results for this query
 
-    # Filter landscape: width > height
-    landscape = [
-        {"id": a["id"]}
-        for a in items
-        if (a.get("exifInfo", {}).get("exifImageWidth") or a.get("width", 0))
-        > (a.get("exifInfo", {}).get("exifImageHeight") or a.get("height", 0))
-    ]
+                for a in items:
+                    aid = a["id"]
+                    if aid in seen:
+                        continue
+                    seen.add(aid)
+                    w = a.get("exifInfo", {}).get("exifImageWidth") or a.get("width", 0)
+                    h = a.get("exifInfo", {}).get("exifImageHeight") or a.get(
+                        "height", 0
+                    )
+                    if w > h:  # landscape only
+                        landscape_ids.append(aid)
 
-    return landscape[:max_photos]
+    logger.info(
+        "Immich pool built: %d landscape photos from %d queries",
+        len(landscape_ids),
+        len(_SEARCH_QUERIES),
+    )
+    return landscape_ids
 
 
-async def _get_daily_assets() -> list[dict]:
-    """Return cached asset list, refreshing once per day."""
+def _select_daily(pool: list[str], today: date) -> list[str]:
+    """Pick DAILY_PHOTO_COUNT photos from the pool using a deterministic daily seed.
+
+    The seed changes each day so different photos are shown.
+    If the pool is smaller than DAILY_PHOTO_COUNT, all photos are used.
+    """
+    if not pool:
+        return []
+    seed = int(hashlib.md5(str(today).encode()).hexdigest(), 16)
+    rng = random.Random(seed)
+    shuffled = list(pool)
+    rng.shuffle(shuffled)
+    return shuffled[:DAILY_PHOTO_COUNT]
+
+
+async def _get_daily_photos() -> list[str]:
+    """Return today's photo list, refreshing the pool once per day."""
     today = date.today()
-    if _cache["date"] != today or not _cache["assets"]:
+    if _cache["date"] != today or not _cache["daily"]:
         try:
-            _cache["assets"] = await _fetch_landscape_assets()
+            pool = await _fetch_landscape_pool()
+            daily = _select_daily(pool, today)
+            _cache["pool"] = pool
+            _cache["daily"] = daily
             _cache["date"] = today
-            logger.info(
-                "Refreshed Immich slideshow cache: %d photos", len(_cache["assets"])
-            )
+            logger.info("Slideshow: pool=%d, today=%d photos", len(pool), len(daily))
         except Exception:
             logger.exception("Failed to fetch photos from Immich")
-            # Return stale cache if available
-            if not _cache["assets"]:
+            if not _cache["daily"]:
                 raise
-    return _cache["assets"]
+    return _cache["daily"]
 
 
 @router.get("/photos")
 async def list_photos(daily_seed: bool = False) -> dict:
-    """List available landscape photo asset IDs from Immich."""
-    assets = await _get_daily_assets()
-    ids = [a["id"] for a in assets]
+    """List today's landscape photo asset IDs."""
+    ids = await _get_daily_photos()
 
     if daily_seed and ids:
         seed = int(hashlib.md5(str(date.today()).encode()).hexdigest(), 16)
         rng = random.Random(seed)
+        ids = list(ids)
         rng.shuffle(ids)
 
     return {"photos": ids, "count": len(ids)}
@@ -93,9 +140,10 @@ async def list_photos(daily_seed: bool = False) -> dict:
 @router.get("/status")
 async def slideshow_status() -> dict:
     """Get slideshow status."""
-    assets = await _get_daily_assets()
+    ids = await _get_daily_photos()
     return {
-        "photo_count": len(assets),
+        "photo_count": len(ids),
+        "pool_size": len(_cache["pool"]),
         "source": IMMICH_URL,
     }
 

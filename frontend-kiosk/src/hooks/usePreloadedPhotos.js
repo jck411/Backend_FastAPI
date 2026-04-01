@@ -1,19 +1,31 @@
 /**
- * Photo Preloader Hook — fetches landscape photos from Immich via backend proxy
+ * Sliding-window photo hook — keeps only 3 images in memory at a time.
+ * Fetches the full ID list from backend, but only decodes current/next/prev photos.
+ * This allows 100+ photos per day while using ~2-3 MB of RAM on the Echo.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const API_BASE_URL = import.meta.env.DEV
     ? `${window.location.protocol}//${window.location.hostname}:8000`
     : '';
 
-export function usePreloadedPhotos() {
-    const [photos, setPhotos] = useState([]);
-    const [preloadedImages, setPreloadedImages] = useState(new Map());
-    const [isLoading, setIsLoading] = useState(false);
-    const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+/** How many photos to keep decoded ahead/behind the current index */
+const WINDOW_AHEAD = 1;
+const WINDOW_BEHIND = 1;
 
+function photoUrl(id) {
+    return `${API_BASE_URL}/api/slideshow/photo/${id}`;
+}
+
+export function usePreloadedPhotos() {
+    const [photos, setPhotos] = useState([]);           // full ordered ID list
+    const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
+    const [isLoading, setIsLoading] = useState(true);   // true until first photo ready
+    const windowRef = useRef(new Map());                 // id -> { url, img }
+    const [windowReady, setWindowReady] = useState(false);
+
+    // Fetch photo ID list from backend
     const fetchPhotoList = useCallback(async () => {
         try {
             const response = await fetch(`${API_BASE_URL}/api/slideshow/photos?daily_seed=true`);
@@ -26,46 +38,68 @@ export function usePreloadedPhotos() {
         }
     }, []);
 
-    const preloadAllPhotos = useCallback(async (photoIds) => {
-        if (photoIds.length === 0) return;
-        setIsLoading(true);
-        const imageMap = new Map();
+    // Preload a single photo, returns a promise
+    const preloadOne = useCallback((id) => {
+        return new Promise((resolve) => {
+            const img = new Image();
+            const url = photoUrl(id);
+            img.onload = () => resolve({ id, url, img });
+            img.onerror = () => resolve(null);
+            img.src = url;
+        });
+    }, []);
 
-        const batchSize = 2;
-        for (let i = 0; i < photoIds.length; i += batchSize) {
-            const batch = photoIds.slice(i, i + batchSize);
-            const promises = batch.map(id => new Promise((resolve) => {
-                const img = new Image();
-                const url = `${API_BASE_URL}/api/slideshow/photo/${id}`;
-                img.onload = () => resolve({ id, url });
-                img.onerror = () => resolve(null);
-                img.src = url;
-            }));
+    // Ensure the sliding window around `index` is populated
+    const ensureWindow = useCallback(async (index, ids) => {
+        if (ids.length === 0) return;
 
-            const results = await Promise.all(promises);
-            for (const result of results) {
-                if (result) {
-                    imageMap.set(result.id, { url: result.url });
-                    setPreloadedImages(new Map(imageMap));
+        const needed = new Set();
+        for (let offset = -WINDOW_BEHIND; offset <= WINDOW_AHEAD; offset++) {
+            const i = (index + offset + ids.length) % ids.length;
+            needed.add(ids[i]);
+        }
+
+        // Evict photos outside the window
+        const win = windowRef.current;
+        for (const id of win.keys()) {
+            if (!needed.has(id)) {
+                const entry = win.get(id);
+                if (entry?.img) {
+                    entry.img.src = '';  // release decoded bitmap
+                }
+                win.delete(id);
+            }
+        }
+
+        // Load missing photos in parallel
+        const toLoad = [...needed].filter(id => !win.has(id));
+        if (toLoad.length > 0) {
+            const results = await Promise.all(toLoad.map(id => preloadOne(id)));
+            for (const r of results) {
+                if (r) {
+                    win.set(r.id, { url: r.url, img: r.img });
                 }
             }
         }
 
-        setPreloadedImages(imageMap);
-        setIsLoading(false);
-        console.log(`Slideshow ready: ${imageMap.size}/${photoIds.length} photos loaded`);
-    }, []);
+        setWindowReady(win.has(ids[index]));
+    }, [preloadOne]);
 
+    // Initial load and hourly refresh of the ID list
     const refreshPhotos = useCallback(async () => {
-        const photoIds = await fetchPhotoList();
-        if (photoIds.length > 0) {
-            const changed = JSON.stringify(photoIds) !== JSON.stringify(photos);
-            if (changed || preloadedImages.size === 0) {
-                setPhotos(photoIds);
-                await preloadAllPhotos(photoIds);
+        const ids = await fetchPhotoList();
+        if (ids.length > 0) {
+            const changed = JSON.stringify(ids) !== JSON.stringify(photos);
+            if (changed) {
+                setPhotos(ids);
+                setCurrentPhotoIndex(0);
+                setIsLoading(true);
+                await ensureWindow(0, ids);
+                setIsLoading(false);
+                console.log(`Slideshow: ${ids.length} photos available (window of ${WINDOW_AHEAD + WINDOW_BEHIND + 1})`);
             }
         }
-    }, [fetchPhotoList, preloadAllPhotos, photos, preloadedImages.size]);
+    }, [fetchPhotoList, ensureWindow, photos]);
 
     useEffect(() => {
         refreshPhotos();
@@ -73,30 +107,38 @@ export function usePreloadedPhotos() {
         return () => clearInterval(interval);
     }, [refreshPhotos]);
 
+    // Keep the window in sync whenever the index changes
+    useEffect(() => {
+        if (photos.length > 0) {
+            ensureWindow(currentPhotoIndex, photos);
+        }
+    }, [currentPhotoIndex, photos, ensureWindow]);
+
     const getCurrentPhotoData = useCallback(() => {
-        if (photos.length === 0 || preloadedImages.size === 0) {
+        if (photos.length === 0 || !windowReady) {
             return { currentUrl: null, nextUrl: null, isReady: false };
         }
         const currentId = photos[currentPhotoIndex];
         const nextId = photos[(currentPhotoIndex + 1) % photos.length];
+        const win = windowRef.current;
         return {
-            currentUrl: preloadedImages.get(currentId)?.url || null,
-            nextUrl: preloadedImages.get(nextId)?.url || null,
-            isReady: !!preloadedImages.get(currentId),
+            currentUrl: win.get(currentId)?.url || null,
+            nextUrl: win.get(nextId)?.url || null,
+            isReady: !!win.get(currentId),
         };
-    }, [photos, preloadedImages, currentPhotoIndex]);
+    }, [photos, windowReady, currentPhotoIndex]);
 
     const nextPhoto = useCallback(() => {
-        if (photos.length > 1 && preloadedImages.size > 0) {
+        if (photos.length > 1) {
             setCurrentPhotoIndex((prev) => (prev + 1) % photos.length);
         }
-    }, [photos.length, preloadedImages.size]);
+    }, [photos.length]);
 
     return {
         photos,
         isLoading,
-        isReady: preloadedImages.size > 0 && !isLoading,
-        loadedCount: preloadedImages.size,
+        isReady: windowReady && !isLoading,
+        loadedCount: windowRef.current.size,
         totalCount: photos.length,
         currentPhotoIndex,
         getCurrentPhotoData,

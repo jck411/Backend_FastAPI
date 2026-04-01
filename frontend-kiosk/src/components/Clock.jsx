@@ -179,7 +179,6 @@ export default function Clock() {
         getCurrentPhotoData,
         nextPhoto,
         totalCount: photoCount,
-        loadedCount,
         currentPhotoIndex
     } = usePreloadedPhotos();
 
@@ -504,33 +503,13 @@ export default function Clock() {
                     </div>
                 </div>
             ) : photosLoading ? (
-                /* Photo Loading Screen - Show download progress */
-                <div className="absolute inset-0 bg-black flex flex-col items-center justify-center text-white">
+                /* Brief loading state while first photo loads */
+                <div className="absolute inset-0 bg-black flex items-center justify-center text-white">
                     <div className="text-center space-y-4">
-                        {/* Loading icon */}
-                        <div className="w-16 h-16 mx-auto mb-4">
+                        <div className="w-16 h-16 mx-auto">
                             <div className="w-16 h-16 border-4 border-white/20 border-t-white rounded-full animate-spin"></div>
                         </div>
-
-                        {/* Progress text */}
                         <div className="text-2xl font-semibold">Loading Photos...</div>
-                        <div className="text-lg text-white/70">
-                            {loadedCount}/{photoCount} photos downloaded
-                        </div>
-
-                        {/* Progress bar */}
-                        {photoCount > 0 && (
-                            <div className="w-80 h-3 bg-white/20 rounded-full overflow-hidden">
-                                <div
-                                    className="h-full bg-white transition-all duration-300 ease-out"
-                                    style={{ width: `${(loadedCount / photoCount) * 100}%` }}
-                                ></div>
-                            </div>
-                        )}
-
-                        <div className="text-sm text-white/50 mt-4">
-                            Please wait while photos load into memory...
-                        </div>
                     </div>
                 </div>
             ) : photoCount > 0 ? (

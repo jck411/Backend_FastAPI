@@ -694,7 +694,7 @@ export default function App() {
             {/* Web Audio API is used for TTS playback - no HTML audio element needed */}
 
             {/* Main Screen: Clock with weather and photo slideshow
-                Unmounted when transcription is active to free ~24MB of preloaded photo memory */}
+                Unmounted when transcription is active to free photo memory */}
             {!showTranscription && <Clock />}
 
             {/* Microphone Button - hidden when overlay is showing */}

@@ -65,8 +65,8 @@ class StreamingHandler:
         tool_client: ToolExecutor,
         *,
         default_model: str,
-        tool_hop_limit: int = 20,
-        tool_error_limit: int = 2,
+        tool_hop_limit: int = 40,
+        tool_error_limit: int = 10,
         model_settings: ModelSettingsService | None = None,
         attachment_service: AttachmentService | None = None,
         conversation_logger: ConversationLogWriter | None = None,
@@ -847,7 +847,9 @@ class StreamingHandler:
                                 logger.info(
                                     "[TOOL-DEBUG] Tool '%s' returned: %s",
                                     tool_name,
-                                    result_text[:500] if len(result_text) > 500 else result_text,
+                                    result_text[:500]
+                                    if len(result_text) > 500
+                                    else result_text,
                                 )
                                 tool_error_flag = getattr(result_obj, "isError", False)
                                 status = "error" if tool_error_flag else "finished"
@@ -864,10 +866,13 @@ class StreamingHandler:
                                         )
                                     except Exception as backup_exc:
                                         logger.warning(
-                                            "Memory backup logging failed: %s", backup_exc
+                                            "Memory backup logging failed: %s",
+                                            backup_exc,
                                         )
                             except Exception as exc:  # pragma: no cover - MCP errors
-                                logger.exception("Tool '%s' raised an exception", tool_name)
+                                logger.exception(
+                                    "Tool '%s' raised an exception", tool_name
+                                )
                                 result_text = f"Tool error: {exc}"
                                 status = "error"
                                 tool_error_flag = True

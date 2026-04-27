@@ -30,6 +30,7 @@ dist/
 # Env & local config
 .env
 .env.*
+!.env.example
 
 # Runtime mutable data — never in git
 # (bundled read-only defaults live in src/backend/data/)

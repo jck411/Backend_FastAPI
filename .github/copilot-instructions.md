@@ -53,9 +53,18 @@ When changing or replacing behavior:
 
 - Use `./scripts/deploy.sh "commit message"` for all frontend changes — cleans, builds, verifies, commits, pushes, deploys
 - Backend Python changes auto-reload — just `git push` then pull on server
-- Server is LXC 111 at `192.168.1.111` — **no direct SSH**; access via Proxmox host (`192.168.1.11`) using `pct exec 111`
+- Server is LXC 111 at `192.168.1.111` (configured via `PROXMOX_LXC_IP` in `.env`) — **no direct SSH**; access via Proxmox host (`192.168.1.11`, configured via `PROXMOX_HOST` in `.env`) using `pct exec 111`
 - Service user `backend`, public URL `https://chat.jackshome.com`
 - See `docs/PROXMOX_DEPLOYMENT.md` for manual deployment steps and access patterns
+
+### Kiosk Device — Echo Show 5
+- IP: 192.168.1.28 (DHCP — may change) — configured via `ECHO_SHOW_IP` in `.env`
+- Runs Fully Kiosk Browser (`de.ozerov.fully`)
+- Remote Admin port: 2323 — configured via `FULLY_KIOSK_PORT` in `.env`
+- Password: configured via `FULLY_KIOSK_PASSWORD` in `.env`
+- ADB: `adb root` works; port forward with `adb forward tcp:2323 tcp:2323`
+- Fully Kiosk prefs: `/data/data/de.ozerov.fully/shared_prefs/de.ozerov.fully_preferences.xml`
+- Kiosk start URL: `https://192.168.1.111:8000/kiosk/` (always LAN, never public internet) — configured via `FULLY_KIOSK_START_URL` in `.env`
 
 ### File ownership (critical)
 The backend service runs as `User=backend`. After any `git pull` or `git reset --hard` on the server, files created by git operations will be owned by `root`. The runtime `data/` directory must remain writable by the service user.
@@ -94,7 +103,10 @@ The deploy script handles this automatically. If deploying manually, always run 
 
 - Never commit `.env`, `credentials/`, `certs/`, or `data/tokens/`
 - Server-only files that differ from local: `data/mcp_servers.json`, `.env`
-- Check `.env.example` for required environment variables
+- All credentials and sensitive configuration should be stored in `.env` file
+- Check `.env.example` for required environment variables and their descriptions
+- Copy `.env.example` to `.env` and fill in your actual values
+- Never hardcode passwords or API keys in source files or documentation
 
 ---
 

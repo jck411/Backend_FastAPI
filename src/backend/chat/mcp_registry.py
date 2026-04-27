@@ -138,17 +138,23 @@ def load_server_configs(
 
 def _load_mcp_port_range() -> range:
     """Load MCP port range from config file."""
-    config_path = Path(__file__).parents[3] / "data" / "mcp_ports.conf"
-    start, end = 9001, 9015
-    try:
-        for line in config_path.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("MCP_PORT_START="):
-                start = int(line.split("=", 1)[1])
-            elif line.startswith("MCP_PORT_END="):
-                end = int(line.split("=", 1)[1])
-    except (FileNotFoundError, ValueError):
-        pass
+    # Check runtime data dir first, then bundled defaults
+    config_paths = [
+        Path(__file__).parents[3] / "data" / "mcp_ports.conf",
+        Path(__file__).parent.parent / "data" / "mcp_ports.conf",
+    ]
+    start, end = 9001, 9017  # Default range includes all standard servers
+    for config_path in config_paths:
+        try:
+            for line in config_path.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("MCP_PORT_START="):
+                    start = int(line.split("=", 1)[1])
+                elif line.startswith("MCP_PORT_END="):
+                    end = int(line.split("=", 1)[1])
+            break  # Found a valid config file
+        except (FileNotFoundError, ValueError):
+            continue
     return range(start, end + 1)
 
 
